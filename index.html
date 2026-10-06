@@ -5114,6 +5114,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <button class="tab-btn" data-tab="rutas" onclick="setTab('rutas')">Rutas <span class="tab-count" id="tab-rutas-count">0</span></button>
         <button class="tab-btn tab-action" data-tab="visita-action" onclick="openVisitaModal()" title="Abrir formulario de visita a tienda">Visita</button>
         <button class="tab-btn tab-action" data-tab="contactado-action" onclick="openVisitaModal('contacto')" title="Registrar contacto no presencial (WhatsApp / tel&eacute;fono / email)">Contactado</button>
+        <!-- v1164 (2026-10-06): atajos rápidos. Mismo impacto que Visita/Contactado
+             pero solo piden cliente + mes (saltea form completo). Marcados con
+             quickMode:true en Firestore para que reports puedan distinguirlos. -->
+        <button class="tab-btn tab-action" data-tab="visita-rapida-action" onclick="openQuickVisitaModal('visita')" title="Carga rápida de visita: solo cliente + mes. Para registros masivos post-tour sin completar el formulario largo." style="background:#f59e0b;color:#fff">Visita R&aacute;pida</button>
+        <button class="tab-btn tab-action" data-tab="contactado-rapido-action" onclick="openQuickVisitaModal('contacto')" title="Carga rápida de contacto: solo cliente + mes. Para registros masivos." style="background:#14b8a6;color:#fff">Contactado R&aacute;pido</button>
         <button class="tab-btn" data-tab="altacli" onclick="setTab('altacli')" title="Alta de clientes (en construccion)">Alta clientes <span class="tab-count" id="tab-altacli-count" style="display:none">0</span></button>
         <button class="tab-btn" data-tab="rendiciones" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span class="tab-count" id="tab-rend-count" style="display:none">0</span></button>
         <button class="tab-btn" data-tab="planner" onclick="setTab('planner')" style="display:none;">&#128203; Planner</button>
@@ -6061,7 +6066,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1163';
+const APP_VERSION = 'v1164';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15197,6 +15202,190 @@ window._cpstConfirmar = async function(){
 // v1155 (2026-10-06): _cpstCancelLine removida — reemplazada por la logica
 // inline del batch en _cpstConfirmar. Historicamente (v1145-v1154) hacia
 // updates individuales no atomicos; ahora todo va en 1 batch Firestore.
+
+// =============================================================================
+// v1164 (2026-10-06): Visita / Contacto Rápido
+// Modal mínimo: cliente + mes. Rellena resto de campos con defaults ('QUICK')
+// + quickMode:true. Mismo doc shape que flow clásico (visits collection) para
+// que dashboard/exports lo cuenten. Reports pueden filtrar por quickMode.
+// =============================================================================
+var _qvmMode = 'visita';
+
+window.openQuickVisitaModal = function(mode){
+  _qvmMode = mode === 'contacto' ? 'contacto' : 'visita';
+  const head = document.getElementById('quick-visita-head');
+  const title = document.getElementById('quick-visita-title');
+  const subt = document.getElementById('quick-visita-subt');
+  const isContacto = _qvmMode === 'contacto';
+  if (head) head.style.background = isContacto ? 'linear-gradient(135deg,#0f766e,#14b8a6)' : 'linear-gradient(135deg,#f59e0b,#d97706)';
+  if (title) title.textContent = isContacto ? '⚡ Contacto Rápido' : '⚡ Visita Rápida';
+  if (subt) subt.textContent = isContacto
+    ? 'Carga mínima: cliente + mes. Marcado quickMode=true en reportes. Sin forma de contacto específica.'
+    : 'Carga mínima: cliente + mes. Marcada quickMode=true en reportes. Sin GPS ni fotos.';
+  // Populate clients datalist (mismo pattern que _populateRevisionClienteDatalist).
+  _qvmPopulateClientes();
+  // Populate meses + años.
+  const selMes = document.getElementById('qvm-mes');
+  const selAnio = document.getElementById('qvm-anio');
+  if (selMes) {
+    const MESES_ES = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+    while (selMes.firstChild) selMes.removeChild(selMes.firstChild);
+    const now = new Date();
+    const currentMes = now.getMonth();
+    MESES_ES.forEach((m, idx) => {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = m;
+      if (idx === currentMes) opt.selected = true;
+      selMes.appendChild(opt);
+    });
+  }
+  if (selAnio) {
+    while (selAnio.firstChild) selAnio.removeChild(selAnio.firstChild);
+    const nowY = new Date().getFullYear();
+    for (let y = nowY - 1; y <= nowY + 1; y++) {
+      const opt = document.createElement('option');
+      opt.value = String(y); opt.textContent = String(y);
+      if (y === nowY) opt.selected = true;
+      selAnio.appendChild(opt);
+    }
+  }
+  const cliInput = document.getElementById('qvm-cliente');
+  if (cliInput) cliInput.value = '';
+  const meta = document.getElementById('qvm-cliente-meta');
+  if (meta) meta.textContent = '';
+  document.getElementById('quick-visita-modal').classList.add('open');
+  setTimeout(() => { if (cliInput) cliInput.focus(); }, 50);
+};
+
+window.closeQuickVisitaModal = function(){
+  const el = document.getElementById('quick-visita-modal');
+  if (el) el.classList.remove('open');
+};
+
+function _qvmPopulateClientes(){
+  const list = document.getElementById('qvm-clientes-datalist');
+  if (!list) return;
+  while (list.firstChild) list.removeChild(list.firstChild);
+  const names = new Set();
+  if (typeof POINTS !== 'undefined' && POINTS) {
+    POINTS.forEach(p => (p.clients || []).forEach(n => {
+      if (!n) return;
+      if (typeof isSapConfirmed !== 'function' || !isSapConfirmed(p.province, p.name, n)) return;
+      names.add(n);
+    }));
+  }
+  const altas = (typeof approvedAltasList !== 'undefined') ? approvedAltasList : [];
+  altas.forEach(a => {
+    const nom = a.comercio || a.fantasia || '';
+    if (!nom) return;
+    const esClienteSap = !!a.cardCodeSap;
+    const esLead = !!a.manualSapPending && !a.cardCodeSap;
+    if (!esClienteSap && !esLead) return;
+    names.add(nom);
+  });
+  [...names].sort().slice(0, 3000).forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n;
+    list.appendChild(opt);
+  });
+}
+
+window.submitQuickVisita = async function(){
+  const cli = (document.getElementById('qvm-cliente') || {}).value || '';
+  const mes = (document.getElementById('qvm-mes') || {}).value || '';
+  const anio = parseInt((document.getElementById('qvm-anio') || {}).value || '0', 10);
+  const btn = document.getElementById('qvm-submit-btn');
+  if (!cli.trim() || !mes || !anio) {
+    alert('Faltan completar: ' + [!cli.trim() && 'Cliente', !mes && 'Mes', !anio && 'Año'].filter(Boolean).join(', '));
+    return;
+  }
+  const resolved = (typeof _revisionResolveCliente === 'function') ? _revisionResolveCliente(cli.trim()) : null;
+  if (!resolved) {
+    alert('No encontre a "' + cli + '" en el padron SAP ni en Altas aprobadas.\n\nElegí un cliente del listado (datalist).');
+    return;
+  }
+  const isContacto = _qvmMode === 'contacto';
+  const confirmMsg = '¿Guardar ' + (isContacto ? 'CONTACTO' : 'VISITA') + ' RÁPIDO para "' + resolved.nombre + '" (' + mes + ' ' + anio + ')?';
+  if (!confirm(confirmMsg)) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    const now = new Date();
+    const actingPartner = (typeof getActingVendorPartner === 'function') ? getActingVendorPartner() : null;
+    const ownerUid = actingPartner ? actingPartner.uid : currentUser.uid;
+    const ownerEmail = actingPartner ? actingPartner.email || '' : currentUser.email || '';
+    const vendorKey = actingPartner ? actingPartner.vendor || '' : ((typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '');
+    const data = {
+      ownerUid: ownerUid,
+      ownerEmail: ownerEmail,
+      vendor: vendorKey,
+      interactionType: isContacto ? 'contacto' : 'visita',
+      formaContacto: isContacto ? 'QUICK' : '',
+      createdByUid: currentUser.uid,
+      createdByEmail: currentUser.email || '',
+      createdByDisplayName: currentUser.displayName || currentUser.email || '',
+      onBehalfOf: !!actingPartner,
+      provincia: resolved.provincia || '',
+      localidad: resolved.localidad || '',
+      tienda: resolved.nombre,
+      // Defaults 'QUICK' para campos obligatorios del form clásico.
+      // Reports deberían filtrar por quickMode:true si quieren métricas limpias.
+      tipo: 'QUICK',
+      local: 'QUICK',
+      tamano: 'QUICK',
+      tamanos: ['QUICK'],
+      fidelidad: 'QUICK',
+      especializacion: 'QUICK',
+      especializaciones: ['QUICK'],
+      canalCompra: 'QUICK',
+      relevancia: 'QUICK',
+      pop: 'NO',
+      necesidadPuntual: '',
+      necesidades: [],
+      espacio: [],
+      oportunidad: '',
+      masVendido: '',
+      masPreguntan: '',
+      ayudaTienda: '',
+      frenteLocal: '',
+      tipoVenta: 'QUICK',
+      ponderacionMostrado: null,
+      ponderacionEcommerce: null,
+      competencia: '',
+      fecha: now.toISOString().slice(0, 10),
+      mes: mes,
+      anio: anio,
+      gpsStatus: 'skipped-quick',
+      gpsLat: null,
+      gpsLon: null,
+      gpsAccuracy: null,
+      gpsCapturedAt: null,
+      gpsDistanceM: null,
+      gpsRefLat: null,
+      gpsRefLon: null,
+      gpsRefSource: null,
+      gpsError: '',
+      // v1164: flag auditable para reports.
+      quickMode: true,
+      quickModeAt: now.toISOString(),
+      quickModeBy: currentUser.email || '',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    const ref = await fbDb.collection('visits').add(data);
+    try {
+      if (typeof logOp === 'function') logOp('visit_quick_create', 'visits/' + ref.id, resolved.nombre, {
+        cliente: resolved.nombre, mes, anio, mode: _qvmMode,
+      });
+    } catch (_e) {}
+    if (typeof showSyncTag === 'function') showSyncTag((isContacto ? 'Contacto' : 'Visita') + ' rápida registrada');
+    alert('✅ ' + (isContacto ? 'Contacto' : 'Visita') + ' rápido guardado:\n\n' + resolved.nombre + '\n' + mes + ' ' + anio);
+    closeQuickVisitaModal();
+  } catch (e) {
+    console.error('submitQuickVisita', e);
+    alert('Error guardando: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+  }
+};
 
 // =============================================================================
 // v1146 (2026-10-06): Generar Backorder manual
@@ -31233,6 +31422,48 @@ if ('serviceWorker' in navigator) {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
   </button>
 </nav>
+
+<!-- v1164 (2026-10-06): Modal "Visita/Contacto Rápido". Solo pide cliente + mes.
+     Rellena el resto de los campos con defaults razonables + quickMode:true para
+     que reports puedan filtrar/distinguir. Mismo doc shape que el flow clásico
+     (visits collection) → dashboard/exports lo cuentan igual. -->
+<div class="modal-overlay" id="quick-visita-modal" onclick="if(event.target===this)closeQuickVisitaModal()">
+  <div class="modal-box" style="width:min(560px,96vw);max-height:92vh;display:flex;flex-direction:column">
+    <div class="modal-head" id="quick-visita-head" style="background:linear-gradient(135deg,#f59e0b,#d97706)">
+      <div>
+        <h2 id="quick-visita-title">⚡ Visita Rápida</h2>
+        <div class="subt" id="quick-visita-subt">Carga mínima: cliente + mes. Marcada quickMode=true en reportes.</div>
+      </div>
+      <button class="modal-close" onclick="closeQuickVisitaModal()">&times;</button>
+    </div>
+    <div style="padding:18px;display:flex;flex-direction:column;gap:14px;overflow:auto">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="font-size:12px;font-weight:700;color:#334155">Cliente / Tienda</label>
+        <input id="qvm-cliente" class="bo-ctl" list="qvm-clientes-datalist" placeholder="Escribí el nombre del cliente..." autocomplete="off" style="padding:10px 12px;font-size:14px;width:100%;box-sizing:border-box"/>
+        <datalist id="qvm-clientes-datalist"></datalist>
+        <div id="qvm-cliente-meta" style="font-size:11px;color:#64748b;min-height:16px"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px;display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:12px;font-weight:700;color:#334155">Mes</label>
+          <select id="qvm-mes" class="bo-ctl" style="padding:10px 12px;font-size:14px"></select>
+        </div>
+        <div style="flex:1;min-width:100px;display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:12px;font-weight:700;color:#334155">Año</label>
+          <select id="qvm-anio" class="bo-ctl" style="padding:10px 12px;font-size:14px"></select>
+        </div>
+      </div>
+      <div id="qvm-info" style="padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;color:#1e3a8a;line-height:1.5">
+        Esto registra la visita/contacto como "quick mode". Los campos obligatorios del form clásico (tipo cliente, relevancia, etc.) se guardan con default <code>QUICK</code>. Si después querés completar el detalle, abrí el form clásico y editá.
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="bo-btn" onclick="closeQuickVisitaModal()" style="padding:10px 16px">Cancelar</button>
+        <button id="qvm-submit-btn" class="bo-btn" onclick="submitQuickVisita()" style="padding:10px 16px;background:#1e40af;color:#fff;border-color:#1e3a8a">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="cargar-sheet" onclick="if(event.target===this)closeCargarSheet()">
   <div class="cs-box">
     <div class="cs-head">
@@ -31249,6 +31480,17 @@ if ('serviceWorker' in navigator) {
         <span class="cs-cta-icon"></span>
         <span class="cs-cta-label">Contacto No Presencial</span>
         <span class="cs-cta-sub">WhatsApp / teléfono / email</span>
+      </button>
+      <!-- v1164 (2026-10-06): atajos rápidos. Solo cliente + mes. -->
+      <button class="cs-cta" data-cargar-action="visita-rapida" onclick="closeCargarSheet();openQuickVisitaModal('visita')" style="background:#fef3c7;border-color:#f59e0b">
+        <span class="cs-cta-icon">⚡</span>
+        <span class="cs-cta-label">Visita Rápida</span>
+        <span class="cs-cta-sub">Solo cliente + mes (sin form completo)</span>
+      </button>
+      <button class="cs-cta" data-cargar-action="contacto-rapido" onclick="closeCargarSheet();openQuickVisitaModal('contacto')" style="background:#ccfbf1;border-color:#14b8a6">
+        <span class="cs-cta-icon">⚡</span>
+        <span class="cs-cta-label">Contacto Rápido</span>
+        <span class="cs-cta-sub">Solo cliente + mes (sin form completo)</span>
       </button>
     </div>
   </div>
