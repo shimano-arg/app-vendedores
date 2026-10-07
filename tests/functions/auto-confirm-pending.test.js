@@ -366,8 +366,10 @@ describe('autoConfirmPendingPedidos', () => {
     expect(r.skippedForStock).toEqual([]);
   });
 
-  it('STOCK: pedido con confirmed line y stock insuficiente -> SKIP + log skipped_stock_evaporated', async () => {
-    // Pedido quiere 10, snapshot muestra solo 5 whs 11 -> skip.
+  it('STOCK: pedido con confirmed line y stock insuficiente -> AUTO-SPLIT (v1170)', async () => {
+    // Pedido quiere 10, snapshot muestra solo 5 whs 11.
+    // v1170 (2026-10-07): antes skippeaba; ahora auto-splittea (5 confirmed + 5 BO)
+    // y confirma el pedido igual. Pedido Mariano.
     const fbDb = makeFbDbStub({
       pedidos: [
         pedidoDoc({
@@ -375,7 +377,7 @@ describe('autoConfirmPendingPedidos', () => {
           data: {
             clientCardCode: 'C001',
             confirmedAt: isoMinutesAgo(20),
-            lines: [{ code: 'SKU-Y', qty: 10, qtyOpen: 10, state: 'confirmed' }],
+            lines: [{ code: 'SKU-Y', qty: 10, qtyOpen: 10, state: 'confirmed', precio: 100 }],
           },
         }),
       ],
@@ -384,22 +386,29 @@ describe('autoConfirmPendingPedidos', () => {
       },
     });
     const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
-    expect(r.processed).toBe(0);
-    // El pedido sigue en pending.
-    const notPromoted = fbDb._store.pedidos.find((p) => p.id === 'short_stock');
-    expect(notPromoted.data.stage).toBe('pending');
-    // La estructura skippedForStock debe tener el pedido con detalle.
-    expect(r.skippedForStock).toHaveLength(1);
-    expect(r.skippedForStock[0]).toMatchObject({
-      id: 'short_stock',
-      shortfalls: [{ sku: 'SKU-Y', wanted: 10, available: 5 }],
-    });
+    expect(r.processed).toBe(1);
+    // El pedido quedó confirmed con lines splitteadas.
+    const promoted = fbDb._store.pedidos.find((p) => p.id === 'short_stock');
+    expect(promoted.data.stage).toBe('confirmed');
+    expect(promoted.data.autoSplitByStock).toBeTruthy();
+    expect(promoted.data.autoSplitByStock.degradedCount).toBe(1);
+    expect(promoted.data.autoSplitByStock.lostArs).toBe(500); // 5u * $100 = $500
+    // Las lines deben ser: 1 confirmed(5) + 1 BO(5)
+    const confirmed = promoted.data.lines.filter((l) => l.state === 'confirmed');
+    const bo = promoted.data.lines.filter((l) => l.state === 'BO');
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0].qty).toBe(5);
+    expect(bo).toHaveLength(1);
+    expect(bo[0].qty).toBe(5);
+    expect(bo[0].autoSplitFromConfirmed).toBe(true);
+    // Y el array autoSplitProcessed del return debe tener info.
+    expect(r.autoSplitProcessed).toHaveLength(1);
+    expect(r.autoSplitProcessed[0]).toMatchObject({ id: 'short_stock', lostArs: 500 });
   });
 
-  it('STOCK: stock whs 11 consumido por reservas de OTRO pedido confirmed -> SKIP', async () => {
-    // 10 fisicos pero otro pedido ya tiene reservado 7 (confirmed, no cerrado,
-    // transferidoSAP seteado para que lineReservesStock lo cuente). El pedido
-    // nuevo quiere 5 -> disponible neto = 10 - 7 = 3 < 5 -> skip.
+  it('STOCK: stock whs 11 consumido por reservas de OTRO pedido confirmed -> AUTO-SPLIT (v1170)', async () => {
+    // 10 fisicos, otro pedido reserva 7 (confirmed abierto). Nuevo quiere 5 ->
+    // disponible neto = 10 - 7 = 3 < 5. v1170: auto-split 3 confirmed + 2 BO.
     const fbDb = makeFbDbStub({
       pedidos: [
         pedidoDoc({
@@ -407,10 +416,9 @@ describe('autoConfirmPendingPedidos', () => {
           data: {
             clientCardCode: 'C001',
             confirmedAt: isoMinutesAgo(15),
-            lines: [{ code: 'SKU-Z', qty: 5, qtyOpen: 5, state: 'confirmed' }],
+            lines: [{ code: 'SKU-Z', qty: 5, qtyOpen: 5, state: 'confirmed', precio: 1000 }],
           },
         }),
-        // Otro pedido abierto que ya reserva 7u del mismo SKU.
         {
           id: 'otro',
           data: {
@@ -427,13 +435,20 @@ describe('autoConfirmPendingPedidos', () => {
       },
     });
     const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
-    expect(r.processed).toBe(0);
-    expect(r.skippedForStock).toHaveLength(1);
-    expect(r.skippedForStock[0].shortfalls[0]).toMatchObject({
+    expect(r.processed).toBe(1);
+    expect(r.autoSplitProcessed).toHaveLength(1);
+    expect(r.autoSplitProcessed[0].shortfalls[0]).toMatchObject({
       sku: 'SKU-Z',
       wanted: 5,
       available: 3,
     });
+    const promoted = fbDb._store.pedidos.find((p) => p.id === 'nuevo');
+    expect(promoted.data.stage).toBe('confirmed');
+    const confirmed = promoted.data.lines.filter((l) => l.state === 'confirmed');
+    const bo = promoted.data.lines.filter((l) => l.state === 'BO');
+    expect(confirmed[0].qty).toBe(3);
+    expect(bo[0].qty).toBe(2);
+    expect(promoted.data.autoSplitByStock.lostArs).toBe(2000); // 2u * $1000
   });
 
   it('CONCURRENCIA: dos llamadas Promise.all con mismo pedido elegible -> solo UNO promueve stage', async () => {
