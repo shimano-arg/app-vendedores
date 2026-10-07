@@ -1107,242 +1107,269 @@ function readField(id) {
 }
 
 window.submitVisita = async function () {
-  // Validar
-  const errors = [];
-  if (!readField('vf-localidad')) errors.push('Localidad');
-  if (!readField('vf-tienda')) errors.push('Tienda de pesca');
-  if (!readField('vf-tipo')) errors.push('Tipo');
-  // v313+: en modo contacto, forma de contacto es obligatoria.
-  if (window.visitMode === 'contacto' && !readField('vf-formaContacto'))
-    errors.push('Forma de contacto');
-  if (!readField('vf-local')) errors.push('Local');
-  // v498: Tipo de cliente ahora es multi (visitState.tamanos array).
-  if (!(visitState.tamanos && visitState.tamanos.length)) errors.push('Tipo de cliente');
-  // v339+: Fidelidad + POP + Tipo de venta ocultos en modo contacto (no aplican).
-  const _isContacto = window.visitMode === 'contacto';
-  if (!_isContacto && !readField('vf-fidelidad')) errors.push('Fidelidad');
-  // v498: Especializacion ahora es multi (visitState.especializaciones array).
-  if (!_isContacto && !(visitState.especializaciones && visitState.especializaciones.length))
-    errors.push('Especializacion por tipo de pesca');
-  if (!readField('vf-canalcompra')) errors.push('Canal de compra');
-  if (!visitState.relevancia) errors.push('Relevancia');
-  if (!_isContacto && !visitState.pop) errors.push('POP');
-  // v498: Necesidad puntual ahora es multi (visitState.necesidades array).
-  if (
-    !_isContacto &&
-    visitState.pop === 'SI' &&
-    !(visitState.necesidades && visitState.necesidades.length)
-  )
-    errors.push('Necesidad puntual');
-  // Frente del local: OPCIONAL (antes era obligatorio para vendedor externo;
-  // ahora se puede saltar siempre - el vendedor decide si toma la foto).
-  const tv = readField('vf-tipoventa');
-  if (!_isContacto && !tv) errors.push('Tipo de venta');
-  if (!_isContacto && tv === 'AMBOS') {
-    const m = parseFloat(readField('vf-pond-mostrado')) || 0;
-    const e = parseFloat(readField('vf-pond-ecommerce')) || 0;
-    if (m + e !== 100) errors.push('Ponderacion (debe sumar 100%)');
-  }
-  if (errors.length) {
-    alert('Faltan completar:\n\n- ' + errors.join('\n- '));
+  // v1172 (audit 2026-10-07, UX C2): lock in-flight para prevenir doble envio.
+  // Antes: VDE toca "Enviar", GPS tarda 3s, toca de nuevo → 2 docs duplicados
+  // en visits/ (audit log inflado). Idempotency simple con flag global.
+  if (window._submitVisitaInFlight) {
+    console.warn('[submitVisita] ya hay un envio en curso, skip');
     return;
   }
-
-  const tienda = readField('vf-tienda');
-  const now = new Date();
-  const mes = MESES[now.getMonth()].toUpperCase();
-  const anio = now.getFullYear();
-  // v304+: mensaje de confirmacion cambia segun modo
-  const isContacto = window.visitMode === 'contacto';
-  const labelAccion = isContacto ? 'REGISTRAR EL CONTACTO' : 'ENVIAR EL FORMULARIO';
-  if (
-    !confirm(
-      '¿SEGURO QUIERE ' +
-        labelAccion +
-        ' DE "' +
-        tienda +
-        '" DEL MES "' +
-        mes +
-        '" DE "' +
-        anio +
-        '"?'
-    )
-  )
-    return;
-
-  const [prov, locName] = readField('vf-localidad').split('||');
-
-  // Capturar GPS para validar visita. Mostramos un overlay simple mientras espera.
-  showSyncTag('Obteniendo ubicación GPS...');
-  const gps = await captureGpsForVisit(prov, locName, tienda);
-  // Si esta lejos, pedir confirmacion extra (no bloquea, solo informa)
-  if (gps.gpsStatus === 'far') {
-    const km = (gps.gpsDistanceM / 1000).toFixed(1);
-    if (
-      !confirm(
-        'AVISO: Tu ubicacion GPS esta a ' +
-          km +
-          ' km de la tienda registrada. ¿Continuar guardando la visita igual?'
-      )
-    ) {
-      showSyncTag('Cancelado');
-      return;
+  const _submitBtn = document.querySelector('button[onclick*="submitVisita"]');
+  const _btnOrigText = _submitBtn ? _submitBtn.textContent : '';
+  const _releaseLock = () => {
+    window._submitVisitaInFlight = false;
+    if (_submitBtn) {
+      _submitBtn.disabled = false;
+      if (_btnOrigText) _submitBtn.textContent = _btnOrigText;
     }
-  } else if (gps.gpsStatus === 'denied') {
-    if (
-      !confirm(
-        'No diste permiso de ubicacion. La visita se va a guardar SIN verificacion GPS. ¿Continuar?'
-      )
-    ) {
-      showSyncTag('Cancelado');
-      return;
-    }
-  }
-
-  // Determinar el "dueno" de la visita. Si soy VDI actuando en nombre de un VDE,
-  // ownerUid es el del VDE; queda auditoria de quien la cargo (createdBy...).
-  const actingPartner = getActingVendorPartner();
-  const ownerUid = actingPartner ? actingPartner.uid : currentUser.uid;
-  const ownerEmail = actingPartner ? actingPartner.email || '' : currentUser.email || '';
-  const vendorKey = actingPartner ? actingPartner.vendor || '' : assignedVendor || '';
-
-  const data = {
-    ownerUid: ownerUid,
-    ownerEmail: ownerEmail,
-    vendor: vendorKey,
-    // v304+: interactionType distingue entre visita presencial y contacto
-    // no presencial (WhatsApp/Tel/Email). Default 'visita' para retro-compat
-    // con docs previos que no tienen el campo. Naming: interactionType (no
-    // "tipo") porque 'tipo' ya se usa para tipo de tienda (OUTDOOR/PESCA/etc).
-    interactionType: isContacto ? 'contacto' : 'visita',
-    // v313+: formaContacto solo tiene sentido en modo contacto. Valores:
-    // LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS. En modo
-    // visita queda '' (no aplica).
-    formaContacto: isContacto ? readField('vf-formaContacto') : '',
-    // Auditoria: si fue cargada por un VDI en nombre de un VDE pareja.
-    createdByUid: currentUser.uid,
-    createdByEmail: currentUser.email || '',
-    createdByDisplayName: currentUser.displayName || currentUser.email || '',
-    onBehalfOf: !!actingPartner,
-    provincia: prov,
-    localidad: locName,
-    tienda: tienda,
-    tipo: readField('vf-tipo'),
-    local: readField('vf-local'),
-    // v498: campos multi. Legacy `tamano/especializacion/necesidadPuntual`
-    // se persisten como comma-join para compat con lectores viejos; nuevo
-    // campo array `tamanos/especializaciones/necesidades` para consumidores
-    // que quieran filtrar por categoria individual.
-    tamano: (visitState.tamanos || []).join(', '),
-    tamanos: [...(visitState.tamanos || [])],
-    fidelidad: readField('vf-fidelidad'),
-    especializacion: (visitState.especializaciones || []).join(', '),
-    especializaciones: [...(visitState.especializaciones || [])],
-    canalCompra: readField('vf-canalcompra'),
-    relevancia: visitState.relevancia,
-    pop: visitState.pop,
-    necesidadPuntual: visitState.pop === 'SI' ? (visitState.necesidades || []).join(', ') : '',
-    necesidades: visitState.pop === 'SI' ? [...(visitState.necesidades || [])] : [],
-    espacio: visitState.espacioPhotos,
-    oportunidad: readField('vf-oportunidad'),
-    masVendido: readField('vf-masvendido'),
-    masPreguntan: readField('vf-maspreguntan'),
-    ayudaTienda: readField('vf-ayuda'),
-    frenteLocal: visitState.frentePhoto,
-    tipoVenta: tv,
-    ponderacionMostrado: tv === 'AMBOS' ? parseFloat(readField('vf-pond-mostrado')) || 0 : null,
-    ponderacionEcommerce: tv === 'AMBOS' ? parseFloat(readField('vf-pond-ecommerce')) || 0 : null,
-    competencia: readField('vf-competencia'),
-    fecha: now.toISOString().slice(0, 10),
-    mes: mes,
-    anio: anio,
-    gpsStatus: gps.gpsStatus,
-    gpsLat: gps.gpsLat,
-    gpsLon: gps.gpsLon,
-    gpsAccuracy: gps.gpsAccuracy,
-    gpsCapturedAt: gps.gpsCapturedAt,
-    gpsDistanceM: gps.gpsDistanceM,
-    gpsRefLat: gps.gpsRefLat,
-    gpsRefLon: gps.gpsRefLon,
-    gpsRefSource: gps.gpsRefSource,
-    gpsError: gps.gpsError,
-    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
-  // v304+: si es contacto, forzar arrays vacios para fotos (ni siquiera se
-  // muestran los inputs, pero por si el visitState quedaba con photos de una
-  // visita anterior sin cerrar el modal, limpiamos para no persistir basura).
-  if (isContacto) {
-    data.espacio = [];
-    data.frenteLocal = '';
+  window._submitVisitaInFlight = true;
+  if (_submitBtn) {
+    _submitBtn.disabled = true;
+    _submitBtn.textContent = 'Guardando...';
   }
-  // v388 (2026-08-04): guard pre-submit para no exceder el limite de 1 MB por
-  // doc que impone Firestore. Estimacion: JSON.stringify de todo el doc. Si
-  // supera 950 KB (margen 100 KB para el overhead JSON + metadata Firestore),
-  // avisamos al vendedor que borre alguna foto en vez de fallar con un error
-  // opaco. Bug reportado por Federico 2026-08-04 con 8 fotos + 1 frente.
   try {
-    const _docSizeBytes = new Blob([JSON.stringify(data)]).size;
-    if (_docSizeBytes > 950 * 1024) {
-      const _mbActual = (_docSizeBytes / 1024 / 1024).toFixed(2);
-      alert(
-        'La visita pesa ' +
-          _mbActual +
-          ' MB pero el maximo permitido por Firestore es 1 MB.\n\n' +
-          'Borra alguna foto de ESPACIO o del FRENTE (usa la X roja) y reintenta guardar.\n\n' +
-          'Tip: las fotos actualmente se comprimen automaticamente pero si tenes muchas + frente puede exceder.'
-      );
-      showSyncTag('Visita NO guardada: peso excede 1 MB');
+    // Validar
+    const errors = [];
+    if (!readField('vf-localidad')) errors.push('Localidad');
+    if (!readField('vf-tienda')) errors.push('Tienda de pesca');
+    if (!readField('vf-tipo')) errors.push('Tipo');
+    // v313+: en modo contacto, forma de contacto es obligatoria.
+    if (window.visitMode === 'contacto' && !readField('vf-formaContacto'))
+      errors.push('Forma de contacto');
+    if (!readField('vf-local')) errors.push('Local');
+    // v498: Tipo de cliente ahora es multi (visitState.tamanos array).
+    if (!(visitState.tamanos && visitState.tamanos.length)) errors.push('Tipo de cliente');
+    // v339+: Fidelidad + POP + Tipo de venta ocultos en modo contacto (no aplican).
+    const _isContacto = window.visitMode === 'contacto';
+    if (!_isContacto && !readField('vf-fidelidad')) errors.push('Fidelidad');
+    // v498: Especializacion ahora es multi (visitState.especializaciones array).
+    if (!_isContacto && !(visitState.especializaciones && visitState.especializaciones.length))
+      errors.push('Especializacion por tipo de pesca');
+    if (!readField('vf-canalcompra')) errors.push('Canal de compra');
+    if (!visitState.relevancia) errors.push('Relevancia');
+    if (!_isContacto && !visitState.pop) errors.push('POP');
+    // v498: Necesidad puntual ahora es multi (visitState.necesidades array).
+    if (
+      !_isContacto &&
+      visitState.pop === 'SI' &&
+      !(visitState.necesidades && visitState.necesidades.length)
+    )
+      errors.push('Necesidad puntual');
+    // Frente del local: OPCIONAL (antes era obligatorio para vendedor externo;
+    // ahora se puede saltar siempre - el vendedor decide si toma la foto).
+    const tv = readField('vf-tipoventa');
+    if (!_isContacto && !tv) errors.push('Tipo de venta');
+    if (!_isContacto && tv === 'AMBOS') {
+      const m = parseFloat(readField('vf-pond-mostrado')) || 0;
+      const e = parseFloat(readField('vf-pond-ecommerce')) || 0;
+      if (m + e !== 100) errors.push('Ponderacion (debe sumar 100%)');
+    }
+    if (errors.length) {
+      alert('Faltan completar:\n\n- ' + errors.join('\n- '));
       return;
     }
-  } catch (e) {
-    console.warn('[submitVisita] no pude estimar peso', e);
-  }
-  try {
-    await fbDb.collection('visits').add(data);
-    showSyncTag(isContacto ? 'Contacto registrado' : 'Visita registrada');
-    // Si fue creada en nombre de un VDE, notificar al VDE para que este al tanto.
-    if (actingPartner) {
-      try {
-        const me = currentUser.displayName || currentUser.email || 'Tu pareja VDI';
-        await fbDb.collection('notifications').add({
-          type: 'partner_action',
-          subtype: 'visit_created',
-          targetUid: actingPartner.uid,
-          fromUid: currentUser.uid,
-          fromEmail: currentUser.email || '',
-          fromDisplayName: me,
-          title: me + ' cargo una visita en tu nombre',
-          body: 'Tienda: ' + tienda + ' (' + locName + ', ' + titleCase(prov) + ').',
-          tienda: tienda,
-          provincia: prov,
-          localidad: locName,
-          status: 'unread',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        });
-      } catch (e) {
-        console.warn('notif al VDE pareja', e);
+
+    const tienda = readField('vf-tienda');
+    const now = new Date();
+    const mes = MESES[now.getMonth()].toUpperCase();
+    const anio = now.getFullYear();
+    // v304+: mensaje de confirmacion cambia segun modo
+    const isContacto = window.visitMode === 'contacto';
+    const labelAccion = isContacto ? 'REGISTRAR EL CONTACTO' : 'ENVIAR EL FORMULARIO';
+    if (
+      !confirm(
+        '¿SEGURO QUIERE ' +
+          labelAccion +
+          ' DE "' +
+          tienda +
+          '" DEL MES "' +
+          mes +
+          '" DE "' +
+          anio +
+          '"?'
+      )
+    )
+      return;
+
+    const [prov, locName] = readField('vf-localidad').split('||');
+
+    // Capturar GPS para validar visita. Mostramos un overlay simple mientras espera.
+    showSyncTag('Obteniendo ubicación GPS...');
+    const gps = await captureGpsForVisit(prov, locName, tienda);
+    // Si esta lejos, pedir confirmacion extra (no bloquea, solo informa)
+    if (gps.gpsStatus === 'far') {
+      const km = (gps.gpsDistanceM / 1000).toFixed(1);
+      if (
+        !confirm(
+          'AVISO: Tu ubicacion GPS esta a ' +
+            km +
+            ' km de la tienda registrada. ¿Continuar guardando la visita igual?'
+        )
+      ) {
+        showSyncTag('Cancelado');
+        return;
+      }
+    } else if (gps.gpsStatus === 'denied') {
+      if (
+        !confirm(
+          'No diste permiso de ubicacion. La visita se va a guardar SIN verificacion GPS. ¿Continuar?'
+        )
+      ) {
+        showSyncTag('Cancelado');
+        return;
       }
     }
-    // Si llegamos aca via 'Contactar' desde una notif, marcamos la notif como leida.
-    // v362: window.* porque la var se declara en notificaciones.js (otro modulo
-    // del bundle) — cross-module scope requiere window (ver notificaciones.js:1211).
-    if (window.pendingNotifIdToMarkRead) {
-      try {
-        await fbDb.collection('notifications').doc(window.pendingNotifIdToMarkRead).update({
-          status: 'read',
-          readAt: firebase.firestore.FieldValue.serverTimestamp(),
-        });
-      } catch (e) {
-        console.warn('mark notif read after visit', e);
-      }
-      window.pendingNotifIdToMarkRead = null;
+
+    // Determinar el "dueno" de la visita. Si soy VDI actuando en nombre de un VDE,
+    // ownerUid es el del VDE; queda auditoria de quien la cargo (createdBy...).
+    const actingPartner = getActingVendorPartner();
+    const ownerUid = actingPartner ? actingPartner.uid : currentUser.uid;
+    const ownerEmail = actingPartner ? actingPartner.email || '' : currentUser.email || '';
+    const vendorKey = actingPartner ? actingPartner.vendor || '' : assignedVendor || '';
+
+    const data = {
+      ownerUid: ownerUid,
+      ownerEmail: ownerEmail,
+      vendor: vendorKey,
+      // v304+: interactionType distingue entre visita presencial y contacto
+      // no presencial (WhatsApp/Tel/Email). Default 'visita' para retro-compat
+      // con docs previos que no tienen el campo. Naming: interactionType (no
+      // "tipo") porque 'tipo' ya se usa para tipo de tienda (OUTDOOR/PESCA/etc).
+      interactionType: isContacto ? 'contacto' : 'visita',
+      // v313+: formaContacto solo tiene sentido en modo contacto. Valores:
+      // LLAMADA TELEFONICA / MENSAJE DE WHATSAPP / MENSAJE SMS. En modo
+      // visita queda '' (no aplica).
+      formaContacto: isContacto ? readField('vf-formaContacto') : '',
+      // Auditoria: si fue cargada por un VDI en nombre de un VDE pareja.
+      createdByUid: currentUser.uid,
+      createdByEmail: currentUser.email || '',
+      createdByDisplayName: currentUser.displayName || currentUser.email || '',
+      onBehalfOf: !!actingPartner,
+      provincia: prov,
+      localidad: locName,
+      tienda: tienda,
+      tipo: readField('vf-tipo'),
+      local: readField('vf-local'),
+      // v498: campos multi. Legacy `tamano/especializacion/necesidadPuntual`
+      // se persisten como comma-join para compat con lectores viejos; nuevo
+      // campo array `tamanos/especializaciones/necesidades` para consumidores
+      // que quieran filtrar por categoria individual.
+      tamano: (visitState.tamanos || []).join(', '),
+      tamanos: [...(visitState.tamanos || [])],
+      fidelidad: readField('vf-fidelidad'),
+      especializacion: (visitState.especializaciones || []).join(', '),
+      especializaciones: [...(visitState.especializaciones || [])],
+      canalCompra: readField('vf-canalcompra'),
+      relevancia: visitState.relevancia,
+      pop: visitState.pop,
+      necesidadPuntual: visitState.pop === 'SI' ? (visitState.necesidades || []).join(', ') : '',
+      necesidades: visitState.pop === 'SI' ? [...(visitState.necesidades || [])] : [],
+      espacio: visitState.espacioPhotos,
+      oportunidad: readField('vf-oportunidad'),
+      masVendido: readField('vf-masvendido'),
+      masPreguntan: readField('vf-maspreguntan'),
+      ayudaTienda: readField('vf-ayuda'),
+      frenteLocal: visitState.frentePhoto,
+      tipoVenta: tv,
+      ponderacionMostrado: tv === 'AMBOS' ? parseFloat(readField('vf-pond-mostrado')) || 0 : null,
+      ponderacionEcommerce: tv === 'AMBOS' ? parseFloat(readField('vf-pond-ecommerce')) || 0 : null,
+      competencia: readField('vf-competencia'),
+      fecha: now.toISOString().slice(0, 10),
+      mes: mes,
+      anio: anio,
+      gpsStatus: gps.gpsStatus,
+      gpsLat: gps.gpsLat,
+      gpsLon: gps.gpsLon,
+      gpsAccuracy: gps.gpsAccuracy,
+      gpsCapturedAt: gps.gpsCapturedAt,
+      gpsDistanceM: gps.gpsDistanceM,
+      gpsRefLat: gps.gpsRefLat,
+      gpsRefLon: gps.gpsRefLon,
+      gpsRefSource: gps.gpsRefSource,
+      gpsError: gps.gpsError,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    // v304+: si es contacto, forzar arrays vacios para fotos (ni siquiera se
+    // muestran los inputs, pero por si el visitState quedaba con photos de una
+    // visita anterior sin cerrar el modal, limpiamos para no persistir basura).
+    if (isContacto) {
+      data.espacio = [];
+      data.frenteLocal = '';
     }
-    alert('Formulario enviado correctamente.');
-    resetVisitaForm();
-    setVisitaView('list');
-  } catch (e) {
-    console.error('submitVisita', e);
-    alert('Error guardando: ' + (e.message || e));
+    // v388 (2026-08-04): guard pre-submit para no exceder el limite de 1 MB por
+    // doc que impone Firestore. Estimacion: JSON.stringify de todo el doc. Si
+    // supera 950 KB (margen 100 KB para el overhead JSON + metadata Firestore),
+    // avisamos al vendedor que borre alguna foto en vez de fallar con un error
+    // opaco. Bug reportado por Federico 2026-08-04 con 8 fotos + 1 frente.
+    try {
+      const _docSizeBytes = new Blob([JSON.stringify(data)]).size;
+      if (_docSizeBytes > 950 * 1024) {
+        const _mbActual = (_docSizeBytes / 1024 / 1024).toFixed(2);
+        alert(
+          'La visita pesa ' +
+            _mbActual +
+            ' MB pero el maximo permitido por Firestore es 1 MB.\n\n' +
+            'Borra alguna foto de ESPACIO o del FRENTE (usa la X roja) y reintenta guardar.\n\n' +
+            'Tip: las fotos actualmente se comprimen automaticamente pero si tenes muchas + frente puede exceder.'
+        );
+        showSyncTag('Visita NO guardada: peso excede 1 MB');
+        return;
+      }
+    } catch (e) {
+      console.warn('[submitVisita] no pude estimar peso', e);
+    }
+    try {
+      await fbDb.collection('visits').add(data);
+      showSyncTag(isContacto ? 'Contacto registrado' : 'Visita registrada');
+      // Si fue creada en nombre de un VDE, notificar al VDE para que este al tanto.
+      if (actingPartner) {
+        try {
+          const me = currentUser.displayName || currentUser.email || 'Tu pareja VDI';
+          await fbDb.collection('notifications').add({
+            type: 'partner_action',
+            subtype: 'visit_created',
+            targetUid: actingPartner.uid,
+            fromUid: currentUser.uid,
+            fromEmail: currentUser.email || '',
+            fromDisplayName: me,
+            title: me + ' cargo una visita en tu nombre',
+            body: 'Tienda: ' + tienda + ' (' + locName + ', ' + titleCase(prov) + ').',
+            tienda: tienda,
+            provincia: prov,
+            localidad: locName,
+            status: 'unread',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (e) {
+          console.warn('notif al VDE pareja', e);
+        }
+      }
+      // Si llegamos aca via 'Contactar' desde una notif, marcamos la notif como leida.
+      // v362: window.* porque la var se declara en notificaciones.js (otro modulo
+      // del bundle) — cross-module scope requiere window (ver notificaciones.js:1211).
+      if (window.pendingNotifIdToMarkRead) {
+        try {
+          await fbDb.collection('notifications').doc(window.pendingNotifIdToMarkRead).update({
+            status: 'read',
+            readAt: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (e) {
+          console.warn('mark notif read after visit', e);
+        }
+        window.pendingNotifIdToMarkRead = null;
+      }
+      alert('Formulario enviado correctamente.');
+      resetVisitaForm();
+      setVisitaView('list');
+    } catch (e) {
+      console.error('submitVisita', e);
+      alert('Error guardando: ' + (e.message || e));
+    }
+  } finally {
+    // v1172 UX C2: liberar lock in-flight siempre (success, cancelacion por
+    // confirm(), validation error, error de write, GPS denied, etc.).
+    _releaseLock();
   }
 };
 

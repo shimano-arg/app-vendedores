@@ -130,23 +130,35 @@ export async function verifySqCanBeCancelled(deps, docNum) {
     return { canCancel: false, reason: 'slFetch no inyectado (shadow mode)' };
   }
   try {
-    // GET la SQ con expand de DocumentLines para chequear TargetDocEntry (Delivery link)
-    const res = await deps.slFetch(
-      `/b1s/v1/Quotations?$filter=DocNum eq ${docNum}&$select=DocEntry,DocNum,DocumentStatus,Cancelled,DocumentLines&$expand=DocumentLines($select=TargetType,TargetEntry,TargetLineNum)`
+    // v1172 (audit 2026-10-07, Backend H2): SAP SL server-side NO soporta
+    // $expand sobre collections (CLAUDE.md §24). El patron anterior fallaba
+    // con 400 "Cannot expand invalid navigation property" → el catch
+    // devolvia canCancel=false reason="error" permanentemente → modo 'active'
+    // dejaba de cancelar SQs. Fix: GET header primero + GET inline de la
+    // entity single via /Quotations({docEntry}) donde SI anda el expand.
+    const headerRes = await deps.slFetch(
+      `/b1s/v1/Quotations?$filter=DocNum eq ${docNum}&$select=DocEntry,DocNum,DocumentStatus,Cancelled`
     );
-    if (!res || !Array.isArray(res.value) || res.value.length === 0) {
+    if (!headerRes || !Array.isArray(headerRes.value) || headerRes.value.length === 0) {
       return { canCancel: false, reason: 'SQ no encontrada en SAP' };
     }
-    const sq = res.value[0];
-    if (sq.Cancelled === 'tYES' || sq.DocumentStatus === 'bost_Close') {
+    const header = headerRes.value[0];
+    if (header.Cancelled === 'tYES' || header.DocumentStatus === 'bost_Close') {
       return { canCancel: false, reason: 'SQ ya cerrada/cancelada en SAP' };
     }
-    if (sq.DocumentStatus !== 'bost_Open') {
-      return { canCancel: false, reason: `DocumentStatus ${sq.DocumentStatus} no es bost_Open` };
+    if (header.DocumentStatus !== 'bost_Open') {
+      return {
+        canCancel: false,
+        reason: `DocumentStatus ${header.DocumentStatus} no es bost_Open`,
+      };
     }
+    // Expand sobre single entity SI es soportado por SL.
+    const linesRes = await deps.slFetch(
+      `/b1s/v1/Quotations(${header.DocEntry})?$select=DocumentLines`
+    );
+    const lineas = Array.isArray(linesRes && linesRes.DocumentLines) ? linesRes.DocumentLines : [];
     // Chequear si alguna linea tiene TargetType 15 (Delivery) — significa que ya
     // se picked. TargetType 17 es Order. TargetType -1 es sin destino.
-    const lineas = Array.isArray(sq.DocumentLines) ? sq.DocumentLines : [];
     const hasDelivery = lineas.some(
       (/** @type {any} */ l) => l && (l.TargetType === 15 || l.TargetType === 17)
     );
