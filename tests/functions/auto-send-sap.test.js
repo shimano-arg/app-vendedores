@@ -93,6 +93,8 @@ function makeSlFetch(scenarios) {
     const isQuotPost = url.endsWith('/b1s/v1/Quotations') && isPost;
     // v1006: GET /b1s/v1/Quotations?$filter=NumAtCard eq '...' — check idempotente.
     const isQuotGet = /\/b1s\/v1\/Quotations\?/.test(url) && !isPost;
+    // v1051: GET /b1s/v1/Items?$filter=... — live stock recheck en whs 11.
+    const isItemsGet = /\/b1s\/v1\/Items\?/.test(url) && !isPost;
     if (url.endsWith('/b1s/v1/Login')) {
       return {
         ok: true,
@@ -103,6 +105,45 @@ function makeSlFetch(scenarios) {
     }
     if (url.endsWith('/b1s/v1/Logout')) {
       return { ok: true, status: 204, headers: { get: () => null }, text: async () => '' };
+    }
+    if (isItemsGet) {
+      // v1051 live stock recheck. Por default devolvemos stock amplio para
+      // cada ItemCode presente en el filter — así los tests legacy que no
+      // mockean stock siguen pasando el gate "stock disponible". Scenarios
+      // específicos pueden override via `scenarios.itemsStock` (Map or object
+      // code→available) o `scenarios.itemsThrow` / `scenarios.itemsStatus`.
+      if (scenarios.itemsThrow) {
+        throw new Error(scenarios.itemsThrow);
+      }
+      if (scenarios.itemsStatus && scenarios.itemsStatus !== 200) {
+        return {
+          ok: false,
+          status: scenarios.itemsStatus,
+          headers: { get: () => null },
+          text: async () => '',
+        };
+      }
+      // Extraer ItemCodes del $filter (clauses `ItemCode eq 'X' or ...`).
+      const decoded = decodeURIComponent(url);
+      const codes = Array.from(decoded.matchAll(/ItemCode eq '([^']+)'/g)).map((m) => m[1]);
+      const stockOverride = scenarios.itemsStock || {};
+      const value = codes.map((code) => {
+        const avail = Object.prototype.hasOwnProperty.call(stockOverride, code)
+          ? stockOverride[code]
+          : 999; // default: stock amplio para no bloquear tests legacy.
+        return {
+          ItemCode: code,
+          ItemWarehouseInfoCollection: [
+            { WarehouseCode: '11', InStock: avail, Committed: 0, Ordered: 0 },
+          ],
+        };
+      });
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ value }),
+      };
     }
     if (isQuotGet) {
       // v1006: scenarios.idempotentThrow -> reject (simula network error)

@@ -158,6 +158,9 @@ describe('handlePlannerStageChanged', () => {
   });
 
   // Case 5: facturar + sendToVdi with matching vendor → both emails in to
+  // NOTE: canonVendor() normaliza vendorKey a UPPERCASE antes del lookup en
+  // roles.vendor. El roleDocs debe guardar `vendor: 'DIEGO'` para match. Test
+  // bug corregido 2026-10-07 (antes vendor='diego' lowercase → query empty).
   it('case 5: facturar + sendToVdi + vendorKey diego → both fa@x.com and diego@shimano.com.ar in to', async () => {
     const before = { items: [] };
     const after = {
@@ -168,7 +171,7 @@ describe('handlePlannerStageChanged', () => {
     const event = makeEvent(before, after);
     const deps = makeDeps({
       roleDocs: {
-        'diego-uid': { role: 'vendedor', vendor: 'diego', email: 'diego@shimano.com.ar' },
+        'diego-uid': { role: 'vendedor', vendor: 'DIEGO', email: 'diego@shimano.com.ar' },
       },
     });
 
