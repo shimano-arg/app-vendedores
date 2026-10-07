@@ -4676,7 +4676,77 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1179
+## 41) Changelog v300 → v1180
+
+### v1180 (2026-10-07) — Fail-SAFE recheck SL + cards BO en celeste clarito
+
+Dos cambios pedidos por Mariano post-incident Ricardo (v1179):
+
+#### Fail-SAFE cuando `filterLinesByLiveStock` falla (Opcion 1 del vector A residual)
+
+**Archivos**: `functions/core/auto-send-sap-core.js:587-640` + `index.html:22475` (classifyTransferError) + `tests/functions/auto-send-sap.test.js` (+2 cases).
+
+**Antes**:
+Si el recheck live stock SAP fallaba (SL 500 / timeout / parse error), el CF logueaba warning + **continuaba al POST con qtys ORIGINALES del pedido**:
+
+    if (!stockCheck.checkSucceeded) {
+      log('[auto-send] live stock recheck FAILED (fail-open, continúa)', { ... });
+    }
+    // ... sigue al POST con built.payload.DocumentLines sin modificar
+
+**Problema**:
+Si stock SAP habia bajado + SL justo colgo durante el recheck → el POST se enviaba con qty > disponible → SAP creaba SQ, procesaba, generaba backorder inesperado despues. **Mismo pattern LAMORA pero inverso al pedido Ricardo** (envias de MAS en vez de de MENOS). Audit multi-agent lo flagueo como **M4 MEDIUM** → mal triage igual que M4 original → en realidad CRITICAL por mismo riesgo monetario.
+
+**Cambio**:
+Fail-SAFE en vez de fail-open. Cualquier falla del recheck:
+- Marcar `transferError.needsManualIntervention=true`
+- Mensaje `stock_recheck_failed_fail_safe: <checkError>`
+- Liberar lock
+- Return `ERROR_SL` + error especifico
+- UI `classifyTransferError` reconoce el prefijo y clasifica como "SAP no respondio al verificar stock" con hint: "esperá 1-2 min y reintenta con el boton Enviar a SAP"
+
+**Por que**:
+- Trade-off aceptado por Mariano: si SL tiene hiccups transientes (500 ocasional), pedidos legitimos quedan bloqueados temporalmente → admin reintenta manual.
+- Alternativa descartada: fail-silent como antes → riesgo LAMORA inverso silent.
+- Alternativa descartada: retry automatico interno → mas complejo + puede amplificar carga durante incidente SL.
+- Pattern consistente con v1179 (needsManualIntervention + card roja + hint accionable).
+
+**Verificacion**:
+- 2 tests nuevos: `recheck SL throw → SKIP fail-safe` + `recheck SL status 500 → SKIP fail-safe`.
+- 52/52 auto-send-sap pass + 674/674 unit + typecheck clean.
+- Requiere `firebase deploy --only functions:onPedidoConfirmedSendToSap` post-merge.
+
+**Rollback**:
+Semi-safe. Revertir restaura fail-open → riesgo LAMORA inverso vuelve pero flow sigue funcional.
+
+#### Cards 100% Backorder: amarillo → celeste clarito
+
+**Archivos**: `index.html:2896-2906` (6 CSS rules de `.confirmed-card.cc-backorder`).
+
+**Antes**: cards 100% BO se pintaban en amarillo (`#fef3c7` fondo + `#f59e0b` border, v944 2026-09-16).
+
+**Problema**: Mariano queria diferenciar visualmente mejor las cards BO de los pedidos normales. El amarillo se confundia con warnings/badges de otras partes de la app.
+
+**Cambio**:
+- Fondo: `#fef3c7` → `#e0f2fe` (sky-100)
+- Border: `#f59e0b` → `#49A2DA` (Apple blue del design system)
+- Border-left: `#d97706` → `#0284c7`
+- Hover: `#fde68a` → `#bae6fd`
+- Textos: tonos ocre → tonos azul sky (`#0c4a6e`, `#075985`, etc.)
+- Chip mes: `#d97706` → `#0284c7`
+
+**Por que**:
+- Celeste clarito alinea con el design system (Apple blue `#49A2DA` ya es accent primario).
+- Contrast WCAG AA mantenido (textos azul oscuro sobre fondo celeste claro).
+- No requiere nuevos tokens — reusa paleta sky de Tailwind.
+- Alternativa descartada: usar `#49A2DA` como fondo. Muy saturado para card fondo, textos pierden contrast.
+
+**Verificacion**:
+- CSS cambio aislado a `.cc-backorder` + `.cc-backorder:hover` + sus descendientes.
+- Visual: cards BO ahora destacan en celeste contra pedidos normales en blanco con accent azul.
+
+**Rollback**:
+Safe. Revertir las 6 lineas CSS restaura amarillo.
 
 ### v1179 (2026-10-07) — INCIDENT FIX: CF stock-degraded gate (pedido RICARDO BLANCO GOITIA SQ 2000316)
 
