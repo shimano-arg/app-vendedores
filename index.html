@@ -6064,7 +6064,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1167';
+const APP_VERSION = 'v1168';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -29564,14 +29564,25 @@ function renderPlannerModalHistorial(pedido) {
     if (_pureBd && typeof _pureBd.columnBreakdown === 'function' && typeof _pureBd.formatAge === 'function') {
       var _bd = _pureBd.columnBreakdown(pedido);
       if (Array.isArray(_bd) && _bd.length > 0) {
+        // v1168 (2026-10-07): omitir etapas instantaneas (<1min, no actuales)
+        // porque formatAge devuelve "ahora" para delta=0 y confunde al VDE
+        // (parece que la etapa esta activa cuando en realidad el pedido paso
+        // por ahi en 0ms, ej GASTON SICILIANI: createdAt >= transferredAt).
+        var _bdFiltered = _bd.filter(function(stage) {
+          var _isActual = stage.exitedAt === null;
+          return _isActual || (Number(stage.durationMs) || 0) >= 60000;
+        });
         var _totalMs = 0;
-        var _rowsHtml = _bd.map(function(stage) {
+        var _rowsHtml = _bdFiltered.map(function(stage) {
           _totalMs += stage.durationMs || 0;
           var _label = (PLANNER_COLUMNS.find(function(c){return c.key === stage.column;}) || {}).label || stage.column;
-          // formatAge(ms, nowMs) computa (nowMs - ms); con ms=0 y nowMs=durationMs
-          // obtenemos el formato "3d 5h" para una duración neta.
-          var _durTxt = _pureBd.formatAge(0, stage.durationMs);
+          // v1168: formatAge devuelve "ahora" para <60s. Para etapas no-actuales
+          // mostrar "<1m" (literal) en vez de "ahora" para mayor claridad.
+          var _durMs = Number(stage.durationMs) || 0;
           var _isActual = stage.exitedAt === null;
+          var _durTxt = (_durMs < 60000 && !_isActual)
+            ? '<1m'
+            : _pureBd.formatAge(0, _durMs);
           var _rowStyle = _isActual
             ? 'display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.06);font-weight:600;color:#007AFF;'
             : 'display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.06);';
