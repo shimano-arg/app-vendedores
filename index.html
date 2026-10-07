@@ -3108,6 +3108,16 @@ body.dark .planner-toggle-btn:hover { background: rgba(255,255,255,0.06); }
   .planner-col.drop-target, .planner-col.drop-blocked { outline-style: solid; }
 }
 /* v1006 Planner modal — Apple style */
+/* v1183 (2026-10-07): el <select> del filtro de Mes tiene color:#fff inline
+   (para que el texto seleccionado se vea en el header oscuro del Planner).
+   Las <option> del dropdown heredan ese blanco → letras blancas sobre fondo
+   blanco → opciones invisibles. Fix: forzar color/background negro-sobre-blanco
+   SOLO en las options del dropdown abierto. El select cerrado mantiene su
+   contraste blanco contra el header oscuro. */
+#planner-month-filter option {
+  color: #000 !important;
+  background: #fff !important;
+}
 .planner-modal-backdrop {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.4);
@@ -6071,7 +6081,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1182';
+const APP_VERSION = 'v1183';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

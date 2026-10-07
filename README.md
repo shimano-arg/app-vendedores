@@ -4676,7 +4676,26 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1182
+## 41) Changelog v300 → v1183
+
+### v1183 (2026-10-07) — HOTFIX select Mes del Planner: opciones invisibles
+
+**Archivo**: `index.html:3110+` (6 lineas CSS nuevas).
+
+**Antes**: `#planner-month-filter` tenia `color:#fff` inline en el `<select>` para que el texto seleccionado se vea sobre el header oscuro del Planner. Las `<option>` dentro del dropdown abierto heredan ese color → letras blancas sobre fondo blanco del dropdown system → opciones ilegibles.
+
+**Problema**: Mariano abrio el filtro de Mes del Planner y vio solo "Octubre 2026 (actual)" apenas visible porque todo el dropdown estaba blanco-sobre-blanco.
+
+**Cambio**: regla CSS nueva `#planner-month-filter option { color:#000 !important; background:#fff !important; }`. Solo afecta las opciones del dropdown abierto — el `<select>` cerrado mantiene su `color:#fff` original para seguir visible contra el header oscuro.
+
+**Por que**:
+- Fix minimo + targeted. Zero cambios en inline del select (que necesita blanco para el estado cerrado).
+- `!important` por si futuro CSS override intenta pisar.
+- Alternativa descartada: cambiar inline del select a negro. Rompe el contraste contra el header oscuro.
+
+**Verificacion**: visual check — abrir Planner modal + click filtro Mes.
+
+**Rollback**: safe, 6 lineas CSS.
 
 ### v1182 (2026-10-07) — HOTFIX celeste cc-backorder (especificidad apple-design)
 
