@@ -237,7 +237,7 @@ describe('preCheckStockWhs11 — case 3: fallback individual (missing from batch
 // ---------------------------------------------------------------------------
 // Case 4: SKU con comilla simple en el nombre → OData escape '' → anda
 // ---------------------------------------------------------------------------
-describe("preCheckStockWhs11 — case 4: SKU con apostrofe (regression v1165 encode)", () => {
+describe('preCheckStockWhs11 — case 4: SKU con apostrofe (regression v1165 encode)', () => {
   it("SKU TEST'SKU → OData encoded TEST''SKU → request OK, available correcto", async () => {
     const codes = ["TEST'SKU", 'NORMAL'];
     const stockMap = {

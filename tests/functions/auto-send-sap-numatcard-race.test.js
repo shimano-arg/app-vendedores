@@ -28,10 +28,7 @@
  * aca validamos el flow CF, que es el escenario del handler core.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  AUTO_SEND_RESULT,
-  handleAutoSendSap,
-} from '../../functions/core/auto-send-sap-core.js';
+import { AUTO_SEND_RESULT, handleAutoSendSap } from '../../functions/core/auto-send-sap-core.js';
 
 // ---- Fixtures compartidos (reusar pattern de auto-send-sap.test.js) --------
 
@@ -130,7 +127,7 @@ function makeSlFetch(scenarios) {
         ItemWarehouseInfoCollection: [
           {
             WarehouseCode: '11',
-            InStock: Object.prototype.hasOwnProperty.call(stockMap, code) ? stockMap[code] : 999,
+            InStock: Object.hasOwn(stockMap, code) ? stockMap[code] : 999,
             Committed: 0,
             Ordered: 0,
           },
@@ -299,8 +296,7 @@ describe('FATECHI race regression — first OK, lock expires, second idempotent'
 
     // Asserción crítica: POST /Quotations NO se disparó en el 2do intento.
     const postCalls = depsSecond.sl.fetch.mock.calls.filter(
-      ([url, init]) =>
-        url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
     );
     expect(postCalls).toHaveLength(0);
 
@@ -370,8 +366,7 @@ describe('FATECHI race regression — first timeout but SAP commiteó, second id
     // Critico: solo 1 POST a /Quotations EN TODO EL TEST (el primero que abortó).
     // El segundo intento NO POST.
     const postCallsSecond = depsSecond.sl.fetch.mock.calls.filter(
-      ([url, init]) =>
-        url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
     );
     expect(postCallsSecond).toHaveLength(0);
 
@@ -423,8 +418,7 @@ describe('FATECHI race regression — first timeout AND SAP NO commiteó, second
 
     // POST a /Quotations SI se disparo (uno solo, el segundo intento).
     const postCallsSecond = depsSecond.sl.fetch.mock.calls.filter(
-      ([url, init]) =>
-        url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
     );
     expect(postCallsSecond).toHaveLength(1);
 
