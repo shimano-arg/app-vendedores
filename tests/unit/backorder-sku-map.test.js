@@ -594,3 +594,76 @@ describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TT
     expect(r.totalUnidades).toBe(0);
   });
 });
+
+describe('computeBackorderSkuMap — v1185: strict incluye pedidos pending con lineas que reservan', () => {
+  // Incident 2026-10-07 pedido PESCAR.INFO SHOP SRL ANT101XGB:
+  // modal Pedido en Espera decia RESERVADAS=1 (via getStockDesglose que itera
+  // TODAS las lineas sin filtrar por stage) pero Stock Asignado decia "0 clientes"
+  // porque computeBackorderSkuMap filtraba p.stage !== 'confirmed'.
+  // Fix: strict mode acepta cualquier stage; filtro de linea decide.
+  it('strict + pedido stage=pending + line state=confirmed → SE INCLUYE', () => {
+    const pedidos = [
+      pedido({
+        stage: 'pending',
+        clientName: 'PESCAR.INFO SHOP SRL',
+        lines: [line({ state: 'confirmed', qtyOpen: 1 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 1 })
+    );
+    expect(r.totalUnidades).toBe(1);
+    expect(r.skus[0].clientes[0].nombre).toBe('PESCAR.INFO SHOP SRL');
+  });
+
+  it('strict + pedido stage=pending + line state=ASIG → SE INCLUYE', () => {
+    const pedidos = [
+      pedido({
+        stage: 'pending',
+        lines: [line({ state: 'ASIG', qtyOpen: 2 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 5 })
+    );
+    expect(r.totalUnidades).toBe(2);
+  });
+
+  it('fifo (default) + pedido stage=pending → sigue EXCLUIDO (preservado backward compat)', () => {
+    const pedidos = [
+      pedido({
+        stage: 'pending',
+        lines: [line({ state: 'confirmed', qtyOpen: 1 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      {},
+      baseDeps({ getStockDisponibleVenta: () => 1 })
+    );
+    expect(r.totalUnidades).toBe(0);
+  });
+
+  it('strict + pedido stage=pending + line state=cancelled → NO se incluye (filtro linea)', () => {
+    const pedidos = [
+      pedido({
+        stage: 'pending',
+        lines: [line({ state: 'cancelled', qtyOpen: 1 })],
+      }),
+    ];
+    const r = computeBackorderSkuMap(
+      pedidos,
+      'asignacion',
+      { aggregationMode: 'strict' },
+      baseDeps({ getStockDisponibleVenta: () => 1 })
+    );
+    expect(r.totalUnidades).toBe(0);
+  });
+});
