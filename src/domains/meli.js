@@ -183,7 +183,10 @@ function _paintSubtabs(el, cache, active) {
     '<div style="background:#f9f9f9;padding:8px 16px;display:flex;gap:6px;border-bottom:1px solid #e5e7eb">' +
     pill('map', '🎯 MAP', cache.alerts.length) +
     pill('products', '📦 Productos', cache.products.length) +
-    pill('categories', '📊 Categorías', cache.categories.length) +
+    pill('categories', '📊 Categorías', (cache.categories || []).filter((c) => {
+      const name = String(c.category_name || '').trim().toLowerCase();
+      return ['canas', 'reeles', 'reels', 'cañas'].includes(name);
+    }).length) +
     pill('ranking', '🏆 Ranking', (cache.ranking || []).length) +
     '</div>';
 }
@@ -401,7 +404,15 @@ if (typeof window !== 'undefined') {
 
 function _paintCategoriesSection(el, categories) {
   const esc = window.escapeHtml || ((s) => String(s));
-  const sorted = [...categories].sort((a, b) => (b.n_listings || 0) - (a.n_listings || 0));
+  // v2 (2026-10-07): filtrar solo Cañas + Reeles. Pedido Mariano — las otras
+  // (Nylons, Senuelos, Plomadas, Mosquetones, Anzuelos, Boyas, Moscas,
+  // Ecosondas, Gorras) no son relevantes para el analisis de MAP Shimano.
+  const CATEGORIAS_RELEVANTES = ['canas', 'reeles', 'reels', 'cañas'];
+  const filtered = (categories || []).filter((c) => {
+    const name = String(c.category_name || '').trim().toLowerCase();
+    return CATEGORIAS_RELEVANTES.some((rel) => name === rel);
+  });
+  const sorted = [...filtered].sort((a, b) => (b.n_listings || 0) - (a.n_listings || 0));
 
   let html =
     '<div style="padding:14px 16px"><div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden">';
