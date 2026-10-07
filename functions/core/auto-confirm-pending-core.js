@@ -126,7 +126,7 @@ const DEFAULT_TIMEOUT_MINUTES = 10;
  * @param {number} [params.batchLimit] Máx de pedidos a procesar por corrida (safety).
  * @param {(msg: string, extra?: any) => void} [params.log]
  * @param {() => number} [params.now] Injectable clock para tests.
- * @returns {Promise<{result: string, processed: number, processedIds: any[], skippedForStock?: any[], errors: any[]}>}
+ * @returns {Promise<{result: string, processed: number, processedIds: any[], skippedForStock?: any[], autoSplitProcessed?: any[], errors: any[]}>}
  */
 export async function autoConfirmPendingPedidos({
   fbDb,
@@ -213,9 +213,13 @@ export async function autoConfirmPendingPedidos({
     // Fail-open: seguimos sin re-validacion.
   }
 
+  /** @type {Array<any>} */
   const processedIds = [];
+  /** @type {Array<any>} */
   const skippedForStock = [];
+  /** @type {Array<any>} */
   const autoSplitProcessed = [];
+  /** @type {Array<any>} */
   const errors = [];
   for (const p of eligibles) {
     try {
