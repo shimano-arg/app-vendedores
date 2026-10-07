@@ -1055,6 +1055,46 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
     } catch (preErr) {
       console.warn('[sap-send] preCheck exception (fail-open):', preErr);
     }
+    // v1172 (audit 2026-10-07, Backend C1): PRE-CHECK idempotente antes del
+    // POST en el batch manual. El listener client-side y la CF trigger ya
+    // tenian este check desde v1144/v1006. El batch manual era el unico
+    // vector FATECHI vivo: si el primer POST tomo >5min (lockTTL) + admin
+    // retry → el segundo POST creaba SQ duplicada en SAP ($$$).
+    // Fallback defensivo: si la query falla, seguir con POST (no bloquear
+    // envios legitimos).
+    try {
+      if (typeof sapSL.findQuotationByNumAtCard === 'function') {
+        const idem = await sapSL.findQuotationByNumAtCard(p._fsId);
+        if (idem && idem.ok && idem.docNum) {
+          console.warn(
+            '[sap-batch] idempotent hit — SAP ya tiene SQ #' +
+              idem.docNum +
+              ' para pedido ' +
+              p._fsId +
+              '. NO re-POST.'
+          );
+          try {
+            await docRef.update({
+              transferidoSAP: {
+                via: 'service_layer_idempotent',
+                docEntry: idem.docEntry,
+                docNum: idem.docNum,
+                transferredAt: new Date().toISOString(),
+                transferredBy: (currentUser && currentUser.email) || '',
+                sapDocRange: String(idem.docNum),
+                batchId: 'SL-IDEM-' + Date.now(),
+              },
+              sendingSapLock: firebase.firestore.FieldValue.delete(),
+              transferError: firebase.firestore.FieldValue.delete(),
+            });
+          } catch (_updErr) {}
+          sent++;
+          continue;
+        }
+      }
+    } catch (idemErr) {
+      console.warn('[sap-batch] idempotent check fallo (non-blocking):', idemErr);
+    }
     const r = await sapSL.createQuotation(payload);
     if (r.ok) {
       sent++;

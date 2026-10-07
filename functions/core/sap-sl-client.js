@@ -35,6 +35,24 @@ export function extractSessionCookies(setCookieHeader) {
   return wanted.join('; ');
 }
 
+// v1172 (audit 2026-10-07, Backend C2): timeout por request para evitar
+// que un POST a SL quede colgado hasta que el runtime mate la CF (120s).
+// Precedente FATECHI: POST timeout "fetch failed" en CF, SAP si creo la SQ
+// pero el runtime murio sin saberlo → segundo intento creo SQ duplicada.
+// 90s < 120s (CF timeout) para que el AbortController dispare antes y la
+// CF pueda limpiar estado + marcar needsManualVerification.
+const SAP_REQUEST_TIMEOUT_MS = 90_000;
+
+/** @returns {AbortSignal | undefined} */
+function makeTimeoutSignal() {
+  // AbortSignal.timeout es ES2022, disponible en Node 22. Fallback por si
+  // el runtime no lo tiene (tests con mocks viejos).
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(SAP_REQUEST_TIMEOUT_MS);
+  }
+  return undefined;
+}
+
 /**
  * @param {SapSlDeps} deps
  * @returns {Promise<SapSession>}
@@ -48,6 +66,7 @@ export async function sapLogin(deps) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ CompanyDB: companyDB, UserName: userName, Password: password }),
+    signal: makeTimeoutSignal(),
   });
   if (!res.ok) {
     throw new Error(`SL login failed status=${res.status}`);
@@ -67,6 +86,7 @@ export async function sapGet(session, endpoint, deps) {
   const res = await deps.fetch(`${deps.sapConfig.url}${endpoint}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', Cookie: session.cookie },
+    signal: makeTimeoutSignal(),
   });
   const text = await res.text();
   /** @type {any} */
@@ -94,6 +114,7 @@ export async function sapPost(session, endpoint, bodyObj, deps) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: session.cookie },
     body: JSON.stringify(bodyObj),
+    signal: makeTimeoutSignal(),
   });
   const text = await res.text();
   /** @type {any} */
