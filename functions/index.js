@@ -1358,6 +1358,22 @@ export const setupGetMovimientos = onCall(
         `Rol ${_role} no autorizado para setupGetMovimientos`
       );
     }
+    // v1174 (audit 2026-10-07, Security H-02): rate limit per caller.
+    // 50/hr es generoso para uso legitimo (abrir Depósito 2-3x/día) y corta
+    // scraping sostenido (compromised VDE extrayendo 365d cross-cartera).
+    const _rlSetup = await checkAndIncrementRateLimit(
+      { fbDb: _db, log: (m, e) => console.log(m, e || {}) },
+      request.auth.uid,
+      'setupGetMovimientos',
+      RATE_LIMITS.setupGetMovimientos.threshold,
+      RATE_LIMITS.setupGetMovimientos.windowMs
+    );
+    if (!_rlSetup.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `setupGetMovimientos rate limit alcanzado (${_rlSetup.threshold}/hr). Reset: ${_rlSetup.resetAt}`
+      );
+    }
     console.log('setupGetMovimientos OK gate', {
       uid: request.auth.uid,
       email: _email,
@@ -2008,6 +2024,23 @@ export const triggerPlannerSync = onCall(
     if (!['admin', 'gerente', 'interno'].includes(role)) {
       throw new HttpsError('permission-denied', `Rol ${role || 'sin rol'} no puede forzar sync`);
     }
+    // v1174 (audit 2026-10-07, Security H-03): rate limit por caller. 20/hr
+    // es generoso para refresco manual legitimo + corta spam que degrade SL
+    // concurrent-session throttling para toda la org (4 SL login/logout por
+    // run).
+    const _rlPs = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, e) => console.log(m, e || {}) },
+      request.auth.uid,
+      'triggerPlannerSync',
+      RATE_LIMITS.triggerPlannerSync.threshold,
+      RATE_LIMITS.triggerPlannerSync.windowMs
+    );
+    if (!_rlPs.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `triggerPlannerSync rate limit alcanzado (${_rlPs.threshold}/hr). Reset: ${_rlPs.resetAt}`
+      );
+    }
     const sapCfgSnap = await db.doc('app_config/sap_integration').get();
     const sapCfg = sapCfgSnap.data() || {};
     const sl = sapCfg.serviceLayer || {};
@@ -2184,6 +2217,24 @@ export const triggerRendicionesEmailManual = onCall(
       const doc = await db.collection('roles').doc(uid).get();
       return doc.exists ? doc.data()?.role || '' : '';
     };
+    // v1174 (audit 2026-10-07, Security H-03): rate limit por caller.
+    // 5/hr es suficiente para uso real (max 1-2 veces por semana) y corta
+    // spam de GitHub Actions dispatch + email send a equipo.
+    if (request.auth) {
+      const _rlRe = await checkAndIncrementRateLimit(
+        { fbDb: db, log: (m, e) => console.log(m, e || {}) },
+        request.auth.uid,
+        'triggerRendicionesEmailManual',
+        RATE_LIMITS.triggerRendicionesEmailManual.threshold,
+        RATE_LIMITS.triggerRendicionesEmailManual.windowMs
+      );
+      if (!_rlRe.allowed) {
+        throw new HttpsError(
+          'resource-exhausted',
+          `triggerRendicionesEmailManual rate limit alcanzado (${_rlRe.threshold}/hr). Reset: ${_rlRe.resetAt}`
+        );
+      }
+    }
     try {
       const r = await handleTriggerRendicionesEmailManual(
         request.data || {},

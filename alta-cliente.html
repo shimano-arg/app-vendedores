@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- v1174 (audit 2026-10-07, Security H-04): CSP para el public form.
+     Alineada con index.html pero mas restrictiva porque esta pagina es
+     unauthenticated. Permite firebase CDN para el firestore write + inline
+     scripts/styles (necesarios para el form actual). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://*.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://firestore.googleapis.com wss://*.firebaseio.com; font-src 'self' data:;">
 <title>Alta de cliente - Shimano</title>
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192-v3.png">
 <meta name="theme-color" content="#00A9E0">
@@ -285,8 +290,19 @@ async function submitForm(){
   } catch(e) {
     console.error(e);
     btn.disabled = false; btn.textContent = 'Enviar solicitud';
+    // v1174 (audit 2026-10-07, Security H-04): construir con textContent para
+    // evitar inyeccion si el error-message viniera de servidor con contenido
+    // controlado por attacker. Antes concat raw a innerHTML.
     const errEl = document.getElementById('err-screen');
-    errEl.innerHTML = '<b>No pudimos enviar tu solicitud.</b><br>Detalle tecnico: ' + (e.message || e) + '<br><br>Por favor probá de nuevo o contactá al vendedor que te paso el link.';
+    errEl.textContent = '';
+    const bold = document.createElement('b');
+    bold.textContent = 'No pudimos enviar tu solicitud.';
+    errEl.appendChild(bold);
+    errEl.appendChild(document.createElement('br'));
+    errEl.appendChild(document.createTextNode('Detalle tecnico: ' + (e.message || e)));
+    errEl.appendChild(document.createElement('br'));
+    errEl.appendChild(document.createElement('br'));
+    errEl.appendChild(document.createTextNode('Por favor probá de nuevo o contactá al vendedor que te paso el link.'));
     errEl.style.display = '';
     window.scrollTo({top: 0, behavior: 'smooth'});
   }

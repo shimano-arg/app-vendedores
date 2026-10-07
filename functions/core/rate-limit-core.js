@@ -120,4 +120,18 @@ export const RATE_LIMITS = /** @type {const} */ ({
   // suficiente para el uso legitimo de admin resolviendo waitlist post-stock
   // change pero corta abuse loop en <2 min.
   updateAsigLineState: { threshold: 500, windowMs: 60 * 60 * 1000 },
+  // v1174 (audit 2026-10-07, Security H-02/H-03):
+  // setupGetMovimientos: integra con SETUP WMS externo (API quota compartida
+  // con BI). Un VDE comprometido podia extraer 365 dias de logistics
+  // cross-cartera. 50/hr es ~1 req/min — margen para uso legitimo + corta
+  // scraping sostenido.
+  setupGetMovimientos: { threshold: 50, windowMs: 60 * 60 * 1000 },
+  // triggerPlannerSync hace 4 SAP SL sync passes (login+logout c/u). Un
+  // admin/gerente comprometido podia spamear → degradar SL concurrent
+  // sessions para toda la org. 20/hr = refresco cada 3 min max.
+  triggerPlannerSync: { threshold: 20, windowMs: 60 * 60 * 1000 },
+  // triggerRendicionesEmailManual dispara GitHub Actions workflow dispatch
+  // (consume minutos CI + envia email a equipo). 5/hr es generoso para el
+  // uso real (max 1-2 veces por semana en operacion normal).
+  triggerRendicionesEmailManual: { threshold: 5, windowMs: 60 * 60 * 1000 },
 });
