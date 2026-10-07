@@ -6064,7 +6064,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1168';
+const APP_VERSION = 'v1169';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -29054,20 +29054,10 @@ function renderPlannerCard(pedido, column) {
   }).join('');
   const stateClass = computePlannerCardStateClass(pedido, column);
 
-  let togglesHtml = '';
-  if (column === 'lista_espera' && pedido._isWaitlist) {
-    const items = Array.isArray(pedido.items) ? pedido.items : [];
-    const anyConfirmed = pedido.vendorConfirmed === true || items.some(i => i?.vendorConfirmed === true);
-    const cargadoActive = !anyConfirmed;
-    const confirmadoActive = anyConfirmed;
-    togglesHtml =
-      '<div class="planner-card-toggles" onclick="event.stopPropagation();">' +
-        '<button class="planner-toggle-btn' + (cargadoActive ? ' active-yellow' : '') + '"' +
-          ' onclick="togglePlannerWaitlistState(\'' + escapeHtml(pedido.id) + '\', false)">Cargado</button>' +
-        '<button class="planner-toggle-btn' + (confirmadoActive ? ' active-green' : '') + '"' +
-          ' onclick="togglePlannerWaitlistState(\'' + escapeHtml(pedido.id) + '\', true)">Confirmado</button>' +
-      '</div>';
-  }
+  // v1169 (2026-10-07): botones "Cargado"/"Confirmado" en cards de Lista de espera
+  // REMOVIDOS por pedido Mariano. Cards quedan limpias — el toggle sigue
+  // disponible abriendo la card (modal detalle).
+  const togglesHtml = '';
 
   return (
     '<div class="planner-card ' + stateClass + '"' +
