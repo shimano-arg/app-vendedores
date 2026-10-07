@@ -892,6 +892,52 @@ describe('handleAutoSendSap — v1179 degraded stock gate (incident Ricardo Blan
     expect(after.sendingSapLock).toBeUndefined();
   });
 
+  // v1180 (Opcion 1 post-incident Ricardo): fail-SAFE cuando el recheck FALLA.
+  // Antes v1180: fail-open silent → el CF continuaba al POST con qtys originales.
+  // Si stock habia bajado + SL justo colgo, SAP creaba SQ con qty > disponible.
+  it('v1180: recheck SL throw (network error) → SKIP fail-safe', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        itemsThrow: 'SL timeout',
+        docNum: 12345,
+        docEntry: 999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.ERROR_SL);
+    expect(r.error).toContain('stock_recheck_failed_fail_safe');
+    // NO POST a /Quotations
+    const postCalls = deps.sl.fetch.mock.calls.filter(
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+    );
+    expect(postCalls).toHaveLength(0);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferidoSAP).toBeUndefined();
+    expect(after.sendingSapLock).toBeUndefined();
+    expect(after.transferError).toBeDefined();
+    expect(after.transferError.needsManualIntervention).toBe(true);
+    expect(after.transferError.message).toContain('stock_recheck_failed_fail_safe');
+  });
+
+  it('v1180: recheck SL status 500 → SKIP fail-safe', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        itemsStatus: 500,
+        docNum: 12345,
+        docEntry: 999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.ERROR_SL);
+    expect(r.error).toContain('stock_recheck_failed_fail_safe');
+    const postCalls = deps.sl.fetch.mock.calls.filter(
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+    );
+    expect(postCalls).toHaveLength(0);
+  });
+
   it('v1179: stock OK en todas las lineas → envio normal (sin bloqueo)', async () => {
     const deps = makeDeps({
       dbDocs: { 'pedidos/p1': { ...validPedido } },

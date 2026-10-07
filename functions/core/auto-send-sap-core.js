@@ -585,10 +585,51 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       deps.sl
     );
     if (!stockCheck.checkSucceeded) {
-      log('[auto-send] live stock recheck FAILED (fail-open, continúa)', {
+      // v1180 (2026-10-07, Opcion 1 post-incident Ricardo): FAIL-SAFE en vez
+      // de fail-open. Antes v1180: si el recheck fallaba (SL 500/timeout/parse),
+      // el CF continuaba al POST con qtys ORIGINALES del pedido. Si stock SAP
+      // habia bajado + SL justo colgo, SAP creaba SQ con qty > disponible →
+      // backorder inesperado en SAP (mismo pattern LAMORA pero inverso).
+      //
+      // Ahora: cualquier falla del recheck → SKIP envio + liberar lock +
+      // marcar needsManualIntervention + stock_recheck_failed_fail_safe.
+      // Admin interviene manual (reintenta cuando SL este estable).
+      //
+      // Trade-off: si SL tiene hiccups transientes, pedidos legitimos quedan
+      // bloqueados temporalmente. Mariano acepto este costo para cerrar el
+      // vector M4 del audit (fail-open silent).
+      log('[auto-send] live stock recheck FAILED → SKIP (fail-safe)', {
         pedidoId,
         checkError: stockCheck.checkError,
       });
+      try {
+        await docRef.update({
+          sendingSapLock: deps.FieldValue.delete(),
+          transferError: {
+            message:
+              'stock_recheck_failed_fail_safe: ' +
+              (stockCheck.checkError || 'recheck fallo sin detalle'),
+            at: new Date(now).toISOString(),
+            via: 'cf_auto',
+            needsManualIntervention: true,
+            checkError: stockCheck.checkError || null,
+          },
+        });
+      } catch (persistErr) {
+        log('[auto-send] failed to persist recheck_failed marker', {
+          pedidoId,
+          err: persistErr && persistErr.message ? persistErr.message : String(persistErr),
+        });
+      }
+      try {
+        await sapLogout(session, deps.sl);
+      } catch {
+        /* swallow */
+      }
+      return {
+        result: AUTO_SEND_RESULT.ERROR_SL,
+        error: 'stock_recheck_failed_fail_safe',
+      };
     }
     /** @type {Array<{itemCode: string, requested: number, available: number, reason: string}>} */
     const degradedForAudit = stockCheck.degradedLines || [];

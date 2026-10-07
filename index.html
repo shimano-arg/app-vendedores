@@ -2893,12 +2893,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .confirmed-card.cc-error .cc-summary{color:#fecaca}
 .confirmed-card.cc-error .cc-month{background:#7f1d1d;color:#fff}
 /* v944 (2026-09-16): pedidos 100% backorder — amarillo para identificar rapido */
-.confirmed-card.cc-backorder{background:#fef3c7;border:2px solid #f59e0b;border-left:6px solid #d97706;color:#78350f}
-.confirmed-card.cc-backorder:hover{background:#fde68a}
-.confirmed-card.cc-backorder .cc-name{color:#78350f}
-.confirmed-card.cc-backorder .cc-meta{color:#92400e}
-.confirmed-card.cc-backorder .cc-summary{color:#92400e}
-.confirmed-card.cc-backorder .cc-month{background:#d97706;color:#fff}
+/* v1180 (2026-10-07): celeste clarito en vez de amarillo para diferenciar
+   visualmente las cards 100% backorder de los pedidos normales (que usan
+   accent #49A2DA del design system). Pedido Mariano. */
+.confirmed-card.cc-backorder{background:#e0f2fe;border:2px solid #49A2DA;border-left:6px solid #0284c7;color:#075985}
+.confirmed-card.cc-backorder:hover{background:#bae6fd}
+.confirmed-card.cc-backorder .cc-name{color:#0c4a6e}
+.confirmed-card.cc-backorder .cc-meta{color:#075985}
+.confirmed-card.cc-backorder .cc-summary{color:#075985}
+.confirmed-card.cc-backorder .cc-month{background:#0284c7;color:#fff}
 .cc-error-btn{display:inline-flex;align-items:center;gap:5px;background:#fff;color:#991b1b;border:none;padding:5px 10px;border-radius:6px;font-size:10.5px;font-weight:800;letter-spacing:.3px;cursor:pointer;margin-top:6px;text-transform:uppercase}
 .cc-error-btn:hover{background:#fecaca}
 .cc-error-type{display:inline-block;background:#7f1d1d;color:#fff;padding:2px 7px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px;margin-left:6px;text-transform:uppercase;border:1px solid #fff}
@@ -6064,7 +6067,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1179';
+const APP_VERSION = 'v1180';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22478,6 +22481,11 @@ function classifyTransferError(msg){
   // esperar reposicion stock.
   if (raw.includes('stock_degradado_cf_skip') || raw.includes('stock_degradado_auto_skip'))
     return { type: 'Stock cambio', hint: 'Entre que confirmaste el pedido y el envio automatico, SAP cambio el stock de alguna linea. El pedido NO se envio para evitar que SAP facture menos de lo que vendiste. Revisa los SKUs degradados en el detalle; podes: 1) cancelar el pedido, 2) forzar envio via batch manual aceptando qtys reducidas, o 3) esperar reposicion.' };
+  // v1180 (2026-10-07): recheck SL fallo (timeout/500/parse). Fail-SAFE
+  // bloquea envio en vez de arriesgar silent-degrada. Admin reintenta cuando
+  // SL este estable.
+  if (raw.includes('stock_recheck_failed_fail_safe'))
+    return { type: 'SAP no respondio al verificar stock', hint: 'Service Layer no respondio al pre-chequeo de stock. El pedido NO se envio para evitar enviar qtys sin verificar stock disponible. Esperá 1-2 min y reintenta con el boton "Enviar a SAP". Si persiste, chequea health del Service Layer en el tab Service Layer.' };
   if (raw.includes('lead') && raw.includes('inactive'))
     return { type: 'Cliente inactivo', hint: 'El cliente esta marcado como Lead inactivo en SAP. Pedile a Mariano/Pablo que lo reactive.' };
   if (raw.includes('cardcode') || raw.includes('card code') || raw.includes('bp not found'))
