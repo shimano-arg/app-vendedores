@@ -4676,7 +4676,65 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1176
+## 41) Changelog v300 → v1177
+
+### v1177 (2026-10-07) — Backorder manual: mes futuro opcional por SKU
+
+**Archivos tocados**: `index.html:5458-5490, 15434-15745` + `sw.js:20` (cache bump).
+**Motivacion**: Pedido Mariano 2026-10-07: "al generar backorder que puedan asignarlo especificamente para un mes futuro (ejemplo 200 unidades fx4000fc para julio 2027). Que no sea obligatorio sino que sea algun opcional."
+
+**Antes**:
+Modal `Generar Backorder manual` (`#generar-backorder-modal`) tenia 4 columnas por linea: SKU + Qty + Precio + Subtotal + boton X. Cada line se guardaba en Firestore `pedidos.lines[]` sin informacion de "cuando" el cliente necesita el SKU. Todo backorder era implicitamente "ahora".
+
+**Problema**:
+Cliente pide "necesito 200 FX4000FC para julio 2027 (temporada que viene)". VDE queria registrarlo YA en la app pero no habia como marcar la fecha de necesidad futura. Resultado:
+- VDE armaba el backorder con la fecha de hoy (como demanda inmediata) → distorsiona agregados actuales.
+- O VDE anotaba en un Excel aparte → data duplicada, se pierde, no esta en el sistema.
+- O VDE no lo cargaba → se olvida y el cliente llama en junio reclamando que nunca armo el pedido.
+
+**Cambio**:
+1. Agregada 5ta columna "Mes" (dropdown select) al grid de cada line. Grid actualizado: `1fr 70px 100px 130px 90px 28px`.
+2. Dropdown con 25 opciones: "Sin mes asignado" (default) + próximos 24 meses desde el actual (ej. hoy 2026-10 → "Noviembre 2026" hasta "Octubre 2028"). Formato value: `"YYYY-MM"`.
+3. Nuevo helper `_gbBuildMesOptions(selectedVal)` que arma el HTML del select.
+4. Nuevo handler `window._gbChangeMes(idx)` que parsea el value y persiste en state 3 campos: `targetMonth` (string formato "JULIO 2027"), `targetMonthIdx` (0-11), `targetYear` (int).
+5. `_gbState.lines` default includes `targetMonth: null, targetMonthIdx: null, targetYear: null`.
+6. `_gbConfirmar` incluye los 3 campos en el `base` de cada line que persiste a Firestore. Si no se asigno mes → null los 3.
+7. Mensaje de confirmacion muestra desglose de meses asignados cuando hay (`"Meses asignados (3/5 lineas): JULIO 2027: FX4000FC x200"`).
+
+Default null preserva backward-compat: pedidos backorder viejos no tienen el campo (= sin mes). Nuevos solo lo tienen si se asigno explicito.
+
+**Por que**:
+- **Por linea (no por pedido)**: Mariano dio ejemplo "200 unidades fx4000fc para julio 2027" → cada SKU puede tener su mes. Un backorder puede mezclar "necesito YA" + "necesito para julio".
+- **Opcional**: pedido explicito de Mariano. Default null preserva flow actual sin fricción.
+- **3 campos separados** (`targetMonth` + `targetMonthIdx` + `targetYear`): downstream puede filtrar sin re-parsear strings. Precedente: `pedidos.month/monthIdx/year` del pedido general ya usa este pattern (lineas 15688-15695 de ejemplo).
+- **24 meses hacia adelante**: Mariano pidio hasta 2027 (12-15 meses desde hoy). 24 da margen para pedidos de temporada 2028.
+- **Arranque desde el PROXIMO mes** (no mes actual): si cliente necesita "ahora" el campo queda vacio = "Sin mes" (default). Mes actual deberia ser muy raro para un backorder (si tengo stock ahora no es backorder).
+- **Formato value `"YYYY-MM"`**: HTML5 `<input type="month">` seria mas limpio pero el UX en móvil Android es inconsistente. Select con options es predecible.
+- Alternativa descartada: `<input type="date">` con dia 1. Mas granular que lo pedido + confunde ("cliente pide 1 de julio? o cualquier dia de julio?").
+- Alternativa descartada: free text "Julio 2027". Imposible normalizar para filtros downstream.
+
+**Verificacion**:
+- Build OK: `app.bundle.js` sin cambios (modal es inline en index.html).
+- 670/670 unit tests pass.
+- Typecheck clean.
+- Mariano debe testear E2E:
+  1. Abrir modal Generar Backorder.
+  2. Elegir cliente.
+  3. SKU 1 sin mes (default) + SKU 2 con mes "Julio 2027".
+  4. Guardar.
+  5. Verificar en Firestore que linea 2 tiene `targetMonth="JULIO 2027"`, `targetMonthIdx=6`, `targetYear=2027`. Linea 1 todos null.
+- No afecta modal Backorder listing / grafico / modal Stock Asignado — esos ignoran los 3 campos nuevos (metadata opcional).
+
+**Rollback**:
+Safe revertir — todos los campos opcionales con default null. Rollback NO borra docs ya creados con el campo (quedarian con `targetMonth` ignorado). Rollback simple via `git revert` del commit.
+
+**TODO futuro (si Mariano pide)**:
+- Mostrar el `targetMonth` como badge en modal Backorder listing (ej. chip "📅 JUL 2027" al lado del SKU).
+- Filtro en modal Backorder "mostrar solo demanda proxima X meses".
+- Reporte "demanda proxima 3 meses" para planificacion de compras.
+- Alerta cuando se acerca el mes asignado (ej. 15 dias antes → notificacion al VDE).
+
+### v1176 (2026-10-07) — Skill `documenting-changes` + CLAUDE.md §30 + audit doc retroactivo
 
 ### v1176 (2026-10-07) — Skill `documenting-changes` + CLAUDE.md §30 + audit doc retroactivo
 
