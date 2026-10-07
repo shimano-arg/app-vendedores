@@ -264,8 +264,14 @@ const sapSL = {
     for (let i = 0; i < codes.length; i += CHUNK_SIZE) {
       chunks.push(codes.slice(i, i + CHUNK_SIZE));
     }
+    // v1173 (audit 2026-10-07, Perf H3): paralelizar chunks con concurrency
+    // cap. Antes serial → 150 SKUs = 3 chunks × 2s SL latency = 6s. Ahora
+    // ejecucion concurrente respetando throughput de SL (cap=4) → ~2s.
+    // Para 46 SKUs (1 chunk) no cambia, pero para batches grandes de admin
+    // (lot send 200+ SKUs) baja la latencia 60-70%.
     const codesFromAll = [];
-    for (const chunk of chunks) {
+    const CONCURRENCY = 4;
+    const chunkRunner = async (/** @type {string[]} */ chunk) => {
       const filter = chunk
         .map((c) => "(ItemCode eq '" + String(c).replace(/'/g, "''") + "')")
         .join(' or ');
@@ -275,40 +281,45 @@ const sapSL = {
         filterUrlSafe +
         '&$select=ItemCode,ItemWarehouseInfoCollection&$top=' +
         chunk.length;
-      let resp;
       try {
-        // eslint-disable-next-line no-await-in-loop
-        resp = await this.fetchWithSession(path);
+        const resp = await this.fetchWithSession(path);
+        return { chunk, resp };
       } catch (e) {
-        resp = { ok: false, error: (e && e.message) || String(e) };
+        return { chunk, resp: { ok: false, error: (e && e.message) || String(e) } };
       }
-      if (!resp || !resp.ok) {
-        // El chunk entero falló → marcar todos como error. Fallback individual.
-        chunk.forEach((c) => errors.push({ code: c, error: 'batch_failed' }));
-        continue;
-      }
-      const items = resp.body && Array.isArray(resp.body.value) ? resp.body.value : [];
-      for (const it of items) {
-        const code = String(it.ItemCode || '')
-          .trim()
-          .toUpperCase();
-        if (!code) continue;
-        codesFromAll.push(code);
-        const whs = Array.isArray(it.ItemWarehouseInfoCollection)
-          ? it.ItemWarehouseInfoCollection
-          : [];
-        const whs11 = whs.find((w) => String(w.WarehouseCode) === '11');
-        if (!whs11) {
-          errors.push({ code, error: 'no_whs11' });
+    };
+    // Ejecutar en lotes de CONCURRENCY chunks en paralelo.
+    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+      const slice = chunks.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(slice.map((ch) => chunkRunner(ch)));
+      for (const { chunk, resp } of results) {
+        if (!resp || !resp.ok) {
+          chunk.forEach((c) => errors.push({ code: c, error: 'batch_failed' }));
           continue;
         }
-        const inStock = parseFloat(whs11.InStock || 0);
-        const committed = parseFloat(whs11.Committed || 0);
-        map.set(code, {
-          inStock,
-          committed,
-          available: Math.max(0, Math.trunc(inStock - committed)),
-        });
+        const items = resp.body && Array.isArray(resp.body.value) ? resp.body.value : [];
+        for (const it of items) {
+          const code = String(it.ItemCode || '')
+            .trim()
+            .toUpperCase();
+          if (!code) continue;
+          codesFromAll.push(code);
+          const whs = Array.isArray(it.ItemWarehouseInfoCollection)
+            ? it.ItemWarehouseInfoCollection
+            : [];
+          const whs11 = whs.find((w) => String(w.WarehouseCode) === '11');
+          if (!whs11) {
+            errors.push({ code, error: 'no_whs11' });
+            continue;
+          }
+          const inStock = parseFloat(whs11.InStock || 0);
+          const committed = parseFloat(whs11.Committed || 0);
+          map.set(code, {
+            inStock,
+            committed,
+            available: Math.max(0, Math.trunc(inStock - committed)),
+          });
+        }
       }
     }
     // Fallback individual para los SKUs que NO vinieron en la respuesta batch
