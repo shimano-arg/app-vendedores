@@ -105,7 +105,7 @@ export function shouldNotify(before, after) {
     'cf_auto', // CF trigger onPedidoConfirmedSendToSap
     'cf_auto_idempotent', // CF trigger, SQ ya existia
   ]);
-  if (!ALLOWED_VIAS.has(tsAfter.via)) return false;
+  if (!tsAfter.via || !ALLOWED_VIAS.has(tsAfter.via)) return false;
   // Y solo si esto es NUEVO (antes no habia docNum).
   const tsBefore = (before && before.transferidoSAP) || {};
   if (tsBefore.docNum) return false;
