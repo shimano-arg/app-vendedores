@@ -4676,7 +4676,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1180
+## 41) Changelog v300 → v1181
+
+### v1181 (2026-10-07) — Boton Mercado Libre: letras en ambar oscuro (#a86200)
+
+**Archivos**: `index.html:3571` (inline style desktop) + `index.html:2536-2540` (media query mobile override).
+
+**Antes**: boton `#meli-header-btn` tenia letras `#0f172a` (negro oscuro) sobre fondo `#FFE600` (amarillo MELI). En mobile el selector compartido `#panel-control-btn,#planner-header-btn,#meli-header-btn` sobrescribia a `color:var(--text-primary)` (gris oscuro del design system).
+
+**Problema**: Mariano pidio cambiar las letras a `#a86200` (ambar oscuro) para alinear con el brand color MELI y mejor contraste visual sobre el amarillo.
+
+**Cambio**:
+- Desktop inline style: `color:#0f172a` → `color:#a86200`.
+- Mobile override nuevo: `#meli-header-btn{color:#a86200 !important}` para pisar el selector compartido.
+
+**Por que**:
+- `#a86200` es un ambar oscuro con mejor contraste WCAG sobre `#FFE600` que el negro puro (ratio 4.5:1 vs 15:1 pero mas acorde al branding MELI).
+- Rule CSS class + `!important` sigue el pattern CLAUDE.md §21 (gates visuales que se pisan por re-render requieren class + important).
+- Alternativa descartada: cambiar `--text-primary` globalmente. Pisaria todo el design system.
+
+**Verificacion**: solo CSS, zero logic. Visual check en desktop + mobile.
+
+**Rollback**: safe revertir las 2 lineas.
 
 ### v1180 (2026-10-07) — Fail-SAFE recheck SL + cards BO en celeste clarito
 
