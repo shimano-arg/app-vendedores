@@ -273,9 +273,18 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
     // ver `project_bo_migration_100_app`). Esto alinea con tablero PBI que lee
     // v_backorder_app sin filtrar por stage. Fuera de strict (fifo default),
     // se preserva el filtro original para no romper otros callers.
-    if (p.stage !== 'confirmed') {
-      if (!(strictMode && p.transferidoSAP)) continue;
-    }
+    //
+    // v1185 (incident 2026-10-07, pedido PESCAR.INFO SHOP SRL ANT101XGB):
+    // en strict mode, aceptar TAMBIEN pedidos con cualquier stage (pending/
+    // confirmed) si tienen lineas que reservan stock (state in BO/ASIG/
+    // confirmed con qtyOpen>0). Antes: pedidos stage='pending' con lineas
+    // state='confirmed' NO aparecian en Stock Asignado modal, pero SI eran
+    // contados por getStockDesglose como "reservadas" → user veia "0 clientes"
+    // en Stock Asignado pero el modal pedido en espera decia "RESERVADAS=1".
+    // Fix: strict mode no filtra por stage; el filtro de linea (state+qtyOpen)
+    // y lineReservesStock siguen decidiendo que aparece. Backward compat para
+    // modo fifo default (otros callers no afectados).
+    if (p.stage !== 'confirmed' && !strictMode) continue;
     for (const l of p.lines) {
       if (!l || !l.code) continue;
       // v962: confirmed también entra (SQ enviada a SAP, prioridad = ASIG).
@@ -384,7 +393,15 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       // SAP legacy source se trata como 'BO' (v_backorder_lineas_v2 default).
       g.clientes.forEach((c) => {
         const isBoLike = c.state === 'BO' || c.source === 'sap';
-        const isAsigLike = c.state === 'ASIG';
+        // v1185 (incident 2026-10-07 PESCAR.INFO SHOP ANT101XGB):
+        // isAsigLike incluye `confirmed` solo si el pedido NO esta en SAP
+        // (sqDocNum=0). Esos son los "huerfanos" — reservan stock app-side
+        // pero no se transfirieron (ej. needsManualIntervention v1179, stock
+        // degraded, needsCardCodeResolution v1184, transferError). Admin
+        // necesita verlos para desbloquearlos. Confirmed CON SAP sigue sin
+        // contar (alineado con tablero PBI).
+        const isAsigLike = c.state === 'ASIG'
+          || (c.state === 'confirmed' && !c.sqDocNum);
         if (isAsig && isAsigLike && dispSap > 0) {
           c.qtyAsignada = c.pendiente;
           c.qtyBackorder = 0;
