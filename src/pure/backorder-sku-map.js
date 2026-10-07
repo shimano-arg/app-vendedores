@@ -400,8 +400,7 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
         // degraded, needsCardCodeResolution v1184, transferError). Admin
         // necesita verlos para desbloquearlos. Confirmed CON SAP sigue sin
         // contar (alineado con tablero PBI).
-        const isAsigLike = c.state === 'ASIG'
-          || (c.state === 'confirmed' && !c.sqDocNum);
+        const isAsigLike = c.state === 'ASIG' || (c.state === 'confirmed' && !c.sqDocNum);
         if (isAsig && isAsigLike && dispSap > 0) {
           c.qtyAsignada = c.pendiente;
           c.qtyBackorder = 0;

@@ -183,10 +183,16 @@ function _paintSubtabs(el, cache, active) {
     '<div style="background:#f9f9f9;padding:8px 16px;display:flex;gap:6px;border-bottom:1px solid #e5e7eb">' +
     pill('map', '🎯 MAP', cache.alerts.length) +
     pill('products', '📦 Productos', cache.products.length) +
-    pill('categories', '📊 Categorías', (cache.categories || []).filter((c) => {
-      const name = String(c.category_name || '').trim().toLowerCase();
-      return ['canas', 'reeles', 'reels', 'cañas'].includes(name);
-    }).length) +
+    pill(
+      'categories',
+      '📊 Categorías',
+      (cache.categories || []).filter((c) => {
+        const name = String(c.category_name || '')
+          .trim()
+          .toLowerCase();
+        return ['canas', 'reeles', 'reels', 'cañas'].includes(name);
+      }).length
+    ) +
     pill('ranking', '🏆 Ranking', (cache.ranking || []).length) +
     '</div>';
 }
@@ -237,7 +243,9 @@ function _paintMapSection(el, alerts) {
   const GRID_MAP = 'grid-template-columns:180px 150px 1.5fr 80px 80px 60px 40px;gap:12px';
   html +=
     '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden">' +
-    '<div style="display:grid;' + GRID_MAP + ';padding:8px 10px;background:#f3f4f6;font-weight:700;font-size:10px;text-transform:uppercase;color:#64748b">' +
+    '<div style="display:grid;' +
+    GRID_MAP +
+    ';padding:8px 10px;background:#f3f4f6;font-weight:700;font-size:10px;text-transform:uppercase;color:#64748b">' +
     '<div>Seller</div><div>SKU</div><div>Producto</div><div>Pub</div><div>Sugerido</div><div style="text-align:right">Δ%</div><div></div>' +
     '</div>' +
     '<div id="meli-map-rows">';
@@ -250,13 +258,19 @@ function _paintMapSection(el, alerts) {
       return (
         '<div class="meli-alert-row" data-seller="' +
         esc((a.seller_nickname || '').toLowerCase()) +
-        '" style="display:grid;' + GRID_MAP + ';padding:8px 10px;border-top:1px solid #f3f4f6;background:' +
+        '" style="display:grid;' +
+        GRID_MAP +
+        ';padding:8px 10px;border-top:1px solid #f3f4f6;background:' +
         bg +
         ';font-size:11px;align-items:center">' +
-        '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.seller_nickname || '') + '">' +
+        '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' +
+        esc(a.seller_nickname || '') +
+        '">' +
         esc(a.seller_nickname || '—') +
         '</div>' +
-        '<div style="font-family:monospace;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.sku || '') + '">' +
+        '<div style="font-family:monospace;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' +
+        esc(a.sku || '') +
+        '">' +
         esc(a.sku || '—') +
         '</div>' +
         '<div style="font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
@@ -413,7 +427,9 @@ function _paintCategoriesSection(el, categories) {
   // Ecosondas, Gorras) no son relevantes para el analisis de MAP Shimano.
   const CATEGORIAS_RELEVANTES = ['canas', 'reeles', 'reels', 'cañas'];
   const filtered = (categories || []).filter((c) => {
-    const name = String(c.category_name || '').trim().toLowerCase();
+    const name = String(c.category_name || '')
+      .trim()
+      .toLowerCase();
     return CATEGORIAS_RELEVANTES.some((rel) => name === rel);
   });
   const sorted = [...filtered].sort((a, b) => (b.n_listings || 0) - (a.n_listings || 0));
