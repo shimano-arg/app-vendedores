@@ -231,9 +231,13 @@ function _paintMapSection(el, alerts) {
   html +=
     '<input id="meli-map-filter" placeholder="Filtrar por seller..." oninput="window.__meliFilterMapAlerts(this.value)" style="width:100%;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:11px;margin-bottom:8px">';
 
+  // v1188 (2026-10-07): grid con gap:12px + SELLER 180px + ellipsis en seller/sku.
+  // Precedente: seller names largos (LA.CASA.DEL.PESCADOR PERGAMINO = 29 chars)
+  // desbordaban 120px y pisaban la columna SKU — reportado por Mariano.
+  const GRID_MAP = 'grid-template-columns:180px 150px 1.5fr 80px 80px 60px 40px;gap:12px';
   html +=
     '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden">' +
-    '<div style="display:grid;grid-template-columns:120px 160px 1.5fr 80px 80px 60px 40px;padding:8px 10px;background:#f3f4f6;font-weight:700;font-size:10px;text-transform:uppercase;color:#64748b">' +
+    '<div style="display:grid;' + GRID_MAP + ';padding:8px 10px;background:#f3f4f6;font-weight:700;font-size:10px;text-transform:uppercase;color:#64748b">' +
     '<div>Seller</div><div>SKU</div><div>Producto</div><div>Pub</div><div>Sugerido</div><div style="text-align:right">Δ%</div><div></div>' +
     '</div>' +
     '<div id="meli-map-rows">';
@@ -246,13 +250,13 @@ function _paintMapSection(el, alerts) {
       return (
         '<div class="meli-alert-row" data-seller="' +
         esc((a.seller_nickname || '').toLowerCase()) +
-        '" style="display:grid;grid-template-columns:120px 160px 1.5fr 80px 80px 60px 40px;padding:8px 10px;border-top:1px solid #f3f4f6;background:' +
+        '" style="display:grid;' + GRID_MAP + ';padding:8px 10px;border-top:1px solid #f3f4f6;background:' +
         bg +
-        ';font-size:11px">' +
-        '<div>' +
+        ';font-size:11px;align-items:center">' +
+        '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.seller_nickname || '') + '">' +
         esc(a.seller_nickname || '—') +
         '</div>' +
-        '<div style="font-family:monospace;font-size:10px">' +
+        '<div style="font-family:monospace;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(a.sku || '') + '">' +
         esc(a.sku || '—') +
         '</div>' +
         '<div style="font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
