@@ -54,6 +54,9 @@ import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
+// v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos (incident
+// cowork — ~1570 lineas sin cliente_code en v_pedidos_lines).
+import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core.js';
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { sapGet, sapLogin, sapLogout, sapPost } from './core/sap-sl-client.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
@@ -1219,6 +1222,35 @@ export const autoConfirmPendingPedidosCF = onSchedule(
       }
     } catch (e) {
       console.error('autoConfirmPendingPedidosCF unexpected error', e);
+    }
+  }
+);
+
+// v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos
+// automatico cada 15 min. Previene recurrencia del bug cowork (1570 lineas
+// sin cliente_code en v_pedidos_lines → Power BI "(en blanco)").
+// Fuente: sap_clients + client_applications (Firestore). El script Python
+// backfill_pedido_cardcode.py tambien usa sap_bp_raw BQ para el bulk.
+export const resolvePedidoCardCodeCF = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 0,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const db = getFirestore();
+    try {
+      const r = await handleResolvePedidoCardCode({
+        fbDb: db,
+        now: () => new Date(),
+        log: (msg, extra) => console.log(msg, extra || {}),
+      });
+      console.log('resolvePedidoCardCodeCF summary', r);
+    } catch (e) {
+      console.error('resolvePedidoCardCodeCF unexpected error', e);
     }
   }
 );
