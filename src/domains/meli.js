@@ -230,7 +230,7 @@ function _paintMapSection(el, alerts) {
 
   html +=
     '<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;overflow:hidden">' +
-    '<div style="display:grid;grid-template-columns:120px 100px 1.5fr 80px 80px 60px 40px;padding:8px 10px;background:#f3f4f6;font-weight:700;font-size:10px;text-transform:uppercase;color:#64748b">' +
+    '<div style="display:grid;grid-template-columns:120px 160px 1.5fr 80px 80px 60px 40px;padding:8px 10px;background:#f3f4f6;font-weight:700;font-size:10px;text-transform:uppercase;color:#64748b">' +
     '<div>Seller</div><div>SKU</div><div>Producto</div><div>Pub</div><div>Sugerido</div><div style="text-align:right">Δ%</div><div></div>' +
     '</div>' +
     '<div id="meli-map-rows">';
@@ -243,7 +243,7 @@ function _paintMapSection(el, alerts) {
       return (
         '<div class="meli-alert-row" data-seller="' +
         esc((a.seller_nickname || '').toLowerCase()) +
-        '" style="display:grid;grid-template-columns:120px 100px 1.5fr 80px 80px 60px 40px;padding:8px 10px;border-top:1px solid #f3f4f6;background:' +
+        '" style="display:grid;grid-template-columns:120px 160px 1.5fr 80px 80px 60px 40px;padding:8px 10px;border-top:1px solid #f3f4f6;background:' +
         bg +
         ';font-size:11px">' +
         '<div>' +
