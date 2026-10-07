@@ -1573,37 +1573,11 @@ window.closeConfirmDialog = function () {
   document.getElementById('confirm-dialog').classList.remove('open');
 };
 
-window.doConfirmPedido = function () {
-  if (!currentOrderKey || currentOrderKey === '__readonly__') return;
-  const ord = orders[currentOrderKey] || [];
-  if (!ord.length) return;
-  const mesIdx = parseInt(document.getElementById('cd-mes').value, 10);
-  const anio = document.getElementById('cd-anio').value;
-  const monthLabel = MESES[mesIdx] + ' ' + anio;
-  if (!confirm('Confirmar pedido de "' + currentOrderClient.name + '" para ' + monthLabel + '?'))
-    return;
-  if (!pending[currentOrderKey]) pending[currentOrderKey] = [];
-  pending[currentOrderKey].push({
-    month: monthLabel,
-    monthIdx: mesIdx,
-    year: parseInt(anio, 10),
-    confirmedAt: new Date().toISOString(),
-    lines: ord.map((l) => ({
-      code: l.code,
-      desc: l.desc,
-      cat: l.cat,
-      fam: l.fam,
-      sub: l.sub,
-      qty: parseFloat(l.qty) || 0,
-    })),
-  });
-  savePending();
-  delete orders[currentOrderKey];
-  saveOrders();
-  closeConfirmDialog();
-  closePedidoModal();
-  setPedidoView('pendientes');
-};
+// v1172 (audit 2026-10-07, Frontend C4): borrado window.doConfirmPedido stub.
+// Era sync + local-only (orders[]→pending[] en memory). La version viva esta
+// en index.html:30119 async con Firestore write + reserveNextOrderNumber.
+// El bundle corre primero y definia este stub; el inline despues lo sobreescribia.
+// Dead code que confundia grep + revisiones.
 window.openPedidoModal = openPedidoModal;
 
 function closePedidoModal() {

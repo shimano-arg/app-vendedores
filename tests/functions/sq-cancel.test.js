@@ -215,17 +215,14 @@ describe('verifySqCanBeCancelled', () => {
   });
 
   it('SQ Open sin Delivery → canCancel=true', async () => {
-    const slFetch = vi.fn().mockResolvedValue({
-      value: [
-        {
-          DocEntry: 100,
-          DocNum: 2000100,
-          DocumentStatus: 'bost_Open',
-          Cancelled: 'tNO',
-          DocumentLines: [{ TargetType: -1 }],
-        },
-      ],
-    });
+    // v1172: 2 llamadas (header + lines) por el fix Backend H2 (SL no soporta
+    // $expand sobre collections, se splittea en 2 requests).
+    const slFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        value: [{ DocEntry: 100, DocNum: 2000100, DocumentStatus: 'bost_Open', Cancelled: 'tNO' }],
+      })
+      .mockResolvedValueOnce({ DocumentLines: [{ TargetType: -1 }] });
     const r = await verifySqCanBeCancelled({ fbDb: null, slFetch }, '2000100');
     expect(r.canCancel).toBe(true);
   });
@@ -240,22 +237,26 @@ describe('verifySqCanBeCancelled', () => {
   });
 
   it('SQ con Delivery generada → canCancel=false', async () => {
-    const slFetch = vi.fn().mockResolvedValue({
-      value: [
-        { DocumentStatus: 'bost_Open', Cancelled: 'tNO', DocumentLines: [{ TargetType: 15 }] },
-      ],
-    });
+    // v1172: 2 llamadas (header + lines).
+    const slFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        value: [{ DocEntry: 100, DocumentStatus: 'bost_Open', Cancelled: 'tNO' }],
+      })
+      .mockResolvedValueOnce({ DocumentLines: [{ TargetType: 15 }] });
     const r = await verifySqCanBeCancelled({ fbDb: null, slFetch }, '2000100');
     expect(r.canCancel).toBe(false);
     expect(r.reason).toMatch(/Delivery/);
   });
 
   it('SQ con Order generada (TargetType 17) → canCancel=false', async () => {
-    const slFetch = vi.fn().mockResolvedValue({
-      value: [
-        { DocumentStatus: 'bost_Open', Cancelled: 'tNO', DocumentLines: [{ TargetType: 17 }] },
-      ],
-    });
+    // v1172: 2 llamadas (header + lines).
+    const slFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        value: [{ DocEntry: 100, DocumentStatus: 'bost_Open', Cancelled: 'tNO' }],
+      })
+      .mockResolvedValueOnce({ DocumentLines: [{ TargetType: 17 }] });
     const r = await verifySqCanBeCancelled({ fbDb: null, slFetch }, '2000100');
     expect(r.canCancel).toBe(false);
   });
@@ -401,17 +402,14 @@ describe('runSqCancelExpired — active mode', () => {
     });
     const slFetch = vi
       .fn()
-      // verifySqCanBeCancelled: SQ Open sin Delivery
+      // v1172: verifySqCanBeCancelled ahora hace 2 llamadas (header + lines)
+      // porque SL server-side no soporta $expand sobre collections.
+      // verifySqCanBeCancelled: header (SQ Open)
       .mockResolvedValueOnce({
-        value: [
-          {
-            DocEntry: 555,
-            DocumentStatus: 'bost_Open',
-            Cancelled: 'tNO',
-            DocumentLines: [{ TargetType: -1 }],
-          },
-        ],
+        value: [{ DocEntry: 555, DocumentStatus: 'bost_Open', Cancelled: 'tNO' }],
       })
+      // verifySqCanBeCancelled: lines inline (sin Delivery)
+      .mockResolvedValueOnce({ DocumentLines: [{ TargetType: -1 }] })
       // cancelSqInSap: GET DocEntry
       .mockResolvedValueOnce({ value: [{ DocEntry: 555 }] })
       // cancelSqInSap: POST Cancel
@@ -445,16 +443,13 @@ describe('runSqCancelExpired — active mode', () => {
         },
       ],
     });
-    const slFetch = vi.fn().mockResolvedValueOnce({
-      value: [
-        {
-          DocEntry: 555,
-          DocumentStatus: 'bost_Open',
-          Cancelled: 'tNO',
-          DocumentLines: [{ TargetType: 15 }],
-        },
-      ],
-    });
+    const slFetch = vi
+      .fn()
+      // v1172: 2 llamadas (header + lines).
+      .mockResolvedValueOnce({
+        value: [{ DocEntry: 555, DocumentStatus: 'bost_Open', Cancelled: 'tNO' }],
+      })
+      .mockResolvedValueOnce({ DocumentLines: [{ TargetType: 15 }] });
     const r = await runSqCancelExpired({ fbDb, now: () => NOW, slFetch });
     expect(r.cancelledCount).toBe(0);
     expect(r.skipped).toHaveLength(1);

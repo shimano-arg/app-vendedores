@@ -512,6 +512,14 @@ export async function syncSapInvoices(deps) {
     // sin abortar el batch (los pedidos que si aplican quedan actualizados;
     // los que fallan quedan intactos y no vuelven a intentarse hasta que la
     // Invoice reaparezca — no reaparece porque el cursor ya avanzo).
+    // v1172 (audit 2026-10-07, Backend H1): track docEntries con error para
+    // retroceder el cursor al min(failed)-1 y permitir retry en siguiente run.
+    // Antes: cursor avanzaba siempre a maxDocEntry → Invoices con error en
+    // applyInvoiceMatch (e.g. race Firestore update) nunca se reprocesaban
+    // porque la Invoice ya estaba "pasada" en el cursor. Datos silenciosamente
+    // desincronizados.
+    /** @type {number[]} */
+    const failedInvoiceDocEntries = [];
     if (mode === 'active') {
       for (const match of matches) {
         try {
@@ -526,13 +534,31 @@ export async function syncSapInvoices(deps) {
           errors.push(
             `applyInvoiceMatch pedidoAppId=${match.pedidoAppId} invoice=${match.invoiceDocEntry}: ${String(e)}`
           );
+          failedInvoiceDocEntries.push(Number(match.invoiceDocEntry) || 0);
         }
       }
     }
 
     // 5) Escribir cursor
-    if (maxDocEntry > cursorBefore) {
-      await writeCursor(deps, maxDocEntry, mode);
+    // v1172 Backend H1: si hay errors en applyInvoiceMatch, retroceder el
+    // cursor para que proxima run reintente desde la minima Invoice fallida.
+    // Si todo OK, avanzar a maxDocEntry normal.
+    let cursorToWrite = maxDocEntry;
+    if (failedInvoiceDocEntries.length > 0) {
+      const minFailed = Math.min(...failedInvoiceDocEntries.filter((n) => n > 0));
+      if (Number.isFinite(minFailed) && minFailed > 0) {
+        cursorToWrite = Math.max(cursorBefore, minFailed - 1);
+        log('syncSapInvoices cursor rollback for retry', {
+          failedCount: failedInvoiceDocEntries.length,
+          minFailed,
+          cursorBefore,
+          cursorToWrite,
+          originalMax: maxDocEntry,
+        });
+      }
+    }
+    if (cursorToWrite > cursorBefore) {
+      await writeCursor(deps, cursorToWrite, mode);
     }
   } catch (e) {
     errors.push(`syncSapInvoices: ${String(e)}`);
