@@ -4676,7 +4676,94 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1178
+## 41) Changelog v300 → v1179
+
+### v1179 (2026-10-07) — INCIDENT FIX: CF stock-degraded gate (pedido RICARDO BLANCO GOITIA SQ 2000316)
+
+**Archivos tocados**: `functions/core/auto-send-sap-core.js:80-83, 594-660, 727-740, 757-767` + `functions/core/auto-send-sap-core.js:351` (JSDoc) + `index.html:22473-22489` (classifyTransferError) + `tests/functions/auto-send-sap.test.js` (+3 cases regresion).
+
+**Motivacion**: Incident reportado por Mariano 2026-10-07 ~12:00 ART. Pedido RICARDO FABIAN BLANCO GOITIA fue ingresado por el CF server-side con una SQ silent-degradada. App decia subtotal disponible $7.696.000, SAP recibio SQ 2000316 con Total Before Discount $5.448.000 (−$2.248.000 neto, 23% del pedido perdido). VDE veia "✓ En SAP: DocNum 2000316" en la UI y no se enteraba de la diferencia.
+
+**Antes**:
+`functions/core/auto-send-sap-core.js` tenia el pattern v1051:
+
+    const stockCheck = await filterLinesByLiveStock(session, built.payload.DocumentLines, deps.sl);
+    const degradedForAudit = stockCheck.degradedLines || [];
+    if (stockCheck.checkSucceeded && degradedForAudit.length > 0) {
+      log('live stock recheck DEGRADED lines', { ... });
+      built.payload.DocumentLines = stockCheck.keptLines; // ← modifica payload silent
+      if (stockCheck.keptLines.length === 0) { ... all_degraded skip ... }
+      // Si quedo >=1 linea → sigue al POST con payload reducido
+    }
+
+Y post-POST marcaba `via='cf_auto_partial_stock'` (invisible en UI principal) + `stockRecheckDegraded[]` para audit.
+
+**Problema**:
+- CF trigger `onPedidoConfirmedSendToSap` detectaba stock SAP < qty pedida (fisico cambio entre la confirmacion y el envio automatico), degradaba el payload, y enviaba la SQ reducida sin preguntar a nadie.
+- VDE/admin veia "✓ En SAP" sin alert ni badge. Solo el audit log `stockRecheckDegraded[]` quedaba en Firestore (invisible al no ser que admin abra el detalle).
+- Cliente podia recibir/factura por menos de lo acordado → reclamo o pérdida silenciosa (en el caso de Ricardo, 2.248.000 ARS).
+- Mismo pattern LAMORA (CLAUDE.md §29.3) pero por el camino server-side CF. Audit multi-agent 2026-10-07 flagueo esto como **M4 MEDIUM** pero fue mal triagado — en realidad es **CRITICAL** por el mismo riesgo monetario que LAMORA original.
+- El fix v1172 SRE C3 cubrio solo el flow client-side (`sap-auto-send-listener.js`) — el server-side quedo abierto hasta el incident.
+
+**Cambio**:
+
+1. **Nuevo result enum**: `SKIP_STOCK_RECHECK_PARTIAL_DEGRADED = 'skip_stock_recheck_partial_degraded'` para distinguir del `_ALL_DEGRADED` existente.
+
+2. **Gate server-side**: cuando `degradedForAudit.length > 0`:
+   - **Partial** (`keptLines.length > 0`): NO enviar POST. Marcar `transferError.needsManualIntervention=true` + `stockRecheckDegraded: degradedForAudit` + `originalLineCount` + `keptLineCount`. Liberar lock. NO escribir `transferidoSAP` (pedido queda elegible para re-intento manual).
+   - **All degraded** (`keptLines.length === 0`): backward compat — mantener el marcado `via='app_only'` + `reason='stock_recheck_all_degraded'` existente (ya era el behavior correcto).
+
+3. **Post-POST write** limpio: `via='cf_auto'` siempre (no mas `cf_auto_partial_stock`). Si llegamos al POST significa que degraded era 0.
+
+4. **Deprecation**: `SENT_OK_PARTIAL_STOCK` + `cf_auto_partial_stock` quedan como legacy — nunca mas se disparan. El codigo que leia esos valores sigue funcionando (defensive) pero no se escriben.
+
+5. **UI**: `classifyTransferError` en `index.html:22473` reconoce el prefijo `stock_degradado_cf_skip:` (y `_auto_skip:` del client-side fix) y lo clasifica como:
+   - **Tipo**: "Stock cambio"
+   - **Hint**: "Entre que confirmaste el pedido y el envio automatico, SAP cambio el stock de alguna linea. El pedido NO se envio para evitar que SAP facture menos de lo que vendiste. Revisa los SKUs degradados en el detalle; podes: 1) cancelar el pedido, 2) forzar envio via batch manual aceptando qtys reducidas, o 3) esperar reposicion."
+
+El badge rojo "¿POR QUÉ FALLÓ?" + boton "Enviar a SAP" (reintentar manual) de la card ya existian (v914/v1074). El fix solo clasifica el nuevo tipo de error para que el hint sea especifico.
+
+**Por que (decisiones tomadas)**:
+- **Bloquear ≥1 linea degradada** (estricto, no toleramos nada): Mariano eligio esta opcion ante "ASEGURATE que no vuelva a ocurrir". Riesgo residual: pedidos con cambio mínimo de stock (ej qty 100 → stock SAP 99) van a frenar + requerir intervencion. Si abunda, aflojar el umbral en iteracion siguiente (ej "bloquear solo si degradacion >5% del total").
+- **Partial = transferError (no transferidoSAP)**: deja el pedido ELEGIBLE para re-intento. Admin interviene, reposiciona stock o acepta qtys reducidas → clickea "Enviar a SAP" en la card → batch manual re-dispara con fresh stock check.
+- **All degraded = via='app_only'**: backward compat. Pedido queda como demanda pendiente (igual que antes v1179).
+- **Alternativa descartada**: notificar via email sin bloquear. Mas riesgoso — si el admin no mira el mail, perdida silent persiste.
+- **Alternativa descartada**: bloquear + enviar email con breakdown. Mejora para iter siguiente — por ahora el badge rojo en la card es suficiente feedback.
+- **Pre-check idempotent `findQuotationByNumAtCard` sigue aplicando antes**: v1172 Backend C1. Si SAP ya tiene SQ, se adopta sin re-POST (idempotent hit). El gate stock recien dispara si no hubo idempotent hit.
+
+**Verificacion**:
+- `npm run test:unit` → **674/674 pass**.
+- `npx vitest run tests/functions/auto-send-sap.test.js` → **50/50 pass** (+3 nuevos cases v1179).
+- `npx vitest run tests/functions/` → **459/459 pass** (+3 vs 456).
+- `npx tsc --noEmit --project tsconfig.json` → clean (JSDoc return type extendido con `degradedCount?: number`).
+- `node build.js` → OK (sin cambios en shell size, solo en core y inline UI).
+- Biome format applied.
+
+Tests nuevos:
+- **"v1179: 1 linea degradada parcial → NO POST + marca needsManualIntervention"**: `itemsStock: { CDC60H2: 1, FX2500: 999 }`, pedido pide 3 de CDC60H2 → degrada → espera `SKIP_STOCK_RECHECK_PARTIAL_DEGRADED` + 0 POST + `transferError.needsManualIntervention=true`.
+- **"v1179: TODAS las lineas degradadas → marca via=app_only (legacy) + skip"**: `itemsStock: { CDC60H2: 0, FX2500: 0 }` → espera `SKIP_STOCK_RECHECK_ALL_DEGRADED` + `via='app_only'` + 0 POST.
+- **"v1179: stock OK en todas las lineas → envio normal (sin bloqueo)"**: stock amplio → `SENT_OK` + `via='cf_auto'` + sin `stockRecheckDegraded`.
+
+**Monitoreo post-deploy**:
+- Buscar entries `transferError.needsManualIntervention=true` + `stockRecheckDegraded.length > 0` en Firestore o Sentry.
+- Si abunda (>5/dia), el stock snapshot Firestore está desincronizado con SAP live — investigar la ventana del sync `sync_sap_to_firestore.py` (cada 5min).
+- Pedidos CON `needsManualIntervention=true` deben aparecer con card roja + badge "¿POR QUÉ FALLÓ?" + tipo "Stock cambio" en Pedidos > Confirmados.
+
+**Pedido Ricardo Blanco Goitia — pasos manuales**:
+1. Mariano borra manualmente la SQ 2000316 en SAP.
+2. En Firestore, el pedido queda marcado con `transferidoSAP.via='cf_auto_partial_stock'` + `docNum=2000316` (invisible en UI porque card es verde). Admin debe:
+   - Opcion A: borrar manualmente los campos `transferidoSAP.*` del doc Firestore via Console (hace que el pedido vuelva a ser elegible para auto-send).
+   - Opcion B: dejar el pedido como esta y crear uno nuevo manual (menos invasivo pero duplica audit log).
+   - Recomendado: Opcion A + poner el pedido en lista de espera via "Volver a Pendientes" para que el VDE revise las qtys antes de re-confirmar.
+3. Post-fix v1179 deployado, el nuevo re-intento NO va a silent-degradar — va a bloquearse + mostrar badge rojo si stock cambio.
+
+**Rollback**:
+Semi-safe revertir. Reintroduce el vector LAMORA server-side (pedidos silent-degradan). Mitigacion residual: el pre-check idempotent v1172 Backend C1 sigue previniendo duplicados en el flow manual. Si tenes que revertir urgente, hacelo + monitorear emails de Berón (v1172 Backend M2 ahora SI dispara mail para via='cf_auto', entonces admin se entera por mail aunque la UI no muestre).
+
+**TODO futuro (no urgente)**:
+- Dashboard mensual "pedidos con stock_degradado" para ver frecuencia.
+- Email automatico a admin cuando se marca `needsManualIntervention` (hoy solo badge visual).
+- Umbral configurable (settings de admin): "tolerar X% de degradacion" para evitar bloqueos excesivos si abunda.
 
 ### v1178 (2026-10-07) — Perf C1 lazy chunk `notificaciones` + QA tests regresion FATECHI/LAMORA
 

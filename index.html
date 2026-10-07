@@ -6064,7 +6064,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1178';
+const APP_VERSION = 'v1179';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22472,6 +22472,12 @@ function renderSapEstadoBadge(estado, detalles){
 // derivado de errores reales que vimos en produccion.
 function classifyTransferError(msg){
   const raw = String(msg || '').toLowerCase();
+  // v1179 (incident Ricardo Blanco Goitia 2026-10-07): stock degradado por recheck live
+  // antes del POST. CF bloquea envio para evitar SQ silent-degradada (vector LAMORA
+  // server-side). Admin debe decidir: cancelar pedido, forzar via batch manual, o
+  // esperar reposicion stock.
+  if (raw.includes('stock_degradado_cf_skip') || raw.includes('stock_degradado_auto_skip'))
+    return { type: 'Stock cambio', hint: 'Entre que confirmaste el pedido y el envio automatico, SAP cambio el stock de alguna linea. El pedido NO se envio para evitar que SAP facture menos de lo que vendiste. Revisa los SKUs degradados en el detalle; podes: 1) cancelar el pedido, 2) forzar envio via batch manual aceptando qtys reducidas, o 3) esperar reposicion.' };
   if (raw.includes('lead') && raw.includes('inactive'))
     return { type: 'Cliente inactivo', hint: 'El cliente esta marcado como Lead inactivo en SAP. Pedile a Mariano/Pablo que lo reactive.' };
   if (raw.includes('cardcode') || raw.includes('card code') || raw.includes('bp not found'))
