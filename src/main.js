@@ -76,7 +76,11 @@ import './domains/dashboard.js'; // listenCampaigns al login + getVendorForKey +
 // no al login → seguro lazy. Stubs abajo.
 import './domains/rutas.js'; // ensureVisitsListener + ensureCustomRoutesListener al login
 import './domains/rendiciones.js'; // ensureRendicionesListener al login
-import './domains/notificaciones.js'; // renderNotifsList + syncUsersDirectory
+// v1178 (2026-10-07) Perf C1: notificaciones extraido a chunk lazy. 73 KB raw.
+// Stubs registrados abajo. El listener Firestore (myNotifications + unsubMyNotifs
+// + ensureNotifsListener + updateNotifsBadge) sigue en inline index.html, asi que
+// las notifs llegan y actualizan el badge al login. La UI renderea cuando el user
+// abre el tab (stub dispara chunk load ~200ms, dedup via loader).
 import './domains/product-picker.js'; // getSkuIndex/Tokens usados por matchSkuFromTitle wrapper (inline L3408)
 import './domains/exports-sap.js'; // renderSapClientes/Productos usados por sap-admin-panel switchSapTab
 import './domains/visitas.js'; // compressImage usado por notificaciones + rendiciones + ensureClientLocsListener
@@ -169,6 +173,43 @@ installChunkStubs('seguimiento', [
   'setSegStatus',
 ]);
 installChunkStubs('meli', ['openMeliModal', 'closeMeliModal', 'setMeliSubtab']);
+// v1178 (2026-10-07) Perf C1: notificaciones chunk. KNOWN BUG preservado del
+// legacy: window.markAllNotifsRead esta declarada 2 veces en el chunk; la 2da
+// pisa a la 1ra en runtime. TODO code review consolidar.
+installChunkStubs('notificaciones', [
+  'openNotifsPanel',
+  'closeNotifsPanel',
+  'populateTaskTargets',
+  'copyAltaCliShareLink',
+  'shareAltaCliViaWhatsapp',
+  'setAltaCliSubtab',
+  'submitAltaRapida',
+  'onAltaCliFile',
+  'removeAltaCliFile',
+  'submitClientApplication',
+  'deleteMyAltaCli',
+  'openClientApplicationDetail',
+  'closeClientApplicationDetail',
+  'approveClientApplication',
+  'rejectClientApplication',
+  'setNotifsTab',
+  'deleteNotif',
+  'markAllNotifsRead',
+  'openImgViewer',
+  'closeImgViewer',
+  'syncUsersDirectory',
+  'onTaskImageInput',
+  'removeTaskFormImage',
+  'sendTaskNotification',
+  'completarTask',
+  'markNotifRead',
+  'contactarDesdeNotif',
+  'renderNotifsList',
+  'ensureAltaCliListener',
+  'updateNotifsTabCounts',
+  'populateAltaCliProvincias',
+  'notifItemHtml',
+]);
 
 const phase0 = {
   version: 'v333',

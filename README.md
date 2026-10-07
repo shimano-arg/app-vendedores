@@ -4676,7 +4676,116 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1177
+## 41) Changelog v300 → v1178
+
+### v1178 (2026-10-07) — Perf C1 lazy chunk `notificaciones` + QA tests regresion FATECHI/LAMORA
+
+Trabajo en paralelo de 2 agents especialistas:
+- Agent A: extraccion `src/domains/notificaciones.js` a lazy chunk (sección principal abajo)
+- Agent B: QA tests regresion (sub-sección "QA tests" al final de esta entry)
+
+Version bump v1177 → v1178 — CACHE_VERSION bumpeado para invalidar SW cache offline (users descargan el chunk nuevo + el shell más chico).
+
+---
+
+**Perf C1: chunk lazy `notificaciones` (shell -199 KB)**
+
+**Archivos tocados**: `build.js:109+` (LAZY_CHUNKS entry) + `src/main.js:79, 173+` (installChunkStubs) + `sw.js:52+` (STATIC_ASSETS). NO toca `index.html`.
+
+**Archivos tocados**: `build.js:109+` (LAZY_CHUNKS entry) + `src/main.js:79, 173+` (installChunkStubs) + `sw.js:52+` (STATIC_ASSETS). NO toca `index.html`.
+
+**Antes**:
+Shell `app.bundle.js` pesaba 2.67 MB (raw) / ~715 KB gzip con `src/domains/notificaciones.js` (73 KB fuente, ~199 KB bundleado con sourcemap) incluido via `import` en `src/main.js`. Cargado blocking en `<head>` → 3-5s de parse+exec en mobile 4G.
+
+**Problema**:
+Panel Notificaciones + Alta Clientes (73 KB de UI handlers) estaba en el shell aunque solo lo abre el user al clickear la pestana "Notificaciones" en el sidebar. Audit multi-agent (2026-10-07) lo flagueo como **Perf C1 CRITICAL**: 73 KB de código no-crítico bloqueando el arranque de todos los users (incluyendo mobile 4G que es el perfil tipico de VDE en ruta).
+
+**Cambio**:
+1. **`build.js`**: nueva entrada `notificaciones: [...32 exports...]` en `LAZY_CHUNKS`. Compila `src/domains/notificaciones.js` → `chunks/notificaciones.js` (201 KB con inline sourcemap).
+2. **`src/main.js`**: reemplazado `import './domains/notificaciones.js'` por comment explicativo + `installChunkStubs('notificaciones', [...32 exports...])`. Los 32 handlers quedan como stubs proxy que al primer llamado disparan `loadChunk('notificaciones')` + re-invoke de la fn real.
+3. **`sw.js`**: `./chunks/notificaciones.js` agregado a `STATIC_ASSETS` para offline post-primera-apertura. **CACHE_VERSION NO bumpeado** (ver §Verificacion abajo — conflicto con constraint "NO bumpear APP_VERSION en index.html" del task owner).
+
+**Exports movidos** (lista completa, 32 handlers):
+`openNotifsPanel`, `closeNotifsPanel`, `populateTaskTargets`, `copyAltaCliShareLink`, `shareAltaCliViaWhatsapp`, `setAltaCliSubtab`, `submitAltaRapida`, `onAltaCliFile`, `removeAltaCliFile`, `submitClientApplication`, `deleteMyAltaCli`, `openClientApplicationDetail`, `closeClientApplicationDetail`, `approveClientApplication`, `rejectClientApplication`, `setNotifsTab`, `deleteNotif`, `markAllNotifsRead`, `openImgViewer`, `closeImgViewer`, `syncUsersDirectory`, `onTaskImageInput`, `removeTaskFormImage`, `sendTaskNotification`, `completarTask`, `markNotifRead`, `contactarDesdeNotif`, `renderNotifsList`, `ensureAltaCliListener`, `updateNotifsTabCounts`, `populateAltaCliProvincias`, `notifItemHtml`.
+
+**Por que**:
+Regla CLAUDE.md §18 (pattern establecido con exports-core, exports-advanced, admin-users, forecast, panel-control, seguimiento, meli): extraer dominios on-demand que estan en el shell. Pattern verificado 7 veces previas. El unico blocker previo documentado (LOOP_RETRO.md 2026-09-04 iter 10) era que `renderNotifsList` + `syncUsersDirectory` tenian "at-login deps". Analisis en este iter demostro que el blocker ya no aplica:
+- **`ensureNotifsListener` + `updateNotifsBadge` + `myNotifications` + `unsubMyNotifs`** siguen en inline `index.html` (NO estan en el chunk). El listener Firestore attacha al login desde `ensureAllListeners()` sin tocar el chunk.
+- **`renderNotifsList`** se llama desde `index.html:16411` (snapshot callback, async) + `12802` (tab switch, user action) + `16459` (badge update callback, async). Ninguno es sincrono bloqueante — el stub retorna Promise que el inline ignora. La UI se completa ~200ms despues del tab switch (acceptable para primer render).
+- **`ensureAltaCliListener`** llamada desde `ensureAllListeners()` en `applyRolePermissions` al login (via `_try` wrap try/catch). Stub retorna Promise → chunk se carga → listener attacha. Delay de ~200ms en el primer attach — acceptable (el user no abre el tab "altacli" en el primer ms post-login).
+- **`syncUsersDirectory`** llamada desde `admin-users.js:529` (admin-only, otro chunk). Admin abre panel → chunk admin-users carga → `syncUsersDirectory()` dispara chunk notificaciones. Dedup por el loader. Try/catch wrap tolera el delay.
+- **Cross-domain deps**: `rendiciones.js` (shell) usa `closeClientApplicationDetail()` como free ref en `catch` handlers; `openImgViewer()` como onclick strings. Ambos resuelven a stubs funcion-like → safe.
+
+**Verificacion**:
+- `node build.js` OK. Shell `app.bundle.js`: **2666690 → 2463555 bytes (−203135 bytes / −199 KB raw, −7.6%)**. Chunk nuevo `chunks/notificaciones.js`: 206449 bytes (201 KB, bajo el techo 400 KB del smoke test).
+- `npm run test:unit` → **670/670 pass**.
+- `npx vitest run tests/smoke/bundle-runtime.test.js` → **25/25 pass** (el shell size assertion <3.5 MB, ya pasaba antes y pasa ahora; chunk size <400 KB passed).
+- `npx vitest run tests/unit/listeners.test.js` → **8/8 pass** (window.unsubAltaCliMine + window.unsubMySentTasks siguen detectados en src/domains/notificaciones.js por el linting; el detach en inline sigue siendo valido).
+- Grep verifica `notificaciones` presente en main.js (4 matches), build.js (1 match), sw.js (1 match).
+- APP_VERSION + CACHE_VERSION bumpeado v1177 → v1178 al mergear (SW invalida cache viejo → users descargan el chunk nuevo + shell -199 KB).
+
+**Rollback**:
+Safe. Revertir el commit restaura el `import './domains/notificaciones.js'` original en `src/main.js`, el shell vuelve a incluir el modulo, y los stubs no se instalan. `chunks/notificaciones.js` queda en el filesystem pero no se referencia desde ningun lado. `node build.js` lo removeria o se puede eliminar manual. SW cache: usuarios que ya cachearon el chunk no se rompen (fetch 404 fallbacks silenciosos).
+
+**Proximos 5 dominios sugeridos** (orden por costo/beneficio, PRs independientes):
+1. **`rendiciones`** (~1,700 LOC): panel VDE/admin on-demand. Listener `unsubMisRendiciones` + `unsubTodasRendiciones` ya cross-scope (window.*). Similar pattern a seguimiento.
+2. **`sap-admin-panel`** (~1,500 LOC): admin-only. `listenSapMaps` + `ensureSapConfigListener` at-login — requiere split core/modal como seguimiento.
+3. **`pedidos-modal`** (~1,200 LOC): user action on-demand (abrir pedido). Cuidado con `doConfirmPedido` override pattern del inline fragmento C.
+4. **`master-clientes`** (~1,100 LOC): `ensureClientMasterListener` at-login + `clientMasterCache` 15+ callers — requiere split cache-shell vs modal-chunk.
+5. **`visitas`** (~900 LOC): `ensureClientLocsListener` at-login + `compressImage` usado por 3+ dominios shell — requiere mover `compressImage` a `src/pure/`.
+
+Target acumulado: shell 2.46 MB → ~1.8 MB con los 5 extraidos. Combinado con la de este PR, shell deberia bajar de 2.67 MB (pre) a ~1.6 MB (post los 5).
+
+---
+
+**QA tests regresion (incluido en el mismo PR v1178)**
+
+**Archivos tocados**:
+- Modificados: `tests/functions/auto-send-sap.test.js`, `tests/functions/planner-stage-change.test.js`.
+- Creados: `tests/functions/auto-send-sap-numatcard-race.test.js` (348 lineas, 3 cases FATECHI regresion), `tests/unit/preCheckStockWhs11.test.js` (248 lineas, 4 cases CLC66MH2PY/LAMORA regresion).
+
+**Antes**:
+- 10 tests preexistentes fallaban: 9 en `auto-send-sap.test.js` con `expected 'skip_stock_recheck_all_degraded' to be 'sent_ok'`, 1 en `planner-stage-change.test.js` con `expected 'fa@x.com' to contain 'diego@shimano.com.ar'`.
+- Zero tests de regresion para los 2 incidentes de dinero mas recientes del repo:
+  - **FATECHI** (2026-10-06, $7.3M duplicados en SAP): CF timeout mid-POST + retry sin pre-check idempotent → 2 SQs oficiales. Fix en v1172 (3 defensas combinadas C1+C2+C3). Pero sin tests, cualquier refactor futuro puede reintroducir el gap.
+  - **CLC66MH2PY** (2026-10-05, pre-check decia 0 pero habia 89): `encodeURIComponent` encoded los parens del OData filter → SL silent 400 → stock 0. Fix v1165. Sin tests, bug latente.
+  - **LAMORA** ($3.699.000 app vs $1.667.000 SAP): listener client-side no corria pre-check. Fix v1172 SRE C3. Sin tests.
+
+**Problema**:
+Los 10 fails preexistentes eran test bugs (NO SUT bugs — CLAUDE.md §6):
+- `auto-send-sap.test.js`: el mock `makeSlFetch` no manejaba el endpoint `/Items` que usa `filterLinesByLiveStock` (v1051). Caia al default `{}` → `rows=[]` → map vacio → **todas las lineas degraded** → `SKIP_STOCK_RECHECK_ALL_DEGRADED`.
+- `planner-stage-change.test.js`: `canonVendor('diego')` normaliza a `'DIEGO'` (uppercase) antes del lookup `.where('vendor', '==', 'DIEGO')`. El roleDoc tenia `vendor: 'diego'` lowercase → query empty → `vdeEmail=null`.
+
+Ambos tests "fallaban" porque la implementacion de prod habia evolucionado (filterLinesByLiveStock v1051 + canonVendor uppercase) y nadie actualizo los mocks. Zero bugs reales en prod. Pero cada deploy pasaba con 10 tests rojos "esperados" — eventualmente alguno iba a tapar un bug real nuevo con el ruido.
+
+**Cambio**:
+1. **Fix test bugs** (zero cambios en produccion):
+   - `tests/functions/auto-send-sap.test.js`: agregue handler `isItemsGet` que extrae `ItemCode`s del filter OData y devuelve stock amplio por default (999) + hook override via `scenarios.itemsStock` para tests que quieran simular stock degradado especifico.
+   - `tests/functions/planner-stage-change.test.js`: cambie `roleDoc.vendor` de `'diego'` a `'DIEGO'` (uppercase que la query SUT espera).
+
+2. **Nuevos tests regresion**:
+   - `tests/functions/auto-send-sap-numatcard-race.test.js` (3 cases): simula FATECHI exact scenario. Case 1 = first POST OK + lock expira + second attempt → idempotent hit (SENT_OK_IDEMPOTENT sin re-POST). Case 2 = first POST aborta pero SAP commiteo + lock preservado TTL v1172 + second tras expiry → idempotent hit. Case 3 = first POST aborta + SAP NO commiteo + second → POST normal (SENT_OK).
+   - `tests/unit/preCheckStockWhs11.test.js` (4 cases): carga el modulo `src/domains/sap-service-layer.js` en VM sandbox con fakes `window`/`firebase`/`fbDb`, extrae `window.sapSL`, monkey-patch `fetchWithSession`. Case 1 = 50 SKUs → 1 request, assertion `url NOT contains %28/%29` (regresion encoded parens). Case 2 = 150 SKUs → 3 chunks paralelos. Case 3 = fallback individual para missings. Case 4 = SKU con apostrofe → OData escape `''` + available correcto.
+
+**Por que**:
+- **Test bugs vs SUT bugs** (CLAUDE.md §6): investigacion mostro ambos eran test bugs. El fix no toca produccion.
+- **Nuevos tests obligatorios por skill `superpowers:brainstorming` + audit QA**: cada precedente de dinero real requiere test de regresion. Sin esto, un refactor futuro puede destapar el bug viejo.
+- **Alternativa descartada**: mocks exhaustivos de SAP SL completo. Overkill. Monkey-patch de `fetchWithSession` suficiente para los casos del test.
+
+**Verificacion**:
+- `npm run test:unit` → **674/674 pass** (30 files; +4 cases nuevos vs 670 anterior).
+- `npx vitest run tests/functions/` → **456/456 pass** (24 files; +3 cases nuevos vs 453 anterior).
+- `npx tsc --noEmit --project tsconfig.json` → clean.
+- Zero `.skip` quedo pendiente.
+- Zero cambios en produccion (functions/core/*, src/domains/*, index.html).
+
+**Rollback**:
+Safe revertir tests nuevos (no afectan prod). Fix de los 2 test bugs preexistentes es la unica forma de que los 10 tests rojos pasen — si se revierte, vuelven los 10 fails + ruido en CI.
+
+---
+
+**Rollback global v1178** (Perf + QA combinados):
+Perf chunk: safe revertir (ver detalle arriba). QA tests: safe revertir (no afectan prod).
 
 ### v1177 (2026-10-07) — Backorder manual: mes futuro opcional por SKU
 

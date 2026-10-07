@@ -133,6 +133,49 @@ const LAZY_CHUNKS = {
   // (ventas, publicaciones, competencia) scrapeados por pipeline mercado-intelligence
   // + expone a Shimano Pesca. Lazy porque solo Mariano/gerentes lo abren.
   meli: ['openMeliModal', 'closeMeliModal', 'setMeliSubtab'],
+  // v1178 (2026-10-07) Perf C1: panel Notificaciones + Alta Clientes.
+  // 73 KB raw / ~75-85 KB bundled. Default landing tab para admin/vendedor pero
+  // tolerante al delay (listener Firestore inline en index.html sigue en shell —
+  // myNotifications + unsubMyNotifs + ensureNotifsListener + updateNotifsBadge).
+  // Al abrir el pane, el stub dispara loadChunk y la lista se renderea ~200ms
+  // despues. ensureAltaCliListener del ensureAllListeners() tambien stub — el
+  // listener se attacha post chunk-load (acceptable: ac-sub-count-mias actualiza
+  // al abrir el tab). syncUsersDirectory llamada desde admin-users chunk tambien
+  // stub (dedup via loader; ambos cargan en paralelo sin conflicto).
+  notificaciones: [
+    'openNotifsPanel',
+    'closeNotifsPanel',
+    'populateTaskTargets',
+    'copyAltaCliShareLink',
+    'shareAltaCliViaWhatsapp',
+    'setAltaCliSubtab',
+    'submitAltaRapida',
+    'onAltaCliFile',
+    'removeAltaCliFile',
+    'submitClientApplication',
+    'deleteMyAltaCli',
+    'openClientApplicationDetail',
+    'closeClientApplicationDetail',
+    'approveClientApplication',
+    'rejectClientApplication',
+    'setNotifsTab',
+    'deleteNotif',
+    'markAllNotifsRead',
+    'openImgViewer',
+    'closeImgViewer',
+    'syncUsersDirectory',
+    'onTaskImageInput',
+    'removeTaskFormImage',
+    'sendTaskNotification',
+    'completarTask',
+    'markNotifRead',
+    'contactarDesdeNotif',
+    'renderNotifsList',
+    'ensureAltaCliListener',
+    'updateNotifsTabCounts',
+    'populateAltaCliProvincias',
+    'notifItemHtml',
+  ],
 };
 
 function fmtSize(bytes) {
