@@ -5373,6 +5373,36 @@
   background: rgba(255, 255, 255, 0.18) !important;
   color: #fff !important;
 }
+/* v1182 (2026-10-07): card 100% BACKORDER pintada celeste clarito para
+   diferenciarla de pedidos normales. Mismo problema que cc-error v916 — el
+   selector shell default #pane-pedidos .confirmed-card ganaba por
+   especificidad (0,1,2,0 vs 0,0,2,0) y pisaba el background. Fix: replicar
+   pattern cc-error con selector #pane-pedidos .confirmed-card.cc-backorder
+   + !important. Precedente CLAUDE.md §21 (CSS class + !important). */
+#pane-pedidos .confirmed-card.cc-backorder {
+  background: #e0f2fe !important;
+  border: 2px solid #49A2DA !important;
+  border-left: 6px solid #0284c7 !important;
+  color: #075985 !important;
+}
+#pane-pedidos .confirmed-card.cc-backorder:hover {
+  background: #bae6fd !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 12px rgba(2, 132, 199, 0.25) !important;
+}
+#pane-pedidos .confirmed-card.cc-backorder .cc-name {
+  color: #0c4a6e !important;
+}
+#pane-pedidos .confirmed-card.cc-backorder .cc-meta {
+  color: #075985 !important;
+}
+#pane-pedidos .confirmed-card.cc-backorder .cc-summary {
+  color: #075985 !important;
+}
+#pane-pedidos .confirmed-card.cc-backorder .cc-month {
+  background: #0284c7 !important;
+  color: #fff !important;
+}
 #pane-pedidos .confirmed-card .cc-name {
   color: #1d1d1f !important;
   font-size: 12.5px !important;
