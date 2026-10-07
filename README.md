@@ -4678,6 +4678,51 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1183
 
+### Backfill clientCardCode faltantes (2026-10-07, script Python one-shot)
+
+**Archivo**: `scripts/backfill_pedido_cardcode.py` (nuevo).
+
+**Antes**: `v_pedidos_lines` lee `JSON_VALUE(p.data, '$.clientCardCode')` directo de Firestore. En los 6+ puntos de creacion de pedido en `index.html`, el valor viene de `sapGetClienteCode(clientName)` que puede devolver `''` silencioso si el nombre no matchea en `sap_clients` (mapeo admin) ni en `approvedAltasList`. Resultado: ~1570 lineas en BQ con `cliente_nombre` cargado pero `cliente_code` vacio → Power BI atribuye a "(en blanco)" en lugar del cliente real.
+
+**Problema reportado**: cowork AI 2026-10-07. Confirmado con grep del codigo (hay 7+ sitios donde se crea `clientCardCode: X || ''` sin gate). Pedidos como REBORN SRL, BROBRO SA, MUNDO ESTURION SRL ya existen en SAP pero no se linkearon al crear.
+
+**Cambio**:
+Script Python one-shot que:
+1. Carga 3 fuentes de mapeo nombre→cardCode:
+   - BigQuery `sap_bp_raw` (maestro SAP real, sync cada 30min) — **prioridad 1**
+   - Firestore `sap_clients` (mapeo manual admin) — prioridad 2
+   - Firestore `client_applications` (altas aprobadas con `cardCodeSap`, 3 nombres por doc: comercio/titular/fantasia) — prioridad 3
+2. Normaliza nombres con `norm_name()`: UPPER + TRIM + remover puntuacion + remover sufijos legales (SA/SRL/S.R.L./SAIC/SCA iterativamente, hasta 3 veces para doble sufijo).
+3. Scan Firestore `pedidos` → filtra docs con `clientCardCode` vacio pero `clientName` presente.
+4. Para cada pedido: resuelve en las 3 fuentes por orden → si match, update doc con `clientCardCode` + `_backfillCardCode` metadata (source + at + script).
+5. No-matches → CSV `backfill_pedido_cardcode_unresolved.csv` para review manual (ej. "Folca" u otros nombres que no estan en SAP).
+6. Batch chunking 400 docs por commit (bajo el limit Firestore 500).
+
+**Modos**:
+- `DRY_RUN=true` (default): solo loguea, no escribe. Muestra sample 10 resueltos + 10 no-resueltos.
+- `DRY_RUN=false`: aplica writes.
+
+**Por que**:
+- 3 fuentes vs. solo `sap_bp_raw`: cubre casos donde el admin mapeo manual un nombre que SAP no tiene exacto, o altas aprobadas que aun no sincronizaron a BP.
+- Normalizacion agresiva (sufijos legales): pesca "REBORN SRL" == "REBORN S.R.L." == "REBORN" (3 variaciones comunes en los pedidos).
+- `_backfillCardCode` metadata permite trace retroactivo (si el admin despues ve un pedido con cardCode "sospechoso", puede ver que fuente lo resolvio y cuando).
+- Alternativa descartada: fix en BigQuery via COALESCE con join. Mas rapido pero el proximo pedido vuelve a tener el problema (fix de raiz es el otro script Nivel B — pendiente).
+
+**Verificacion**:
+- Sintaxis Python OK.
+- Testing manual con DRY_RUN primero (Mariano aprueba sample).
+- Query validacion post-apply: `SELECT COUNT(*) FROM v_pedidos_lines WHERE (cliente_code IS NULL OR cliente_code = '') AND cliente_nombre IS NOT NULL AND cliente_nombre <> ''` deberia dar ≤ cantidad de rows en el CSV `unresolved` (clientes legitimos sin SAP, ej. "Folca").
+
+**Rollback**:
+- Dry-run NO escribe nada, trivial.
+- Si aplicaste real y queres revertir: query Firestore por `_backfillCardCode.source=='sap_bp_raw'` + delete el `clientCardCode` seteado por el script. El metadata `_backfillCardCode` permite identificar los docs tocados.
+
+**TODO futuro (fix de raiz, Nivel B pendiente)**:
+- Flag `needsCardCodeResolution: true` en el pedido al crear si cardCode vacio.
+- Badge visual en Pedidos > Confirmados ("⚠ Sin cardCode SAP").
+- CF scheduled `resolvePedidoCardCode` cada 15 min que re-resuelve pending.
+- Email admin si cardCode sigue sin resolver despues de N dias.
+
 ### v1183 (2026-10-07) — HOTFIX select Mes del Planner: opciones invisibles
 
 **Archivo**: `index.html:3110+` (6 lineas CSS nuevas).
