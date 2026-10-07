@@ -4676,7 +4676,80 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1183
+## 41) Changelog v300 → v1184
+
+### v1184 (2026-10-07) — Fix de raiz clientCardCode: CF scheduled + badge UI + workflow backfill
+
+Nivel B del fix cowork (complementa el script Python backfill de arriba, Nivel A).
+
+**Archivos**:
+- `functions/core/resolve-pedido-cardcode-core.js` (nuevo, pure core con DI)
+- `functions/index.js:67,1230+` (nuevo scheduled CF `resolvePedidoCardCodeCF` cada 15min)
+- `index.html:22737+` (badge amarillo UI en cards con `needsCardCodeResolution=true`)
+- `index.html:30159+` (listener projection: agregar `needsCardCodeResolution` al snapshot)
+- `tests/functions/resolve-pedido-cardcode.test.js` (nuevo, 16 cases)
+- `.github/workflows/backfill-pedido-cardcode.yml` (nuevo, workflow_dispatch para correr el script Python one-shot sin env vars locales)
+
+**Antes**:
+Pedidos creados con `clientCardCode = ''` quedaban invisiblemente mal (sin cardCode SAP → sin atribucion en Power BI). No habia proceso automatico de resolucion ni visibilidad para admin.
+
+**Problema**:
+El script Python de backfill (Nivel A) solo resuelve el bulk historico. Los pedidos NUEVOS seguirian creandose sin cardCode si el admin no mantiene actualizado `sap_clients` al dia. Y el pedido quedaba silencioso — admin nunca sabia que faltaba el mapeo.
+
+**Cambio**:
+
+1. **CF `resolvePedidoCardCodeCF`** scheduled cada 15 min:
+   - Carga mapeos de `sap_clients` + `client_applications` Firestore.
+   - Query `pedidos.where('closedAt', '==', null)` + filtra client-side por `clientCardCode == ''`.
+   - Para cada pedido sin cardCode:
+     - Resuelve via `normName()` (replica norm_name del Python).
+     - Si matchea → batch update con cardCode + metadata `_backfillCardCode`.
+     - Si NO matchea Y pedido tiene >24h → marca `needsCardCodeResolution: true`.
+   - Batch chunking 400 docs (sub-limite Firestore 500).
+
+2. **Badge UI** en card de Confirmados:
+   - Si `pedido.needsCardCodeResolution === true` → badge amarillo "⚠ sin cardCode SAP" (tooltip explica que agregar mapeo en SAP > Mapeo Clientes).
+   - Posicionado antes del badge SAP para visibilidad.
+
+3. **Listener projection**: agregar `needsCardCodeResolution` al snapshot proyectado (sin esto el flag nunca llega al render client-side).
+
+4. **Workflow backfill** (`.github/workflows/backfill-pedido-cardcode.yml`): workflow_dispatch con input `apply` (default false = dry-run). Permite correr el script Python one-shot (Nivel A) desde GitHub UI sin setup local. Reusa secret `FIREBASE_SERVICE_ACCOUNT`. Upload CSV `unresolved` como artifact (30d retention).
+
+**Por que**:
+- **CF scheduled 15min**: ventana suficiente para que admin agregue mapeo manualmente + CF re-resuelva. No bloquea el flow actual del VDE (pedidos siguen entrando igual).
+- **Threshold 24h antes de flag UI**: tiempo razonable para que la primera pasada resuelva un cliente que falta agregar. Evita badge rojo falso-positivo en pedidos recien creados.
+- **Fuentes limitadas a Firestore (sap_clients + client_applications)**: la CF no tiene permisos BQ nativos. El script Python Nivel A cubre `sap_bp_raw` (BQ) para el bulk. CF cubre el flujo continuo con las 2 fuentes mas comunes (admin mantiene sap_clients manual + altas aprobadas ya tienen cardCode).
+- **Metadata `_backfillCardCode`** permite trace: quien resolvio (sap_clients vs client_applications vs script bulk vs CF), cuando, y que norm_name matcheo.
+- **Alternativa descartada**: fix en los 7 puntos de creacion del frontend. Mas invasivo + mas chance de romper algo. CF server-side es defensivo + idempotente.
+- Alternativa descartada: block creacion si cardCode vacio. Romperia altas de clientes nuevos sin mapeo todavia (flow legitimo).
+
+**Verificacion**:
+- 16/16 tests nuevos pass en `resolve-pedido-cardcode.test.js` (normName + resolveCardCode + handleResolvePedidoCardCode con 5 escenarios).
+- 674/674 unit + 477/477 functions pass (+21 vs 456 pre-v1184).
+- Typecheck clean.
+- Build OK (bundle rebuildeado).
+- Deploy requiere `firebase deploy --only functions:resolvePedidoCardCodeCF`.
+
+**Flujo end-to-end post-deploy**:
+
+1. VDE arma pedido para "FOLCA EXOTICA" (cliente no mapeado todavia).
+2. Pedido se guarda con `clientCardCode: ''` (como antes — frontend no cambio).
+3. En max 15min, CF corre + no logra resolver.
+4. A las 24h, CF marca `needsCardCodeResolution: true`.
+5. Admin ve badge amarillo en la card de Pedidos > Confirmados.
+6. Admin va a SAP > Mapeo Clientes → agrega "FOLCA EXOTICA" → sapCode="C9999".
+7. Proxima corrida CF (15min) → resuelve + update cardCode + delete flag.
+8. Badge desaparece + BQ se actualiza en proximo sync (30min) + Power BI atribuye correctamente.
+
+**Rollback**:
+- CF: `gcloud functions delete resolvePedidoCardCodeCF --region=southamerica-east1`. Flag UI queda stale pero no causa data loss.
+- Badge UI: revertir las 2 lineas del `if (it.conf.needsCardCodeResolution)`.
+- Workflow: safe borrar el .yml.
+
+**TODO futuro**:
+- Email a admin con lista de pedidos pendientes de resolucion cada semana.
+- Dashboard en Panel de Control con conteo `needsCardCodeResolution` acumulado.
+- Agregar `sap_bp_raw` como fuente a la CF (requiere permisos BQ en el service account de la CF).
 
 ### Backfill clientCardCode faltantes (2026-10-07, script Python one-shot)
 
