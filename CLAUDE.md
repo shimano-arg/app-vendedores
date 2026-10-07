@@ -528,3 +528,36 @@ Antes de `gh pr merge` a `main` o `firebase deploy` a prod:
 4. ✅ Para changes grandes: `silent-failure-hunter` sobre el diff
 5. ✅ Para changes grandes: lectura cross-domain (CSS clase + CF que la trigger + rules que la protegen)
 6. ✅ Si tocaste `src/domains/*`: `node build.js` + commit bundle + chunks
+
+## 30. Documentar TODO cambio con detalle Antes/Problema/Cambio/Por-que/Verificacion (2026-10-07)
+
+**Regla fuerte**: cualquier agente que modifique codigo en este repo DEBE agregar documentacion detallada del cambio ANTES de hacer commit. No alcanza con el mensaje de commit — el commit msg es resumen, la documentacion es el contexto completo.
+
+**Skill asociada**: `.agents/skills/documenting-changes/SKILL.md`. Invocar al inicio de cualquier sesion que modifique codigo. Formato obligatorio: `Antes` + `Problema` + `Cambio` + `Por que` + `Verificacion` + `Rollback`.
+
+**Por que esta regla existe**:
+- Precedente v469 (bug "pending fantasma"): un agente cambio `eliminarPendiente` sin saber que habia una 2da definicion que lo pisaba. El comentario de documentacion llego 2 meses tarde. Bug vivio 2 meses.
+- Precedente v1058 → v1003 (rollback App Check 2026-09): tomo 3 dias de debug porque nadie documento el delay de ~66h propagation Console. Redescubrimos el precedente.
+- Precedente FATECHI 2026-10-06: CF trigger tenia idempotent check desde v1006 pero el batch manual NO — nadie documento la asimetria. Fue a $$$ perdidos cuando el gap se activo.
+- Un cambio no documentado es un bug latente esperando a que un futuro agente lo repita.
+
+**Cuando aplicar**: SIEMPRE que modifiques codigo, excepto typos cosmeticos (1 char), bump de version sin logica, rebuild bundle sin src/ changes, rename cosmetico de variable local.
+
+**Donde escribir**:
+1. **Hotfix individual (1-3 archivos)**: entry nueva en `README.md §41 Changelog vigente`.
+2. **Feature / refactor mediano (4-10 archivos)**: documento aparte `docs/CHANGELOG-<feature>-<fecha>.md`. Link desde README §41.
+3. **Audit / review grande**: documento `docs/AUDIT_<topic>_<YYYY-MM-DD>.md` con detalle de TODOS los fixes. Link desde README §41 por cada round shippeado.
+4. **Plan upfront**: `docs/plans/<YYYY-MM-DD>-<feature>-plan.md`.
+5. **Spec de diseno**: `docs/specs/<YYYY-MM-DD>-<feature>-design.md`.
+
+**Mecanica obligatoria por commit**:
+1. Documentacion escrita ANTES del `git commit`.
+2. Las 5-6 secciones completas (Antes, Problema, Cambio, Por que, Verificacion, Rollback).
+3. Si hay precedente (bug previo, incident, feedback stakeholder) → mencionado con fecha + nombre.
+4. Si hay impacto dinero → cuantificado con numeros reales.
+5. Rollback instructions presentes si el cambio es sensible.
+6. README §41 bumpeado con bullet rapido + link al doc extendido.
+
+**Si falta cualquier item → NO commit. Completar primero.**
+
+**Ejemplo de referencia**: `docs/AUDIT_SHIMANO_2026-10-07.md` — 13 fixes documentados en 4 rounds con el formato completo. Usar como calco.

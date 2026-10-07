@@ -4676,7 +4676,76 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1146
+## 41) Changelog v300 → v1176
+
+### v1176 (2026-10-07) — Skill `documenting-changes` + CLAUDE.md §30 + audit doc retroactivo
+
+**Pedido Mariano**: "siempre tenes que documentar absolutamente todo lo hecho. Que habia antes, que problema teniamos y como lo cambiamos y porque. Detalle. Arma una SKILL que siempre obligue a documentar los cambios de cada agente para que otros agentes siempre sepan y quede un historial de cambios".
+
+**Entregables**:
+1. `.agents/skills/documenting-changes/SKILL.md` — skill nueva con formato obligatorio (Antes/Problema/Cambio/Por que/Verificacion/Rollback). Incluye ejemplos buenos y anti-patterns.
+2. `.claude/skills/documenting-changes/` — copia local (symlink Windows requiere admin).
+3. `docs/AUDIT_SHIMANO_2026-10-07.md` — documento retroactivo con los 13 fixes del audit multi-agent del dia (rounds 1-4), siguiendo el formato de la skill.
+4. `CLAUDE.md §30` — regla durable apuntando a la skill. HARD-GATE pre-commit.
+5. `README.md §41` — bumpeado con entries v1171-v1176 (previamente solo v1146 era la ultima).
+
+Sin este deploy, el futuro agente leyendo el repo tenia que armar el contexto desde git log + diffs. Ahora puede leer el AUDIT doc y entender en 10 min lo que paso hoy en 4 rounds.
+
+### v1175 (2026-10-07) — Audit round 4: Security hardening (rate limits + CSP)
+
+**Detalle completo**: `docs/AUDIT_SHIMANO_2026-10-07.md` sección "ROUND 4".
+
+Round 4 del audit multi-agent 2026-10-07. 3 fixes de seguridad:
+- **Security H-02**: rate limit `setupGetMovimientos` (50/hr). Previene VDE comprometido extrayendo 365d SETUP shipments cross-cartera.
+- **Security H-03**: rate limit `triggerPlannerSync` (20/hr) + `triggerRendicionesEmailManual` (5/hr). Previene degradacion SL concurrent-session + spam GitHub Actions.
+- **Security H-04**: CSP meta tag en `alta-cliente.html` + error-screen con `textContent + createElement` (public form). Antes sin CSP + concat raw.
+
+Tests: 670/670 unit + 11/11 rate-limit pass. Typecheck clean. PR #871 squash-merged a main.
+
+### v1174 (2026-10-07) — Audit round 3: Performance H2 + H3
+
+**Detalle completo**: `docs/AUDIT_SHIMANO_2026-10-07.md` sección "ROUND 3".
+
+- **Perf H2**: FIFO N+1 `fetchCliTipo` → batch `fbDb.getAll` chunked 400. 170 clientes abiertos pasan de 8.5s a ~200ms (42x speedup). Fallback a serial si getAll no esta disponible.
+- **Perf H3**: `preCheckStockWhs11` chunks SL en paralelo con CONCURRENCY=4. 150 SKUs pasan de 6s a 2s. Respeta throughput SL (session throttling).
+
+Tests: 670/670 unit + 35/35 fifo-assign pass. PR #870 squash-merged.
+
+### v1173 (2026-10-07) — Audit round 2: HIGH fixes
+
+**Detalle completo**: `docs/AUDIT_SHIMANO_2026-10-07.md` sección "ROUND 2".
+
+- **Backend H1**: `invoice-sync-core` ahora retrocede cursor a `min(failed) - 1` cuando `applyInvoiceMatch` tira error. Antes avanzaba siempre → Invoices con error nunca se reintentaban (silent drift).
+- **Backend H2**: `verifySqCanBeCancelled` splittea el GET en 2 (header + lines inline via `/Quotations({DocEntry})`) porque SAP SL no soporta `$expand` sobre collections (CLAUDE.md §24). Antes el 400 silencioso dejaba la CF 'active' sin cancelar nada. 4 tests actualizados al pattern 2-call.
+- **UX C2**: `submitVisita` ahora tiene lock in-flight + button disabled + 'Guardando...' + release en finally. Previene doble envio con GPS 3s.
+- **Frontend C4**: borrado stub `window.doConfirmPedido` del bundle (sync local-only). La version viva async con Firestore vive en `index.html:30119`.
+
+Tests: 670/670 unit + 45/45 functions (sq-cancel + invoice-sync) pass. PR #869 squash-merged.
+
+### v1172 (2026-10-07) — Audit round 1: 7 CRITICAL fixes (FATECHI/LAMORA/DoS)
+
+**Detalle completo**: `docs/AUDIT_SHIMANO_2026-10-07.md` sección "ROUND 1".
+
+Round 1 del audit multi-agent. Fixes de mayor riesgo monetario + tecnico:
+
+- **Backend C1** (FATECHI 2.0 prevention): idempotent `findQuotationByNumAtCard` antes del `createQuotation` en batch manual admin (`src/domains/sap-admin-panel.js:1058`). Precedente FATECHI 2026-10-06 ($7.3M duplicados por el único vector sin cubrir — CF trigger + listener client ya lo tenían).
+- **Backend C2** (FATECHI root cause): `AbortSignal.timeout(90s)` en `sapLogin + sapGet + sapPost` (`functions/core/sap-sl-client.js`). CF timeout 120s mataba el runtime sin saber si SAP commiteó.
+- **Backend C3** (orphan lock prevention): CF `onPedidoConfirmedSendToSap` NO libera `sendingSapLock` en 5xx/fetch-aborted (ambiguos: SAP pudo haber commiteado). Deja expirar via TTL. Libera solo en 4xx. Marca `needsManualVerification`.
+- **Backend M2** (Berón recibe emails de CF): `shouldNotify` ahora acepta `via='cf_auto'` + `'service_layer'` + `'service_layer_idempotent'` + `'cf_auto_idempotent'`. Antes solo `'service_layer_auto'` → el flow server-side primario desde v1050 NO disparaba email.
+- **Security C-01** (public form DoS): `client_applications` con `submittedByPublicForm` ahora valida size <1.5MB + CUIT regex 11 digitos + comercio length razonable. Antes unauthenticated podia escribir docs multi-MB.
+- **SRE C3** (LAMORA 2.0 prevention): `preCheckStockWhs11` antes del POST en `sap-auto-send-listener.js` (listener client auto). Si stock degradado → SKIP + `needsManualIntervention` + liberar lock.
+- **Frontend C1-C3** (dead code): borradas 3 funciones duplicadas de `index.html` (`confirmarDefinitivo`, `eliminarPendiente`, `volverABorrador`). Las vivas estan en ~30665+.
+
+Tests: 670/670 unit pass (sin regresiones). Preexisting fails en `auto-send-sap.test.js` NO introducidos por este fix (gap QA ya reportado). PR #868 squash-merged.
+
+### v1171 (2026-10-07) — Stock snapshot email L-V 16:00 ART
+
+Workflow `send-stock-snapshot-email.yml` + script `send_stock_snapshot_email.py` que envia resumen stock SAP al gerente ventas (Pablo Gonzalez) con copia a Mariano cada dia habil 16:00 ART.
+- Fuente: Firestore `app_config/stock_snapshot` (actualizado cada 5 min por sync-sap-catalog-stock). No re-pullea SAP SL.
+- Email HTML: totales + top-10 stock + top-10 backorder + breakdown por familia.
+- Excel adjunto 3 hojas: Resumen · Detalle completo · Sin stock con backorder.
+- Guarda `stock_daily_snapshots/{YYYY-MM-DD}` en Firestore para deltas futuros.
+- Primer envio manual verificado 2026-10-07 12:42 UTC. PR #866 squash-merged.
 
 ### v1146 (2026-10-06) — Generar Backorder manual (modal Backorder)
 
