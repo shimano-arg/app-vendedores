@@ -234,19 +234,54 @@ export async function loadBoCandidatesForSku(deps, sku, openPedidos = null) {
       });
     }
   }
-  // v956 (2026-09-16): resolver cliTipo dinamico via client_master. Cache
-  // por docId dentro del batch para evitar duplicar reads si multiples
-  // pedidos del mismo cliente estan en la cola.
+  // v956 (2026-09-16): resolver cliTipo dinamico via client_master.
+  // v1173 (audit 2026-10-07, Perf H2): batch getAll de todos los docIds
+  // unicos en una sola RPC en vez de 170 reads seriales (8.5s → ~200ms
+  // para 170 clientes). Firestore.getAll acepta hasta 500 refs por request.
+  /** @type {Set<string>} */
+  const uniqueDocIds = new Set();
+  for (const c of preOut) {
+    uniqueDocIds.add(computeClientLocId(c._prov, c._loc, c._cli));
+  }
   /** @type {Map<string, 'P'|'A'|'B'|'C'>} */
   const cliTipoCache = new Map();
+  const docIdsArr = Array.from(uniqueDocIds).filter(Boolean);
+  if (docIdsArr.length > 0 && typeof deps.fbDb.getAll === 'function') {
+    try {
+      const refs = docIdsArr.map((id) => deps.fbDb.collection('client_master').doc(id));
+      // getAll permite hasta 500 refs por request. Chunking defensivo si
+      // alguna vez tenemos mas de 500 clientes abiertos simultaneamente.
+      const CHUNK = 400;
+      for (let i = 0; i < refs.length; i += CHUNK) {
+        const slice = refs.slice(i, i + CHUNK);
+        const snaps = await deps.fbDb.getAll(...slice);
+        snaps.forEach((/** @type {any} */ snap, /** @type {number} */ idx) => {
+          const docId = docIdsArr[i + idx];
+          if (snap.exists) {
+            const data = snap.data() || {};
+            cliTipoCache.set(docId, normalizeCliTipo(data.cliTipo));
+          } else {
+            cliTipoCache.set(docId, 'C');
+          }
+        });
+      }
+    } catch (_batchErr) {
+      // Fallback a lecturas individuales si getAll falla (ej: SDK incompat).
+      for (const docId of docIdsArr) {
+        if (!cliTipoCache.has(docId)) {
+          cliTipoCache.set(docId, await fetchCliTipo(deps, docId));
+        }
+      }
+    }
+  } else {
+    // Fallback cuando deps.fbDb.getAll no esta disponible (tests antiguos).
+    for (const docId of docIdsArr) {
+      cliTipoCache.set(docId, await fetchCliTipo(deps, docId));
+    }
+  }
   for (const c of preOut) {
     const docId = computeClientLocId(c._prov, c._loc, c._cli);
-    let tipo = cliTipoCache.get(docId);
-    if (tipo === undefined) {
-      tipo = await fetchCliTipo(deps, docId);
-      cliTipoCache.set(docId, tipo);
-    }
-    c.cliTipo = tipo;
+    c.cliTipo = cliTipoCache.get(docId) || 'C';
   }
   /** @type {BoCandidate[]} */
   const out = preOut.map((c) => ({
