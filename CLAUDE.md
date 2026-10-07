@@ -455,3 +455,76 @@ if (skippedCount > 0) {
 ```
 
 Precedente aplicado: `src/domains/sap-admin-panel.js:830` v1001.
+
+## 29. Skills obligatorias por tipo de trabajo (2026-10-07)
+
+**Regla**: ciertas skills del repo oficial deben invocarse SIEMPRE según el tipo de tarea. Esto reduce rework, incidentes de silent failure, y bugs sin root cause. Historial reciente justifica: FATECHI (CF silent fail), LAMORA (pre-check fail-open), v1157→v1158 (gate restrictivo rework), v1164→v1166 (rework UX botones).
+
+### 29.1 ANTES de implementar feature nueva → `brainstorming` (HARD-GATE)
+
+**Cuándo aplicar**: cualquier flow nuevo (botón nuevo, modal nuevo, columna nueva en tabla, cambio de regla de negocio). NO aplica a: hotfix CSS/UX minor, bump de versión, fix de typo.
+
+**Qué hacer**: invocar `Skill(skill="superpowers:brainstorming")`. Explorar requisitos con el user ANTES de codear. Presentar design (puede ser corto). Esperar aprobación explícita.
+
+**Precedente**: v1164 implementé 4 botones Visita/Contactado Rápido+Clásica en el header; Mariano después pidió reorganizar a chooser modal (v1166). Si hubiera brainstormeado antes, hubiera descubierto el chooser en 1 pregunta y evitado el rework.
+
+### 29.2 ANTES de hacer merge de PR que toque Firestore/SAP/CF → `/code-review` o `silent-failure-hunter` (agent)
+
+**Cuándo aplicar**: PR que toque:
+- Cualquier archivo en `functions/` (Cloud Functions server-side)
+- Firestore writes/deletes/batch/transactions
+- `src/domains/sap-*.js` o `src/sap-client.js`
+- `src/domains/sap-auto-send-listener.js` o `*auto-confirm*`
+- try/catch con fallback silencioso (`.catch(() => null)`, `fail-open`, etc.)
+
+**Qué hacer**:
+- Opción A (recomendada): invocar el agent `pr-review-toolkit:silent-failure-hunter` sobre el diff del PR actual. Enfocado en error handling + silent failures.
+- Opción B (más completa pero más tokens): correr `/code-review` command que lanza 5 agents paralelos cross-domain.
+
+**Precedente**: FATECHI 2026-10-06 (CF `onPedidoConfirmedSendToSap` POST timeout, SAP creó la SQ pero el CF marcó ERROR y no linkeó → 2000283 huérfana + 2000284 oficial, $7.3M extra en SAP). Si hubiera corrido silent-failure-hunter sobre v1006 (que agregó el check idempotente en el CF pero NO en el flow manual), hubiera detectado la asimetría.
+
+### 29.3 CUANDO hay bug reportado o inconsistencia → `systematic-debugging` (skill)
+
+**Cuándo aplicar**: cualquier reporte "esto no funciona" o "esperaba X y vi Y". NO aplica a: typo en texto, color/padding, bump de versión.
+
+**Qué hacer**: invocar `Skill(skill="superpowers:systematic-debugging")`. Las 4 fases obligatorias:
+1. Root Cause Investigation (NO fixes antes)
+2. Pattern Analysis
+3. Hypothesis + Testing
+4. Implementation
+
+**Precedente**: LAMORA $3.699.000 vs SAP $1.667.000. Sin systematic-debugging mi primer impulso hubiera sido fix cosmético ("muestro warning"); el root cause era que el flow automático (CF trigger) no pasaba por el pre-check cliente-side. Dependió de hacer el análisis de los 2 flows (manual vs trigger CF) para encontrar el gap.
+
+### 29.4 INVESTIGACIÓN compleja con ≥3 preguntas independientes → `dispatching-parallel-agents`
+
+**Cuándo aplicar**: cualquier debug que requiera buscar en ≥3 archivos/sistemas distintos (ej: Firestore + BQ + logs CF + raw files). NO aplica a: lookup único.
+
+**Qué hacer**: invocar `Skill(skill="superpowers:dispatching-parallel-agents")`. Lanzar N `Agent` calls en una sola message (paralelo).
+
+**Precedente**: FATECHI investigación con 3 agents (SAP source of truth + Firestore detail + code audit buildQuotationPayload). Hubiera tomado 3x más tiempo secuencial.
+
+### 29.5 ANTES de declarar deploy "done" → `verification-before-completion`
+
+**Cuándo aplicar**: después de `firebase deploy`, `gcloud run deploy`, o merge de PR a main. NO aplica a: commits en dev que no se mergearon todavía.
+
+**Qué hacer**: verificar que el deploy EFECTIVAMENTE se activó (nueva revisión, logs del CF/CR, pedido test que trigger el nuevo código). No basta con "firebase deploy terminó exit 0" — a veces builda pero no activa.
+
+**Precedente**: v1163 whatsapp-agent — primer deploy build OK pero container no arrancó (`TELEFONO_DERIVACION obligatorio en prod`). Si hubiera verificado la revision activa inmediato (`gcloud run services describe`), hubiera detectado la falla en vez de dar por hecho.
+
+### 29.6 FEATURES grandes con 4+ archivos tocados → `writing-plans`
+
+**Cuándo aplicar**: refactors/features que impactan ≥4 archivos o cross-domain (ej: UI + CF + Firestore + tests). NO aplica a: fix de 1 archivo.
+
+**Qué hacer**: invocar `Skill(skill="superpowers:writing-plans")`. Guardar plan en `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`. Ejecutar paso a paso.
+
+**Precedente**: v1162 (quitar sección ASIG + gate + bypass + Fusionar del modal Pedido en espera). Toqué 4 piezas; un plan upfront hubiera formalizado el scope y evitado errores de olvidarme de alguna.
+
+### 29.7 Checklist pre-deploy producción
+
+Antes de `gh pr merge` a `main` o `firebase deploy` a prod:
+1. ✅ `npm run test:unit` → 670/670 pass
+2. ✅ `npx biome check` → clean (o `--write` para autofix)
+3. ✅ `npm run typecheck` → clean (JSDoc annotations correctas)
+4. ✅ Para changes grandes: `silent-failure-hunter` sobre el diff
+5. ✅ Para changes grandes: lectura cross-domain (CSS clase + CF que la trigger + rules que la protegen)
+6. ✅ Si tocaste `src/domains/*`: `node build.js` + commit bundle + chunks
