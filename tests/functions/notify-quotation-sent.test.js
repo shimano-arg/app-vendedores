@@ -108,14 +108,30 @@ describe('buildEmailContent — total renderizado con schema real', () => {
   });
 });
 
-describe('shouldNotify — sanity (sin cambios en v1034)', () => {
+describe('shouldNotify — sanity (v1172: incluye via=cf_auto)', () => {
   it('dispara cuando docNum aparece por primera vez via service_layer_auto', () => {
     const before = { transferidoSAP: {} };
     const after = { transferidoSAP: { docNum: 1, via: 'service_layer_auto' } };
     expect(shouldNotify(before, after)).toBe(true);
   });
-  it('no dispara para via=cf_auto', () => {
+  it('v1172: SI dispara para via=cf_auto (CF trigger es el flow primario)', () => {
     const after = { transferidoSAP: { docNum: 1, via: 'cf_auto' } };
+    expect(shouldNotify({}, after)).toBe(true);
+  });
+  it('v1172: SI dispara para via=service_layer (batch manual admin)', () => {
+    const after = { transferidoSAP: { docNum: 1, via: 'service_layer' } };
+    expect(shouldNotify({}, after)).toBe(true);
+  });
+  it('v1172: SI dispara para via=service_layer_idempotent (batch manual, SQ ya existia)', () => {
+    const after = { transferidoSAP: { docNum: 1, via: 'service_layer_idempotent' } };
+    expect(shouldNotify({}, after)).toBe(true);
+  });
+  it('v1172: SI dispara para via=cf_auto_idempotent (CF idempotent hit)', () => {
+    const after = { transferidoSAP: { docNum: 1, via: 'cf_auto_idempotent' } };
+    expect(shouldNotify({}, after)).toBe(true);
+  });
+  it('no dispara para via desconocido (ej: app_only)', () => {
+    const after = { transferidoSAP: { docNum: 1, via: 'app_only' } };
     expect(shouldNotify({}, after)).toBe(false);
   });
   it('no dispara si el pedido fue borrado (after=null)', () => {

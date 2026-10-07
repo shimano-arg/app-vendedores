@@ -631,16 +631,62 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
         };
       }
     }
-    const resp = await sapPost(session, '/b1s/v1/Quotations', built.payload, deps.sl);
-    if (resp.status !== 201) {
+    /** @type {{status: number, body: any, headers: any} | null} */
+    let resp = null;
+    /** @type {Error | null} */
+    let fetchErr = null;
+    try {
+      resp = await sapPost(session, '/b1s/v1/Quotations', built.payload, deps.sl);
+    } catch (postExc) {
+      fetchErr = postExc instanceof Error ? postExc : new Error(String(postExc));
+    }
+
+    // v1172 (audit 2026-10-07, Backend C3): si el POST aborto (timeout o
+    // fetch failed) o devolvio 5xx, SAP PUDO haber commiteado la SQ
+    // igualmente (precedente FATECHI). NO liberar el lock — dejarlo expirar
+    // via TTL (5min) para que un segundo intento concurrente no cree
+    // duplicado. Marcamos needsManualVerification=true para audit.
+    if (fetchErr || (resp && (resp.status >= 500 || resp.status === 0))) {
+      const errMsg = fetchErr
+        ? 'post_aborted: ' + fetchErr.message
+        : `sl_5xx_${resp && resp.status}`;
+      log('[auto-send] SL post ambiguous (lock preserved for TTL expiry)', {
+        pedidoId,
+        status: resp ? resp.status : 'fetch_failed',
+        errMsg,
+      });
+      try {
+        await docRef.update({
+          transferError: {
+            message: errMsg.slice(0, 500),
+            at: new Date(now).toISOString(),
+            via: 'cf_auto',
+            needsManualVerification: true,
+            status: resp ? resp.status : null,
+          },
+          // NO borrar sendingSapLock — expira solo por TTL (5min).
+        });
+      } catch {
+        /* swallow */
+      }
+      return { result: AUTO_SEND_RESULT.ERROR_SL, error: errMsg };
+    }
+
+    if (!resp || resp.status !== 201) {
       const errMsg =
-        (resp.body &&
+        (resp &&
+          resp.body &&
           resp.body.error &&
           resp.body.error.message &&
           resp.body.error.message.value) ||
-        `SL http ${resp.status}`;
-      log('[auto-send] SL error', { pedidoId, status: resp.status, errMsg });
-      // Liberar lock (no retry auto).
+        `SL http ${resp && resp.status}`;
+      log('[auto-send] SL error (4xx, lock released)', {
+        pedidoId,
+        status: resp && resp.status,
+        errMsg,
+      });
+      // 4xx = SAP rechazo deterministicamente. Es safe liberar lock para
+      // permitir reintento tras fix (ej: payload invalido corregido).
       try {
         await docRef.update({ sendingSapLock: deps.FieldValue.delete() });
       } catch {

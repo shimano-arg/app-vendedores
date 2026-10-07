@@ -198,6 +198,61 @@ function ensureSapAutoSendListener() {
               } catch (idemErr) {
                 console.warn('[SAP auto] idempotent check falló (non-blocking):', idemErr);
               }
+              // v1172 (audit 2026-10-07, SRE C3): pre-check stock live SAP
+              // antes del POST para evitar vector LAMORA — el flow automatico
+              // no corria preCheckStockWhs11 (solo el batch manual lo hacia).
+              // Si SAP devuelve stock < qty pedida en >=1 linea, SKIP el envio
+              // y liberar lock para que admin intervenga manualmente (NO
+              // auto-degradar en flow silencioso: pedido > stock = riesgo
+              // $$$ real).
+              try {
+                const skusCheck = Array.from(
+                  new Set(
+                    (payload.DocumentLines || [])
+                      .map((d) => String(d.ItemCode || '').toUpperCase())
+                      .filter(Boolean)
+                  )
+                );
+                if (skusCheck.length > 0 && typeof sapSL.preCheckStockWhs11 === 'function') {
+                  const check = await sapSL.preCheckStockWhs11(skusCheck);
+                  if (check && check.ok && check.map) {
+                    const degraded = [];
+                    (payload.DocumentLines || []).forEach((d) => {
+                      const avail = check.map.has(d.ItemCode)
+                        ? check.map.get(d.ItemCode).available
+                        : 0;
+                      if ((Number(d.Quantity) || 0) > avail) {
+                        degraded.push({
+                          code: d.ItemCode,
+                          requested: Number(d.Quantity) || 0,
+                          available: avail,
+                        });
+                      }
+                    });
+                    if (degraded.length > 0) {
+                      console.warn(
+                        '[SAP auto] stock degradado, SKIP envio automatico ' + fsId,
+                        degraded
+                      );
+                      await docRef.update({
+                        sendingSapLock: firebase.firestore.FieldValue.delete(),
+                        transferError: {
+                          message: 'stock_degradado_auto_skip: ' + degraded.length + ' SKUs',
+                          at: new Date().toISOString(),
+                          via: 'service_layer_auto',
+                          needsManualIntervention: true,
+                          degraded: degraded.slice(0, 20),
+                        },
+                      });
+                      if (typeof showSyncTag === 'function')
+                        showSyncTag('Stock cambio: ' + p.clientName + ' (intervencion manual)');
+                      return;
+                    }
+                  }
+                }
+              } catch (preErr) {
+                console.warn('[SAP auto] preCheckStockWhs11 fallo (fail-open):', preErr);
+              }
               const r = await sapSL.createQuotation(payload);
               if (r.ok) {
                 // v577 (2026-08-21): DOUBLE-CHECK post-createQuotation. Si

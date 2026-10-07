@@ -427,10 +427,21 @@ service cloud.firestore {
                      || isAdminOrGerente()
                    )
                  )
+                 // v1172 (audit 2026-10-07, Security C-01): endurecer public form.
+                 // Antes: cualquier unauthenticated podia crear docs multi-MB con
+                 // base64 photos (constanciaArca, fotosLocal[]) sin size cap ni
+                 // field whitelist. Vector DoS + storage exhaustion.
+                 // Ahora: size <1.5MB + CUIT regex (11 digitos AR) + comercio length
+                 // razonable. Fotos deberian subirse a Storage con signed URL, no
+                 // embebidas en Firestore — pero mantenemos tolerancia hasta migrar.
                  || (request.resource.data.submittedByPublicForm == true
                      && request.resource.data.comercio is string
+                     && request.resource.data.comercio.size() > 2
+                     && request.resource.data.comercio.size() < 200
                      && request.resource.data.cuit is string
-                     && request.resource.data.status == 'pending_approval');
+                     && request.resource.data.cuit.matches('[0-9]{11}')
+                     && request.resource.data.status == 'pending_approval'
+                     && request.resource.size() < 1500000);
       // v396 (2026-08-04): permitir a cualquier reader (vendedor incluido)
       // updatear SOLO los campos de estado del LEAD (leadEstado + auditoria).
       // Los demas campos siguen restringidos a admin/gerente/interno.

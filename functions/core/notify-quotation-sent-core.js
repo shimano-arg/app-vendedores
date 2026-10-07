@@ -91,7 +91,21 @@ export function shouldNotify(before, after) {
   const tsAfter = after.transferidoSAP || {};
   // Solo notificar si REALMENTE fue a SAP (no app_only) y tiene docNum.
   if (!tsAfter.docNum) return false;
-  if (tsAfter.via !== 'service_layer_auto') return false;
+  // v1172 (audit 2026-10-07, Backend M2): aceptar tambien via='cf_auto' y
+  // via='service_layer' (manual batch). Antes solo matcheaba 'service_layer_auto'
+  // (client-side listener) → cuando el CF trigger onPedidoConfirmedSendToSap
+  // (que escribe via='cf_auto') enviaba la SQ, el email no se disparaba.
+  // Resultado: Santiago Beron recibia menos emails de los que deberia porque
+  // el flow automatico server-side es ahora el PRIMARIO. Idempotent hits del
+  // CF (via='cf_auto_idempotent') tambien incluidos.
+  const ALLOWED_VIAS = new Set([
+    'service_layer_auto', // listener client-side (envio automatico)
+    'service_layer', // batch manual admin
+    'service_layer_idempotent', // batch manual admin, SQ ya existia (v1172)
+    'cf_auto', // CF trigger onPedidoConfirmedSendToSap
+    'cf_auto_idempotent', // CF trigger, SQ ya existia
+  ]);
+  if (!ALLOWED_VIAS.has(tsAfter.via)) return false;
   // Y solo si esto es NUEVO (antes no habia docNum).
   const tsBefore = (before && before.transferidoSAP) || {};
   if (tsBefore.docNum) return false;
