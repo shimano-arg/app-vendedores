@@ -6064,7 +6064,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1175';
+const APP_VERSION = 'v1177';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15439,7 +15439,8 @@ window.openGenerarBackorderModal = function(){
   const meta = document.getElementById('gb-cliente-meta');
   if (meta) meta.textContent = '';
   // Arrancar con 1 linea vacia para que el VDE pueda empezar a tipear directo.
-  _gbState.lines = [{ sku: '', desc: '', qty: 0, precio: 0 }];
+  // v1177 (2026-10-07): targetMonth/Idx/Year opcionales — mes futuro de necesidad.
+  _gbState.lines = [{ sku: '', desc: '', qty: 0, precio: 0, targetMonth: null, targetMonthIdx: null, targetYear: null }];
   _gbRenderLines();
   _gbUpdateTotal();
   document.getElementById('generar-backorder-modal').classList.add('open');
@@ -15514,19 +15515,76 @@ window._gbClienteChange = function(){
 };
 
 window._gbAgregarLinea = function(){
-  _gbState.lines.push({ sku: '', desc: '', qty: 0, precio: 0 });
+  // v1177: targetMonth null por default (opcional).
+  _gbState.lines.push({ sku: '', desc: '', qty: 0, precio: 0, targetMonth: null, targetMonthIdx: null, targetYear: null });
   _gbRenderLines();
 };
 
 window._gbEliminarLinea = function(idx){
   if (_gbState.lines.length <= 1) {
-    _gbState.lines = [{ sku: '', desc: '', qty: 0, precio: 0 }];
+    _gbState.lines = [{ sku: '', desc: '', qty: 0, precio: 0, targetMonth: null, targetMonthIdx: null, targetYear: null }];
   } else {
     _gbState.lines.splice(idx, 1);
   }
   _gbRenderLines();
   _gbUpdateTotal();
 };
+
+// v1177 (2026-10-07): mes futuro opcional por SKU. Pedido Mariano:
+// "al generar backorder que puedan asignarlo especificamente para un mes
+// futuro (ejemplo 200 unidades fx4000fc para julio 2027). Que no sea
+// obligatorio sino que sea algun opcional."
+// Formato del value: "YYYY-MM" (ej "2027-07"). Guardamos monthIdx+year
+// separados para que downstream pueda filtrar sin re-parsear.
+window._gbChangeMes = function(idx){
+  const el = document.getElementById('gb-line-mes-' + idx);
+  if (!el || !_gbState.lines[idx]) return;
+  const val = String(el.value || '').trim();
+  if (!val) {
+    _gbState.lines[idx].targetMonth = null;
+    _gbState.lines[idx].targetMonthIdx = null;
+    _gbState.lines[idx].targetYear = null;
+    return;
+  }
+  // Parse "YYYY-MM" → monthIdx 0-11 + year int.
+  const m = val.match(/^(\d{4})-(\d{2})$/);
+  if (!m) {
+    _gbState.lines[idx].targetMonth = null;
+    _gbState.lines[idx].targetMonthIdx = null;
+    _gbState.lines[idx].targetYear = null;
+    return;
+  }
+  const year = parseInt(m[1], 10);
+  const monthIdx = parseInt(m[2], 10) - 1;
+  if (!Number.isFinite(year) || monthIdx < 0 || monthIdx > 11) {
+    _gbState.lines[idx].targetMonth = null;
+    _gbState.lines[idx].targetMonthIdx = null;
+    _gbState.lines[idx].targetYear = null;
+    return;
+  }
+  _gbState.lines[idx].targetYear = year;
+  _gbState.lines[idx].targetMonthIdx = monthIdx;
+  _gbState.lines[idx].targetMonth = (MESES[monthIdx] || '').toUpperCase() + ' ' + year;
+};
+
+// v1177: helper para construir las 24 opciones del select mes futuro.
+// Arranca el PROXIMO mes (no el actual — para asignar demanda futura real).
+function _gbBuildMesOptions(selectedVal){
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curM = now.getMonth();
+  let html = '<option value="">Sin mes asignado</option>';
+  for (let i = 1; i <= 24; i++) {
+    const d = new Date(curY, curM + i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const val = y + '-' + String(m + 1).padStart(2, '0');
+    const label = MESES[m] + ' ' + y;
+    const sel = (val === selectedVal) ? ' selected' : '';
+    html += '<option value="' + val + '"' + sel + '>' + label + '</option>';
+  }
+  return html;
+}
 
 window._gbChangeSku = function(idx){
   const el = document.getElementById('gb-line-sku-' + idx);
@@ -15603,14 +15661,22 @@ function _gbRenderLines(){
     box.innerHTML = '<div style="padding:20px;text-align:center;color:#64748b">Agrega al menos un SKU.</div>';
     return;
   }
+  // v1177 (2026-10-07): columna "Mes" opcional entre Precio y Subtotal.
+  // Grid: 1fr (SKU+desc) · 70px (Qty) · 100px (Precio) · 130px (Mes) · 90px (Subtotal) · 28px (X).
+  const selectedMes = (l) => {
+    if (!l.targetMonthIdx === null || !l.targetYear) return '';
+    if (l.targetMonthIdx == null || l.targetYear == null) return '';
+    return l.targetYear + '-' + String(l.targetMonthIdx + 1).padStart(2, '0');
+  };
   box.innerHTML = _gbState.lines.map((l, idx) => (
-    '<div style="display:grid;grid-template-columns:1fr 80px 110px 110px 32px;gap:8px;align-items:center;padding:8px 4px;border-bottom:1px solid #f1f5f9">' +
+    '<div style="display:grid;grid-template-columns:1fr 70px 100px 130px 90px 28px;gap:8px;align-items:center;padding:8px 4px;border-bottom:1px solid #f1f5f9">' +
       '<div style="display:flex;flex-direction:column;gap:3px;min-width:0">' +
         '<input id="gb-line-sku-' + idx + '" class="bo-ctl" list="gb-skus-datalist" placeholder="Buscar SKU (codigo o descripcion)..." value="' + _cpstEsc(l.sku) + '" oninput="_gbChangeSku(' + idx + ')" autocomplete="off" style="font-family:monospace;font-size:13px;padding:10px 12px;width:100%"/>' +
         '<div id="gb-line-desc-' + idx + '" style="font-size:11px;color:#475569;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px">' + _cpstEsc(l.desc || '') + '</div>' +
       '</div>' +
       '<input id="gb-line-qty-' + idx + '" class="bo-ctl" type="number" min="0" step="1" placeholder="Qty" value="' + (l.qty || '') + '" oninput="_gbChangeQty(' + idx + ')" style="font-size:12px;text-align:right"/>' +
       '<input id="gb-line-precio-' + idx + '" class="bo-ctl" type="number" min="0" step="0.01" placeholder="Precio u." value="' + (l.precio || '') + '" oninput="_gbChangePrecio(' + idx + ')" style="font-size:12px;text-align:right" title="Precio unitario (se autocompleta del SKU - editable)"/>' +
+      '<select id="gb-line-mes-' + idx + '" class="bo-ctl" onchange="_gbChangeMes(' + idx + ')" style="font-size:12px" title="Mes futuro de necesidad (opcional). Ej: cliente pide 200u para julio 2027.">' + _gbBuildMesOptions(selectedMes(l)) + '</select>' +
       '<div id="gb-line-subtotal-' + idx + '" style="text-align:right;font-weight:600;font-size:12px;color:#1e40af">' + _cpstFmt((Number(l.qty)||0) * (Number(l.precio)||0)) + '</div>' +
       '<button onclick="_gbEliminarLinea(' + idx + ')" title="Eliminar linea" style="background:transparent;border:1px solid #fca5a5;color:#b91c1c;border-radius:4px;cursor:pointer;padding:2px 6px;font-weight:600">×</button>' +
     '</div>'
@@ -15643,10 +15709,30 @@ window._gbConfirmar = async function(){
   }
   const totalArs = validLines.reduce((s, l) => s + Number(l.qty) * Number(l.precio), 0);
   const totalU = validLines.reduce((s, l) => s + Number(l.qty), 0);
+  // v1177: resumir en el confirm si hay SKUs con mes asignado.
+  const conMes = validLines.filter(l => l.targetMonth);
+  const sinMes = validLines.filter(l => !l.targetMonth);
+  let detalleMeses = '';
+  if (conMes.length > 0) {
+    const porMes = {};
+    conMes.forEach(l => {
+      const key = l.targetMonth;
+      if (!porMes[key]) porMes[key] = [];
+      porMes[key].push(l.sku + ' x' + l.qty);
+    });
+    detalleMeses = '\n\nMeses asignados (' + conMes.length + '/' + validLines.length + ' lineas):\n';
+    Object.keys(porMes).sort().forEach(mes => {
+      detalleMeses += '  ' + mes + ': ' + porMes[mes].join(', ') + '\n';
+    });
+    if (sinMes.length > 0) {
+      detalleMeses += '  Sin mes: ' + sinMes.length + ' linea(s)\n';
+    }
+  }
   const confirmMsg =
     'Guardar BACKORDER manual para:\n\n' +
     r.nombre + '\n' +
-    validLines.length + ' SKU(s), ' + totalU + ' unidad(es), ' + _cpstFmt(totalArs) + '\n\n' +
+    validLines.length + ' SKU(s), ' + totalU + ' unidad(es), ' + _cpstFmt(totalArs) +
+    detalleMeses + '\n\n' +
     'Esto va a:\n' +
     '1) Crear un pedido APP con todas las lineas en state=BO.\n' +
     '2) NO se envia a SAP (queda como demanda pendiente).\n' +
@@ -15704,6 +15790,12 @@ window._gbConfirmar = async function(){
         priceAtCreation: pr,
         needsReview: false,
         manualBackorder: true,
+        // v1177 (2026-10-07): mes futuro de necesidad (opcional). Null si no se
+        // asigno. Util para que downstream (ej. reporte "demanda proxima X meses")
+        // pueda filtrar backorders cuya necesidad es en periodo especifico.
+        targetMonth: l.targetMonth || null,
+        targetMonthIdx: (l.targetMonthIdx !== null && l.targetMonthIdx !== undefined) ? l.targetMonthIdx : null,
+        targetYear: l.targetYear || null,
       };
       // Caso 1: suficiente stock libre -> toda ASIG.
       if (dispLibre >= q) {
