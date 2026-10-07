@@ -215,18 +215,26 @@ export async function autoConfirmPendingPedidos({
 
   const processedIds = [];
   const skippedForStock = [];
+  const autoSplitProcessed = [];
   const errors = [];
   for (const p of eligibles) {
     try {
-      // Re-validar stock de las lineas 'confirmed'. Si en los N min desde
-      // que el VDE confirmo, otro VDE consumio el stock, saltar este pedido
-      // (queda en pending para intervencion manual).
+      // Re-validar stock de las lineas 'confirmed'. v1170 (2026-10-07):
+      // antes skippeaba el pedido si habia shortfall; ahora AUTO-SPLIT
+      // (confirmed con stock => queda confirmed; faltante => pasa a BO).
+      // Mismo pattern que v1157 cliente-side (confirmarDefinitivo).
+      // Pedido Mariano: evitar que pedidos queden colgados en pending
+      // porque un VDE consumio stock despues del confirm original.
+      /** @type {any} */
+      let autoSplitMetadata = null;
       if (stockCheckEnabled) {
         const confirmedLines = (p.data.lines || []).filter(
           (/** @type {any} */ l) => l && l.state === 'confirmed'
         );
         /** @type {Array<{sku: string, wanted: number, available: number}>} */
         const stockShortfalls = [];
+        /** @type {Record<string, number>} */
+        const availBySku = {};
         for (const l of confirmedLines) {
           const wanted = Number(l.qtyOpen || l.qty || 0);
           if (wanted <= 0) continue;
@@ -239,22 +247,77 @@ export async function autoConfirmPendingPedidos({
             p.id,
             nowMs
           );
+          availBySku[sku] = available;
           if (wanted > available) {
             stockShortfalls.push({ sku, wanted, available });
           }
         }
         if (stockShortfalls.length > 0) {
-          log('autoConfirmPendingPedidos skipped_stock_evaporated', {
+          // Auto-split: reconstruir lines. Para cada linea confirmed con
+          // shortfall, dividir en (confirmed=disponible, BO=faltante).
+          const nowIsoSplit = new Date(nowMs).toISOString();
+          const availRemaining = { ...availBySku };
+          /** @type {Array<any>} */
+          const newLines = [];
+          let totalLost = 0;
+          const detalles = [];
+          for (const l of p.data.lines || []) {
+            if (!l || l.state !== 'confirmed') {
+              newLines.push(l);
+              continue;
+            }
+            const sku = String(l.code || '').toUpperCase();
+            const wanted = Number(l.qtyOpen || l.qty || 0);
+            if (wanted <= 0) {
+              newLines.push(l);
+              continue;
+            }
+            const avail = Number(availRemaining[sku] || 0);
+            const take = Math.max(0, Math.min(wanted, avail));
+            availRemaining[sku] = Math.max(0, avail - take);
+            const precio = Number(l.precio || 0);
+            if (take > 0) {
+              newLines.push({ ...l, qty: take, qtyOpen: take });
+            }
+            if (take < wanted) {
+              const boQty = wanted - take;
+              newLines.push({
+                ...l,
+                qty: boQty,
+                qtyOpen: boQty,
+                state: 'BO',
+                asigAt: null,
+                autoSplitFromConfirmed: true,
+                autoSplitAt: nowIsoSplit,
+                autoSplitBy: 'autoConfirmPendingCF',
+              });
+              totalLost += boQty * precio;
+              detalles.push({ sku, lostQty: boQty, lostArs: Math.round(boQty * precio) });
+            }
+          }
+          // Mutar p.data.lines para que la transaccion abajo use las lines splitteadas.
+          p.data.lines = newLines;
+          autoSplitMetadata = {
+            at: nowIsoSplit,
+            by: 'autoConfirmPendingCF',
+            source: 'auto-confirm-timeout-stock-recheck',
+            degradedCount: detalles.length,
+            lostArs: Math.round(totalLost),
+            detalles,
+          };
+          log('autoConfirmPendingPedidos auto_split', {
             pedidoId: p.id,
             clientName: p.data.clientName,
             shortfalls: stockShortfalls,
+            lostArs: autoSplitMetadata.lostArs,
           });
-          skippedForStock.push({
+          autoSplitProcessed.push({
             id: p.id,
             clientName: p.data.clientName,
+            lostArs: autoSplitMetadata.lostArs,
             shortfalls: stockShortfalls,
           });
-          continue;
+          // skippedForStock se mantiene por retrocompat pero vacio en flow normal.
         }
       }
 
@@ -270,7 +333,8 @@ export async function autoConfirmPendingPedidos({
         if (freshData.stage !== 'pending') return false; // otro tick ya la promovio
         if (freshData.finalizedAt) return false; // defensa doble-tick
         if (freshData.transferidoSAP && freshData.transferidoSAP.docNum) return false;
-        tx.update(pedidoRef, {
+        /** @type {any} */
+        const updatePayload = {
           stage: 'confirmed',
           finalizedAt: finalizedAtIso,
           finalizedBy: 'auto/' + minutes + 'min-timeout',
@@ -279,7 +343,15 @@ export async function autoConfirmPendingPedidos({
             reason: 'pending_timeout',
             minutesInPending: p.ageMinutes,
           },
-        });
+        };
+        // v1170: si hubo auto-split por stock recheck, persistir las nuevas lines
+        // + metadata para auditoria. CF trigger posterior ve las lines splitteadas
+        // y no vuelve a degradar.
+        if (autoSplitMetadata) {
+          updatePayload.lines = p.data.lines;
+          updatePayload.autoSplitByStock = autoSplitMetadata;
+        }
+        tx.update(pedidoRef, updatePayload);
         return true;
       });
       if (!didUpdate) {
@@ -332,6 +404,10 @@ export async function autoConfirmPendingPedidos({
     processed: processedIds.length,
     processedIds,
     skippedForStock,
+    // v1170 (2026-10-07): nuevo — pedidos confirmados con auto-split (confirmed→BO
+    // para lineas con stock insuficiente). Permite auditoria "cuanto dinero paso
+    // a BO automatico vs demanda real".
+    autoSplitProcessed,
     errors,
   };
 }
