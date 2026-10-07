@@ -200,6 +200,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // v1171 (2026-10-07): snapshot historico diario de stock escrito por
+    // send_stock_snapshot_email.py (cron L-V 16:00 ART). Read admin+gerente+
+    // viewer para dashboards futuros; write solo via Service Account (bypass).
+    match /stock_daily_snapshots/{docId} {
+      allow read: if isAdmin() || isAdminOrGerente() || isViewer();
+      allow write: if false;
+    }
+
     match /sap_clients/{docId}  { allow read: if isReader(); allow write: if isAdminOrGerente(); }
     match /sap_products/{docId} { allow read: if isReader(); allow write: if isAdminOrGerente(); }
     match /sap_vendors/{docId}  { allow read: if isReader(); allow write: if isAdminOrGerente(); }

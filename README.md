@@ -306,11 +306,14 @@ shimano-arg/app-vendedores/
 │       ├── sync-stock.yml              # LEGACY (cron desactivado). Dispatch manual
 │       │                               #  como respaldo. Depende del CSV que David
 │       │                               #  subia a Drive - ya no se usa.
-│       └── send-rendiciones-email.yml  # Cron Lun/Mie 9am AR: Excel + mail rendiciones aprobadas
+│       ├── send-rendiciones-email.yml  # Cron Lun/Mie 9am AR: Excel + mail rendiciones aprobadas
+│       └── send-stock-snapshot-email.yml # v1171 Cron L-V 16:00 AR: Excel stock + mail a gerente ventas
 ├── scripts/                     # ~30 scripts Python, agrupados por rol:
 │   ├── sync_sap_to_firestore.py     # Cron cada 30min: SAP → Firestore (BPs, items, stock)
 │   ├── sync_sap_to_bigquery.py      # Cron cada 30min: SAP + Firestore.targets → BigQuery
 │   ├── send_rendiciones_email.py    # Cron Lun/Mie: mail de rendiciones aprobadas
+│   ├── send_stock_snapshot_email.py # v1171 Cron L-V 16:00 AR: snapshot stock SAP → mail a gerente
+│   ├── send_tablero_sar_email.py    # Cron L-V 17:00 AR: resumen diario ventas SAR
 │   ├── sync_stock.py                # LEGACY (deprecated 2026-06-18)
 │   ├── bootstrap_targets_to_bigquery.py     # Carga inicial de targets a BQ
 │   ├── bulk_import_fantasias_from_excel.py  # Cargar 103 fantasías por CUIT match
