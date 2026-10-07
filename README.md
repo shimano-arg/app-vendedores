@@ -4676,7 +4676,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1181
+## 41) Changelog v300 → v1182
+
+### v1182 (2026-10-07) — HOTFIX celeste cc-backorder (especificidad apple-design)
+
+**Archivos**: `styles/apple-design.css:5375+` (10 reglas nuevas).
+
+**Antes**: v1180 agregó CSS en `index.html:2903-2908` para `.confirmed-card.cc-backorder` con fondo celeste. Pero `styles/apple-design.css:5329` tiene `#pane-pedidos .confirmed-card { ... background:#fff ... }` que gana por especificidad (0,1,2,0 vs 0,0,2,0) y pisaba el fondo.
+
+**Problema**: Mariano refrescó la app con v1181 cargado + hard reload, pero la card de MARIA FERNANDA IBARRA (chip BACKORDER + is100Bo=true) seguía con fondo blanco. Precedente idéntico v916 con cc-error — ya documentado en apple-design.css:5347-5351.
+
+**Cambio**: replicar el pattern de cc-error v916 — 7 reglas nuevas `#pane-pedidos .confirmed-card.cc-backorder` con `!important`:
+- Background `#e0f2fe` (sky-100)
+- Border `#49A2DA` Apple blue
+- Border-left `#0284c7`
+- Hover `#bae6fd` + translateY + shadow sky
+- Textos tonos azul sky manteniendo WCAG AA
+
+**Por que**: CLAUDE.md §21 — CSS class + `!important` cuando selector del design system pisa. Especificidad `#pane-pedidos .confirmed-card.cc-backorder` (0,1,2,0) iguala al shell default + `!important` resuelve el tie.
+
+**Verificacion**: visual check post hard reload. Card MARIA FERNANDA IBARRA en celeste.
+
+**Rollback**: safe — remover las 7 reglas restaura blanco.
 
 ### v1181 (2026-10-07) — Boton Mercado Libre: letras en ambar oscuro (#a86200)
 
