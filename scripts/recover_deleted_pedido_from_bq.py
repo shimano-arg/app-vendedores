@@ -1,7 +1,7 @@
 """
 Recupera pedidos borrados de Firestore buscando en BigQuery changelog.
 
-La extension firestore-bigquery-export mantiene `pedidos_raw_changelog` con
+La extension firestore-bigquery-export mantiene `pedidos_raw_raw_changelog` con
 TODOS los eventos (CREATE/UPDATE/DELETE). Cuando se borra un doc Firestore,
 la row DELETE tiene el `data` completo del pedido como estaba antes.
 
@@ -70,7 +70,7 @@ def fetch_deleted(client):
           document_name,
           operation,
           data
-        FROM `{BQ_PROJECT}.{BQ_DATASET}.pedidos_raw_changelog`
+        FROM `{BQ_PROJECT}.{BQ_DATASET}.pedidos_raw_raw_changelog`
         WHERE DATE(timestamp) >= @date_from
           AND REGEXP_CONTAINS(data, @pattern)
         ORDER BY timestamp DESC
