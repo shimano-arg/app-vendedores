@@ -78,8 +78,9 @@ export const AUTO_SEND_RESULT = /** @type {const} */ ({
   SKIP_LOCKED: 'skip_locked', // otra sesion tiene lock activo
   SKIP_NO_LINES: 'skip_no_lines', // pedido sin lineas confirmed
   SKIP_STOCK_RECHECK_ALL_DEGRADED: 'skip_stock_recheck_all_degraded', // v1051: re-check live stock SAP degradó TODAS las líneas confirmed → skip envío (queda app_only)
+  SKIP_STOCK_RECHECK_PARTIAL_DEGRADED: 'skip_stock_recheck_partial_degraded', // v1179 (incident Ricardo Blanco Goitia 2026-10-07): recheck degradó al menos 1 línea → NO enviar silent-degradado, requiere intervencion manual
   SENT_OK: 'sent_ok', // envio exitoso a SAP
-  SENT_OK_PARTIAL_STOCK: 'sent_ok_partial_stock', // v1051: enviado a SAP con líneas parcialmente degradadas por live stock recheck
+  SENT_OK_PARTIAL_STOCK: 'sent_ok_partial_stock', // v1051 (DEPRECATED v1179): ya no se dispara — el gate ahora bloquea antes del POST
   SENT_OK_IDEMPOTENT: 'sent_ok_idempotent', // v1006: SAP ya tenia SQ con este NumAtCard, no re-POST
   ERROR_SL: 'error_sl', // SL devolvio error (no reintentable auto)
   ERROR_RACE: 'error_race', // otra sesion completo despues del lock
@@ -347,7 +348,7 @@ export function isEligibleForAutoSend(beforeData, afterData) {
  * @param {any} beforeData snapshot antes del write
  * @param {any} afterData snapshot despues del write
  * @param {CoreDeps} deps
- * @returns {Promise<{result: string, docNum?: number, docEntry?: number, error?: string, reason?: string}>}
+ * @returns {Promise<{result: string, docNum?: number, docEntry?: number, error?: string, reason?: string, degradedCount?: number}>}
  */
 export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   const log = deps.sl.log || (() => {});
@@ -592,18 +593,30 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     /** @type {Array<{itemCode: string, requested: number, available: number, reason: string}>} */
     const degradedForAudit = stockCheck.degradedLines || [];
     if (stockCheck.checkSucceeded && degradedForAudit.length > 0) {
-      log('[auto-send] live stock recheck DEGRADED lines', {
+      // v1179 (incident 2026-10-07, pedido RICARDO BLANCO GOITIA SQ 2000316):
+      // Antes v1179: si recheck degradaba lineas parcialmente, el CF modificaba
+      // `built.payload.DocumentLines = stockCheck.keptLines` y enviaba la SQ
+      // SILENT-DEGRADADA a SAP. Resultado: VDE veia pedido $7.696.000, SAP
+      // tenia SQ por $5.448.000. VDE/admin no se enteraba (solo via='cf_auto_
+      // partial_stock' en Firestore, invisible en UI). Diferencia perdida ~$2.2M.
+      // Mismo pattern LAMORA pero por el camino server-side (SRE C3 v1172
+      // cubrio solo el flow client-side listener).
+      //
+      // Ahora: cualquier degradacion (>=1 linea) → SKIP envio + liberar lock +
+      // marcar needsManualIntervention con lista completa de degraded. Admin
+      // interviene manual: puede cancelar el pedido, forzar envio con qtys
+      // reducidas via batch admin, o esperar reposicion stock.
+      log('[auto-send] live stock recheck DEGRADED → SKIP (needs manual)', {
         pedidoId,
         degradedCount: degradedForAudit.length,
         keptCount: stockCheck.keptLines.length,
         sample: degradedForAudit.slice(0, 5),
       });
-      built.payload.DocumentLines = stockCheck.keptLines;
-      if (stockCheck.keptLines.length === 0) {
-        // Todas las líneas confirmed se degradaron. Marcamos el pedido como
-        // `via='app_only'` con reason auditable + escribimos los degraded.
-        // NO enviamos SQ vacía a SAP.
-        try {
+      const allDegraded = stockCheck.keptLines.length === 0;
+      try {
+        if (allDegraded) {
+          // Todas las lineas degradadas. Marcamos app_only (pedido queda en
+          // app como demanda pendiente, NO va a SAP). Legacy pattern pre-v1179.
           await docRef.update({
             transferidoSAP: {
               via: 'app_only',
@@ -614,22 +627,46 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
             },
             sendingSapLock: deps.FieldValue.delete(),
           });
-        } catch (persistErr) {
-          log('[auto-send] failed to persist all_degraded marker', {
-            pedidoId,
-            err: persistErr && persistErr.message ? persistErr.message : String(persistErr),
+        } else {
+          // Partial degraded: NO marcar transferidoSAP (el pedido queda elegible
+          // para re-intento manual). Solo marcar transferError.needsManualIntervention
+          // + liberar lock. Admin ve badge rojo + decide que hacer.
+          await docRef.update({
+            sendingSapLock: deps.FieldValue.delete(),
+            transferError: {
+              message:
+                'stock_degradado_cf_skip: ' +
+                degradedForAudit.length +
+                ' linea(s) con stock insuficiente al momento del envio',
+              at: new Date(now).toISOString(),
+              via: 'cf_auto',
+              needsManualIntervention: true,
+              stockRecheckDegraded: degradedForAudit,
+              originalLineCount:
+                (built.payload.DocumentLines && built.payload.DocumentLines.length) || 0,
+              keptLineCount: stockCheck.keptLines.length,
+            },
           });
         }
-        try {
-          await sapLogout(session, deps.sl);
-        } catch {
-          /* swallow */
-        }
-        return {
-          result: AUTO_SEND_RESULT.SKIP_STOCK_RECHECK_ALL_DEGRADED,
-          reason: 'all_lines_degraded',
-        };
+      } catch (persistErr) {
+        log('[auto-send] failed to persist degraded marker', {
+          pedidoId,
+          allDegraded,
+          err: persistErr && persistErr.message ? persistErr.message : String(persistErr),
+        });
       }
+      try {
+        await sapLogout(session, deps.sl);
+      } catch {
+        /* swallow */
+      }
+      return {
+        result: allDegraded
+          ? AUTO_SEND_RESULT.SKIP_STOCK_RECHECK_ALL_DEGRADED
+          : AUTO_SEND_RESULT.SKIP_STOCK_RECHECK_PARTIAL_DEGRADED,
+        reason: allDegraded ? 'all_lines_degraded' : 'partial_lines_degraded',
+        degradedCount: degradedForAudit.length,
+      };
     }
     /** @type {{status: number, body: any, headers: any} | null} */
     let resp = null;
@@ -720,11 +757,12 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
         };
         return;
       }
-      // v1051: si el recheck degradó líneas parcialmente, marcamos via y
-      // adjuntamos el listado degraded para auditoría posterior.
+      // v1179: `cf_auto_partial_stock` NUNCA se dispara (bloqueado antes del
+      // POST). `degradedForAudit.length` siempre es 0 aca. El `via='cf_auto'`
+      // es el unico valor posible para envios reales.
       /** @type {Record<string, any>} */
       const transferidoSAPPayload = {
-        via: degradedForAudit.length > 0 ? 'cf_auto_partial_stock' : 'cf_auto',
+        via: 'cf_auto',
         docEntry,
         docNum,
         transferredAt: new Date(now).toISOString(),
@@ -732,9 +770,6 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
         sapDocRange: String(docNum),
         batchId: 'CF-AUTO-' + now,
       };
-      if (degradedForAudit.length > 0) {
-        transferidoSAPPayload.stockRecheckDegraded = degradedForAudit;
-      }
       tx.update(docRef, {
         transferidoSAP: transferidoSAPPayload,
         sendingSapLock: deps.FieldValue.delete(),
@@ -756,11 +791,10 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       docNum,
       docEntry,
       linesCount: built.linesCount,
-      degradedCount: degradedForAudit.length,
     });
-    if (degradedForAudit.length > 0) {
-      return { result: AUTO_SEND_RESULT.SENT_OK_PARTIAL_STOCK, docNum, docEntry };
-    }
+    // v1179: SENT_OK_PARTIAL_STOCK deprecated — el gate anterior bloquea cualquier
+    // envio con lineas degradadas antes del POST. Si llegamos aca, el payload
+    // tenia 0 degraded = envio limpio.
     return { result: AUTO_SEND_RESULT.SENT_OK, docNum, docEntry };
   } catch (e) {
     const msg = String((e && e.message) || e);

@@ -128,9 +128,7 @@ function makeSlFetch(scenarios) {
       const codes = Array.from(decoded.matchAll(/ItemCode eq '([^']+)'/g)).map((m) => m[1]);
       const stockOverride = scenarios.itemsStock || {};
       const value = codes.map((code) => {
-        const avail = Object.prototype.hasOwnProperty.call(stockOverride, code)
-          ? stockOverride[code]
-          : 999; // default: stock amplio para no bloquear tests legacy.
+        const avail = Object.hasOwn(stockOverride, code) ? stockOverride[code] : 999; // default: stock amplio para no bloquear tests legacy.
         return {
           ItemCode: code,
           ItemWarehouseInfoCollection: [
@@ -832,5 +830,82 @@ describe('handleAutoSendSap — v1006 idempotencia por NumAtCard', () => {
     });
     const r = await handleAutoSendSap('p1', null, deps.fbDb._dump()['pedidos/p1'], deps);
     expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_ALREADY_SENT);
+  });
+});
+
+// v1179 (incident 2026-10-07, pedido RICARDO BLANCO GOITIA SQ 2000316):
+// recheck live stock degrado 1+ linea → antes el CF modificaba el payload y
+// enviaba SILENT-DEGRADADO. Resultado: VDE veia pedido $7.696.000, SAP tenia
+// SQ por $5.448.000. Ahora: bloquear envio + requerir intervencion manual.
+describe('handleAutoSendSap — v1179 degraded stock gate (incident Ricardo Blanco Goitia)', () => {
+  it('v1179: 1 linea degradada parcial → NO POST + marca needsManualIntervention', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        // CDC60H2 pide 3 pero SAP solo tiene 1. FX2500 ok.
+        itemsStock: { CDC60H2: 1, FX2500: 999 },
+        docNum: 12345,
+        docEntry: 999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_STOCK_RECHECK_PARTIAL_DEGRADED);
+    expect(r.reason).toBe('partial_lines_degraded');
+    expect(r.degradedCount).toBeGreaterThanOrEqual(1);
+    // NO POST a /Quotations
+    const postCalls = deps.sl.fetch.mock.calls.filter(
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+    );
+    expect(postCalls).toHaveLength(0);
+    // Estado post-check: transferError con needsManualIntervention, lock liberado,
+    // transferidoSAP NO escrito (pedido queda elegible para re-intento manual).
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferidoSAP).toBeUndefined();
+    expect(after.sendingSapLock).toBeUndefined();
+    expect(after.transferError).toBeDefined();
+    expect(after.transferError.needsManualIntervention).toBe(true);
+    expect(after.transferError.stockRecheckDegraded).toHaveLength(1);
+    expect(after.transferError.stockRecheckDegraded[0].itemCode).toBe('CDC60H2');
+  });
+
+  it('v1179: TODAS las lineas degradadas → marca via=app_only (legacy) + skip', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        itemsStock: { CDC60H2: 0, FX2500: 0 },
+        docNum: 12345,
+        docEntry: 999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_STOCK_RECHECK_ALL_DEGRADED);
+    expect(r.reason).toBe('all_lines_degraded');
+    // NO POST a /Quotations
+    const postCalls = deps.sl.fetch.mock.calls.filter(
+      ([url, init]) => url.endsWith('/b1s/v1/Quotations') && init && init.method === 'POST'
+    );
+    expect(postCalls).toHaveLength(0);
+    // Backward compat: all_degraded sigue marcando via='app_only'
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferidoSAP.via).toBe('app_only');
+    expect(after.transferidoSAP.reason).toBe('stock_recheck_all_degraded');
+    expect(after.sendingSapLock).toBeUndefined();
+  });
+
+  it('v1179: stock OK en todas las lineas → envio normal (sin bloqueo)', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        itemsStock: { CDC60H2: 999, FX2500: 999 },
+        docNum: 12345,
+        docEntry: 999,
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    expect(r.docNum).toBe(12345);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferidoSAP.via).toBe('cf_auto');
+    expect(after.transferidoSAP.stockRecheckDegraded).toBeUndefined();
   });
 });
