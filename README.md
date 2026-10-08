@@ -4676,7 +4676,56 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ---
 
-## 41) Changelog v300 → v1184
+## 41) Changelog v300 → v1210
+
+### v1210 (2026-10-08) — Reparto de Stock Asignado (reemplaza "Cerrar SQs viejas")
+
+**Archivos**:
+- `src/pure/reparto-stock-asig.js` (nuevo, 335 LOC, pure fn `redistributeAsigLine` con audit trail)
+- `tests/unit/reparto-stock-asig.test.js` (nuevo, 21 cases: validacion inputs, reducir, aumentar, mixed, SIN RESERVA, case-insensitive)
+- `src/main.js:46,55,229,243,278` (import + export en `phase0.pure` + expose `window.redistributeAsigLine`)
+- `index.html:5433,13597,15190+` (reemplaza boton + modal + handler viejo "Cerrar SQs viejas" por "Reparto")
+- `index.html:14640` (texto FORZAR eliminar linea: quita referencia a boton viejo)
+- `index.html:6143` + `sw.js:20` (bump v1209 → v1210)
+- `app.bundle.js` + `chunks/` (rebuild)
+
+**Antes**:
+Modo asignacion tenia boton rojo "Cerrar SQs viejas" (v1196-v1209) que listaba pedidos con SAP docNum abierto para cancelar en SAP via `closeSqsManuallyCF`. Admin no tenia una forma de ajustar manualmente la asignacion ASIG de clientes individuales — si queria sacarle 2u a un cliente para darselas a otro, tenia que cancelar lineas enteras.
+
+**Problema**:
+- Mariano reporto: cliente EL PEZ GORDO tenia 20u asignadas de CUDC201HG, pero Pablo (admin) necesitaba que fueran 18u. Las 2u sobrantes debian volver a BO del mismo cliente para que las agarre otro vendedor del cliente (via FIFO al llegar stock).
+- Sin herramienta de reparto, Pablo tenia que cancelar la linea ASIG + crear BO manual. Error-prone.
+
+**Cambio**:
+
+1. **Pure fn `redistributeAsigLine`** (`src/pure/reparto-stock-asig.js`): recibe `{pedido, sku, newQty, stockFisicoLibre, audit}` y devuelve `{ok, newLines, delta, usedFromBO, usedFromLibre, from, currentAsig, currentBO}`.
+   - **Reducir**: diferencia va a BO del mismo pedido (incrementa linea BO existente o crea nueva).
+   - **Aumentar**: consume BO del mismo pedido primero; si falta, exige stock fisico libre. Bloquea si no alcanza.
+   - **Audit trail**: cada linea modificada recibe `redistributedBy`, `redistributedAt`, `redistributedBefore`, `redistributedAfter`.
+   - **Cancellation**: lineas que quedan en qty=0 reciben `state='cancelled'` + `cancelReason='reparto-admin'`.
+
+2. **Boton "Reparto"** (color violeta #6b21a8): reemplaza al rojo "Cerrar SQs viejas". Visible solo admin + modo asignacion.
+
+3. **Modal "Reparto de Stock Asignado"** (`#reparto-admin-modal`): lista TODOS los SKUs con lineas ASIG activas (`asigReserva=true`), agrupado por SKU → clientes/pedidos. Filtros por SKU y cliente. Cada row un input editable con qty actual. Highlight amarillo en filas modificadas. Boton "Guardar cambios" ejecuta `writeBatch` Firestore con los nuevos arrays `lines` + append a `repartoHistory`.
+
+4. **CF `closeSqsManuallyCF`**: queda deployada (no se elimina `functions/index.js`) por reusabilidad futura — pero sin UI que la invoque.
+
+**Por que**:
+- Pedido explicito Mariano 2026-10-08 con ejemplo EL PEZ GORDO.
+- Pure fn testeable (21 cases) elimina posibilidad de bugs en el movimiento ASIG↔BO.
+- Admin-only + audit trail cubre riesgo de abuso.
+- Mariano confirmo: "mostrar TODO" (no por SKU), "eliminar completo" el boton viejo, "aumentar solo si hay stock fisico libre no reservado".
+
+**Verificacion**:
+- `npx vitest run tests/unit/reparto-stock-asig.test.js` → 21/21 pass.
+- `npm run test:unit` → 699/699 pass.
+- `npx biome check src/pure/reparto-stock-asig.js tests/unit/reparto-stock-asig.test.js src/main.js` → clean.
+- `npm run typecheck` → clean.
+- `node build.js` → shell 2.4MB (sin cambios de size material).
+
+**Rollback**:
+- Revert PR. El boton + modal nuevos desaparecen; `redistributeAsigLine` queda unused en bundle (sin impacto).
+- Las lineas con `redistributed*` + `repartoHistory` quedan en Firestore (audit trail) pero no afectan render.
 
 ### v1184 (2026-10-07) — Fix de raiz clientCardCode: CF scheduled + badge UI + workflow backfill
 
