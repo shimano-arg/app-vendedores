@@ -6139,7 +6139,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1206';
+const APP_VERSION = 'v1209';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18260,6 +18260,14 @@ function _renderEstadoPedidos(content, arr, tipo){
     name.style.cssText = 'flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     name.textContent = p.clientName || 'sin cliente';
     row1.appendChild(name);
+    // v1209 (2026-10-08): chip "STOCK ASIG" si el pedido vino de "Crear Pedido - ST".
+    if (p.source === 'stock-asignado-batch') {
+      const chipSA = document.createElement('span');
+      chipSA.style.cssText = 'background:#d97706;color:#fff;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0;text-transform:uppercase';
+      chipSA.textContent = 'STOCK ASIG';
+      chipSA.title = 'Pedido generado desde Stock Asignado (consolidado de SA reservado)';
+      row1.appendChild(chipSA);
+    }
     // v816 (2026-09-07): chip visual del estado de envio a SAP.
     // - Con docNum real: verde "SAP #N" (enviado como Sales Quotation).
     // - Sin docNum, via='app_only' (v607 auto-confirm 100% BO): gris "SIN SAP (100% BO)".
@@ -22135,6 +22143,13 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // fallo silenciosamente. El path old (_pendingWaitlistDelete) queda como
   // fallback (defense in depth).
   window._pendingPedidoWaitlistId = w._id || null;
+  // v1209 (2026-10-08): propagar el source del waitlist al pedido para que
+  // las cards de Pendientes/Confirmados muestren el chip "STOCK ASIG" si vino
+  // de "Crear Pedido - ST" (source='stock-asignado-batch'). Pedido Mariano:
+  // "al pasar de la lista de espera a pendientes y a confirmados sigan
+  // manteniendo la etiqueta de STOCK ASIG para saber que ese pedido fue por
+  // stock asignado".
+  window._pendingPedidoSource = w.source || null;
   closeWaitlistCardModal();
   closeWaitlistModal();
   // v843 (2026-09-09): si viene de "Generar Backorder", saltar el modal
@@ -23121,6 +23136,10 @@ function renderConfirmadosList(){
     if (it.conf.orderNumber) {
       _ordChip = '<span style="display:inline-block;background:#0f172a;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;letter-spacing:.3px;margin-left:6px">ORDEN ' + escapeHtml(String(it.conf.orderNumber)) + '</span>';
     }
+    // v1209 (2026-10-08): chip "STOCK ASIG" si vino de "Crear Pedido - ST".
+    if (it.conf.source === 'stock-asignado-batch') {
+      _ordChip = '<span style="display:inline-block;background:#d97706;color:#fff;font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;letter-spacing:.4px;margin-left:6px;text-transform:uppercase" title="Pedido generado desde Stock Asignado">STOCK ASIG</span>' + _ordChip;
+    }
     // v944: chip mes muestra "BACKORDER" cuando 100% BO (los auto-confirmados
     // v607 no tienen month/year seteados en algunos paths — antes salia
     // "undefined" como label).
@@ -23477,24 +23496,30 @@ window.viewPedido = function(stage, key, idx){
       infoHtml += '<span style="font-weight:800;color:#0d9488">-' + pctTotal + '% &middot; -' + fmtAr(montoDesc) + '</span>';
       infoHtml += '</div>';
     }
-    // Neto
+    // v1207 (2026-10-08): REESTRUCTURA del display por pedido Mariano. Antes
+    // el "TOTAL NETO" era c.netAmountArs (gross de todas las lineas) y
+    // visualmente confundia porque parecia que SAP recibia TODO ($1.453k
+    // ejemplo) cuando en realidad solo recibe las lineas confirmed ($629k).
+    // Ahora:
+    //   - "VA A SAP" prominente verde = subtotal disponible * (1 - pctTotal%)
+    //   - "No va a SAP (backorder)" rojo tenue = subtotalBackorderCalc
+    //   - "Total pedido original" gris chico = c.subtotalArs (gross)
+    // Si no hay backorder, "VA A SAP" == "Total pedido" (coincidencia natural).
+    const dispNeto = subtotalDispCalc * (1 - (pctTotal / 100));
     infoHtml += '<div style="display:flex;justify-content:space-between;padding:10px 0 7px 0;font-size:14px">';
-    infoHtml += '<span style="font-weight:800;color:var(--text-primary)">TOTAL NETO</span>';
-    infoHtml += '<span style="font-weight:800;color:var(--color-success);font-size:16px">' + fmtAr(neto) + '</span>';
+    infoHtml += '<span style="font-weight:800;color:var(--text-primary)">VA A SAP</span>';
+    infoHtml += '<span style="font-weight:800;color:var(--color-success);font-size:16px">' + fmtAr(dispNeto) + '</span>';
     infoHtml += '</div>';
-    // v955 (2026-09-16): breakdown por disponibilidad debajo del TOTAL NETO
-    // — pedido Mariano. Subtotal DISPONIBLE (lineas con stock) + Subtotal
-    // BACKORDER (lineas state=BO). Ambos gross (sin descuento aplicado).
-    // Solo se muestran si hay al menos algo de backorder para no meter
-    // ruido en pedidos 100% con stock.
     if (subtotalBackorderCalc > 0) {
-      infoHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0 4px 14px;font-size:11px;color:var(--text-muted);border-top:1px dashed var(--border-subtle)">';
-      infoHtml += '<span>&middot; Subtotal disponible <span style="font-size:10px;color:var(--text-muted)">(con stock)</span></span>';
-      infoHtml += '<span style="font-weight:700;color:var(--color-success)">' + fmtAr(subtotalDispCalc) + '</span>';
-      infoHtml += '</div>';
-      infoHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0 7px 14px;font-size:11px;color:var(--text-muted)">';
-      infoHtml += '<span>&middot; Subtotal backorder <span style="font-size:10px;color:var(--color-danger)">(sin stock)</span></span>';
+      // Backorder NO entra a SAP — se queda como demanda pendiente en la app.
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-top:1px dashed var(--border-subtle)">';
+      infoHtml += '<span style="color:var(--color-danger);font-weight:700">No va a SAP (backorder)</span>';
       infoHtml += '<span style="font-weight:700;color:var(--color-danger)">' + fmtAr(subtotalBackorderCalc) + '</span>';
+      infoHtml += '</div>';
+      // Total original gross — info secundaria para el VDE que quiera ver cuanto pidio el cliente.
+      infoHtml += '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:10.5px;color:var(--text-muted)">';
+      infoHtml += '<span>Total pedido original (gross)</span>';
+      infoHtml += '<span>' + fmtAr(neto) + '</span>';
       infoHtml += '</div>';
     }
     // Fecha confirmacion
@@ -30478,6 +30503,10 @@ function attachFirebaseListeners(){
         // v846 (2026-09-09): incluir orderNumber para mostrar chip 'ORDEN N'
         // en las cards de Confirmados/Pendientes (Mariano pidio verlo).
         orderNumber: d.orderNumber || null,
+        // v1209 (2026-10-08): source del pedido (ej 'stock-asignado-batch'
+        // si vino de "Crear Pedido - ST") para mostrar chip "STOCK ASIG"
+        // en las cards de Pendientes/Confirmados.
+        source: d.source || null,
         confirmedAt: d.confirmedAt, finalizedAt: d.finalizedAt || null,
         lines: d.lines || [],
         // Snapshot del descuento al confirmar - dashboard y targets usan
@@ -30830,6 +30859,10 @@ window.doConfirmPedido = async function(){
     // sin depender de la variable en memoria _pendingWaitlistDelete. Ver comment
     // en _waitlistPasarAPendientesContinuar (linea ~20664).
     waitlistOrigenId: window._pendingPedidoWaitlistId || null,
+    // v1209 (2026-10-08): persistir origen del pedido (ej 'stock-asignado-batch'
+    // si vino de "Crear Pedido - ST"). Permite distinguir visualmente las cards
+    // en Pendientes/Confirmados con chip "STOCK ASIG".
+    source: window._pendingPedidoSource || null,
     // v1118 (2026-09-30): auditoria del bypass del gate ASIG (si el pedido
     // se envio con el boton "Enviar de todos modos" saltando la revision
     // de stock asignado). null si el flow fue normal.
@@ -30872,19 +30905,25 @@ window.doConfirmPedido = async function(){
       const _splitFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.splitPedidoLine);
       if (_splitFn) {
         return _splitFn(l, {
-          // v802 (2026-09-04, bug reportado por Santi): alinear la formula
-          // que decide state='confirmed' vs 'BO' al mismo criterio del modal
-          // Revisar (v797): dep11 - reservadasASIG. Los BO viejos NO restan
-          // — cuando llegue stock, la CF FIFO (v798) los va a promocionar
-          // automaticamente a ASIG. Antes v701 usaba getStockRealmenteDisponible
-          // que restaba tambien confirmed+BO, provocando que el modal mostrara
-          // "$6.357k Con Stock" pero SAP recibiera solo "$3.482k" (bug reportado
-          // por Santi: la mitad quedaba como BO app aunque el vendedor via
-          // "Con Stock" en el modal).
-          // Filosofia coherente con v797+v798: si hay stock fisico libre
-          // (dep11 - ASIG), lo prometemos como SQ a SAP. Los BO viejos los
-          // atiende la CF FIFO al proximo arribo.
+          // v1208 (2026-10-08, bug reportado Mariano): RE-ALINEADO con el
+          // modal "Revisá tu Pedido" post-v1189. El split usaba `dep11 - ASIG`
+          // (v802) pero el modal usa `getStockRealmenteDisponible = dep11 -
+          // confirmed - BO - ASIG` (v1189, alineado con Excel "Archivo
+          // cliente"). Discrepancia real reportada: pedido BENGOCHEA ORDEN
+          // 356, modal mostraba Disponibles=\$629k + Sin stock=\$824k pero
+          // SAP recibio TODAS las lineas (\$1.453k) porque el split usaba
+          // formula menos estricta y las lineas que el modal consideraba
+          // "sin stock" (otros clientes las tenian como confirmed/BO)
+          // quedaban state='confirmed' por el split y viajaban a SAP.
+          // Fix: usar window.getStockRealmenteDisponible (mismo que el modal).
+          // Trade-off vs v802: ahora si otro cliente tiene lineas state=BO
+          // de este SKU, el split las trata como "comprometidas" y manda
+          // menos a SAP. Es coherente con lo que el VDE ve en el modal.
           getDisp: function(sku){
+            if (typeof window.getStockRealmenteDisponible === 'function') {
+              return Math.max(Number(window.getStockRealmenteDisponible(sku) || 0), 0);
+            }
+            // Fallback (bundle no cargado edge case): v802 formula.
             const _gsdvFn = (typeof window.getStockDisponibleVenta === 'function')
               ? window.getStockDisponibleVenta : null;
             if (!_gsdvFn) return 0;
@@ -30955,6 +30994,8 @@ window.doConfirmPedido = async function(){
       window._pendingPedidoOrderNumber = null;
       // v1058 (2026-09-24): reset del waitlistOrigenId pendiente — ya se persistio.
       window._pendingPedidoWaitlistId = null;
+      // v1209 (2026-10-08): reset del source heredado.
+      window._pendingPedidoSource = null;
       // v1118 (2026-09-30): reset del flag bypass ASIG — ya se persistio.
       window._pendingBypassAsigGate = null;
       // Fallback local: solo cuando Firestore lo acepto. Si fallo por permisos,
