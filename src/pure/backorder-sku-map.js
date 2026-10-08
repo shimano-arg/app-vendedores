@@ -393,14 +393,19 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       // SAP legacy source se trata como 'BO' (v_backorder_lineas_v2 default).
       g.clientes.forEach((c) => {
         const isBoLike = c.state === 'BO' || c.source === 'sap';
-        // v1185 (incident 2026-10-07 PESCAR.INFO SHOP ANT101XGB):
-        // isAsigLike incluye `confirmed` solo si el pedido NO esta en SAP
-        // (sqDocNum=0). Esos son los "huerfanos" — reservan stock app-side
-        // pero no se transfirieron (ej. needsManualIntervention v1179, stock
-        // degraded, needsCardCodeResolution v1184, transferError). Admin
-        // necesita verlos para desbloquearlos. Confirmed CON SAP sigue sin
-        // contar (alineado con tablero PBI).
-        const isAsigLike = c.state === 'ASIG' || (c.state === 'confirmed' && !c.sqDocNum);
+        // v1190 (incident 2026-10-08 RINALDI LORUSSO 127082):
+        // isAsigLike ahora incluye TODAS las confirmed (con y sin sqDocNum).
+        // Precedente v1185 incluyo solo confirmed SIN sqDocNum (huerfanos app).
+        // Fix: tambien confirmed CON sqDocNum deben aparecer en Stock Asignado
+        // porque UNIDADES RESERVADAS del modal "Pedido en Espera" las cuenta
+        // (via getStockDesglose). Sin esto, VDE veia "RESERVADAS=6" en un
+        // modal y "0 clientes" en Stock Asignado para el mismo SKU — pedia
+        // coherencia.
+        // Trade-off: diverge del tablero PBI (v_stock_asignado filtra solo
+        // state='ASIG'). Las lineas confirmed+sqDocNum aparecen en el reporte
+        // SAP SQs del PBI separadamente. Mariano prefiere coherencia modal↔
+        // modal sobre modal↔PBI.
+        const isAsigLike = c.state === 'ASIG' || c.state === 'confirmed';
         if (isAsig && isAsigLike && dispSap > 0) {
           c.qtyAsignada = c.pendiente;
           c.qtyBackorder = 0;
