@@ -6081,7 +6081,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1190';
+const APP_VERSION = 'v1191';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -28844,15 +28844,19 @@ async function onPlannerColDrop(ev) {
   }
 }
 
-// v1084: subscribe re-usable. Default filtra closedAt=null (Planner "clasico").
-// Con plannerShowClosed=true trae todos los pedidos creados en los ultimos 90
-// dias (activos + cerrados). El filtro _plannerPedidoInMonth limita al mes
-// seleccionado, asi el volumen no crece descontroladamente.
-// v1092 (2026-09-29): scope VDE — cuando userRole='vendedor', filtrar por
-// ownerUid=uid. Sin este filtro el listener falla silencioso porque la rule
-// `list` de /pedidos exige ownsDoc() para vendors. Mismo pattern que
-// unsubPedidosAll (index.html:28781 v820 fix). Trade-off: pedidos creados
-// on-behalf-of por un VDI quedan fuera del scope (ownerUid=VDI, no VDE).
+// v1191 (2026-10-08): REVERTIDO filtro default closedAt==null. Reportado por
+// Mariano: VDE Pablo veia ORDEN 300 en vista Pedidos > Confirmados pero no en
+// Planner. Root cause: pedido se cierra automaticamente cuando todas sus
+// lineas son invoiced (asig-recycle-core setea closedAt). Default
+// plannerShowClosed=false filtraba `closedAt==null` -> VDE sin toggle
+// activado perdia los facturados. Mariano (plannerShowClosed=true via
+// localStorage) los veia; Pablo (default false) no. Fix: siempre traer los
+// ultimos 90 dias (createdAt>=90d), independiente del toggle. Volumen
+// controlado por _plannerPedidoInMonth filter en render. plannerShowClosed
+// pasa a controlar si extender el rango historico (180d toggle on vs 90d off).
+//
+// Precedente v1092 (2026-09-29): scope VDE — para vendedor, filtrar por
+// ownerUid=uid (rules exigen ownsDoc).
 function _subscribePlannerPedidos() {
   if (unsubPlannerPedidos) { try { unsubPlannerPedidos(); } catch (_) { /* ignore */ } unsubPlannerPedidos = null; }
   const db = fbDb;
@@ -28860,9 +28864,9 @@ function _subscribePlannerPedidos() {
   if (userRole === 'vendedor' && currentUser && currentUser.uid) {
     base = base.where('ownerUid', '==', currentUser.uid);
   }
-  const query = plannerShowClosed
-    ? base.where('createdAt', '>=', new Date(Date.now() - 90 * 86400000))
-    : base.where('closedAt', '==', null);
+  // v1191: always query by createdAt range. Toggle controls range depth.
+  const daysBack = plannerShowClosed ? 180 : 90;
+  const query = base.where('createdAt', '>=', new Date(Date.now() - daysBack * 86400000));
   unsubPlannerPedidos = query.onSnapshot(snap => {
     plannerPedidosCache.clear();
     snap.forEach(d => plannerPedidosCache.set(d.id, { id: d.id, ...d.data() }));
