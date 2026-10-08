@@ -6139,7 +6139,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1207';
+const APP_VERSION = 'v1208';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -30878,19 +30878,25 @@ window.doConfirmPedido = async function(){
       const _splitFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.splitPedidoLine);
       if (_splitFn) {
         return _splitFn(l, {
-          // v802 (2026-09-04, bug reportado por Santi): alinear la formula
-          // que decide state='confirmed' vs 'BO' al mismo criterio del modal
-          // Revisar (v797): dep11 - reservadasASIG. Los BO viejos NO restan
-          // — cuando llegue stock, la CF FIFO (v798) los va a promocionar
-          // automaticamente a ASIG. Antes v701 usaba getStockRealmenteDisponible
-          // que restaba tambien confirmed+BO, provocando que el modal mostrara
-          // "$6.357k Con Stock" pero SAP recibiera solo "$3.482k" (bug reportado
-          // por Santi: la mitad quedaba como BO app aunque el vendedor via
-          // "Con Stock" en el modal).
-          // Filosofia coherente con v797+v798: si hay stock fisico libre
-          // (dep11 - ASIG), lo prometemos como SQ a SAP. Los BO viejos los
-          // atiende la CF FIFO al proximo arribo.
+          // v1208 (2026-10-08, bug reportado Mariano): RE-ALINEADO con el
+          // modal "Revisá tu Pedido" post-v1189. El split usaba `dep11 - ASIG`
+          // (v802) pero el modal usa `getStockRealmenteDisponible = dep11 -
+          // confirmed - BO - ASIG` (v1189, alineado con Excel "Archivo
+          // cliente"). Discrepancia real reportada: pedido BENGOCHEA ORDEN
+          // 356, modal mostraba Disponibles=\$629k + Sin stock=\$824k pero
+          // SAP recibio TODAS las lineas (\$1.453k) porque el split usaba
+          // formula menos estricta y las lineas que el modal consideraba
+          // "sin stock" (otros clientes las tenian como confirmed/BO)
+          // quedaban state='confirmed' por el split y viajaban a SAP.
+          // Fix: usar window.getStockRealmenteDisponible (mismo que el modal).
+          // Trade-off vs v802: ahora si otro cliente tiene lineas state=BO
+          // de este SKU, el split las trata como "comprometidas" y manda
+          // menos a SAP. Es coherente con lo que el VDE ve en el modal.
           getDisp: function(sku){
+            if (typeof window.getStockRealmenteDisponible === 'function') {
+              return Math.max(Number(window.getStockRealmenteDisponible(sku) || 0), 0);
+            }
+            // Fallback (bundle no cargado edge case): v802 formula.
             const _gsdvFn = (typeof window.getStockDisponibleVenta === 'function')
               ? window.getStockDisponibleVenta : null;
             if (!_gsdvFn) return 0;
