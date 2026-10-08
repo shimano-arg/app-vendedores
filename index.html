@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1217';
+const APP_VERSION = 'v1218';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15261,7 +15261,21 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
     const baseline = hasAsigOrConfirmed ? currentAsig : currentBoOnly;
     const newQty = baseline + delta;
     if (newQty < 0) {
-      alert('No se puede bajar mas (actual: ' + baseline + ')');
+      // v1218 (2026-10-08): diag inline en el alert para debugging sin devtools.
+      let diag = 'No se puede bajar mas.\n\n';
+      diag += 'Cliente: ' + clienteNombre + '\n';
+      diag += 'SKU: ' + sku + '\n';
+      diag += 'Pedido: ' + pedidoId.substring(0, 15) + '...\n';
+      diag += 'Baseline encontrado: ' + baseline + ' (ASIG=' + currentAsig + ', BO=' + currentBoOnly + ')\n\n';
+      diag += 'Lineas que matcheo el SKU en el pedido: ' + _dbgLines.length + '\n';
+      if (_dbgLines.length === 0) {
+        diag += '→ NO HAY LINEAS con ese SKU en el pedido. El pedido mostrado en Stock Asignado puede estar desactualizado.';
+      } else {
+        for (const d of _dbgLines.slice(0, 5)) {
+          diag += '  · state=' + d.state + ', qty=' + d.qty + ', qtyOpen=' + d.qtyOpen + ', asigReserva=' + d.asigReserva + '\n';
+        }
+      }
+      alert(diag);
       return;
     }
     // BRANCH BO-only: ajustar linea BO directo sin pure fn.
