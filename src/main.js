@@ -52,6 +52,7 @@ import {
 } from './pure/planner-column-age.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
+import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import { matchesAllTokens } from './pure/search.js';
 import {
@@ -228,6 +229,7 @@ const phase0 = {
     shouldIncludeWaitlistDoc,
     splitPedidoLine,
     reenrichPedidoLine,
+    redistributeAsigLine,
     columnEnteredAt,
     columnBreakdown,
     columnStats,
@@ -273,6 +275,10 @@ if (typeof window !== 'undefined') {
   // titleCase(vendor) al user y ahora deben usar el helper con override).
   // @ts-expect-error — augmentation runtime-only
   window.displayVendorName = displayVendorName;
+  // v1210 (2026-10-08): redistributeAsigLine expuesta globalmente porque el
+  // handler inline del modal "Reparto" (_repExecute) la invoca con pedido+sku+newQty.
+  // @ts-expect-error — augmentation runtime-only
+  window.redistributeAsigLine = redistributeAsigLine;
 }
 
 export default phase0;

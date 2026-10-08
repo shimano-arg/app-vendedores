@@ -5429,9 +5429,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
             <button id="btn-export-stock-asig-cliente" class="bo-btn" onclick="openExportStockAsigCliente()">Exportar Stock Asignado por cliente</button>
             <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
-            <!-- v1196 (2026-10-08): panel admin para cerrar SQs viejas abiertas en SAP.
-                 Visible solo en modo asignacion. Mariano-only (gate inline). -->
-            <button id="btn-cerrar-sqs-sap" class="bo-btn" onclick="openCerrarSqsAdminModal()" title="Admin: cerrar en SAP las SQs/Ofertas abiertas que quedaron viejas" style="background:#991b1b;color:#fff;border-color:#7f1d1d;display:none">Cerrar SQs viejas</button>
+            <!-- v1210 (2026-10-08): panel admin para redistribuir unidades ASIG entre
+                 ASIG y BO del mismo pedido/cliente. Reemplaza al viejo "Cerrar SQs viejas".
+                 Visible solo admin + modo asignacion. -->
+            <button id="btn-reparto-asig" class="bo-btn" onclick="openRepartoAdminModal()" title="Admin: ajustar unidades asignadas por cliente/SKU. Mueve ASIG ↔ BO sin perder unidades." style="background:#6b21a8;color:#fff;border-color:#581c87;display:none">Reparto</button>
             <!-- v1146 (2026-10-06): Generar Backorder manual. Visible solo en modo urgente.
                  Permite cargar BO cuando el cliente pide reservar demanda sobre SKUs sin
                  stock. Crea pedido APP con stage='confirmed' + lineas state='BO' +
@@ -5487,34 +5488,34 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         </div>
       </div>
     </div>
-    <!-- v1196 (2026-10-08): Modal admin "Cerrar SQs viejas en SAP". Pedido Mariano:
-         "quiero saber si las puedo cerrar desde aca, porque quedaron muchas ofertas
-         abiertas viejas". Lista los pedidos con stage=confirmed + transferidoSAP.docNum
-         + sapEstado=OFERTA_VENTA + no closedManuallyInSap. Checkbox para seleccionar
-         + boton "Cerrar N en SAP" que llama a closeSqsManuallyCF server-side (reusa
-         sq-cancel-core helpers). -->
-    <div class="modal-overlay" id="cerrar-sqs-admin-modal" onclick="if(event.target===this)closeCerrarSqsAdminModal()">
-      <div class="modal-box" style="width:min(820px,96vw);max-height:92vh;display:flex;flex-direction:column;border-radius:16px;overflow:hidden">
-        <div class="modal-head" style="background:linear-gradient(135deg,#991b1b,#7f1d1d);padding:18px 22px">
+    <!-- v1210 (2026-10-08): Modal admin "Reparto de Stock Asignado". Pedido Mariano:
+         redistribuir unidades ASIG ↔ BO del MISMO pedido/cliente/SKU sin perder
+         unidades. Al bajar ASIG: diferencia va a BO del mismo pedido. Al subir ASIG:
+         consume BO del mismo pedido primero + fallback a stock fisico libre. Lista
+         TODOS los pedidos con lineas ASIG activas (asigReserva=true). Pure fn
+         src/pure/reparto-stock-asig.js hace la validacion. -->
+    <div class="modal-overlay" id="reparto-admin-modal" onclick="if(event.target===this)closeRepartoAdminModal()">
+      <div class="modal-box" style="width:min(960px,98vw);max-height:92vh;display:flex;flex-direction:column;border-radius:16px;overflow:hidden">
+        <div class="modal-head" style="background:linear-gradient(135deg,#6b21a8,#581c87);padding:18px 22px">
           <div>
-            <h2 style="margin:0;font-weight:700;font-size:19px;letter-spacing:-0.02em;color:#fff">Cerrar SQs abiertas en SAP</h2>
-            <div style="font-size:12.5px;opacity:.85;margin-top:2px;color:#fecaca;letter-spacing:-0.005em">Admin — las SQs seleccionadas se cierran via Service Layer. Operación irreversible.</div>
+            <h2 style="margin:0;font-weight:700;font-size:19px;letter-spacing:-0.02em;color:#fff">Reparto de Stock Asignado</h2>
+            <div style="font-size:12.5px;opacity:.85;margin-top:2px;color:#e9d5ff;letter-spacing:-0.005em">Admin — ajustar unidades ASIG por cliente/SKU. La diferencia se mueve a BO del mismo pedido. Al subir, consume BO primero o stock libre.</div>
           </div>
-          <button class="modal-close" onclick="closeCerrarSqsAdminModal()">&times;</button>
+          <button class="modal-close" onclick="closeRepartoAdminModal()">&times;</button>
         </div>
-        <div style="padding:22px;display:flex;flex-direction:column;gap:14px;overflow:hidden;flex:1">
-          <div id="csqs-summary" style="padding:10px 14px;background:rgba(0,0,0,.03);border-radius:10px;font-size:13px;letter-spacing:-0.005em"></div>
-          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-            <button onclick="_csqsToggleAll(true)" style="padding:7px 14px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Seleccionar todas</button>
-            <button onclick="_csqsToggleAll(false)" style="padding:7px 14px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Ninguna</button>
+        <div style="padding:18px 22px;display:flex;flex-direction:column;gap:12px;overflow:hidden;flex:1">
+          <div id="rep-summary" style="padding:10px 14px;background:rgba(107,33,168,.06);border-radius:10px;font-size:13px;letter-spacing:-0.005em;color:#4c1d95"></div>
+          <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap">
+            <input id="rep-filter-sku" type="text" placeholder="Filtrar por SKU..." oninput="_repRender()" style="flex:1 1 180px;min-width:140px;padding:9px 12px;border-radius:10px;border:1px solid rgba(0,0,0,.12);font-family:inherit;font-size:13px;letter-spacing:-0.005em;background:var(--bg-elevated,#fff);color:inherit"/>
+            <input id="rep-filter-cliente" type="text" placeholder="Filtrar por cliente..." oninput="_repRender()" style="flex:1 1 180px;min-width:140px;padding:9px 12px;border-radius:10px;border:1px solid rgba(0,0,0,.12);font-family:inherit;font-size:13px;letter-spacing:-0.005em;background:var(--bg-elevated,#fff);color:inherit"/>
           </div>
-          <div id="csqs-list" style="flex:1;overflow-y:auto;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:var(--bg-elevated,#fff)">
+          <div id="rep-list" style="flex:1;overflow-y:auto;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:var(--bg-elevated,#fff)">
             <div style="padding:40px;text-align:center;opacity:.5;font-size:13px">Cargando…</div>
           </div>
-          <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:4px">
-            <span id="csqs-selected-count" style="font-size:12.5px;opacity:.65;margin-right:auto">0 seleccionadas</span>
-            <button onclick="closeCerrarSqsAdminModal()" style="padding:10px 20px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Cancelar</button>
-            <button id="csqs-execute-btn" onclick="_csqsExecute()" disabled style="padding:10px 22px;border-radius:999px;border:none;background:#991b1b;color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;opacity:.4" title="Seleccioná al menos 1 SQ">Cerrar seleccionadas</button>
+          <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:4px;flex-wrap:wrap">
+            <span id="rep-changes-count" style="font-size:12.5px;opacity:.65;margin-right:auto">0 cambios pendientes</span>
+            <button onclick="closeRepartoAdminModal()" style="padding:10px 20px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Cancelar</button>
+            <button id="rep-execute-btn" onclick="_repExecute()" disabled style="padding:10px 22px;border-radius:999px;border:none;background:#6b21a8;color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;opacity:.4" title="Ajustá al menos 1 cantidad">Guardar cambios</button>
           </div>
         </div>
       </div>
@@ -6139,7 +6140,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1209';
+const APP_VERSION = 'v1210';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13594,11 +13595,12 @@ function _applyBackordersMode(mode){
   // v1145 (2026-10-06): boton "Crear Pedido - ST" visible solo en modo asignacion.
   const stBtn = document.getElementById('btn-crear-pedido-st');
   if (stBtn) stBtn.style.display = (mode === 'asignacion') ? '' : 'none';
-  // v1196: boton "Cerrar SQs viejas" visible solo admin + modo asignacion.
-  const cerrarSqsBtn = document.getElementById('btn-cerrar-sqs-sap');
-  if (cerrarSqsBtn) {
+  // v1210: boton "Reparto" visible solo admin + modo asignacion.
+  // Reemplaza al viejo "Cerrar SQs viejas" (v1196→v1210).
+  const repartoBtn = document.getElementById('btn-reparto-asig');
+  if (repartoBtn) {
     const isAdmin = typeof userRole !== 'undefined' && userRole === 'admin';
-    cerrarSqsBtn.style.display = (mode === 'asignacion' && isAdmin) ? '' : 'none';
+    repartoBtn.style.display = (mode === 'asignacion' && isAdmin) ? '' : 'none';
   }
   // v1146 (2026-10-06): boton "Generar Backorder" visible solo en modo urgente
   // (en modo asignacion no tiene sentido: hay stock, deberia ser pedido normal).
@@ -14635,7 +14637,7 @@ window.renderBackordersTab = function(){
         // Mariano reporto que se veian 2 estilos distintos. Backend sigue
         // diferenciando el flow (deleteConfirmedAppLinesForClient maneja SAP
         // coordination), pero visualmente es un solo boton consistente.
-        const _lblTitleSap = 'FORZAR eliminar linea confirmada. Si el pedido ya se transfirio como SQ, cerrar manualmente desde el panel "Cerrar SQs viejas". Solo para casos excepcionales (ej: SKU descontinuado).';
+        const _lblTitleSap = 'FORZAR eliminar linea confirmada. Si el pedido ya se transfirio como SQ, cerrar manualmente desde SAP. Solo para casos excepcionales (ej: SKU descontinuado).';
         const _argsSafeSap = escapeAttr(
           JSON.stringify(g.sku) + ',' +
           JSON.stringify(String(c.nombre || '')) + ',' +
@@ -15187,172 +15189,309 @@ window._cpstVolver = function(){
 // batch Firestore. Si falla cualquiera, nada se commitea (atomic).
 // Post-batch: cierra pedidos originales que quedan con 100% lineas cancelled
 // (closedAt + closedReason='cancelled_by_cpst').
-// v1196 (2026-10-08): Panel admin "Cerrar SQs viejas en SAP". Lista pedidos
-// stage=confirmed + transferidoSAP.docNum + sapEstado=OFERTA_VENTA + no cerrados.
-// Admin selecciona cuales + "Cerrar N en SAP" → closeSqsManuallyCF.
-var _csqsCache = [];
-var _csqsSelected = new Set();
+// v1210 (2026-10-08): Panel admin "Reparto de Stock Asignado". Reemplaza al
+// viejo "Cerrar SQs viejas" (v1196-v1209). Permite redistribuir unidades ASIG
+// entre ASIG y BO del mismo pedido para cada cliente/SKU. Pure fn
+// src/pure/reparto-stock-asig.js valida y produce newLines[].
+// Scope: lee globalPedidos (en memoria), filtra lineas state='ASIG' +
+// asigReserva=true, agrupa por SKU, muestra por cliente/pedido. Al guardar,
+// writeBatch Firestore con las lineas modificadas.
+var _repRows = []; // [{pedidoId, pedidoRef, clientName, clientCardCode, orderNumber, sku, skuDesc, currentAsig, currentBO, newAsig}]
+var _repChanges = new Map(); // key `${pedidoId}::${sku}` -> newAsig
 
-window.openCerrarSqsAdminModal = function(){
+window.openRepartoAdminModal = function(){
   if (typeof userRole === 'undefined' || userRole !== 'admin') {
     alert('Solo admin.');
     return;
   }
-  const modal = document.getElementById('cerrar-sqs-admin-modal');
+  const modal = document.getElementById('reparto-admin-modal');
   if (!modal) return;
   modal.classList.add('open');
-  _csqsSelected.clear();
-  _csqsRender();
-  _csqsLoadList();
+  _repChanges.clear();
+  _repLoadRows();
 };
 
-window.closeCerrarSqsAdminModal = function(){
-  const modal = document.getElementById('cerrar-sqs-admin-modal');
+window.closeRepartoAdminModal = function(){
+  const modal = document.getElementById('reparto-admin-modal');
   if (modal) modal.classList.remove('open');
 };
 
-async function _csqsLoadList(){
-  try {
-    const snap = await fbDb.collection('pedidos').where('stage', '==', 'confirmed').limit(5000).get();
-    const items = [];
-    snap.forEach(d => {
-      const p = d.data() || {};
-      const ts = p.transferidoSAP || {};
-      if (!ts.docNum) return;
-      if (ts.closedManuallyInSap) return;
-      if (p.closedAt) return;
-      const est = p.sapEstado || '';
-      // Solo OFERTA_VENTA (abiertas sin facturar) + sin estado (podrian ser nuevas).
-      if (est !== 'OFERTA_VENTA' && est !== '') return;
-      // Debe tener al menos 1 linea confirmed con qtyOpen>0.
-      const lines = Array.isArray(p.lines) ? p.lines : [];
-      let hasOpen = false, totalU = 0, totalArs = 0;
-      for (const l of lines) {
-        if (!l || l.state !== 'confirmed') continue;
-        const qo = Number(l.qtyOpen) || 0;
-        if (qo <= 0) continue;
-        hasOpen = true;
-        totalU += qo;
-        totalArs += qo * (Number(l.priceAtCreation || l.precio || 0) || 0);
-      }
-      if (!hasOpen) return;
-      const ca = p.confirmedAt;
-      let ageDays = null;
-      try {
-        const ms = (typeof ca === 'string') ? new Date(ca).getTime()
-          : (ca && ca.toMillis ? ca.toMillis() : 0);
-        if (ms) ageDays = Math.floor((Date.now() - ms) / (24*60*60*1000));
-      } catch(_e) {}
-      items.push({
-        id: d.id,
-        docNum: String(ts.docNum),
-        clientName: p.clientName || '',
+function _repLoadRows(){
+  // Lee desde globalPedidos (ya cargado en memoria por los listeners de admin).
+  const peds = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+  const rows = [];
+  for (const p of peds) {
+    if (!p || p.closedAt) continue;
+    if (p.stage !== 'confirmed') continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    // Agrupar lineas por SKU dentro del pedido.
+    /** @type {Record<string, {asig:number, bo:number, desc:string}>} */
+    const bySku = {};
+    for (const l of lines) {
+      if (!l) continue;
+      const sku = String((l.sku || l.code || '')).trim().toUpperCase();
+      if (!sku) continue;
+      if (!bySku[sku]) bySku[sku] = { asig: 0, bo: 0, desc: l.desc || '' };
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) continue;
+      if (l.state === 'ASIG' && l.asigReserva !== false) bySku[sku].asig += qo;
+      else if (l.state === 'BO') bySku[sku].bo += qo;
+      if (!bySku[sku].desc && l.desc) bySku[sku].desc = l.desc;
+    }
+    // Un row por (pedido, SKU) con asig > 0.
+    for (const sku in bySku) {
+      const info = bySku[sku];
+      if (info.asig <= 0) continue;
+      rows.push({
+        pedidoId: p._fsId || p.id || '',
+        clientName: p.clientName || '(sin cliente)',
         clientCardCode: p.clientCardCode || '',
-        ownerEmail: p.ownerEmail || '',
-        ageDays,
-        totalU,
-        totalArs: Math.round(totalArs),
         orderNumber: p.orderNumber || '',
+        sku,
+        skuDesc: info.desc || '',
+        currentAsig: info.asig,
+        currentBO: info.bo,
       });
-    });
-    items.sort((a,b) => (b.ageDays || 0) - (a.ageDays || 0));
-    _csqsCache = items;
-    _csqsRender();
-  } catch (e) {
-    const list = document.getElementById('csqs-list');
-    if (list) list.innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626">Error cargando: ' + escapeHtml(e.message || String(e)) + '</div>';
+    }
   }
+  // Ordenar: SKU asc, luego cliente asc.
+  rows.sort((a,b) => {
+    if (a.sku !== b.sku) return a.sku < b.sku ? -1 : 1;
+    return a.clientName < b.clientName ? -1 : 1;
+  });
+  _repRows = rows;
+  _repRender();
 }
 
-function _csqsRender(){
-  const list = document.getElementById('csqs-list');
-  const summary = document.getElementById('csqs-summary');
-  const selCount = document.getElementById('csqs-selected-count');
-  const btn = document.getElementById('csqs-execute-btn');
+function _repRender(){
+  const list = document.getElementById('rep-list');
+  const summary = document.getElementById('rep-summary');
+  const changesEl = document.getElementById('rep-changes-count');
+  const btn = document.getElementById('rep-execute-btn');
   if (!list) return;
-  if (summary) summary.innerHTML = _csqsCache.length === 0
-    ? '<span style="opacity:.6">No hay SQs abiertas (OFERTA_VENTA) para cerrar.</span>'
-    : '<strong>' + _csqsCache.length + '</strong> SQ(s) abiertas en SAP. Las que selecciones se cerrarán via Service Layer. El sync marca <code>closedManuallyInSap=true</code> + líneas <code>state=cancelled</code>.';
-  if (_csqsCache.length === 0) {
-    list.innerHTML = '<div style="padding:40px;text-align:center;opacity:.5;font-size:13px">Nada pendiente de cerrar.</div>';
-    if (selCount) selCount.textContent = '0 seleccionadas';
-    if (btn) { btn.disabled = true; btn.style.opacity = '.4'; }
+  const skuFilter = String((document.getElementById('rep-filter-sku')||{}).value || '').trim().toUpperCase();
+  const cliFilter = String((document.getElementById('rep-filter-cliente')||{}).value || '').trim().toUpperCase();
+  const filtered = _repRows.filter(r => {
+    if (skuFilter && r.sku.indexOf(skuFilter) === -1) return false;
+    if (cliFilter && (r.clientName.toUpperCase()).indexOf(cliFilter) === -1) return false;
+    return true;
+  });
+  if (summary) {
+    const totalSkus = new Set(_repRows.map(r => r.sku)).size;
+    summary.innerHTML = _repRows.length === 0
+      ? '<span style="opacity:.6">No hay lineas ASIG activas en este momento.</span>'
+      : '<strong>' + _repRows.length + '</strong> filas (cliente×SKU) con stock asignado — <strong>' + totalSkus + '</strong> SKU(s) distintos. Mostrando <strong>' + filtered.length + '</strong>.';
+  }
+  if (filtered.length === 0) {
+    list.innerHTML = '<div style="padding:40px;text-align:center;opacity:.5;font-size:13px">' + (_repRows.length === 0 ? 'Sin stock asignado activo.' : 'Sin resultados para los filtros.') + '</div>';
+    if (changesEl) changesEl.textContent = _repChanges.size + ' cambios pendientes';
+    if (btn) { btn.disabled = _repChanges.size === 0; btn.style.opacity = _repChanges.size === 0 ? '.4' : '1'; }
     return;
   }
-  list.innerHTML = _csqsCache.map((it, idx) => {
-    const checked = _csqsSelected.has(it.id);
-    const ageStr = (it.ageDays != null) ? (it.ageDays + 'd') : '—';
-    const ageColor = (it.ageDays != null && it.ageDays > 30) ? '#dc2626' : (it.ageDays != null && it.ageDays > 15 ? '#f59e0b' : 'inherit');
+  // Agrupar por SKU para render.
+  /** @type {Record<string, Array<any>>} */
+  const groups = {};
+  filtered.forEach(r => {
+    if (!groups[r.sku]) groups[r.sku] = [];
+    groups[r.sku].push(r);
+  });
+  const skus = Object.keys(groups).sort();
+  const html = skus.map(sku => {
+    const rows = groups[sku];
+    const totalAsig = rows.reduce((acc, r) => acc + r.currentAsig, 0);
+    const totalBO = rows.reduce((acc, r) => acc + r.currentBO, 0);
+    const stockLibre = (typeof window.getStockRealmenteDisponible === 'function')
+      ? window.getStockRealmenteDisponible(sku) : null;
+    const desc = (rows[0].skuDesc || '').substring(0, 60);
     return (
-      '<label style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05);cursor:pointer;transition:background .1s" onmouseover="this.style.background=\'rgba(0,0,0,.025)\'" onmouseout="this.style.background=\'transparent\'">'
-        + '<input type="checkbox" ' + (checked ? 'checked ' : '') + 'onchange="_csqsToggle(\'' + it.id + '\', this.checked)" style="width:18px;height:18px;accent-color:#991b1b;flex-shrink:0">'
-        + '<div style="flex:1;min-width:0">'
-          + '<div style="font-weight:600;font-size:13.5px;letter-spacing:-0.01em;color:var(--text-primary,#111827)">' + escapeHtml(it.clientName) + (it.orderNumber ? '  <span style="opacity:.5;font-weight:500">· ORDEN ' + escapeHtml(String(it.orderNumber)) + '</span>' : '') + '</div>'
-          + '<div style="font-size:11.5px;opacity:.65;margin-top:2px;letter-spacing:-0.005em">SAP docNum <strong>' + escapeHtml(it.docNum) + '</strong> · ' + it.totalU + 'u · $' + it.totalArs.toLocaleString('es-AR') + ' · ' + escapeHtml(it.ownerEmail || '—') + '</div>'
+      '<div style="border-bottom:1px solid rgba(0,0,0,.08);background:rgba(107,33,168,.03)">'
+        + '<div style="padding:10px 16px;font-weight:700;font-size:13.5px;letter-spacing:-0.01em;color:#4c1d95;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+          + '<span>' + escapeHtml(sku) + '</span>'
+          + (desc ? '<span style="font-weight:500;font-size:12px;opacity:.75">' + escapeHtml(desc) + '</span>' : '')
+          + '<span style="margin-left:auto;font-size:11.5px;font-weight:500;opacity:.75">'
+            + 'ASIG total: <strong>' + totalAsig + '</strong>u'
+            + ' · BO total: <strong>' + totalBO + '</strong>u'
+            + (stockLibre != null ? ' · <span style="color:#059669">Stock libre: <strong>' + stockLibre + '</strong>u</span>' : '')
+          + '</span>'
         + '</div>'
-        + '<div style="font-size:12.5px;font-weight:600;color:' + ageColor + ';flex-shrink:0;letter-spacing:-0.01em">' + ageStr + '</div>'
-      + '</label>'
+        + rows.map(r => {
+          const key = r.pedidoId + '::' + r.sku;
+          const current = _repChanges.has(key) ? _repChanges.get(key) : r.currentAsig;
+          const hasChange = _repChanges.has(key) && current !== r.currentAsig;
+          return (
+            '<div style="display:flex;align-items:center;gap:12px;padding:10px 20px 10px 32px;border-top:1px solid rgba(0,0,0,.04);background:' + (hasChange ? 'rgba(251,191,36,.15)' : 'var(--bg-elevated,#fff)') + '">'
+              + '<div style="flex:1;min-width:0">'
+                + '<div style="font-weight:600;font-size:13px;letter-spacing:-0.005em;color:var(--text-primary,#111827)">'
+                  + escapeHtml(r.clientName)
+                  + (r.orderNumber ? '  <span style="opacity:.5;font-weight:500">· ORDEN ' + escapeHtml(String(r.orderNumber)) + '</span>' : '')
+                + '</div>'
+                + '<div style="font-size:11px;opacity:.6;margin-top:2px">Pedido <code>' + escapeHtml(r.pedidoId.substring(0, 10)) + '…</code> · BO actual: ' + r.currentBO + 'u</div>'
+              + '</div>'
+              + '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
+                + '<span style="font-size:11.5px;opacity:.6">Actual: <strong>' + r.currentAsig + '</strong></span>'
+                + '<span style="margin:0 4px;opacity:.4">→</span>'
+                + '<input type="number" min="0" value="' + current + '" '
+                  + 'data-pedidoid="' + escapeHtml(r.pedidoId) + '" data-sku="' + escapeHtml(r.sku) + '" '
+                  + 'data-currentasig="' + r.currentAsig + '" '
+                  + 'onchange="_repOnChange(this)" oninput="_repOnChange(this)" '
+                  + 'style="width:80px;padding:7px 10px;border-radius:8px;border:' + (hasChange ? '2px solid #f59e0b' : '1px solid rgba(0,0,0,.15)') + ';font-family:inherit;font-size:13px;font-weight:600;text-align:center;background:var(--bg-elevated,#fff);color:inherit">'
+              + '</div>'
+            + '</div>'
+          );
+        }).join('')
+      + '</div>'
     );
   }).join('');
-  if (selCount) selCount.textContent = _csqsSelected.size + ' seleccionada(s)';
+  list.innerHTML = html;
+  if (changesEl) changesEl.textContent = _repChanges.size + ' cambios pendientes';
   if (btn) {
-    btn.disabled = _csqsSelected.size === 0;
-    btn.style.opacity = _csqsSelected.size === 0 ? '.4' : '1';
+    btn.disabled = _repChanges.size === 0;
+    btn.style.opacity = _repChanges.size === 0 ? '.4' : '1';
   }
 }
 
-window._csqsToggle = function(id, checked){
-  if (checked) _csqsSelected.add(id); else _csqsSelected.delete(id);
-  _csqsRender();
-};
-
-window._csqsToggleAll = function(selectAll){
-  _csqsSelected.clear();
-  if (selectAll) _csqsCache.forEach(it => _csqsSelected.add(it.id));
-  _csqsRender();
-};
-
-window._csqsExecute = async function(){
-  const ids = Array.from(_csqsSelected);
-  if (ids.length === 0) return;
-  const summary = _csqsCache.filter(c => _csqsSelected.has(c.id))
-    .map(c => '  · docNum ' + c.docNum + ' — ' + c.clientName.substring(0, 40))
-    .join('\n');
-  if (!confirm('Cerrar ' + ids.length + ' SQ(s) en SAP:\n\n' + summary + '\n\nEsto es irreversible (SAP marca bost_Close).\n\n¿Confirmar?')) return;
-  const btn = document.getElementById('csqs-execute-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Procesando (puede tardar 1-2 min)…'; btn.style.opacity = '.7'; }
-  try {
-    // v1000 (2026-09-21): refresh IDToken antes de callable críticos (race SDK).
-    try {
-      const u = firebase.auth && firebase.auth().currentUser;
-      if (u && u.getIdToken) await u.getIdToken(true);
-    } catch(_e) {}
-    const callable = firebase.app().functions('southamerica-east1').httpsCallable('closeSqsManuallyCF');
-    const resp = await callable({ pedidoIds: ids });
-    const r = (resp && resp.data) || {};
-    let msg = 'Resultado:\n\n';
-    msg += '  Pedidos solicitados: ' + (r.requestedCount || 0) + '\n';
-    msg += '  Cerrados OK:         ' + (r.cancelledCount || 0) + '\n';
-    msg += '  Omitidos:            ' + ((r.skipped || []).length) + '\n';
-    msg += '  Errores:             ' + ((r.errors || []).length) + '\n';
-    if ((r.skipped || []).length > 0) {
-      msg += '\nOmitidos:\n' + r.skipped.slice(0, 5).map(s => '  · ' + s.pedidoId + ': ' + s.reason).join('\n');
-      if (r.skipped.length > 5) msg += '\n  ...y ' + (r.skipped.length - 5) + ' más';
-    }
-    if ((r.errors || []).length > 0) {
-      msg += '\n\nErrores:\n' + r.errors.slice(0, 5).join('\n');
-      if (r.errors.length > 5) msg += '\n  ...y ' + (r.errors.length - 5) + ' más';
-    }
-    alert(msg);
-    _csqsSelected.clear();
-    await _csqsLoadList();
-  } catch (e) {
-    console.error('[csqs] execute failed', e);
-    alert('Error ejecutando: ' + (e.message || String(e)));
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Cerrar seleccionadas'; btn.style.opacity = '1'; }
-    _csqsRender();
+window._repOnChange = function(input){
+  const pedidoId = input.getAttribute('data-pedidoid') || '';
+  const sku = input.getAttribute('data-sku') || '';
+  const currentAsig = Number(input.getAttribute('data-currentasig')) || 0;
+  const raw = String(input.value).trim();
+  const newQty = Number(raw);
+  const key = pedidoId + '::' + sku;
+  if (raw === '' || !Number.isFinite(newQty) || newQty < 0 || !Number.isInteger(newQty)) {
+    // invalido: no toco cambio ni rerender masivo (dejamos el input para que corrija).
+    return;
   }
+  if (newQty === currentAsig) {
+    _repChanges.delete(key);
+  } else {
+    _repChanges.set(key, newQty);
+  }
+  // Update visual (count + btn) sin rerender global para no perder foco.
+  const changesEl = document.getElementById('rep-changes-count');
+  if (changesEl) changesEl.textContent = _repChanges.size + ' cambios pendientes';
+  const btn = document.getElementById('rep-execute-btn');
+  if (btn) {
+    btn.disabled = _repChanges.size === 0;
+    btn.style.opacity = _repChanges.size === 0 ? '.4' : '1';
+  }
+  // Highlight visual del row del input.
+  const row = input.closest('div[style*="padding:10px 20px"]');
+  if (row) {
+    const hasChange = _repChanges.has(key);
+    row.style.background = hasChange ? 'rgba(251,191,36,.15)' : 'var(--bg-elevated,#fff)';
+    input.style.border = hasChange ? '2px solid #f59e0b' : '1px solid rgba(0,0,0,.15)';
+  }
+};
+
+window._repExecute = async function(){
+  if (_repChanges.size === 0) return;
+  const changes = Array.from(_repChanges.entries());
+  const summary = changes.slice(0, 10).map(([key, newQty]) => {
+    const [pid, sku] = key.split('::');
+    const row = _repRows.find(r => r.pedidoId === pid && r.sku === sku);
+    const cli = row ? row.clientName.substring(0, 35) : '?';
+    const current = row ? row.currentAsig : '?';
+    const delta = (newQty > current) ? ('+' + (newQty - current)) : (newQty - current);
+    return '  · ' + sku + ' / ' + cli + ': ' + current + ' → ' + newQty + ' (' + delta + ')';
+  }).join('\n');
+  const more = changes.length > 10 ? '\n  ...y ' + (changes.length - 10) + ' más' : '';
+  if (!confirm('Aplicar ' + changes.length + ' cambio(s):\n\n' + summary + more + '\n\n¿Confirmar?')) return;
+
+  const btn = document.getElementById('rep-execute-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando…'; btn.style.opacity = '.7'; }
+
+  // Carga lazy del pure fn (bundle lo expone via window después del build).
+  const redistributeFn = window.redistributeAsigLine;
+  if (typeof redistributeFn !== 'function') {
+    alert('redistributeAsigLine no está disponible. Hard-refresh (Ctrl+Shift+R) e intentar de nuevo.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; btn.style.opacity = '1'; }
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const adminEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) ? currentUser.email : 'admin';
+
+  // Agrupar cambios por pedidoId: cada pedido se escribe UNA sola vez con el array lines final.
+  /** @type {Map<string, Array<{sku:string,newQty:number}>>} */
+  const byPedido = new Map();
+  for (const [key, newQty] of changes) {
+    const [pid, sku] = key.split('::');
+    if (!byPedido.has(pid)) byPedido.set(pid, []);
+    byPedido.get(pid).push({ sku, newQty });
+  }
+
+  const errors = [];
+  const results = [];
+  // Procesar pedido por pedido secuencial (writeBatch Firestore tiene limite 500 writes,
+  // asumimos <<500 pedidos por reparto; cada pedido es 1 write).
+  for (const [pid, skuChanges] of byPedido.entries()) {
+    try {
+      const docRef = fbDb.collection('pedidos').doc(pid);
+      const snap = await docRef.get();
+      if (!snap.exists) {
+        errors.push(pid + ': pedido no encontrado');
+        continue;
+      }
+      let pedido = snap.data() || {};
+      let currentLines = Array.isArray(pedido.lines) ? pedido.lines : [];
+      let repartoHistory = Array.isArray(pedido.repartoHistory) ? pedido.repartoHistory.slice() : [];
+      let okChangesCount = 0;
+      // Aplicar cada cambio secuencial sobre el array acumulado.
+      for (const chg of skuChanges) {
+        const stockLibre = (typeof window.getStockRealmenteDisponible === 'function')
+          ? Number(window.getStockRealmenteDisponible(chg.sku) || 0) : 0;
+        const r = redistributeFn({
+          pedido: { lines: currentLines },
+          sku: chg.sku,
+          newQty: chg.newQty,
+          stockFisicoLibre: stockLibre,
+          audit: { adminEmail, nowIso },
+        });
+        if (!r.ok) {
+          errors.push(pid.substring(0, 10) + ' · ' + chg.sku + ': ' + (r.error || 'error'));
+          continue;
+        }
+        currentLines = r.newLines;
+        okChangesCount += 1;
+        repartoHistory.push({
+          sku: chg.sku,
+          delta: r.delta,
+          currentAsigBefore: r.currentAsig,
+          currentBOBefore: r.currentBO,
+          newAsig: chg.newQty,
+          from: r.from || null,
+          usedFromBO: r.usedFromBO || 0,
+          usedFromLibre: r.usedFromLibre || 0,
+          at: nowIso,
+          by: adminEmail,
+        });
+      }
+      if (okChangesCount === 0) continue;
+      await docRef.update({
+        lines: currentLines,
+        repartoHistory,
+        lastRepartoAt: nowIso,
+        lastRepartoBy: adminEmail,
+      });
+      results.push({ pid, applied: okChangesCount });
+    } catch (e) {
+      errors.push(pid.substring(0, 10) + ': ' + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  let msg = 'Reparto completado\n\n';
+  msg += '  Pedidos modificados: ' + results.length + '\n';
+  msg += '  Cambios aplicados:   ' + results.reduce((a,r) => a + r.applied, 0) + '\n';
+  msg += '  Errores:             ' + errors.length + '\n';
+  if (errors.length > 0) {
+    msg += '\nErrores:\n' + errors.slice(0, 8).join('\n');
+    if (errors.length > 8) msg += '\n  ...y ' + (errors.length - 8) + ' más';
+  }
+  alert(msg);
+  _repChanges.clear();
+  // Reload desde globalPedidos (los listeners de pedidos ya trajeron los nuevos arrays).
+  setTimeout(() => _repLoadRows(), 500);
+  if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; btn.style.opacity = '1'; }
 };
 
 window._cpstConfirmar = async function(){
