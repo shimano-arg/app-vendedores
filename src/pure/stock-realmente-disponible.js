@@ -34,9 +34,18 @@
  */
 
 /**
+ * @typedef {Object} WaitlistEntryLike
+ * @property {string} [source] Origen del entry — solo 'stock-asignado-batch' (CPST) reserva stock.
+ * @property {Array<{code?: string, qty?: number}>} [items] Items del waitlist.
+ *
  * @typedef {Object} StockRealDeps
  * @property {(sku: string) => number} getStockFisico Lookup del stock fisico (dep 11).
  * @property {Array<PedidoLike>} pedidos Lista de pedidos-app (typicamente globalPedidos).
+ * @property {Array<WaitlistEntryLike>} [waitlistEntries] Opcional, v1198: entries de
+ *   revision_waitlist. Solo los que tienen source='stock-asignado-batch' (CPST)
+ *   reservan stock — las items del CPST ya estaban reservadas como ASIG para el
+ *   cliente, y pasar al waitlist no debe liberarlas (sino otro VDE las robaria).
+ *   Entries normales (VDE carga pedido manual) NO reservan — son pre-carga.
  */
 
 /**
@@ -46,7 +55,10 @@
 const _STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 
 // v957/v959: constantes para expiracion de reserva.
-const RESERVA_TTL_DAYS = 15;
+// v1198 (2026-10-08): bajado 15 -> 7 dias por pedido Mariano. "Si ese cliente
+// tiene esas 80 unidades por mas de 7 dias y no pasa nada dejan de bloquear
+// stock". Aplica a ASIG, BO y confirmed por consistencia.
+const RESERVA_TTL_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -204,11 +216,36 @@ export function getStockRealmenteDisponible(sku, deps, opts) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >15d expirada.
+      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >7d expirada.
       if (!lineReservesStock(l, now, p)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       comprometido += qtyOpen;
+    }
+  }
+
+  // v1198 (2026-10-08): tambien restar items de revision_waitlist con
+  // source='stock-asignado-batch' (CPST). Son unidades que ya estaban como
+  // ASIG para el cliente y pasaron a waitlist via "Crear Pedido - ST". Se
+  // mantienen protegidas hasta que el admin pase la card a Pendientes (donde
+  // se crean como pedido con state=confirmed y vuelven a contar via lineas).
+  //
+  // Rationale Mariano: "si yo paso desde 'Crear Pedido - ST' a Lista de
+  // Espera esas 20 unidades dejan de ser Stock Asignado porque pasa a ser
+  // pedido pero estan PROTEGIDAS... si justo carga otro vendedor un pedido y
+  // pide 2 entonces ahora deberia avisarle al cliente 'ahora tenes 18
+  // reservadas' y se va a enojar porque ya le habia dicho que tenia 20
+  // unidades guardadas".
+  const waitlist = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries : [];
+  for (const w of waitlist) {
+    if (!w || w.source !== 'stock-asignado-batch') continue;
+    const items = Array.isArray(w.items) ? w.items : [];
+    for (const it of items) {
+      if (!it || !it.code) continue;
+      if (String(it.code).toUpperCase() !== skuUp) continue;
+      const qty = Number(it.qty) || 0;
+      if (qty <= 0) continue;
+      comprometido += qty;
     }
   }
 
@@ -260,7 +297,7 @@ export function getStockPorCliente(sku, cardCode, deps, opts) {
     for (const l of lines) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >15d expirada.
+      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >7d expirada.
       if (!lineReservesStock(l, now, p)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
@@ -274,6 +311,21 @@ export function getStockPorCliente(sku, cardCode, deps, opts) {
       } else {
         reservadasPorOtros += qtyOpen;
       }
+    }
+  }
+  // v1198 (2026-10-08): tambien considerar waitlist CPST (source=stock-asignado-batch).
+  const waitlist = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries : [];
+  for (const w of waitlist) {
+    if (!w || w.source !== 'stock-asignado-batch') continue;
+    const wCC = String(w.clientCardCode || '').trim();
+    const items = Array.isArray(w.items) ? w.items : [];
+    for (const it of items) {
+      if (!it || !it.code) continue;
+      if (String(it.code).toUpperCase() !== skuUp) continue;
+      const qty = Number(it.qty) || 0;
+      if (qty <= 0) continue;
+      if (wCC === ccUp) reservadasPorCliente += qty;
+      else reservadasPorOtros += qty;
     }
   }
   return {
@@ -373,7 +425,7 @@ export function _resetStockPorClienteMemo() {
 export function getStockDesglose(sku, deps, opts) {
   const skuUp = String(sku || '').toUpperCase();
   const fisico = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
-  const breakdown = { confirmed: 0, BO: 0, ASIG: 0 };
+  const breakdown = { confirmed: 0, BO: 0, ASIG: 0, WAITLIST_CPST: 0 };
   if (!skuUp) return { fisico: 0, comprometido: 0, real: 0, breakdown };
 
   const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
@@ -385,14 +437,27 @@ export function getStockDesglose(sku, deps, opts) {
       if (!l || !l.code) continue;
       if (String(l.code).toUpperCase() !== skuUp) continue;
       const st = /** @type {'confirmed'|'BO'|'ASIG'} */ (l.state);
-      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >15d expirada.
+      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >7d expirada.
       if (!lineReservesStock(l, now, p)) continue;
       const qtyOpen = Number(l.qtyOpen) || 0;
       if (qtyOpen <= 0) continue;
       breakdown[st] = (breakdown[st] || 0) + qtyOpen;
     }
   }
-  const comprometido = breakdown.confirmed + breakdown.BO + breakdown.ASIG;
+  // v1198: waitlist CPST reserva stock también.
+  const waitlist = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries : [];
+  for (const w of waitlist) {
+    if (!w || w.source !== 'stock-asignado-batch') continue;
+    const items = Array.isArray(w.items) ? w.items : [];
+    for (const it of items) {
+      if (!it || !it.code) continue;
+      if (String(it.code).toUpperCase() !== skuUp) continue;
+      const qty = Number(it.qty) || 0;
+      if (qty <= 0) continue;
+      breakdown.WAITLIST_CPST += qty;
+    }
+  }
+  const comprometido = breakdown.confirmed + breakdown.BO + breakdown.ASIG + breakdown.WAITLIST_CPST;
   return {
     fisico,
     comprometido,

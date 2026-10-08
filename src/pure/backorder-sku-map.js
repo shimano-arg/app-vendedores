@@ -23,7 +23,9 @@
 import { lineReservesStock } from './stock-realmente-disponible.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RESERVA_TTL_DAYS = 15;
+// v1198 (2026-10-08): bajado 15 -> 7 dias por pedido Mariano (ver
+// stock-realmente-disponible.js para contexto). Debe mantenerse sincronizado.
+const RESERVA_TTL_DAYS = 7;
 
 /**
  * Normaliza un valor a timestamp ms. Local copy del helper de
