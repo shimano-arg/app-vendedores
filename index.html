@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1213';
+const APP_VERSION = 'v1214';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14568,11 +14568,24 @@ window.renderBackordersTab = function(){
       // PRIMER pedidoId con state='ASIG' (hay clientes con 80u splitteadas en
       // 2+ pedidos). El +/- aplica al primero; FIFO natural.
       const _isAdmin = (typeof userRole !== 'undefined') && userRole === 'admin';
-      const _asigPedForAdj = (_isAsigMode && _isAdmin && Array.isArray(c.pedidoIds))
-        ? c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
+      // v1214 (2026-10-08): aceptar tambien pedidoIds con state='BO'. Los
+      // clientes con pedidos recien creados (que entraron directo en Stock
+      // Asignado por virtual-asig-fifo) tienen state='BO' hasta que el CF
+      // onStockChangeFIFOAssign los promueva. El +/- debe funcionar igual:
+      // la pure fn redistributeAsigLine soporta "aumentar desde 0 ASIG"
+      // creando una nueva linea ASIG a partir del BO.
+      const _pedForAdj = (_isAsigMode && _isAdmin && Array.isArray(c.pedidoIds))
+        ? (c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
+           || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'BO'))
         : null;
-      if (_asigPedForAdj) {
-        const _pid = _asigPedForAdj.pedidoId;
+      if (_isAsigMode && _isAdmin && !_pedForAdj) {
+        try {
+          console.log('[reparto] sin boton para', c.nombre, 'sku', g.sku,
+            'pedidoIds:', JSON.stringify(c.pedidoIds || []).substring(0, 200));
+        } catch(_e){}
+      }
+      if (_pedForAdj) {
+        const _pid = _pedForAdj.pedidoId;
         const _cur = Math.round(_qtyShow);
         const _argsAdj = escapeAttr(
           JSON.stringify(g.sku) + ',' +
