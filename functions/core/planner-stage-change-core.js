@@ -384,10 +384,22 @@ export async function handlePlannerStageChanged(event, deps) {
   const columnConfig = configSnap.data()?.[afterCol];
   if (!columnConfig?.notifyOnEnter) return { skipped: 'notify-disabled' };
 
-  // Step 5 — build recipients list; always include the column's primary email
+  // Step 5 — build recipients list; soporta array `emails` (v1194+) o el
+  // string `email` legacy. Si el admin configuro varios responsables en la UI
+  // nueva, cada uno recibe la notificacion. Backward compat total: docs
+  // viejos con `email` single-string siguen funcionando sin migracion.
   /** @type {string[]} */
   const recipients = [];
-  if (columnConfig.email) recipients.push(columnConfig.email);
+  if (Array.isArray(columnConfig.emails)) {
+    for (const e of columnConfig.emails) {
+      const _e = String(e || '')
+        .trim()
+        .toLowerCase();
+      if (_e && !recipients.includes(_e)) recipients.push(_e);
+    }
+  } else if (columnConfig.email) {
+    recipients.push(columnConfig.email);
+  }
 
   // Step 6a — for 'facturar' with sendToVdi (legacy — en realidad notifica al
   // VDE dueño), notificar al VDE. v1031 rename: la función se llama
