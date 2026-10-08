@@ -5866,9 +5866,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
               <!-- v716 (2026-08-28): nueva columna Pedido Final = min(Pedido, Libre). -->
               <th style="text-align:center;padding:6px 8px;background:#dbeafe;color:var(--text-primary)" title="Pedido Final = min(Pedido Original, Libre para la venta). Es lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido Final</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
-              <!-- v718 (2026-08-28): renombre a "Subtotal Final" (matches Pedido Final). -->
-              <th style="text-align:center;padding:6px 8px;background:var(--color-success-bg);color:var(--color-success)" title="Subtotal Final = Pedido Final x Precio. Es lo que efectivamente se va a facturar (lo que va a SAP como confirmed).">Subtotal Final</th>
-              <th style="text-align:center;padding:6px 8px" title="Igual a Subtotal Confirmacion Inmediata en esta version (v702). Se mantiene la columna para no romper exports.">Subtotal (Pendiente)</th>
+              <!-- v1193 (2026-10-08): columna "Subtotal (Pendiente)" removida por
+                   pedido Mariano — post-v1189 daba identico al Subtotal Final
+                   siempre (misma formula stk.disponible). Confundia a los VDE. -->
+              <th style="text-align:center;padding:6px 8px;background:var(--color-success-bg);color:var(--color-success)" title="Subtotal = Pedido Final x Precio. Es lo que efectivamente se va a facturar (lo que va a SAP como confirmed).">Subtotal</th>
               <th style="text-align:center;padding:6px 8px" title="Lo que queda como backorder = max(Pedido - Libre, 0) x Precio">Backorder</th>
               <th style="text-align:center;padding:6px 8px" title="Pedido - Libre (unidades que quedan como backorder)">Backorder Unidades</th>
               <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Libre al momento de crear el pedido">Cambio</th>
@@ -6088,7 +6089,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1192';
+const APP_VERSION = 'v1193';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20233,17 +20234,13 @@ function _renderWaitlistCard(){
     v.textContent = fmtArs(ars);
     box.appendChild(v);
   }
-  // INMEDIATO (si confirma YA).
-  _row('● Subtotal del pedido (Con Stock) — INMEDIATO', sumConSap, '#059669');
-  _row('● Subtotal del pedido (Sin Stock) — INMEDIATO', sumSinSap, '#dc2626');
-  // Separador visual.
-  const sep = document.createElement('div');
-  sep.style.cssText = 'grid-column:1 / -1;border-top:1px dashed #a7f3d0;margin:4px 0';
-  box.appendChild(sep);
-  // PENDIENTE (si espera).
-  _row('● Subtotal del pedido (Con Stock) — PENDIENTE', sumConApp, '#0891b2');
-  _row('● Subtotal del pedido (Sin Stock) — PENDIENTE', sumSinApp, '#b45309');
-  // Total.
+  // v1193 (2026-10-08): simplificado por pedido Mariano. Antes mostrabamos 4
+  // subtotales (Con Stock/Sin Stock) x (INMEDIATO/PENDIENTE). Post-v1189 ambos
+  // escenarios usan la misma formula `stk.disponible` → siempre dan igual →
+  // confundia a los VDE. Ahora solo 2 subtotales: Con Stock + Sin Stock.
+  _row('● Subtotal del pedido (Con Stock)', sumConSap, '#059669');
+  _row('● Subtotal del pedido (Sin Stock)', sumSinSap, '#dc2626');
+  // Separador antes del total.
   const sep2 = document.createElement('div');
   sep2.style.cssText = 'grid-column:1 / -1;border-top:1.5px solid var(--border-strong);margin:4px 0';
   box.appendChild(sep2);
@@ -20433,22 +20430,16 @@ function _renderWaitlistCard(){
     // Color muted cuando pedidoFinal=0 o sin datos (info secundaria, no accionable).
     tdFinal.style.color = (r.hasData && pedidoFinal > 0) ? '#1e40af' : '#94a3b8';
     tr.appendChild(tdFinal);
-    // v470/v472: Precio sin '$' + 3 subtotales (Inmediata + Pendiente + Backorder).
+    // v1193 (2026-10-08): columna "Subtotal (Pendiente)" eliminada por pedido
+    // Mariano — identica a Subtotal Final post-v1189.
     tr.appendChild(mk(Math.round(r.precio).toLocaleString('es-AR'), 'num'));
-    // Subtotal Confirmacion Inmediata (verde) = min(qty, DispSAP) x precio.
+    // Subtotal (verde) = min(qty, DispSAP) x precio.
     const tdConf = document.createElement('td');
     tdConf.className = 'num';
     tdConf.style.color = r.subtConSap > 0 ? '#059669' : '#94a3b8';
     tdConf.style.fontWeight = '700';
     tdConf.textContent = fmtArs(r.subtConSap);
     tr.appendChild(tdConf);
-    // Subtotal Pendiente (ambar) = min(qty, DispApp) x precio.
-    const tdPend = document.createElement('td');
-    tdPend.className = 'num';
-    tdPend.style.color = r.subtConApp > 0 ? '#0891b2' : '#94a3b8';
-    tdPend.style.fontWeight = '700';
-    tdPend.textContent = fmtArs(r.subtConApp);
-    tr.appendChild(tdPend);
     // Backorder (rojo) = max(qty - DispApp, 0) x precio.
     const tdBo = document.createElement('td');
     tdBo.className = 'num';
