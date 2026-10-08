@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1216';
+const APP_VERSION = 'v1217';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15230,17 +15230,18 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
     const lines = Array.isArray(pedido.lines) ? pedido.lines : [];
     const skuU = String(sku || '').trim().toUpperCase();
     // v1215: incluye state='confirmed' (SQ en SAP) a pedido Mariano.
-    // v1216 (2026-10-08): soporta tambien state='BO' como baseline. Si el pedido
-    // solo tiene lineas BO del SKU (virtual asig via FIFO), ajustamos la BO
-    // directo sin pasar por la pure fn (no hay ASIG que mover).
+    // v1216 (2026-10-08): soporta tambien state='BO' como baseline.
+    // v1217 (2026-10-08): LOGGING para debugging.
     let currentAsig = 0;
     let currentBoOnly = 0;
     let hasAsigOrConfirmed = false;
+    const _dbgLines = [];
     for (const l of lines) {
       if (!l) continue;
       const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
       if (lSku !== skuU) continue;
       const qo = Number(l.qtyOpen) || 0;
+      _dbgLines.push({ sku: lSku, state: l.state, qty: l.qty, qtyOpen: qo, asigReserva: l.asigReserva });
       if (qo <= 0) continue;
       if (l.state === 'ASIG') {
         if (l.asigReserva === false) continue;
@@ -15253,6 +15254,9 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
         currentBoOnly += qo;
       }
     }
+    console.log('[reparto DBG] pedido=' + pedidoId.substring(0,10) + ' sku=' + skuU + ' delta=' + delta,
+      'linesMatching:', _dbgLines, 'currentAsig=' + currentAsig, 'currentBO=' + currentBoOnly,
+      'hasAsigOrConfirmed=' + hasAsigOrConfirmed);
     // Baseline: ASIG/confirmed si existen, sino BO virtual.
     const baseline = hasAsigOrConfirmed ? currentAsig : currentBoOnly;
     const newQty = baseline + delta;
