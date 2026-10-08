@@ -6125,7 +6125,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1198';
+const APP_VERSION = 'v1199';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14522,24 +14522,20 @@ window.renderBackordersTab = function(){
     // Clientes
     html += '<div style="padding:0">';
     g.clientes.forEach(c => {
-      // v572: badge SAP/APP para diferenciar fuente. Meta line cambia segun source:
-      // SAP: "SAP · OFERTA DE VENTA #NNN · fecha"
-      // APP: "APP · Orden N · fecha" (pedido cargado en la app)
-      const isApp = c.source === 'app';
-      const badgeBg = isApp ? '#dbeafe' : '#dcfce7';
-      const badgeFg = isApp ? '#1e40af' : '#166534';
-      const badgeLbl = isApp ? 'APP' : 'SAP';
-      let metaText;
-      if (isApp) {
-        const ordenLbl = c.pedidoOrden ? ('Orden ' + c.pedidoOrden) : (c.pedidoId ? ('Pedido ' + String(c.pedidoId).slice(0, 6)) : '');
-        metaText = escapeHtml(c.ciudad || '-') + ' · ' + escapeHtml(badgeLbl) + (ordenLbl ? ' · ' + escapeHtml(ordenLbl) : '') + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
-      } else {
-        metaText = escapeHtml(c.ciudad || '-') + ' · ' + escapeHtml(badgeLbl) + ' · OFERTA DE VENTA #' + c.sqDocNum + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
-      }
+      // v1199 (2026-10-08): badges "APP" y "EN SAP" eliminados por pedido Mariano.
+      // "No quiero ver mas nada de SAP u ofertas de ventas en Stock Asignado.
+      // Todo lo que tenga que ver con backorder o stock asignado es lo que hay
+      // en la app, todo lo de SAP quitalo/eliminalo."
+      // Post v1197 ya no hay fuente SAP legacy (c.source siempre 'app'). Los
+      // chips eran redundantes. metaText tambien simplificado: solo ciudad +
+      // Orden N + fecha (sin "APP ·" prefix ni "OFERTA DE VENTA #").
+      const ordenLbl = c.pedidoOrden ? ('Orden ' + c.pedidoOrden) : (c.pedidoId ? ('Pedido ' + String(c.pedidoId).slice(0, 6)) : '');
+      const metaText = escapeHtml(c.ciudad || '-')
+        + (ordenLbl ? ' · ' + escapeHtml(ordenLbl) : '')
+        + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
       html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px">';
       html += '<div style="flex:1;min-width:0">';
       html += '<div style="font-size:12px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-      html += '<span style="background:' + badgeBg + ';color:' + badgeFg + ';padding:2px 6px;border-radius:4px;font-size:9.5px;font-weight:800;flex-shrink:0">' + badgeLbl + '</span>';
       // v958 (Fase 3, 2026-09-16): badge CON/SIN RESERVA solo para ASIG.
       // ASIG con asigReserva=false (clientes B/C) NO retiene stock → aparece
       // en cyan para que el VDE sepa que ese cliente no bloquea la venta a otros.
@@ -14553,22 +14549,16 @@ window.renderBackordersTab = function(){
           html += '<span style="background:#ede9fe;color:#6b21a8;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Cliente P/A: reserva stock. Otros VDEs NO pueden vender hasta que se facture o cancele.">CON RESERVA</span>';
         }
       }
-      // v962 (2026-09-17): badge 'EN SAP' para lineas state='confirmed'.
-      // Ya viajaron a SAP como SQ. La app las muestra para no "olvidarlas"
-      // pero la fuente de verdad es SAP — no hay boton Eliminar (ver mas abajo).
-      // v963 (2026-09-17): badge extra 'VENCIDA' para confirmed >15d. Estas
-      // dejaron de reservar stock en la app (regla lineReservesStock).
-      // Sugieren revision con Santi (cancelar SQ o completar facturacion).
-      if (c.source === 'app' && c.state === 'confirmed') {
-        html += '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Linea state=confirmed: ya se envio a SAP como Oferta de Venta (SQ). La app la muestra para tracking pero NO se puede eliminar aca — cancelar la SQ en SAP con Santi.">EN SAP</span>';
-        // v963: computar edad desde sqDocDate (que en confirmed app-source
-        // es igual a confirmedAt.slice(0,10) — ver linea 13064).
-        if (c.sqDocDate) {
-          const _ageMs = Date.now() - new Date(c.sqDocDate + 'T12:00:00Z').getTime();
-          const _ageDays = Math.floor(_ageMs / (24 * 60 * 60 * 1000));
-          if (_ageDays > 15) {
-            html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="SQ con ' + _ageDays + ' dias. Deja de reservar stock en la app (regla v963). Coordinar con Santi: cancelar SQ en SAP o completar facturacion.">VENCIDA ' + _ageDays + 'd</span>';
-          }
+      // v1199 (2026-10-08): badge 'EN SAP' eliminado. Mariano no quiere ver
+      // referencias a SAP en Stock Asignado. Las lineas confirmed son APP
+      // igual que cualquier otra — el backend sabe que viajaron a SAP pero
+      // el VDE no necesita saberlo aca. Mantenemos VENCIDA para lineas >7d
+      // (regla lineReservesStock v1198) porque es info util para el admin.
+      if (c.source === 'app' && c.state === 'confirmed' && c.sqDocDate) {
+        const _ageMs = Date.now() - new Date(c.sqDocDate + 'T12:00:00Z').getTime();
+        const _ageDays = Math.floor(_ageMs / (24 * 60 * 60 * 1000));
+        if (_ageDays > 7) {
+          html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Pedido con ' + _ageDays + ' dias sin facturar. Deja de reservar stock (TTL 7d). Revisar con el admin.">VENCIDA ' + _ageDays + 'd</span>';
         }
       }
       // v969 (2026-09-17): badge VENCIDA para BO viejos (>15d desde
@@ -14626,17 +14616,17 @@ window.renderBackordersTab = function(){
         );
         html += '<button onclick="window.deleteAllBackorderAppLinesForClient(' + _argsSafe + ')" title="' + escapeAttr(_lblTitle) + '" style="flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
       } else if (_isConfirmedApp && _pedidoIdsForCancel.length > 0) {
-        // v1122: para lineas confirmed (EN SAP) — ELIMINAR forzado con warning
-        // explicito. Uso tipico: SKU descontinuado que no va a facturarse nunca
-        // aunque la SQ SAP siga abierta. Mariano coordina el cierre en SAP aparte.
-        const _lblTitleSap = 'FORZAR eliminar linea confirmada (EN SAP). Requiere cerrar la SQ SAP tambien. Solo para casos excepcionales (ej: SKU descontinuado).';
+        // v1199 (2026-10-08): etiqueta "ELIMINAR (SAP)" → "ELIMINAR" por pedido
+        // Mariano (no quiere ver referencias a SAP). El fn deleteConfirmedAppLinesForClient
+        // mantiene su warning + flow de coordinacion de cierre en SAP a nivel admin.
+        const _lblTitleSap = 'FORZAR eliminar linea confirmada. Si el pedido ya se transfirio como SQ, cerrar manualmente desde el panel "Cerrar SQs viejas". Solo para casos excepcionales (ej: SKU descontinuado).';
         const _argsSafeSap = escapeAttr(
           JSON.stringify(g.sku) + ',' +
           JSON.stringify(String(c.nombre || '')) + ',' +
           Math.round(c.pendiente) + ',' +
           JSON.stringify(_pedidoIdsForCancel)
         );
-        html += '<button onclick="window.deleteConfirmedAppLinesForClient(' + _argsSafeSap + ')" title="' + escapeAttr(_lblTitleSap) + '" style="flex-shrink:0;background:#7c2d12;color:#fff;border:1px dashed #fbbf24;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">🔓 ELIMINAR (SAP)' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
+        html += '<button onclick="window.deleteConfirmedAppLinesForClient(' + _argsSafeSap + ')" title="' + escapeAttr(_lblTitleSap) + '" style="flex-shrink:0;background:#7c2d12;color:#fff;border:1px dashed #fbbf24;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
       }
       html += '</div>';
     });
