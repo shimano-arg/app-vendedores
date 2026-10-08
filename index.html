@@ -6140,7 +6140,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1210';
+const APP_VERSION = 'v1211';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15218,11 +15218,15 @@ window.closeRepartoAdminModal = function(){
 
 function _repLoadRows(){
   // Lee desde globalPedidos (ya cargado en memoria por los listeners de admin).
+  // v1210.1 (2026-10-08): hotfix — removido filtro `stage==='confirmed'`. El
+  // patron oficial _findAsigDelCliente solo filtra `closedAt`. Habia pedidos
+  // con stage='sent'/'invoiced' con lineas ASIG remanentes quedando excluidos.
   const peds = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
   const rows = [];
+  let totalPedidos = 0, pedidosConAsig = 0, totalLineasAsig = 0;
   for (const p of peds) {
     if (!p || p.closedAt) continue;
-    if (p.stage !== 'confirmed') continue;
+    totalPedidos++;
     const lines = Array.isArray(p.lines) ? p.lines : [];
     // Agrupar lineas por SKU dentro del pedido.
     /** @type {Record<string, {asig:number, bo:number, desc:string}>} */
@@ -15239,9 +15243,12 @@ function _repLoadRows(){
       if (!bySku[sku].desc && l.desc) bySku[sku].desc = l.desc;
     }
     // Un row por (pedido, SKU) con asig > 0.
+    let pedidoTieneAsig = false;
     for (const sku in bySku) {
       const info = bySku[sku];
       if (info.asig <= 0) continue;
+      pedidoTieneAsig = true;
+      totalLineasAsig++;
       rows.push({
         pedidoId: p._fsId || p.id || '',
         clientName: p.clientName || '(sin cliente)',
@@ -15253,6 +15260,7 @@ function _repLoadRows(){
         currentBO: info.bo,
       });
     }
+    if (pedidoTieneAsig) pedidosConAsig++;
   }
   // Ordenar: SKU asc, luego cliente asc.
   rows.sort((a,b) => {
@@ -15260,6 +15268,7 @@ function _repLoadRows(){
     return a.clientName < b.clientName ? -1 : 1;
   });
   _repRows = rows;
+  console.log('[reparto] loadRows: pedidos=' + totalPedidos + ', conAsig=' + pedidosConAsig + ', lineasAsig=' + totalLineasAsig + ', snapshotLoaded=' + !!window._pedidosSnapshotLoaded);
   _repRender();
 }
 
