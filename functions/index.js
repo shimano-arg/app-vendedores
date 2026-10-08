@@ -1121,7 +1121,9 @@ export const closeSqsManuallyCF = onCall(
       throw new HttpsError('permission-denied', 'solo admin');
     }
     const pedidoIds = Array.isArray(request.data && request.data.pedidoIds)
-      ? request.data.pedidoIds.filter((x) => typeof x === 'string' && x.length > 0)
+      ? request.data.pedidoIds.filter(
+          (/** @type {any} */ x) => typeof x === 'string' && x.length > 0
+        )
       : [];
     if (pedidoIds.length === 0) {
       throw new HttpsError('invalid-argument', 'pedidoIds vacio');
