@@ -94,16 +94,23 @@ function lineSku(l) {
 
 /**
  * Clasifica si una linea cuenta como ASIG activa para el reparto.
- * Solo lineas con state='ASIG' + asigReserva=true + qtyOpen>0.
+ * - state='ASIG' + asigReserva=true + qtyOpen>0 → activa (normal).
+ * - state='confirmed' + qtyOpen>0 → activa (v1215, 2026-10-08). Mariano
+ *   decidio permitir reparto en lineas ya transferidas a SAP; el admin es
+ *   responsable de cerrar las SQs viejas en SAP si queda desincronizacion.
  * @param {LineLike} l
  * @returns {boolean}
  */
 function isAsigActive(l) {
-  if (!l || l.state !== 'ASIG') return false;
-  if (l.asigReserva === false) return false; // SIN RESERVA no cuenta
+  if (!l) return false;
   const qo = Number(l.qtyOpen);
   if (!Number.isFinite(qo) || qo <= 0) return false;
-  return true;
+  if (l.state === 'ASIG') {
+    if (l.asigReserva === false) return false; // SIN RESERVA no cuenta
+    return true;
+  }
+  if (l.state === 'confirmed') return true; // v1215: SQ en SAP, reparto permitido
+  return false;
 }
 
 /**

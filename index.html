@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1214';
+const APP_VERSION = 'v1215';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14561,29 +14561,18 @@ window.renderBackordersTab = function(){
       html += '</div>';
       // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
       const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
-      // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion
-      // reemplaza al modal "Reparto" (v1210). Permite reasignar unidades ASIG → BO
-      // del mismo cliente directo desde la lista.
-      // v1213 (2026-10-08): hotfix — soportar multiples pedidoIds. Tomamos el
-      // PRIMER pedidoId con state='ASIG' (hay clientes con 80u splitteadas en
-      // 2+ pedidos). El +/- aplica al primero; FIFO natural.
+      // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion.
+      // v1213: soportar multiples pedidoIds (FIFO).
+      // v1214: aceptar state='BO' (virtual asig).
+      // v1215 (2026-10-08): aceptar state='confirmed' (SQ ya en SAP). Mariano
+      // decidio permitir reparto incluso cuando la linea esta transferida; el admin
+      // es responsable de cerrar las SQs viejas en SAP si queda desincronizacion.
       const _isAdmin = (typeof userRole !== 'undefined') && userRole === 'admin';
-      // v1214 (2026-10-08): aceptar tambien pedidoIds con state='BO'. Los
-      // clientes con pedidos recien creados (que entraron directo en Stock
-      // Asignado por virtual-asig-fifo) tienen state='BO' hasta que el CF
-      // onStockChangeFIFOAssign los promueva. El +/- debe funcionar igual:
-      // la pure fn redistributeAsigLine soporta "aumentar desde 0 ASIG"
-      // creando una nueva linea ASIG a partir del BO.
       const _pedForAdj = (_isAsigMode && _isAdmin && Array.isArray(c.pedidoIds))
         ? (c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
+           || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'confirmed')
            || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'BO'))
         : null;
-      if (_isAsigMode && _isAdmin && !_pedForAdj) {
-        try {
-          console.log('[reparto] sin boton para', c.nombre, 'sku', g.sku,
-            'pedidoIds:', JSON.stringify(c.pedidoIds || []).substring(0, 200));
-        } catch(_e){}
-      }
       if (_pedForAdj) {
         const _pid = _pedForAdj.pedidoId;
         const _cur = Math.round(_qtyShow);
@@ -15239,16 +15228,22 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
     }
     const pedido = snap.data() || {};
     const lines = Array.isArray(pedido.lines) ? pedido.lines : [];
-    // Suma ASIG actual del SKU en este pedido.
+    // Suma ASIG actual del SKU en este pedido. v1215: incluye tambien
+    // state='confirmed' (SQ en SAP) a pedido Mariano.
     const skuU = String(sku || '').trim().toUpperCase();
     let currentAsig = 0;
     for (const l of lines) {
       if (!l) continue;
       const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
       if (lSku !== skuU) continue;
-      if (l.state !== 'ASIG') continue;
-      if (l.asigReserva === false) continue;
-      currentAsig += Number(l.qtyOpen) || 0;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) continue;
+      if (l.state === 'ASIG') {
+        if (l.asigReserva === false) continue;
+        currentAsig += qo;
+      } else if (l.state === 'confirmed') {
+        currentAsig += qo;
+      }
     }
     const newQty = currentAsig + delta;
     if (newQty < 0) {
