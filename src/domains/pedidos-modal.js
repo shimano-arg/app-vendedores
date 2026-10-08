@@ -948,28 +948,26 @@ function renderReviewLines() {
         : null;
     if (_rsFn) {
       const stk = _rsFn(l.code);
-      // v797 (2026-09-04, bug Santi): reemplazado `stk.disponible` por la
-      // formula LIBRE PARA LA VENTA de v767 (dep11 - reservadasASIG).
-      // `stk.disponible` viene de getStockRealmenteDisponible() que resta
-      // BO+ASIG+confirmed — desincronizado con el modal Lista de Espera
-      // (openWaitlistCardModal en index.html:15879) que usa la formula
-      // v767 (solo ASIG). Resultado: los 2 modales daban totales distintos
-      // para el mismo pedido, confundiendo al vendedor:
-      // - Lista Espera: qty=10 CVC66MH4SACO → Con Stock $660k
-      // - Revisar Tu Pedido: qty=10 CVC66MH4SACO → split 5 Con Stock $330k + 5 Sin stock $330k
-      // - Diferencia porque el SKU tenia 41 disp fisico, 36 en state='BO'
-      // esperando la CF FIFO (edge case documentado en el popup de stock
-      // como "PENDIENTE SIN STOCK, revisar — CF FIFO no corrio aun").
-      // Los BO NO deben restar porque cuando llegue stock la CF FIFO los
-      // promueve a ASIG. Solo ASIG resta (stock realmente comprometido).
+      // v1189 (2026-10-08): REVERTIR el fix v797. Usar `stk.disponible`
+      // (= getStockRealmenteDisponible = dep11 - confirmed - BO - ASIG)
+      // para alinearse con:
+      //   1. El modal "Pedido en Espera" (index.html:20118, política v919).
+      //   2. El Excel "Archivo cliente" (política v701 "app owns stock").
+      //
+      // Bug reportado por Mariano 2026-10-08: ORDEN 327 GRAUBERGER mostraba
+      // Lista Espera: Con Stock = $1.975.000 / Sin Stock = $2.197.000
+      // Revisar Pedido: Disponibles = $2.486.000 / Sin stock = $1.686.000
+      // Delta $511.000 = valor de líneas state='confirmed' o state='BO' que
+      // Vista 2 NO restaba del disponible pero Vista 1 SÍ. Las dos vistas
+      // mostraban el mismo total ($4.172.000) pero clasificaban diferente.
+      //
+      // El racional v797 ("BO NO deben restar porque la CF FIFO los promueve
+      // a ASIG") es correcto en teoría pero MUESTRA LIBRE lo que ya está
+      // COMPROMETIDO con otros pedidos pending — infla el "Disponibles" del
+      // modal pre-confirmación y confunde al VDE. Si queremos distinguir ese
+      // matiz, va como columna separada, no mezclado en Disponibles.
       if (stk && stk.hasData) {
-        const _gsdvFn =
-          typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
-            ? window.getStockDisponibleVenta
-            : null;
-        const _dep11 = _gsdvFn ? Number(_gsdvFn(l.code) || 0) : 0;
-        const _asig = Number(stk.asigApp || 0);
-        dispReal = Math.max(_dep11 - _asig, 0);
+        dispReal = Math.max(Number(stk.disponible || 0), 0);
       }
     }
     // v408 (2026-08-05): si la linea tiene faltantesQty (v407+ Excel import),
