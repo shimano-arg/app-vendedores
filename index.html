@@ -6125,7 +6125,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1202';
+const APP_VERSION = 'v1203';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15640,10 +15640,9 @@ window.openQuickVisitaModal = function(mode){
   const subt = document.getElementById('quick-visita-subt');
   const isContacto = _qvmMode === 'contacto';
   if (head) head.style.background = isContacto ? 'linear-gradient(135deg,#0f766e,#14b8a6)' : 'linear-gradient(135deg,#f59e0b,#d97706)';
-  if (title) title.textContent = isContacto ? '⚡ Contacto Rápido' : '⚡ Visita Rápida';
-  if (subt) subt.textContent = isContacto
-    ? 'Cliente + mes. Sin forma de contacto específica.'
-    : 'Cliente + mes. Sin GPS ni fotos.';
+  if (title) title.textContent = isContacto ? 'Contacto Rápido' : 'Visita Rápida';
+  // v1203 (2026-10-08): subtitulos informativos removidos a pedido Mariano.
+  if (subt) subt.textContent = '';
   // Populate clients datalist (mismo pattern que _populateRevisionClienteDatalist).
   _qvmPopulateClientes();
   // Populate meses + años.
@@ -31956,8 +31955,8 @@ if ('serviceWorker' in navigator) {
   <div class="modal-box" style="width:min(520px,96vw);max-height:92vh;display:flex;flex-direction:column;border-radius:16px;overflow:hidden">
     <div class="modal-head" id="quick-visita-head" style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:18px 22px">
       <div>
-        <h2 id="quick-visita-title" style="margin:0;font-weight:700;font-size:19px;letter-spacing:-0.02em">⚡ Visita Rápida</h2>
-        <div class="subt" id="quick-visita-subt" style="font-size:12.5px;opacity:.85;margin-top:2px;letter-spacing:-0.005em">Carga mínima: cliente + mes.</div>
+        <h2 id="quick-visita-title" style="margin:0;font-weight:700;font-size:19px;letter-spacing:-0.02em">Visita Rápida</h2>
+        <div class="subt" id="quick-visita-subt" style="font-size:12.5px;opacity:.85;margin-top:2px;letter-spacing:-0.005em"></div>
       </div>
       <button class="modal-close" onclick="closeQuickVisitaModal()">&times;</button>
     </div>
