@@ -203,6 +203,144 @@ export async function cancelSqInSap(deps, docNum) {
 }
 
 /**
+ * v1196 (2026-10-08): Cierre manual bulk de SQs por admin. Reusa helpers del
+ * flow automatico (verifySqCanBeCancelled + cancelSqInSap + markLinesCancelled)
+ * pero itera sobre una lista de pedidoIds dada por el UI en vez de escanear
+ * por TTL. Logea a `sq_cancel_log` con `batch: 'manual_admin:<email>'`.
+ *
+ * @param {SqCancelDeps} deps
+ * @param {string[]} pedidoIds
+ * @param {string} adminEmail — para el log de auditoria
+ * @returns {Promise<SqCancelResult>}
+ */
+export async function runSqCancelManualBulk(deps, pedidoIds, adminEmail) {
+  const log = deps.log || (() => {});
+  /** @type {SqCandidate[]} */
+  const candidates = [];
+  /** @type {Array<{pedidoId: string, reason: string}>} */
+  const skipped = [];
+  /** @type {string[]} */
+  const errors = [];
+  let cancelledCount = 0;
+
+  // Load each pedido and build candidate.
+  for (const pid of pedidoIds) {
+    try {
+      const snap = await deps.fbDb.collection('pedidos').doc(pid).get();
+      if (!snap.exists) {
+        skipped.push({ pedidoId: pid, reason: 'pedido no existe' });
+        continue;
+      }
+      const data = snap.data() || {};
+      const sapDocNum = data.transferidoSAP && data.transferidoSAP.docNum;
+      if (!sapDocNum) {
+        skipped.push({ pedidoId: pid, reason: 'pedido sin transferidoSAP.docNum' });
+        continue;
+      }
+      if (data.closedAt) {
+        skipped.push({ pedidoId: pid, reason: 'pedido ya closedAt' });
+        continue;
+      }
+      const lines = Array.isArray(data.lines) ? data.lines : [];
+      /** @type {number[]} */
+      const confirmedIdx = [];
+      let totalUnits = 0;
+      let totalArs = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        if (!l || l.state !== 'confirmed') continue;
+        const qtyOpen = Number(l.qtyOpen) || 0;
+        if (qtyOpen <= 0) continue;
+        confirmedIdx.push(i);
+        totalUnits += qtyOpen;
+        totalArs += qtyOpen * (Number(l.priceAtCreation || l.precio || 0) || 0);
+      }
+      const confirmedAt = data.confirmedAt;
+      let confirmedAtMs = 0;
+      if (typeof confirmedAt === 'string') confirmedAtMs = new Date(confirmedAt).getTime() || 0;
+      else if (confirmedAt && typeof confirmedAt.toMillis === 'function')
+        confirmedAtMs = confirmedAt.toMillis();
+      const ageDays = confirmedAtMs ? Math.floor((Date.now() - confirmedAtMs) / DAY_MS) : 0;
+      candidates.push({
+        pedidoId: pid,
+        clientName: String(data.clientName || ''),
+        clientCardCode: String(data.clientCardCode || ''),
+        confirmedAtMs,
+        ageDays,
+        sapDocNum: String(sapDocNum),
+        totalUnits,
+        totalArs: Math.round(totalArs),
+        confirmedLineIndexes: confirmedIdx,
+      });
+    } catch (e) {
+      errors.push(
+        `pedido ${pid} load: ${e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e)}`
+      );
+    }
+  }
+
+  // Cancel each candidate in SAP + mark Firestore.
+  for (const c of candidates) {
+    const check = await verifySqCanBeCancelled(deps, c.sapDocNum);
+    if (!check.canCancel) {
+      skipped.push({ pedidoId: c.pedidoId, reason: check.reason });
+      continue;
+    }
+    const cancel = await cancelSqInSap(deps, c.sapDocNum);
+    if (!cancel.ok) {
+      errors.push(`pedido ${c.pedidoId} SQ ${c.sapDocNum}: ${cancel.error}`);
+      continue;
+    }
+    try {
+      await markLinesCancelled(deps, c);
+      cancelledCount++;
+    } catch (e) {
+      errors.push(`pedido ${c.pedidoId} markLines: ${String(e)}`);
+    }
+  }
+
+  // Audit log.
+  const logId = (deps.now ? deps.now() : new Date()).toISOString().replace(/[:.]/g, '-');
+  try {
+    await deps.fbDb
+      .collection(ACTIVE_LOG_COLLECTION)
+      .doc(logId + '_manual_' + (adminEmail || 'unknown').replace(/[^A-Za-z0-9]/g, '_'))
+      .set({
+        ranAt: (deps.now ? deps.now() : new Date()).toISOString(),
+        mode: 'manual_admin',
+        adminEmail: adminEmail || '',
+        requestedCount: pedidoIds.length,
+        candidatesCount: candidates.length,
+        cancelledCount,
+        skippedCount: skipped.length,
+        errorsCount: errors.length,
+        candidates,
+        skipped,
+        errors,
+      });
+  } catch (e) {
+    errors.push(`audit log: ${String(e)}`);
+  }
+
+  log('runSqCancelManualBulk done', {
+    adminEmail,
+    requested: pedidoIds.length,
+    cancelled: cancelledCount,
+    skipped: skipped.length,
+    errors: errors.length,
+  });
+
+  return {
+    mode: 'active',
+    pedidosScanned: candidates.length,
+    candidates,
+    cancelledCount,
+    skipped,
+    errors,
+  };
+}
+
+/**
  * Marca lineas state='confirmed' como state='cancelled' en Firestore + resta qtyOpen.
  * @param {SqCancelDeps} deps
  * @param {SqCandidate} cand

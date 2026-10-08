@@ -5415,6 +5415,9 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
             <button id="btn-export-stock-asig-cliente" class="bo-btn" onclick="openExportStockAsigCliente()">Exportar Stock Asignado por cliente</button>
             <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
+            <!-- v1196 (2026-10-08): panel admin para cerrar SQs viejas abiertas en SAP.
+                 Visible solo en modo asignacion. Mariano-only (gate inline). -->
+            <button id="btn-cerrar-sqs-sap" class="bo-btn" onclick="openCerrarSqsAdminModal()" title="Admin: cerrar en SAP las SQs/Ofertas abiertas que quedaron viejas" style="background:#991b1b;color:#fff;border-color:#7f1d1d;display:none">Cerrar SQs viejas</button>
             <!-- v1146 (2026-10-06): Generar Backorder manual. Visible solo en modo urgente.
                  Permite cargar BO cuando el cliente pide reservar demanda sobre SKUs sin
                  stock. Crea pedido APP con stage='confirmed' + lineas state='BO' +
@@ -5470,6 +5473,39 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         </div>
       </div>
     </div>
+    <!-- v1196 (2026-10-08): Modal admin "Cerrar SQs viejas en SAP". Pedido Mariano:
+         "quiero saber si las puedo cerrar desde aca, porque quedaron muchas ofertas
+         abiertas viejas". Lista los pedidos con stage=confirmed + transferidoSAP.docNum
+         + sapEstado=OFERTA_VENTA + no closedManuallyInSap. Checkbox para seleccionar
+         + boton "Cerrar N en SAP" que llama a closeSqsManuallyCF server-side (reusa
+         sq-cancel-core helpers). -->
+    <div class="modal-overlay" id="cerrar-sqs-admin-modal" onclick="if(event.target===this)closeCerrarSqsAdminModal()">
+      <div class="modal-box" style="width:min(820px,96vw);max-height:92vh;display:flex;flex-direction:column;border-radius:16px;overflow:hidden">
+        <div class="modal-head" style="background:linear-gradient(135deg,#991b1b,#7f1d1d);padding:18px 22px">
+          <div>
+            <h2 style="margin:0;font-weight:700;font-size:19px;letter-spacing:-0.02em;color:#fff">Cerrar SQs abiertas en SAP</h2>
+            <div style="font-size:12.5px;opacity:.85;margin-top:2px;color:#fecaca;letter-spacing:-0.005em">Admin — las SQs seleccionadas se cierran via Service Layer. Operación irreversible.</div>
+          </div>
+          <button class="modal-close" onclick="closeCerrarSqsAdminModal()">&times;</button>
+        </div>
+        <div style="padding:22px;display:flex;flex-direction:column;gap:14px;overflow:hidden;flex:1">
+          <div id="csqs-summary" style="padding:10px 14px;background:rgba(0,0,0,.03);border-radius:10px;font-size:13px;letter-spacing:-0.005em"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <button onclick="_csqsToggleAll(true)" style="padding:7px 14px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Seleccionar todas</button>
+            <button onclick="_csqsToggleAll(false)" style="padding:7px 14px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Ninguna</button>
+          </div>
+          <div id="csqs-list" style="flex:1;overflow-y:auto;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:var(--bg-elevated,#fff)">
+            <div style="padding:40px;text-align:center;opacity:.5;font-size:13px">Cargando…</div>
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:4px">
+            <span id="csqs-selected-count" style="font-size:12.5px;opacity:.65;margin-right:auto">0 seleccionadas</span>
+            <button onclick="closeCerrarSqsAdminModal()" style="padding:10px 20px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Cancelar</button>
+            <button id="csqs-execute-btn" onclick="_csqsExecute()" disabled style="padding:10px 22px;border-radius:999px;border:none;background:#991b1b;color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;opacity:.4" title="Seleccioná al menos 1 SQ">Cerrar seleccionadas</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- v1146 (2026-10-06): Modal "Generar Backorder manual". Flow:
          1) VDE selecciona cliente (datalist padron SAP + Altas aprobadas).
          2) Agrega N filas de SKU + qty (SKU con datalist desde PRODUCTS).
@@ -6089,7 +6125,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1195';
+const APP_VERSION = 'v1196';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13533,6 +13569,12 @@ function _applyBackordersMode(mode){
   // v1145 (2026-10-06): boton "Crear Pedido - ST" visible solo en modo asignacion.
   const stBtn = document.getElementById('btn-crear-pedido-st');
   if (stBtn) stBtn.style.display = (mode === 'asignacion') ? '' : 'none';
+  // v1196: boton "Cerrar SQs viejas" visible solo admin + modo asignacion.
+  const cerrarSqsBtn = document.getElementById('btn-cerrar-sqs-sap');
+  if (cerrarSqsBtn) {
+    const isAdmin = typeof userRole !== 'undefined' && userRole === 'admin';
+    cerrarSqsBtn.style.display = (mode === 'asignacion' && isAdmin) ? '' : 'none';
+  }
   // v1146 (2026-10-06): boton "Generar Backorder" visible solo en modo urgente
   // (en modo asignacion no tiene sentido: hay stock, deberia ser pedido normal).
   const gbBtn = document.getElementById('btn-generar-backorder');
@@ -15080,6 +15122,174 @@ window._cpstVolver = function(){
 // batch Firestore. Si falla cualquiera, nada se commitea (atomic).
 // Post-batch: cierra pedidos originales que quedan con 100% lineas cancelled
 // (closedAt + closedReason='cancelled_by_cpst').
+// v1196 (2026-10-08): Panel admin "Cerrar SQs viejas en SAP". Lista pedidos
+// stage=confirmed + transferidoSAP.docNum + sapEstado=OFERTA_VENTA + no cerrados.
+// Admin selecciona cuales + "Cerrar N en SAP" → closeSqsManuallyCF.
+var _csqsCache = [];
+var _csqsSelected = new Set();
+
+window.openCerrarSqsAdminModal = function(){
+  if (typeof userRole === 'undefined' || userRole !== 'admin') {
+    alert('Solo admin.');
+    return;
+  }
+  const modal = document.getElementById('cerrar-sqs-admin-modal');
+  if (!modal) return;
+  modal.classList.add('open');
+  _csqsSelected.clear();
+  _csqsRender();
+  _csqsLoadList();
+};
+
+window.closeCerrarSqsAdminModal = function(){
+  const modal = document.getElementById('cerrar-sqs-admin-modal');
+  if (modal) modal.classList.remove('open');
+};
+
+async function _csqsLoadList(){
+  try {
+    const snap = await fbDb.collection('pedidos').where('stage', '==', 'confirmed').limit(5000).get();
+    const items = [];
+    snap.forEach(d => {
+      const p = d.data() || {};
+      const ts = p.transferidoSAP || {};
+      if (!ts.docNum) return;
+      if (ts.closedManuallyInSap) return;
+      if (p.closedAt) return;
+      const est = p.sapEstado || '';
+      // Solo OFERTA_VENTA (abiertas sin facturar) + sin estado (podrian ser nuevas).
+      if (est !== 'OFERTA_VENTA' && est !== '') return;
+      // Debe tener al menos 1 linea confirmed con qtyOpen>0.
+      const lines = Array.isArray(p.lines) ? p.lines : [];
+      let hasOpen = false, totalU = 0, totalArs = 0;
+      for (const l of lines) {
+        if (!l || l.state !== 'confirmed') continue;
+        const qo = Number(l.qtyOpen) || 0;
+        if (qo <= 0) continue;
+        hasOpen = true;
+        totalU += qo;
+        totalArs += qo * (Number(l.priceAtCreation || l.precio || 0) || 0);
+      }
+      if (!hasOpen) return;
+      const ca = p.confirmedAt;
+      let ageDays = null;
+      try {
+        const ms = (typeof ca === 'string') ? new Date(ca).getTime()
+          : (ca && ca.toMillis ? ca.toMillis() : 0);
+        if (ms) ageDays = Math.floor((Date.now() - ms) / (24*60*60*1000));
+      } catch(_e) {}
+      items.push({
+        id: d.id,
+        docNum: String(ts.docNum),
+        clientName: p.clientName || '',
+        clientCardCode: p.clientCardCode || '',
+        ownerEmail: p.ownerEmail || '',
+        ageDays,
+        totalU,
+        totalArs: Math.round(totalArs),
+        orderNumber: p.orderNumber || '',
+      });
+    });
+    items.sort((a,b) => (b.ageDays || 0) - (a.ageDays || 0));
+    _csqsCache = items;
+    _csqsRender();
+  } catch (e) {
+    const list = document.getElementById('csqs-list');
+    if (list) list.innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626">Error cargando: ' + escapeHtml(e.message || String(e)) + '</div>';
+  }
+}
+
+function _csqsRender(){
+  const list = document.getElementById('csqs-list');
+  const summary = document.getElementById('csqs-summary');
+  const selCount = document.getElementById('csqs-selected-count');
+  const btn = document.getElementById('csqs-execute-btn');
+  if (!list) return;
+  if (summary) summary.innerHTML = _csqsCache.length === 0
+    ? '<span style="opacity:.6">No hay SQs abiertas (OFERTA_VENTA) para cerrar.</span>'
+    : '<strong>' + _csqsCache.length + '</strong> SQ(s) abiertas en SAP. Las que selecciones se cerrarán via Service Layer. El sync marca <code>closedManuallyInSap=true</code> + líneas <code>state=cancelled</code>.';
+  if (_csqsCache.length === 0) {
+    list.innerHTML = '<div style="padding:40px;text-align:center;opacity:.5;font-size:13px">Nada pendiente de cerrar.</div>';
+    if (selCount) selCount.textContent = '0 seleccionadas';
+    if (btn) { btn.disabled = true; btn.style.opacity = '.4'; }
+    return;
+  }
+  list.innerHTML = _csqsCache.map((it, idx) => {
+    const checked = _csqsSelected.has(it.id);
+    const ageStr = (it.ageDays != null) ? (it.ageDays + 'd') : '—';
+    const ageColor = (it.ageDays != null && it.ageDays > 30) ? '#dc2626' : (it.ageDays != null && it.ageDays > 15 ? '#f59e0b' : 'inherit');
+    return (
+      '<label style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05);cursor:pointer;transition:background .1s" onmouseover="this.style.background=\'rgba(0,0,0,.025)\'" onmouseout="this.style.background=\'transparent\'">'
+        + '<input type="checkbox" ' + (checked ? 'checked ' : '') + 'onchange="_csqsToggle(\'' + it.id + '\', this.checked)" style="width:18px;height:18px;accent-color:#991b1b;flex-shrink:0">'
+        + '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:600;font-size:13.5px;letter-spacing:-0.01em;color:var(--text-primary,#111827)">' + escapeHtml(it.clientName) + (it.orderNumber ? '  <span style="opacity:.5;font-weight:500">· ORDEN ' + escapeHtml(String(it.orderNumber)) + '</span>' : '') + '</div>'
+          + '<div style="font-size:11.5px;opacity:.65;margin-top:2px;letter-spacing:-0.005em">SAP docNum <strong>' + escapeHtml(it.docNum) + '</strong> · ' + it.totalU + 'u · $' + it.totalArs.toLocaleString('es-AR') + ' · ' + escapeHtml(it.ownerEmail || '—') + '</div>'
+        + '</div>'
+        + '<div style="font-size:12.5px;font-weight:600;color:' + ageColor + ';flex-shrink:0;letter-spacing:-0.01em">' + ageStr + '</div>'
+      + '</label>'
+    );
+  }).join('');
+  if (selCount) selCount.textContent = _csqsSelected.size + ' seleccionada(s)';
+  if (btn) {
+    btn.disabled = _csqsSelected.size === 0;
+    btn.style.opacity = _csqsSelected.size === 0 ? '.4' : '1';
+  }
+}
+
+window._csqsToggle = function(id, checked){
+  if (checked) _csqsSelected.add(id); else _csqsSelected.delete(id);
+  _csqsRender();
+};
+
+window._csqsToggleAll = function(selectAll){
+  _csqsSelected.clear();
+  if (selectAll) _csqsCache.forEach(it => _csqsSelected.add(it.id));
+  _csqsRender();
+};
+
+window._csqsExecute = async function(){
+  const ids = Array.from(_csqsSelected);
+  if (ids.length === 0) return;
+  const summary = _csqsCache.filter(c => _csqsSelected.has(c.id))
+    .map(c => '  · docNum ' + c.docNum + ' — ' + c.clientName.substring(0, 40))
+    .join('\n');
+  if (!confirm('Cerrar ' + ids.length + ' SQ(s) en SAP:\n\n' + summary + '\n\nEsto es irreversible (SAP marca bost_Close).\n\n¿Confirmar?')) return;
+  const btn = document.getElementById('csqs-execute-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando (puede tardar 1-2 min)…'; btn.style.opacity = '.7'; }
+  try {
+    // v1000 (2026-09-21): refresh IDToken antes de callable críticos (race SDK).
+    try {
+      const u = firebase.auth && firebase.auth().currentUser;
+      if (u && u.getIdToken) await u.getIdToken(true);
+    } catch(_e) {}
+    const callable = firebase.app().functions('southamerica-east1').httpsCallable('closeSqsManuallyCF');
+    const resp = await callable({ pedidoIds: ids });
+    const r = (resp && resp.data) || {};
+    let msg = 'Resultado:\n\n';
+    msg += '  Pedidos solicitados: ' + (r.requestedCount || 0) + '\n';
+    msg += '  Cerrados OK:         ' + (r.cancelledCount || 0) + '\n';
+    msg += '  Omitidos:            ' + ((r.skipped || []).length) + '\n';
+    msg += '  Errores:             ' + ((r.errors || []).length) + '\n';
+    if ((r.skipped || []).length > 0) {
+      msg += '\nOmitidos:\n' + r.skipped.slice(0, 5).map(s => '  · ' + s.pedidoId + ': ' + s.reason).join('\n');
+      if (r.skipped.length > 5) msg += '\n  ...y ' + (r.skipped.length - 5) + ' más';
+    }
+    if ((r.errors || []).length > 0) {
+      msg += '\n\nErrores:\n' + r.errors.slice(0, 5).join('\n');
+      if (r.errors.length > 5) msg += '\n  ...y ' + (r.errors.length - 5) + ' más';
+    }
+    alert(msg);
+    _csqsSelected.clear();
+    await _csqsLoadList();
+  } catch (e) {
+    console.error('[csqs] execute failed', e);
+    alert('Error ejecutando: ' + (e.message || String(e)));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Cerrar seleccionadas'; btn.style.opacity = '1'; }
+    _csqsRender();
+  }
+};
+
 window._cpstConfirmar = async function(){
   const c = _cpstSelected;
   if (!c) return;
