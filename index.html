@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1215';
+const APP_VERSION = 'v1216';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15228,10 +15228,14 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
     }
     const pedido = snap.data() || {};
     const lines = Array.isArray(pedido.lines) ? pedido.lines : [];
-    // Suma ASIG actual del SKU en este pedido. v1215: incluye tambien
-    // state='confirmed' (SQ en SAP) a pedido Mariano.
     const skuU = String(sku || '').trim().toUpperCase();
+    // v1215: incluye state='confirmed' (SQ en SAP) a pedido Mariano.
+    // v1216 (2026-10-08): soporta tambien state='BO' como baseline. Si el pedido
+    // solo tiene lineas BO del SKU (virtual asig via FIFO), ajustamos la BO
+    // directo sin pasar por la pure fn (no hay ASIG que mover).
     let currentAsig = 0;
+    let currentBoOnly = 0;
+    let hasAsigOrConfirmed = false;
     for (const l of lines) {
       if (!l) continue;
       const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
@@ -15241,13 +15245,86 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
       if (l.state === 'ASIG') {
         if (l.asigReserva === false) continue;
         currentAsig += qo;
+        hasAsigOrConfirmed = true;
       } else if (l.state === 'confirmed') {
         currentAsig += qo;
+        hasAsigOrConfirmed = true;
+      } else if (l.state === 'BO') {
+        currentBoOnly += qo;
       }
     }
-    const newQty = currentAsig + delta;
+    // Baseline: ASIG/confirmed si existen, sino BO virtual.
+    const baseline = hasAsigOrConfirmed ? currentAsig : currentBoOnly;
+    const newQty = baseline + delta;
     if (newQty < 0) {
-      alert('No se puede bajar mas (actual: ' + currentAsig + ')');
+      alert('No se puede bajar mas (actual: ' + baseline + ')');
+      return;
+    }
+    // BRANCH BO-only: ajustar linea BO directo sin pure fn.
+    if (!hasAsigOrConfirmed) {
+      const stockLibreBo = (typeof window.getStockRealmenteDisponible === 'function')
+        ? Number(window.getStockRealmenteDisponible(skuU) || 0) : 0;
+      if (delta > 0 && delta > stockLibreBo) {
+        alert('No hay stock libre suficiente para aumentar ' + delta + 'u (stock libre: ' + stockLibreBo + ')');
+        return;
+      }
+      const nowIsoBo = new Date().toISOString();
+      const adminEmailBo = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) ? currentUser.email : 'admin';
+      let remaining = Math.abs(delta);
+      const newLinesBo = lines.map(l => Object.assign({}, l));
+      // FIFO: iterar lineas BO del SKU y ajustar.
+      for (let i = 0; i < newLinesBo.length; i++) {
+        const l = newLinesBo[i];
+        if (!l || l.state !== 'BO') continue;
+        const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
+        if (lSku !== skuU) continue;
+        const qo = Number(l.qtyOpen) || 0;
+        const q = Number(l.qty) || 0;
+        if (delta < 0) {
+          if (qo <= 0) continue;
+          if (remaining <= 0) break;
+          const take = Math.min(qo, remaining);
+          const newQo = qo - take;
+          newLinesBo[i] = Object.assign({}, l, {
+            qty: Math.max(0, q - take),
+            qtyOpen: newQo,
+            redistributedBy: adminEmailBo,
+            redistributedAt: nowIsoBo,
+            redistributedBefore: qo,
+            redistributedAfter: newQo,
+          });
+          if (newQo === 0) {
+            newLinesBo[i].state = 'cancelled';
+            newLinesBo[i].cancelledAt = nowIsoBo;
+            newLinesBo[i].cancelledBy = adminEmailBo;
+            newLinesBo[i].cancelReason = 'reparto-admin-bo-direct';
+          }
+          remaining -= take;
+        } else {
+          // Aumentar: sumar a la primera BO (FIFO).
+          newLinesBo[i] = Object.assign({}, l, {
+            qty: q + remaining,
+            qtyOpen: qo + remaining,
+            redistributedBy: adminEmailBo,
+            redistributedAt: nowIsoBo,
+            redistributedBefore: qo,
+            redistributedAfter: qo + remaining,
+          });
+          remaining = 0;
+          break;
+        }
+      }
+      const repHistBo = Array.isArray(pedido.repartoHistory) ? pedido.repartoHistory.slice() : [];
+      repHistBo.push({
+        sku: skuU, delta, baselineBefore: baseline, newQty,
+        type: 'bo-direct', at: nowIsoBo, by: adminEmailBo, viaInlineButton: true,
+      });
+      await docRef.update({
+        lines: newLinesBo,
+        repartoHistory: repHistBo,
+        lastRepartoAt: nowIsoBo,
+        lastRepartoBy: adminEmailBo,
+      });
       return;
     }
     const stockLibre = (typeof window.getStockRealmenteDisponible === 'function')
