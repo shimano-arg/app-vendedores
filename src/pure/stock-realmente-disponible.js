@@ -458,7 +458,8 @@ export function getStockDesglose(sku, deps, opts) {
       breakdown.WAITLIST_CPST += qty;
     }
   }
-  const comprometido = breakdown.confirmed + breakdown.BO + breakdown.ASIG + breakdown.WAITLIST_CPST;
+  const comprometido =
+    breakdown.confirmed + breakdown.BO + breakdown.ASIG + breakdown.WAITLIST_CPST;
   return {
     fisico,
     comprometido,
