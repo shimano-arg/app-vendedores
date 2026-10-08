@@ -5429,10 +5429,9 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
             <button id="btn-export-stock-asig-cliente" class="bo-btn" onclick="openExportStockAsigCliente()">Exportar Stock Asignado por cliente</button>
             <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
-            <!-- v1210 (2026-10-08): panel admin para redistribuir unidades ASIG entre
-                 ASIG y BO del mismo pedido/cliente. Reemplaza al viejo "Cerrar SQs viejas".
-                 Visible solo admin + modo asignacion. -->
-            <button id="btn-reparto-asig" class="bo-btn" onclick="openRepartoAdminModal()" title="Admin: ajustar unidades asignadas por cliente/SKU. Mueve ASIG ↔ BO sin perder unidades." style="background:#6b21a8;color:#fff;border-color:#581c87;display:none">Reparto</button>
+            <!-- v1212 (2026-10-08): boton "Reparto" eliminado. La funcionalidad
+                 se movio inline a cada row del Stock Asignado (control [-] NN [+])
+                 para admin. Mas directo + sin modal aparte. -->
             <!-- v1146 (2026-10-06): Generar Backorder manual. Visible solo en modo urgente.
                  Permite cargar BO cuando el cliente pide reservar demanda sobre SKUs sin
                  stock. Crea pedido APP con stage='confirmed' + lineas state='BO' +
@@ -5488,38 +5487,9 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         </div>
       </div>
     </div>
-    <!-- v1210 (2026-10-08): Modal admin "Reparto de Stock Asignado". Pedido Mariano:
-         redistribuir unidades ASIG ↔ BO del MISMO pedido/cliente/SKU sin perder
-         unidades. Al bajar ASIG: diferencia va a BO del mismo pedido. Al subir ASIG:
-         consume BO del mismo pedido primero + fallback a stock fisico libre. Lista
-         TODOS los pedidos con lineas ASIG activas (asigReserva=true). Pure fn
-         src/pure/reparto-stock-asig.js hace la validacion. -->
-    <div class="modal-overlay" id="reparto-admin-modal" onclick="if(event.target===this)closeRepartoAdminModal()">
-      <div class="modal-box" style="width:min(960px,98vw);max-height:92vh;display:flex;flex-direction:column;border-radius:16px;overflow:hidden">
-        <div class="modal-head" style="background:linear-gradient(135deg,#6b21a8,#581c87);padding:18px 22px">
-          <div>
-            <h2 style="margin:0;font-weight:700;font-size:19px;letter-spacing:-0.02em;color:#fff">Reparto de Stock Asignado</h2>
-            <div style="font-size:12.5px;opacity:.85;margin-top:2px;color:#e9d5ff;letter-spacing:-0.005em">Admin — ajustar unidades ASIG por cliente/SKU. La diferencia se mueve a BO del mismo pedido. Al subir, consume BO primero o stock libre.</div>
-          </div>
-          <button class="modal-close" onclick="closeRepartoAdminModal()">&times;</button>
-        </div>
-        <div style="padding:18px 22px;display:flex;flex-direction:column;gap:12px;overflow:hidden;flex:1">
-          <div id="rep-summary" style="padding:10px 14px;background:rgba(107,33,168,.06);border-radius:10px;font-size:13px;letter-spacing:-0.005em;color:#4c1d95"></div>
-          <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap">
-            <input id="rep-filter-sku" type="text" placeholder="Filtrar por SKU..." oninput="_repRender()" style="flex:1 1 180px;min-width:140px;padding:9px 12px;border-radius:10px;border:1px solid rgba(0,0,0,.12);font-family:inherit;font-size:13px;letter-spacing:-0.005em;background:var(--bg-elevated,#fff);color:inherit"/>
-            <input id="rep-filter-cliente" type="text" placeholder="Filtrar por cliente..." oninput="_repRender()" style="flex:1 1 180px;min-width:140px;padding:9px 12px;border-radius:10px;border:1px solid rgba(0,0,0,.12);font-family:inherit;font-size:13px;letter-spacing:-0.005em;background:var(--bg-elevated,#fff);color:inherit"/>
-          </div>
-          <div id="rep-list" style="flex:1;overflow-y:auto;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:var(--bg-elevated,#fff)">
-            <div style="padding:40px;text-align:center;opacity:.5;font-size:13px">Cargando…</div>
-          </div>
-          <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:4px;flex-wrap:wrap">
-            <span id="rep-changes-count" style="font-size:12.5px;opacity:.65;margin-right:auto">0 cambios pendientes</span>
-            <button onclick="closeRepartoAdminModal()" style="padding:10px 20px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;letter-spacing:-0.01em">Cancelar</button>
-            <button id="rep-execute-btn" onclick="_repExecute()" disabled style="padding:10px 22px;border-radius:999px;border:none;background:#6b21a8;color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;opacity:.4" title="Ajustá al menos 1 cantidad">Guardar cambios</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- v1212 (2026-10-08): modal "Reparto de Stock Asignado" eliminado.
+         Funcionalidad movida inline al listado del modal Stock Asignado
+         (control [-] NN [+] por row admin). -->
 
     <!-- v1146 (2026-10-06): Modal "Generar Backorder manual". Flow:
          1) VDE selecciona cliente (datalist padron SAP + Altas aprobadas).
@@ -6140,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1211';
+const APP_VERSION = 'v1212';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13595,13 +13565,8 @@ function _applyBackordersMode(mode){
   // v1145 (2026-10-06): boton "Crear Pedido - ST" visible solo en modo asignacion.
   const stBtn = document.getElementById('btn-crear-pedido-st');
   if (stBtn) stBtn.style.display = (mode === 'asignacion') ? '' : 'none';
-  // v1210: boton "Reparto" visible solo admin + modo asignacion.
-  // Reemplaza al viejo "Cerrar SQs viejas" (v1196→v1210).
-  const repartoBtn = document.getElementById('btn-reparto-asig');
-  if (repartoBtn) {
-    const isAdmin = typeof userRole !== 'undefined' && userRole === 'admin';
-    repartoBtn.style.display = (mode === 'asignacion' && isAdmin) ? '' : 'none';
-  }
+  // v1212: boton Reparto eliminado. Reparto es ahora inline en cada row del
+  // listado Stock Asignado (control [-] NN [+] para admin).
   // v1146 (2026-10-06): boton "Generar Backorder" visible solo en modo urgente
   // (en modo asignacion no tiene sentido: hay stock, deberia ser pedido normal).
   const gbBtn = document.getElementById('btn-generar-backorder');
@@ -14596,7 +14561,35 @@ window.renderBackordersTab = function(){
       html += '</div>';
       // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
       const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
-      html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(_qtyShow) + '</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
+      // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion
+      // reemplaza al modal "Reparto" (v1210). Permite reasignar unidades ASIG → BO
+      // del mismo cliente directo desde la lista. Solo admin + modo asignacion +
+      // 1 unico pedidoId (si hay multiples pedidos para el mismo cliente/SKU,
+      // mostrar el display estandar — caso edge, el admin puede editar por pedido
+      // via otra UI futura).
+      const _isAdmin = (typeof userRole !== 'undefined') && userRole === 'admin';
+      const _singlePedidoForAdj = _isAsigMode && _isAdmin
+        && Array.isArray(c.pedidoIds) && c.pedidoIds.length === 1
+        && c.pedidoIds[0] && c.pedidoIds[0].pedidoId
+        && c.pedidoIds[0].state === 'ASIG';
+      if (_singlePedidoForAdj) {
+        const _pid = c.pedidoIds[0].pedidoId;
+        const _cur = Math.round(_qtyShow);
+        const _argsAdj = escapeAttr(
+          JSON.stringify(g.sku) + ',' +
+          JSON.stringify(_pid) + ',' +
+          JSON.stringify(String(c.nombre || ''))
+        );
+        html += '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
+          + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', -1)" title="Mover 1 unidad de ASIG a BO del cliente" '
+            + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">−</button>'
+          + '<div style="min-width:36px;text-align:center"><div style="font-size:14px;font-weight:800;color:#c2410c">' + _cur + '</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">unid</div></div>'
+          + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', 1)" title="Mover 1 unidad de BO (del cliente o stock libre) a ASIG" '
+            + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">+</button>'
+          + '</div>';
+      } else {
+        html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#c2410c">' + Math.round(_qtyShow) + '</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">unid</div></div>';
+      }
       // v702 (2026-08-28): boton ELIMINAR para lineas app-source en AMBOS modos.
       // BACKORDER: elimina lineas state='BO' (libera reclamo del cliente).
       // STOCK ASIG: elimina lineas state='ASIG' (libera stock reservado que se
@@ -15189,319 +15182,117 @@ window._cpstVolver = function(){
 // batch Firestore. Si falla cualquiera, nada se commitea (atomic).
 // Post-batch: cierra pedidos originales que quedan con 100% lineas cancelled
 // (closedAt + closedReason='cancelled_by_cpst').
-// v1210 (2026-10-08): Panel admin "Reparto de Stock Asignado". Reemplaza al
-// viejo "Cerrar SQs viejas" (v1196-v1209). Permite redistribuir unidades ASIG
-// entre ASIG y BO del mismo pedido para cada cliente/SKU. Pure fn
-// src/pure/reparto-stock-asig.js valida y produce newLines[].
-// Scope: lee globalPedidos (en memoria), filtra lineas state='ASIG' +
-// asigReserva=true, agrupa por SKU, muestra por cliente/pedido. Al guardar,
-// writeBatch Firestore con las lineas modificadas.
-var _repRows = []; // [{pedidoId, pedidoRef, clientName, clientCardCode, orderNumber, sku, skuDesc, currentAsig, currentBO, newAsig}]
-var _repChanges = new Map(); // key `${pedidoId}::${sku}` -> newAsig
+// v1212 (2026-10-08): Reparto inline en Stock Asignado. Reemplaza al modal
+// "Reparto" (v1210-v1211) por un control [-] NN [+] por row admin. Al tocar
+// +/- dispara _adjustAsigQty que usa la pure fn `redistributeAsigLine` para
+// recalcular las lineas del pedido + persiste el update Firestore. El listener
+// pedidos_all re-renderea el modal Stock Asignado tras el update (debounce
+// natural del snapshot).
+//
+// Comportamiento:
+// - Si Pablo baja (−): currentAsig-1 → la unidad va a BO del mismo pedido.
+// - Si Pablo sube (+): currentAsig+1 → consume BO propio primero, luego stock
+//   libre; si no hay suficiente, muestra alert con el error.
+// - Lock in-flight: evita doble-click que dispare 2 updates concurrentes.
+var _adjustAsigLock = new Set();
 
-window.openRepartoAdminModal = function(){
+/**
+ * Ajusta la qty ASIG de un cliente/pedido/SKU en +/- 1 unidad.
+ * @param {string} sku
+ * @param {string} pedidoId
+ * @param {string} clienteNombre
+ * @param {number} delta -1 o +1
+ */
+window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
   if (typeof userRole === 'undefined' || userRole !== 'admin') {
     alert('Solo admin.');
     return;
   }
-  const modal = document.getElementById('reparto-admin-modal');
-  if (!modal) return;
-  modal.classList.add('open');
-  _repChanges.clear();
-  _repLoadRows();
-};
-
-window.closeRepartoAdminModal = function(){
-  const modal = document.getElementById('reparto-admin-modal');
-  if (modal) modal.classList.remove('open');
-};
-
-function _repLoadRows(){
-  // Lee desde globalPedidos (ya cargado en memoria por los listeners de admin).
-  // v1210.1 (2026-10-08): hotfix — removido filtro `stage==='confirmed'`. El
-  // patron oficial _findAsigDelCliente solo filtra `closedAt`. Habia pedidos
-  // con stage='sent'/'invoiced' con lineas ASIG remanentes quedando excluidos.
-  const peds = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
-  const rows = [];
-  let totalPedidos = 0, pedidosConAsig = 0, totalLineasAsig = 0;
-  for (const p of peds) {
-    if (!p || p.closedAt) continue;
-    totalPedidos++;
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    // Agrupar lineas por SKU dentro del pedido.
-    /** @type {Record<string, {asig:number, bo:number, desc:string}>} */
-    const bySku = {};
+  const lockKey = pedidoId + '::' + sku;
+  if (_adjustAsigLock.has(lockKey)) return;
+  _adjustAsigLock.add(lockKey);
+  try {
+    const redistFn = window.redistributeAsigLine;
+    if (typeof redistFn !== 'function') {
+      alert('redistributeAsigLine no esta disponible. Hard-refresh (Ctrl+Shift+R).');
+      return;
+    }
+    // Fetch pedido fresh desde Firestore (no desde globalPedidos para evitar
+    // raza con listener pendiente).
+    const docRef = fbDb.collection('pedidos').doc(pedidoId);
+    const snap = await docRef.get();
+    if (!snap.exists) {
+      alert('Pedido no encontrado: ' + pedidoId);
+      return;
+    }
+    const pedido = snap.data() || {};
+    const lines = Array.isArray(pedido.lines) ? pedido.lines : [];
+    // Suma ASIG actual del SKU en este pedido.
+    const skuU = String(sku || '').trim().toUpperCase();
+    let currentAsig = 0;
     for (const l of lines) {
       if (!l) continue;
-      const sku = String((l.sku || l.code || '')).trim().toUpperCase();
-      if (!sku) continue;
-      if (!bySku[sku]) bySku[sku] = { asig: 0, bo: 0, desc: l.desc || '' };
-      const qo = Number(l.qtyOpen) || 0;
-      if (qo <= 0) continue;
-      if (l.state === 'ASIG' && l.asigReserva !== false) bySku[sku].asig += qo;
-      else if (l.state === 'BO') bySku[sku].bo += qo;
-      if (!bySku[sku].desc && l.desc) bySku[sku].desc = l.desc;
+      const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
+      if (lSku !== skuU) continue;
+      if (l.state !== 'ASIG') continue;
+      if (l.asigReserva === false) continue;
+      currentAsig += Number(l.qtyOpen) || 0;
     }
-    // Un row por (pedido, SKU) con asig > 0.
-    let pedidoTieneAsig = false;
-    for (const sku in bySku) {
-      const info = bySku[sku];
-      if (info.asig <= 0) continue;
-      pedidoTieneAsig = true;
-      totalLineasAsig++;
-      rows.push({
-        pedidoId: p._fsId || p.id || '',
-        clientName: p.clientName || '(sin cliente)',
-        clientCardCode: p.clientCardCode || '',
-        orderNumber: p.orderNumber || '',
-        sku,
-        skuDesc: info.desc || '',
-        currentAsig: info.asig,
-        currentBO: info.bo,
-      });
+    const newQty = currentAsig + delta;
+    if (newQty < 0) {
+      alert('No se puede bajar mas (actual: ' + currentAsig + ')');
+      return;
     }
-    if (pedidoTieneAsig) pedidosConAsig++;
-  }
-  // Ordenar: SKU asc, luego cliente asc.
-  rows.sort((a,b) => {
-    if (a.sku !== b.sku) return a.sku < b.sku ? -1 : 1;
-    return a.clientName < b.clientName ? -1 : 1;
-  });
-  _repRows = rows;
-  console.log('[reparto] loadRows: pedidos=' + totalPedidos + ', conAsig=' + pedidosConAsig + ', lineasAsig=' + totalLineasAsig + ', snapshotLoaded=' + !!window._pedidosSnapshotLoaded);
-  _repRender();
-}
-
-function _repRender(){
-  const list = document.getElementById('rep-list');
-  const summary = document.getElementById('rep-summary');
-  const changesEl = document.getElementById('rep-changes-count');
-  const btn = document.getElementById('rep-execute-btn');
-  if (!list) return;
-  const skuFilter = String((document.getElementById('rep-filter-sku')||{}).value || '').trim().toUpperCase();
-  const cliFilter = String((document.getElementById('rep-filter-cliente')||{}).value || '').trim().toUpperCase();
-  const filtered = _repRows.filter(r => {
-    if (skuFilter && r.sku.indexOf(skuFilter) === -1) return false;
-    if (cliFilter && (r.clientName.toUpperCase()).indexOf(cliFilter) === -1) return false;
-    return true;
-  });
-  if (summary) {
-    const totalSkus = new Set(_repRows.map(r => r.sku)).size;
-    summary.innerHTML = _repRows.length === 0
-      ? '<span style="opacity:.6">No hay lineas ASIG activas en este momento.</span>'
-      : '<strong>' + _repRows.length + '</strong> filas (cliente×SKU) con stock asignado — <strong>' + totalSkus + '</strong> SKU(s) distintos. Mostrando <strong>' + filtered.length + '</strong>.';
-  }
-  if (filtered.length === 0) {
-    list.innerHTML = '<div style="padding:40px;text-align:center;opacity:.5;font-size:13px">' + (_repRows.length === 0 ? 'Sin stock asignado activo.' : 'Sin resultados para los filtros.') + '</div>';
-    if (changesEl) changesEl.textContent = _repChanges.size + ' cambios pendientes';
-    if (btn) { btn.disabled = _repChanges.size === 0; btn.style.opacity = _repChanges.size === 0 ? '.4' : '1'; }
-    return;
-  }
-  // Agrupar por SKU para render.
-  /** @type {Record<string, Array<any>>} */
-  const groups = {};
-  filtered.forEach(r => {
-    if (!groups[r.sku]) groups[r.sku] = [];
-    groups[r.sku].push(r);
-  });
-  const skus = Object.keys(groups).sort();
-  const html = skus.map(sku => {
-    const rows = groups[sku];
-    const totalAsig = rows.reduce((acc, r) => acc + r.currentAsig, 0);
-    const totalBO = rows.reduce((acc, r) => acc + r.currentBO, 0);
     const stockLibre = (typeof window.getStockRealmenteDisponible === 'function')
-      ? window.getStockRealmenteDisponible(sku) : null;
-    const desc = (rows[0].skuDesc || '').substring(0, 60);
-    return (
-      '<div style="border-bottom:1px solid rgba(0,0,0,.08);background:rgba(107,33,168,.03)">'
-        + '<div style="padding:10px 16px;font-weight:700;font-size:13.5px;letter-spacing:-0.01em;color:#4c1d95;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-          + '<span>' + escapeHtml(sku) + '</span>'
-          + (desc ? '<span style="font-weight:500;font-size:12px;opacity:.75">' + escapeHtml(desc) + '</span>' : '')
-          + '<span style="margin-left:auto;font-size:11.5px;font-weight:500;opacity:.75">'
-            + 'ASIG total: <strong>' + totalAsig + '</strong>u'
-            + ' · BO total: <strong>' + totalBO + '</strong>u'
-            + (stockLibre != null ? ' · <span style="color:#059669">Stock libre: <strong>' + stockLibre + '</strong>u</span>' : '')
-          + '</span>'
-        + '</div>'
-        + rows.map(r => {
-          const key = r.pedidoId + '::' + r.sku;
-          const current = _repChanges.has(key) ? _repChanges.get(key) : r.currentAsig;
-          const hasChange = _repChanges.has(key) && current !== r.currentAsig;
-          return (
-            '<div style="display:flex;align-items:center;gap:12px;padding:10px 20px 10px 32px;border-top:1px solid rgba(0,0,0,.04);background:' + (hasChange ? 'rgba(251,191,36,.15)' : 'var(--bg-elevated,#fff)') + '">'
-              + '<div style="flex:1;min-width:0">'
-                + '<div style="font-weight:600;font-size:13px;letter-spacing:-0.005em;color:var(--text-primary,#111827)">'
-                  + escapeHtml(r.clientName)
-                  + (r.orderNumber ? '  <span style="opacity:.5;font-weight:500">· ORDEN ' + escapeHtml(String(r.orderNumber)) + '</span>' : '')
-                + '</div>'
-                + '<div style="font-size:11px;opacity:.6;margin-top:2px">Pedido <code>' + escapeHtml(r.pedidoId.substring(0, 10)) + '…</code> · BO actual: ' + r.currentBO + 'u</div>'
-              + '</div>'
-              + '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
-                + '<span style="font-size:11.5px;opacity:.6">Actual: <strong>' + r.currentAsig + '</strong></span>'
-                + '<span style="margin:0 4px;opacity:.4">→</span>'
-                + '<input type="number" min="0" value="' + current + '" '
-                  + 'data-pedidoid="' + escapeHtml(r.pedidoId) + '" data-sku="' + escapeHtml(r.sku) + '" '
-                  + 'data-currentasig="' + r.currentAsig + '" '
-                  + 'onchange="_repOnChange(this)" oninput="_repOnChange(this)" '
-                  + 'style="width:80px;padding:7px 10px;border-radius:8px;border:' + (hasChange ? '2px solid #f59e0b' : '1px solid rgba(0,0,0,.15)') + ';font-family:inherit;font-size:13px;font-weight:600;text-align:center;background:var(--bg-elevated,#fff);color:inherit">'
-              + '</div>'
-            + '</div>'
-          );
-        }).join('')
-      + '</div>'
-    );
-  }).join('');
-  list.innerHTML = html;
-  if (changesEl) changesEl.textContent = _repChanges.size + ' cambios pendientes';
-  if (btn) {
-    btn.disabled = _repChanges.size === 0;
-    btn.style.opacity = _repChanges.size === 0 ? '.4' : '1';
-  }
-}
-
-window._repOnChange = function(input){
-  const pedidoId = input.getAttribute('data-pedidoid') || '';
-  const sku = input.getAttribute('data-sku') || '';
-  const currentAsig = Number(input.getAttribute('data-currentasig')) || 0;
-  const raw = String(input.value).trim();
-  const newQty = Number(raw);
-  const key = pedidoId + '::' + sku;
-  if (raw === '' || !Number.isFinite(newQty) || newQty < 0 || !Number.isInteger(newQty)) {
-    // invalido: no toco cambio ni rerender masivo (dejamos el input para que corrija).
-    return;
-  }
-  if (newQty === currentAsig) {
-    _repChanges.delete(key);
-  } else {
-    _repChanges.set(key, newQty);
-  }
-  // Update visual (count + btn) sin rerender global para no perder foco.
-  const changesEl = document.getElementById('rep-changes-count');
-  if (changesEl) changesEl.textContent = _repChanges.size + ' cambios pendientes';
-  const btn = document.getElementById('rep-execute-btn');
-  if (btn) {
-    btn.disabled = _repChanges.size === 0;
-    btn.style.opacity = _repChanges.size === 0 ? '.4' : '1';
-  }
-  // Highlight visual del row del input.
-  const row = input.closest('div[style*="padding:10px 20px"]');
-  if (row) {
-    const hasChange = _repChanges.has(key);
-    row.style.background = hasChange ? 'rgba(251,191,36,.15)' : 'var(--bg-elevated,#fff)';
-    input.style.border = hasChange ? '2px solid #f59e0b' : '1px solid rgba(0,0,0,.15)';
-  }
-};
-
-window._repExecute = async function(){
-  if (_repChanges.size === 0) return;
-  const changes = Array.from(_repChanges.entries());
-  const summary = changes.slice(0, 10).map(([key, newQty]) => {
-    const [pid, sku] = key.split('::');
-    const row = _repRows.find(r => r.pedidoId === pid && r.sku === sku);
-    const cli = row ? row.clientName.substring(0, 35) : '?';
-    const current = row ? row.currentAsig : '?';
-    const delta = (newQty > current) ? ('+' + (newQty - current)) : (newQty - current);
-    return '  · ' + sku + ' / ' + cli + ': ' + current + ' → ' + newQty + ' (' + delta + ')';
-  }).join('\n');
-  const more = changes.length > 10 ? '\n  ...y ' + (changes.length - 10) + ' más' : '';
-  if (!confirm('Aplicar ' + changes.length + ' cambio(s):\n\n' + summary + more + '\n\n¿Confirmar?')) return;
-
-  const btn = document.getElementById('rep-execute-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Procesando…'; btn.style.opacity = '.7'; }
-
-  // Carga lazy del pure fn (bundle lo expone via window después del build).
-  const redistributeFn = window.redistributeAsigLine;
-  if (typeof redistributeFn !== 'function') {
-    alert('redistributeAsigLine no está disponible. Hard-refresh (Ctrl+Shift+R) e intentar de nuevo.');
-    if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; btn.style.opacity = '1'; }
-    return;
-  }
-
-  const nowIso = new Date().toISOString();
-  const adminEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) ? currentUser.email : 'admin';
-
-  // Agrupar cambios por pedidoId: cada pedido se escribe UNA sola vez con el array lines final.
-  /** @type {Map<string, Array<{sku:string,newQty:number}>>} */
-  const byPedido = new Map();
-  for (const [key, newQty] of changes) {
-    const [pid, sku] = key.split('::');
-    if (!byPedido.has(pid)) byPedido.set(pid, []);
-    byPedido.get(pid).push({ sku, newQty });
-  }
-
-  const errors = [];
-  const results = [];
-  // Procesar pedido por pedido secuencial (writeBatch Firestore tiene limite 500 writes,
-  // asumimos <<500 pedidos por reparto; cada pedido es 1 write).
-  for (const [pid, skuChanges] of byPedido.entries()) {
-    try {
-      const docRef = fbDb.collection('pedidos').doc(pid);
-      const snap = await docRef.get();
-      if (!snap.exists) {
-        errors.push(pid + ': pedido no encontrado');
-        continue;
-      }
-      let pedido = snap.data() || {};
-      let currentLines = Array.isArray(pedido.lines) ? pedido.lines : [];
-      let repartoHistory = Array.isArray(pedido.repartoHistory) ? pedido.repartoHistory.slice() : [];
-      let okChangesCount = 0;
-      // Aplicar cada cambio secuencial sobre el array acumulado.
-      for (const chg of skuChanges) {
-        const stockLibre = (typeof window.getStockRealmenteDisponible === 'function')
-          ? Number(window.getStockRealmenteDisponible(chg.sku) || 0) : 0;
-        const r = redistributeFn({
-          pedido: { lines: currentLines },
-          sku: chg.sku,
-          newQty: chg.newQty,
-          stockFisicoLibre: stockLibre,
-          audit: { adminEmail, nowIso },
-        });
-        if (!r.ok) {
-          errors.push(pid.substring(0, 10) + ' · ' + chg.sku + ': ' + (r.error || 'error'));
-          continue;
-        }
-        currentLines = r.newLines;
-        okChangesCount += 1;
-        repartoHistory.push({
-          sku: chg.sku,
-          delta: r.delta,
-          currentAsigBefore: r.currentAsig,
-          currentBOBefore: r.currentBO,
-          newAsig: chg.newQty,
-          from: r.from || null,
-          usedFromBO: r.usedFromBO || 0,
-          usedFromLibre: r.usedFromLibre || 0,
-          at: nowIso,
-          by: adminEmail,
-        });
-      }
-      if (okChangesCount === 0) continue;
-      await docRef.update({
-        lines: currentLines,
-        repartoHistory,
-        lastRepartoAt: nowIso,
-        lastRepartoBy: adminEmail,
-      });
-      results.push({ pid, applied: okChangesCount });
-    } catch (e) {
-      errors.push(pid.substring(0, 10) + ': ' + (e && e.message ? e.message : String(e)));
+      ? Number(window.getStockRealmenteDisponible(skuU) || 0) : 0;
+    const nowIso = new Date().toISOString();
+    const adminEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) ? currentUser.email : 'admin';
+    const r = redistFn({
+      pedido: { lines },
+      sku: skuU,
+      newQty,
+      stockFisicoLibre: stockLibre,
+      audit: { adminEmail, nowIso },
+    });
+    if (!r.ok) {
+      alert('No se pudo ajustar:\n\n' + (r.error || 'error') + '\n\nCliente: ' + clienteNombre + '\nSKU: ' + sku);
+      return;
     }
+    const repartoHistory = Array.isArray(pedido.repartoHistory) ? pedido.repartoHistory.slice() : [];
+    repartoHistory.push({
+      sku: skuU,
+      delta: r.delta,
+      currentAsigBefore: r.currentAsig,
+      currentBOBefore: r.currentBO,
+      newAsig: newQty,
+      from: r.from || null,
+      usedFromBO: r.usedFromBO || 0,
+      usedFromLibre: r.usedFromLibre || 0,
+      at: nowIso,
+      by: adminEmail,
+      viaInlineButton: true,
+    });
+    await docRef.update({
+      lines: r.newLines,
+      repartoHistory,
+      lastRepartoAt: nowIso,
+      lastRepartoBy: adminEmail,
+    });
+    // El listener pedidos_all actualiza globalPedidos → renderBackordersTab se
+    // dispara via el side-effect post-snapshot (ya hay un hook en el listener).
+  } catch (e) {
+    console.error('[adjustAsigQty] fallo', e);
+    alert('Error ajustando: ' + (e && e.message ? e.message : String(e)));
+  } finally {
+    _adjustAsigLock.delete(lockKey);
   }
-
-  let msg = 'Reparto completado\n\n';
-  msg += '  Pedidos modificados: ' + results.length + '\n';
-  msg += '  Cambios aplicados:   ' + results.reduce((a,r) => a + r.applied, 0) + '\n';
-  msg += '  Errores:             ' + errors.length + '\n';
-  if (errors.length > 0) {
-    msg += '\nErrores:\n' + errors.slice(0, 8).join('\n');
-    if (errors.length > 8) msg += '\n  ...y ' + (errors.length - 8) + ' más';
-  }
-  alert(msg);
-  _repChanges.clear();
-  // Reload desde globalPedidos (los listeners de pedidos ya trajeron los nuevos arrays).
-  setTimeout(() => _repLoadRows(), 500);
-  if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; btn.style.opacity = '1'; }
 };
+
+// v1212 (2026-10-08): el handler legacy del modal "Reparto" (openRepartoAdminModal
+// + closeRepartoAdminModal + _repLoadRows + _repRender + _repOnChange + _repExecute)
+// fue removido junto con el modal. La funcionalidad se cumple ahora con
+// `window._adjustAsigQty` inline en el listado del modal Stock Asignado.
+
 
 window._cpstConfirmar = async function(){
   const c = _cpstSelected;
