@@ -6136,7 +6136,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1204';
+const APP_VERSION = 'v1205';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -29791,6 +29791,10 @@ function renderPlannerModalLineas(pedido) {
   // menos ruido. La info de facturacion sigue en la columna Facturado del
   // Kanban (via computeColumn) + en el badge SAP:X. El modal ahora solo
   // muestra el pedido puro (SKU + desc + qty + precio + subtotal).
+  // v1205 (2026-10-08): pedido Mariano — distinguir visualmente las lineas
+  // state='BO' (backorder, NO entraron a SAP) en ROJO. Las lineas state=
+  // 'confirmed' (si entraron como SQ) se muestran normal. Chip 'BO' al lado
+  // del SKU para que el VDE sepa de un vistazo cuales no estan en SAP.
   let totalPedido = 0;
   const rows = lineas.map(l => {
     const sku = escapeHtml(l?.code || l?.sku || l?.itemCode || '');
@@ -29802,9 +29806,15 @@ function renderPlannerModalLineas(pedido) {
     }
     const subtotal = qty * price;
     totalPedido += subtotal;
+    // v1205: detectar BO (incluye legacy sinStock=true pre-v543).
+    const _isBo = l?.state === 'BO' || (!!l?.sinStock && !l?.state);
+    const _rowStyle = _isBo ? ' style="background:#fef2f2;color:#991b1b"' : '';
+    const _boBadge = _isBo
+      ? ' <span style="background:#991b1b;color:#fff;font-size:8.5px;font-weight:800;padding:1px 5px;border-radius:3px;letter-spacing:.3px;vertical-align:middle;margin-left:4px" title="Linea NO enviada a SAP (backorder — sin stock al momento de confirmar)">BO</span>'
+      : '';
     return (
-      '<tr>' +
-        '<td>' + sku + '</td>' +
+      '<tr' + _rowStyle + '>' +
+        '<td>' + sku + _boBadge + '</td>' +
         '<td>' + desc + '</td>' +
         '<td class="num">' + qty + '</td>' +
         '<td class="num">' + fmtArs(price) + '</td>' +
