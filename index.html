@@ -6125,7 +6125,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1197';
+const APP_VERSION = 'v1199';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6329,6 +6329,14 @@ window.isPedidoSplitEnabled = function(){
 // en el confirm flow (splitPedidoLine + reenrichPedidoLine). Deprecacion
 // gradual: las 2 funciones viejas siguen existiendo para UI que aun no migro,
 // pero el confirm flow YA no las usa como fuente de verdad.
+// v1198 (2026-10-08): helper comun para extraer waitlist entries CPST
+// (source='stock-asignado-batch') que reservan stock. Entries normales
+// (VDE carga pedido manual) NO reservan — son pre-carga sin proteccion.
+function _getWaitlistCpstEntries() {
+  if (typeof revisionWaitlist === 'undefined' || !Array.isArray(revisionWaitlist)) return [];
+  return revisionWaitlist.filter(w => w && w.source === 'stock-asignado-batch');
+}
+
 window.getStockRealmenteDisponible = function(sku){
   const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockRealmenteDisponible;
   if (!_fn) {
@@ -6340,15 +6348,17 @@ window.getStockRealmenteDisponible = function(sku){
   return _fn(sku, {
     getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
     pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    waitlistEntries: _getWaitlistCpstEntries(),
   });
 };
 
 window.getStockDesglose = function(sku){
   const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockDesglose;
-  if (!_fn) return { fisico: 0, comprometido: 0, real: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0 } };
+  if (!_fn) return { fisico: 0, comprometido: 0, real: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0, WAITLIST_CPST: 0 } };
   return _fn(sku, {
     getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
     pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    waitlistEntries: _getWaitlistCpstEntries(),
   });
 };
 
@@ -6365,6 +6375,7 @@ window.getStockPorCliente = function(sku, cardCode){
   return _fn(sku, cardCode, {
     getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
     pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    waitlistEntries: _getWaitlistCpstEntries(),
   });
 };
 
@@ -14511,24 +14522,20 @@ window.renderBackordersTab = function(){
     // Clientes
     html += '<div style="padding:0">';
     g.clientes.forEach(c => {
-      // v572: badge SAP/APP para diferenciar fuente. Meta line cambia segun source:
-      // SAP: "SAP · OFERTA DE VENTA #NNN · fecha"
-      // APP: "APP · Orden N · fecha" (pedido cargado en la app)
-      const isApp = c.source === 'app';
-      const badgeBg = isApp ? '#dbeafe' : '#dcfce7';
-      const badgeFg = isApp ? '#1e40af' : '#166534';
-      const badgeLbl = isApp ? 'APP' : 'SAP';
-      let metaText;
-      if (isApp) {
-        const ordenLbl = c.pedidoOrden ? ('Orden ' + c.pedidoOrden) : (c.pedidoId ? ('Pedido ' + String(c.pedidoId).slice(0, 6)) : '');
-        metaText = escapeHtml(c.ciudad || '-') + ' · ' + escapeHtml(badgeLbl) + (ordenLbl ? ' · ' + escapeHtml(ordenLbl) : '') + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
-      } else {
-        metaText = escapeHtml(c.ciudad || '-') + ' · ' + escapeHtml(badgeLbl) + ' · OFERTA DE VENTA #' + c.sqDocNum + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
-      }
+      // v1199 (2026-10-08): badges "APP" y "EN SAP" eliminados por pedido Mariano.
+      // "No quiero ver mas nada de SAP u ofertas de ventas en Stock Asignado.
+      // Todo lo que tenga que ver con backorder o stock asignado es lo que hay
+      // en la app, todo lo de SAP quitalo/eliminalo."
+      // Post v1197 ya no hay fuente SAP legacy (c.source siempre 'app'). Los
+      // chips eran redundantes. metaText tambien simplificado: solo ciudad +
+      // Orden N + fecha (sin "APP ·" prefix ni "OFERTA DE VENTA #").
+      const ordenLbl = c.pedidoOrden ? ('Orden ' + c.pedidoOrden) : (c.pedidoId ? ('Pedido ' + String(c.pedidoId).slice(0, 6)) : '');
+      const metaText = escapeHtml(c.ciudad || '-')
+        + (ordenLbl ? ' · ' + escapeHtml(ordenLbl) : '')
+        + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
       html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px">';
       html += '<div style="flex:1;min-width:0">';
       html += '<div style="font-size:12px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
-      html += '<span style="background:' + badgeBg + ';color:' + badgeFg + ';padding:2px 6px;border-radius:4px;font-size:9.5px;font-weight:800;flex-shrink:0">' + badgeLbl + '</span>';
       // v958 (Fase 3, 2026-09-16): badge CON/SIN RESERVA solo para ASIG.
       // ASIG con asigReserva=false (clientes B/C) NO retiene stock → aparece
       // en cyan para que el VDE sepa que ese cliente no bloquea la venta a otros.
@@ -14542,22 +14549,16 @@ window.renderBackordersTab = function(){
           html += '<span style="background:#ede9fe;color:#6b21a8;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Cliente P/A: reserva stock. Otros VDEs NO pueden vender hasta que se facture o cancele.">CON RESERVA</span>';
         }
       }
-      // v962 (2026-09-17): badge 'EN SAP' para lineas state='confirmed'.
-      // Ya viajaron a SAP como SQ. La app las muestra para no "olvidarlas"
-      // pero la fuente de verdad es SAP — no hay boton Eliminar (ver mas abajo).
-      // v963 (2026-09-17): badge extra 'VENCIDA' para confirmed >15d. Estas
-      // dejaron de reservar stock en la app (regla lineReservesStock).
-      // Sugieren revision con Santi (cancelar SQ o completar facturacion).
-      if (c.source === 'app' && c.state === 'confirmed') {
-        html += '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Linea state=confirmed: ya se envio a SAP como Oferta de Venta (SQ). La app la muestra para tracking pero NO se puede eliminar aca — cancelar la SQ en SAP con Santi.">EN SAP</span>';
-        // v963: computar edad desde sqDocDate (que en confirmed app-source
-        // es igual a confirmedAt.slice(0,10) — ver linea 13064).
-        if (c.sqDocDate) {
-          const _ageMs = Date.now() - new Date(c.sqDocDate + 'T12:00:00Z').getTime();
-          const _ageDays = Math.floor(_ageMs / (24 * 60 * 60 * 1000));
-          if (_ageDays > 15) {
-            html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="SQ con ' + _ageDays + ' dias. Deja de reservar stock en la app (regla v963). Coordinar con Santi: cancelar SQ en SAP o completar facturacion.">VENCIDA ' + _ageDays + 'd</span>';
-          }
+      // v1199 (2026-10-08): badge 'EN SAP' eliminado. Mariano no quiere ver
+      // referencias a SAP en Stock Asignado. Las lineas confirmed son APP
+      // igual que cualquier otra — el backend sabe que viajaron a SAP pero
+      // el VDE no necesita saberlo aca. Mantenemos VENCIDA para lineas >7d
+      // (regla lineReservesStock v1198) porque es info util para el admin.
+      if (c.source === 'app' && c.state === 'confirmed' && c.sqDocDate) {
+        const _ageMs = Date.now() - new Date(c.sqDocDate + 'T12:00:00Z').getTime();
+        const _ageDays = Math.floor(_ageMs / (24 * 60 * 60 * 1000));
+        if (_ageDays > 7) {
+          html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Pedido con ' + _ageDays + ' dias sin facturar. Deja de reservar stock (TTL 7d). Revisar con el admin.">VENCIDA ' + _ageDays + 'd</span>';
         }
       }
       // v969 (2026-09-17): badge VENCIDA para BO viejos (>15d desde
@@ -14615,17 +14616,17 @@ window.renderBackordersTab = function(){
         );
         html += '<button onclick="window.deleteAllBackorderAppLinesForClient(' + _argsSafe + ')" title="' + escapeAttr(_lblTitle) + '" style="flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
       } else if (_isConfirmedApp && _pedidoIdsForCancel.length > 0) {
-        // v1122: para lineas confirmed (EN SAP) — ELIMINAR forzado con warning
-        // explicito. Uso tipico: SKU descontinuado que no va a facturarse nunca
-        // aunque la SQ SAP siga abierta. Mariano coordina el cierre en SAP aparte.
-        const _lblTitleSap = 'FORZAR eliminar linea confirmada (EN SAP). Requiere cerrar la SQ SAP tambien. Solo para casos excepcionales (ej: SKU descontinuado).';
+        // v1199 (2026-10-08): etiqueta "ELIMINAR (SAP)" → "ELIMINAR" por pedido
+        // Mariano (no quiere ver referencias a SAP). El fn deleteConfirmedAppLinesForClient
+        // mantiene su warning + flow de coordinacion de cierre en SAP a nivel admin.
+        const _lblTitleSap = 'FORZAR eliminar linea confirmada. Si el pedido ya se transfirio como SQ, cerrar manualmente desde el panel "Cerrar SQs viejas". Solo para casos excepcionales (ej: SKU descontinuado).';
         const _argsSafeSap = escapeAttr(
           JSON.stringify(g.sku) + ',' +
           JSON.stringify(String(c.nombre || '')) + ',' +
           Math.round(c.pendiente) + ',' +
           JSON.stringify(_pedidoIdsForCancel)
         );
-        html += '<button onclick="window.deleteConfirmedAppLinesForClient(' + _argsSafeSap + ')" title="' + escapeAttr(_lblTitleSap) + '" style="flex-shrink:0;background:#7c2d12;color:#fff;border:1px dashed #fbbf24;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">🔓 ELIMINAR (SAP)' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
+        html += '<button onclick="window.deleteConfirmedAppLinesForClient(' + _argsSafeSap + ')" title="' + escapeAttr(_lblTitleSap) + '" style="flex-shrink:0;background:#7c2d12;color:#fff;border:1px dashed #fbbf24;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR' + (_pedidoIdsForCancel.length > 1 ? ' (' + _pedidoIdsForCancel.length + ')' : '') + '</button>';
       }
       html += '</div>';
     });
@@ -15085,25 +15086,73 @@ function _cpstRenderPreview(){
       '<b>Localidad:</b> ' + _cpstEsc(r.localidad || '-') + ' · ' +
       '<b>Vendedor asignado:</b> ' + _cpstEsc(r.vendor || '(sin asignar)');
   }
+  // v1198 (2026-10-08): ajustar qty por SKU al stock realmente disponible HOY
+  // para ese cliente. Si las ASIG viejas expiraron (>7d) y el stock se usó para
+  // otros clientes, no tiene sentido pasar la qty original al waitlist — el
+  // VDE va a abrir la card y ver un split con BO fantasma. Mejor crear la card
+  // con la qty que efectivamente HAY libre para el cliente HOY.
+  //
+  // Rationale Mariano: "si hay 50 va a tener 50 no las 80 y eso es lo que pasa
+  // a la Lista de Espera".
+  //
+  // qty_ajustada = min(qty_asignada_original, stock_libre_para_cliente_hoy)
+  // libre_para_cliente = dep11 - reservas_de_OTROS (no cuenta sus propias ASIG
+  //                      viejas porque esas se van a cancelar).
+  const cardCode = r.cardCode || '';
+  let totalRecortado = 0;
+  c.skus.forEach(sk => {
+    let qtyAjustada = sk.qty;
+    try {
+      if (cardCode && typeof window.getStockPorCliente === 'function') {
+        const stk = window.getStockPorCliente(sk.sku, cardCode);
+        const libre = Math.max(0, Number(stk && stk.libreParaCliente) || 0);
+        qtyAjustada = Math.min(sk.qty, libre);
+      }
+    } catch (_e) {}
+    sk.qtyAjustada = qtyAjustada;
+    sk.qtyRecorte = Math.max(0, sk.qty - qtyAjustada);
+    sk.subtotalAjustado = qtyAjustada * (sk.precio || 0);
+    if (sk.qtyRecorte > 0) totalRecortado += sk.qtyRecorte;
+  });
   const list = document.getElementById('cpst-preview-list');
   if (list) {
-    list.innerHTML = c.skus.map(sk => (
-      '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;gap:10px;align-items:center">' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="font-weight:600;font-size:12px">' + _cpstEsc(sk.sku) + '</div>' +
-          '<div style="font-size:11px;color:#64748b">' + _cpstEsc(sk.desc) + '</div>' +
-        '</div>' +
-        '<div style="text-align:right">' +
-          '<div style="font-size:12px;font-weight:600">' + sk.qty + ' × ' + _cpstFmt(sk.precio) + '</div>' +
-          '<div style="font-size:12px;color:#1e40af;font-weight:600">' + _cpstFmt(sk.subtotal) + '</div>' +
-        '</div>' +
-      '</div>'
-    )).join('');
+    list.innerHTML = c.skus.map(sk => {
+      const recortado = sk.qtyRecorte > 0;
+      const qtyLabel = recortado
+        ? '<span style="text-decoration:line-through;opacity:.4;margin-right:4px">' + sk.qty + '</span>'
+          + '<span style="color:#dc2626;font-weight:700">' + sk.qtyAjustada + '</span>'
+        : sk.qty;
+      const warnBadge = recortado
+        ? '<div style="font-size:10px;color:#dc2626;margin-top:2px;letter-spacing:-0.005em">Recortado -' + sk.qtyRecorte + 'u (reservas expiradas o stock insuficiente)</div>'
+        : '';
+      return (
+        '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;gap:10px;align-items:center' + (recortado ? ';background:#fef2f2' : '') + '">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-weight:600;font-size:12px">' + _cpstEsc(sk.sku) + '</div>' +
+            '<div style="font-size:11px;color:#64748b">' + _cpstEsc(sk.desc) + '</div>' +
+            warnBadge +
+          '</div>' +
+          '<div style="text-align:right">' +
+            '<div style="font-size:12px;font-weight:600">' + qtyLabel + ' × ' + _cpstFmt(sk.precio) + '</div>' +
+            '<div style="font-size:12px;color:#1e40af;font-weight:600">' + _cpstFmt(sk.subtotalAjustado) + '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
   }
   const tot = document.getElementById('cpst-preview-total');
   if (tot) {
-    const totalSub = c.skus.reduce((s,sk) => s + (sk.subtotal||0), 0);
-    tot.textContent = 'Total ' + c.skus.length + ' SKUs · ' + c.totalU + ' unidades · ' + _cpstFmt(totalSub);
+    const totalSubAjustado = c.skus.reduce((s,sk) => s + (sk.subtotalAjustado || 0), 0);
+    const totalUAjustado = c.skus.reduce((s,sk) => s + (sk.qtyAjustada || 0), 0);
+    const skusValidos = c.skus.filter(sk => (sk.qtyAjustada || 0) > 0).length;
+    let txt = 'Total ' + skusValidos + ' SKU(s) · ' + totalUAjustado + ' u · ' + _cpstFmt(totalSubAjustado);
+    if (totalRecortado > 0) {
+      txt += ' · Recorte total -' + totalRecortado + 'u';
+    }
+    tot.textContent = txt;
+    tot.style.background = totalRecortado > 0 ? '#fef2f2' : '#fef3c7';
+    tot.style.borderColor = totalRecortado > 0 ? '#fecaca' : '#fcd34d';
+    tot.style.color = totalRecortado > 0 ? '#991b1b' : '#78350f';
   }
 }
 
@@ -15384,19 +15433,32 @@ window._cpstConfirmar = async function(){
       throw new Error('No hay lineas para cancelar (updates vacio).');
     }
     // PASO 3: construir items[] del waitlist payload.
-    const items = c.skus.map(sk => {
-      const stk = (typeof _revisionStockFor === 'function')
-        ? _revisionStockFor(sk.sku)
-        : { hasData: false, stockTotal: null, backorder: 0, disponible: null };
-      return {
-        code: sk.sku,
-        desc: sk.desc || '',
-        qty: sk.qty,
-        firstStockTotal: stk.hasData ? stk.stockTotal : null,
-        firstBackorder: stk.backorder || 0,
-        firstDisponible: stk.hasData ? stk.disponible : null,
-      };
-    });
+    // v1198 (2026-10-08): usa qtyAjustada (= min(sk.qty, libreParaCliente_hoy))
+    // en vez de sk.qty original. Si las ASIG viejas expiraron y otro VDE tomo
+    // parte del stock, la card nueva refleja la realidad. SKUs con qtyAjustada=0
+    // se omiten del waitlist (no tiene sentido crear BO fantasma).
+    const items = c.skus
+      .filter(sk => (sk.qtyAjustada || 0) > 0)
+      .map(sk => {
+        const stk = (typeof _revisionStockFor === 'function')
+          ? _revisionStockFor(sk.sku)
+          : { hasData: false, stockTotal: null, backorder: 0, disponible: null };
+        return {
+          code: sk.sku,
+          desc: sk.desc || '',
+          qty: sk.qtyAjustada,
+          qtyOriginal: sk.qty, // v1198: audit — guardar la qty originalmente asignada.
+          qtyRecorte: sk.qtyRecorte || 0,
+          firstStockTotal: stk.hasData ? stk.stockTotal : null,
+          firstBackorder: stk.backorder || 0,
+          firstDisponible: stk.hasData ? stk.disponible : null,
+        };
+      });
+    if (items.length === 0) {
+      throw new Error(
+        'No hay unidades disponibles para crear el pedido. Las ASIG expiraron y el stock se agotó o fue tomado por otros clientes.'
+      );
+    }
     const payload = {
       clientName: r.nombre || c.nombre,
       clientProvince: r.provincia || '',
