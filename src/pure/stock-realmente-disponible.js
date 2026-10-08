@@ -36,6 +36,7 @@
 /**
  * @typedef {Object} WaitlistEntryLike
  * @property {string} [source] Origen del entry — solo 'stock-asignado-batch' (CPST) reserva stock.
+ * @property {string} [clientCardCode] CardCode SAP del cliente (para getStockPorCliente).
  * @property {Array<{code?: string, qty?: number}>} [items] Items del waitlist.
  *
  * @typedef {Object} StockRealDeps
