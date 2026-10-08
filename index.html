@@ -2167,13 +2167,24 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-wl-item:hover{background:var(--color-warning-bg)}
 .slft-wl-item.has-exceed{border-left-color:var(--color-danger);background:#fef2f2}
 .slft-wl-item.has-exceed:hover{background:var(--color-danger-bg)}
-/* v1192 (2026-10-08): cards creadas via "Crear Pedido - ST" (botón del
-   modal Stock Asignado) con fondo celeste + borde azul fuerte para
-   diferenciarlas visualmente de pedidos normales. Pedido Mariano. */
-.slft-wl-item.source-cpst{border-left-color:#1e40af;background:#eff6ff}
-.slft-wl-item.source-cpst:hover{background:#dbeafe}
-.slft-wl-item.source-cpst.has-exceed{border-left-color:#1e40af;background:#fee2e2}
-.slft-wl-item.source-cpst.has-exceed:hover{background:var(--color-danger-bg)}
+/* v1204 (2026-10-08): cards creadas via "Crear Pedido - ST" en Lista de
+   Espera lucen como las cards BACKORDER de Pedidos Confirmados pero en
+   AMARILLO (pedido Mariano). Mismo pattern que .confirmed-card.cc-backorder:
+   background claro + border grueso + border-left aun mas grueso. El amarillo
+   diferencia visualmente que son stock asignado consolidado desde CPST (vs
+   pedido normal del VDE que es naranja clasico). */
+.slft-wl-item.source-cpst{
+  border:2px solid #f59e0b;
+  border-left:6px solid #d97706;
+  background:#fef3c7;
+  color:#78350f;
+}
+.slft-wl-item.source-cpst:hover{background:#fde68a}
+.slft-wl-item.source-cpst .slft-wl-cli-name{color:#78350f;font-weight:800}
+.slft-wl-item.source-cpst .slft-wl-loc{color:#92400e}
+.slft-wl-item.source-cpst .slft-wl-meta{color:#92400e}
+.slft-wl-item.source-cpst.has-exceed{background:#fed7aa}
+.slft-wl-item.source-cpst.has-exceed:hover{background:#fdba74}
 /* v501: cliente a la izq, chip ORDEN empujado al costado derecho. */
 .slft-wl-cli{font-weight:800;color:var(--text-primary);font-size:11.5px;margin-bottom:2px;display:flex;align-items:center;gap:6px;min-width:0}
 .slft-wl-cli-name{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -6125,7 +6136,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1203';
+const APP_VERSION = 'v1204';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17988,12 +17999,14 @@ function _renderWaitlistSidebar(){
     cliName.className = 'slft-wl-cli-name';
     cliName.textContent = w.clientName || 'sin nombre';
     cli.appendChild(cliName);
-    // v1192: chip "STOCK ASIG" antes del ORDEN cuando viene de Crear Pedido-ST.
+    // v1192 + v1204 (2026-10-08): chip "STOCK ASIG" antes del ORDEN cuando viene
+    // de Crear Pedido-ST. Estilo pill amarillo, replica el chip "BACKORDER"
+    // de las cards Confirmados pero en el schema warm (naranja/amarillo).
     if (_isCpst) {
       const chip = document.createElement('span');
-      chip.style.cssText = 'background:#1e40af;color:#fff;font-size:8.5px;padding:1px 5px;border-radius:3px;font-weight:800;letter-spacing:0.3px';
+      chip.style.cssText = 'background:#d97706;color:#fff;font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap';
       chip.textContent = 'STOCK ASIG';
-      chip.title = 'Pedido generado desde Stock Asignado (consolidado de SA sin reserva del cliente)';
+      chip.title = 'Pedido generado desde Stock Asignado (unidades reservadas para el cliente)';
       cli.appendChild(chip);
     }
     // v499/v501: chip ORDEN N alineado al costado derecho.
