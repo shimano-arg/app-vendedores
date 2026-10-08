@@ -2172,19 +2172,22 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
    AMARILLO (pedido Mariano). Mismo pattern que .confirmed-card.cc-backorder:
    background claro + border grueso + border-left aun mas grueso. El amarillo
    diferencia visualmente que son stock asignado consolidado desde CPST (vs
-   pedido normal del VDE que es naranja clasico). */
+   pedido normal del VDE que es naranja clasico).
+   v1206 (2026-10-08): subida saturacion del amarillo de fondo a #fde68a
+   (vs #fef3c7 muy claro) por pedido Mariano "pintá más amarillo asi
+   visualmente es mas facil". Hover un paso mas saturado (#fcd34d). */
 .slft-wl-item.source-cpst{
   border:2px solid #f59e0b;
   border-left:6px solid #d97706;
-  background:#fef3c7;
+  background:#fde68a;
   color:#78350f;
 }
-.slft-wl-item.source-cpst:hover{background:#fde68a}
+.slft-wl-item.source-cpst:hover{background:#fcd34d}
 .slft-wl-item.source-cpst .slft-wl-cli-name{color:#78350f;font-weight:800}
 .slft-wl-item.source-cpst .slft-wl-loc{color:#92400e}
 .slft-wl-item.source-cpst .slft-wl-meta{color:#92400e}
-.slft-wl-item.source-cpst.has-exceed{background:#fed7aa}
-.slft-wl-item.source-cpst.has-exceed:hover{background:#fdba74}
+.slft-wl-item.source-cpst.has-exceed{background:#fdba74}
+.slft-wl-item.source-cpst.has-exceed:hover{background:#fb923c}
 /* v501: cliente a la izq, chip ORDEN empujado al costado derecho. */
 .slft-wl-cli{font-weight:800;color:var(--text-primary);font-size:11.5px;margin-bottom:2px;display:flex;align-items:center;gap:6px;min-width:0}
 .slft-wl-cli-name{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -6136,7 +6139,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1205';
+const APP_VERSION = 'v1206';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
