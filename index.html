@@ -6089,7 +6089,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1194';
+const APP_VERSION = 'v1195';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15368,8 +15368,8 @@ window.openQuickVisitaModal = function(mode){
   if (head) head.style.background = isContacto ? 'linear-gradient(135deg,#0f766e,#14b8a6)' : 'linear-gradient(135deg,#f59e0b,#d97706)';
   if (title) title.textContent = isContacto ? '⚡ Contacto Rápido' : '⚡ Visita Rápida';
   if (subt) subt.textContent = isContacto
-    ? 'Carga mínima: cliente + mes. Marcado quickMode=true en reportes. Sin forma de contacto específica.'
-    : 'Carga mínima: cliente + mes. Marcada quickMode=true en reportes. Sin GPS ni fotos.';
+    ? 'Cliente + mes. Sin forma de contacto específica.'
+    : 'Cliente + mes. Sin GPS ni fotos.';
   // Populate clients datalist (mismo pattern que _populateRevisionClienteDatalist).
   _qvmPopulateClientes();
   // Populate meses + años.
@@ -15401,6 +15401,9 @@ window.openQuickVisitaModal = function(mode){
   if (cliInput) cliInput.value = '';
   const meta = document.getElementById('qvm-cliente-meta');
   if (meta) meta.textContent = '';
+  // v1195: limpiar textarea comentarios al abrir (sino queda el del anterior).
+  const comentarioEl = document.getElementById('qvm-comentario');
+  if (comentarioEl) comentarioEl.value = '';
   document.getElementById('quick-visita-modal').classList.add('open');
   setTimeout(() => { if (cliInput) cliInput.focus(); }, 50);
 };
@@ -15516,6 +15519,12 @@ window.submitQuickVisita = async function(){
       quickMode: true,
       quickModeAt: now.toISOString(),
       quickModeBy: currentUser.email || '',
+      // v1195 (2026-10-08): comentario opcional del vendedor sobre la
+      // visita/contacto rápido. Reemplaza el info text del modal.
+      comentario: (function(){
+        const el = document.getElementById('qvm-comentario');
+        return el ? String(el.value || '').trim() : '';
+      })(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
     const ref = await fbDb.collection('visits').add(data);
@@ -31666,39 +31675,45 @@ if ('serviceWorker' in navigator) {
 <!-- v1164 (2026-10-06): Modal "Visita/Contacto Rápido". Solo pide cliente + mes.
      Rellena el resto de los campos con defaults razonables + quickMode:true para
      que reports puedan filtrar/distinguir. Mismo doc shape que el flow clásico
-     (visits collection) → dashboard/exports lo cuentan igual. -->
+     (visits collection) → dashboard/exports lo cuentan igual.
+     v1195 (2026-10-08): rediseño Apple-style — reemplazado el info text por
+     un textarea opcional de comentarios (pedido Mariano). -->
 <div class="modal-overlay" id="quick-visita-modal" onclick="if(event.target===this)closeQuickVisitaModal()">
-  <div class="modal-box" style="width:min(560px,96vw);max-height:92vh;display:flex;flex-direction:column">
-    <div class="modal-head" id="quick-visita-head" style="background:linear-gradient(135deg,#f59e0b,#d97706)">
+  <div class="modal-box" style="width:min(520px,96vw);max-height:92vh;display:flex;flex-direction:column;border-radius:16px;overflow:hidden">
+    <div class="modal-head" id="quick-visita-head" style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:18px 22px">
       <div>
-        <h2 id="quick-visita-title">⚡ Visita Rápida</h2>
-        <div class="subt" id="quick-visita-subt">Carga mínima: cliente + mes. Marcada quickMode=true en reportes.</div>
+        <h2 id="quick-visita-title" style="margin:0;font-weight:700;font-size:19px;letter-spacing:-0.02em">⚡ Visita Rápida</h2>
+        <div class="subt" id="quick-visita-subt" style="font-size:12.5px;opacity:.85;margin-top:2px;letter-spacing:-0.005em">Carga mínima: cliente + mes.</div>
       </div>
       <button class="modal-close" onclick="closeQuickVisitaModal()">&times;</button>
     </div>
-    <div style="padding:18px;display:flex;flex-direction:column;gap:14px;overflow:auto">
-      <div style="display:flex;flex-direction:column;gap:4px">
-        <label style="font-size:12px;font-weight:700;color:#334155">Cliente / Tienda</label>
-        <input id="qvm-cliente" class="bo-ctl" list="qvm-clientes-datalist" placeholder="Escribí el nombre del cliente..." autocomplete="off" style="padding:10px 12px;font-size:14px;width:100%;box-sizing:border-box"/>
+    <div style="padding:22px;display:flex;flex-direction:column;gap:16px;overflow:auto">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12.5px;font-weight:600;color:var(--text-primary,#111827);letter-spacing:-0.01em">Cliente / Tienda</label>
+        <input id="qvm-cliente" list="qvm-clientes-datalist" placeholder="Escribí el nombre del cliente…" autocomplete="off" style="padding:11px 14px;font-size:14px;width:100%;box-sizing:border-box;border:1px solid rgba(0,0,0,.12);border-radius:10px;font-family:inherit;background:var(--bg-elevated,#fff);color:inherit;outline:none;transition:border-color .15s" onfocus="this.style.borderColor='#007AFF'" onblur="this.style.borderColor='rgba(0,0,0,.12)'"/>
         <datalist id="qvm-clientes-datalist"></datalist>
-        <div id="qvm-cliente-meta" style="font-size:11px;color:#64748b;min-height:16px"></div>
+        <div id="qvm-cliente-meta" style="font-size:11.5px;color:var(--text-muted,#64748b);min-height:16px;letter-spacing:-0.005em"></div>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <div style="flex:1;min-width:140px;display:flex;flex-direction:column;gap:4px">
-          <label style="font-size:12px;font-weight:700;color:#334155">Mes</label>
-          <select id="qvm-mes" class="bo-ctl" style="padding:10px 12px;font-size:14px"></select>
+        <div style="flex:1;min-width:140px;display:flex;flex-direction:column;gap:6px">
+          <label style="font-size:12.5px;font-weight:600;color:var(--text-primary,#111827);letter-spacing:-0.01em">Mes</label>
+          <select id="qvm-mes" style="padding:11px 14px;font-size:14px;border:1px solid rgba(0,0,0,.12);border-radius:10px;font-family:inherit;background:var(--bg-elevated,#fff);color:inherit;outline:none"></select>
         </div>
-        <div style="flex:1;min-width:100px;display:flex;flex-direction:column;gap:4px">
-          <label style="font-size:12px;font-weight:700;color:#334155">Año</label>
-          <select id="qvm-anio" class="bo-ctl" style="padding:10px 12px;font-size:14px"></select>
+        <div style="flex:1;min-width:100px;display:flex;flex-direction:column;gap:6px">
+          <label style="font-size:12.5px;font-weight:600;color:var(--text-primary,#111827);letter-spacing:-0.01em">Año</label>
+          <select id="qvm-anio" style="padding:11px 14px;font-size:14px;border:1px solid rgba(0,0,0,.12);border-radius:10px;font-family:inherit;background:var(--bg-elevated,#fff);color:inherit;outline:none"></select>
         </div>
       </div>
-      <div id="qvm-info" style="padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;color:#1e3a8a;line-height:1.5">
-        Esto registra la visita/contacto como "quick mode". Los campos obligatorios del form clásico (tipo cliente, relevancia, etc.) se guardan con default <code>QUICK</code>. Si después querés completar el detalle, abrí el form clásico y editá.
+      <!-- v1195 (2026-10-08): textarea opcional de comentarios. Reemplaza el
+           panel info que explicaba el modo quick. Pedido Mariano: dar un
+           espacio al vendedor para notar algo que vio o le dijo la tienda. -->
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12.5px;font-weight:600;color:var(--text-primary,#111827);letter-spacing:-0.01em">Comentario <span style="opacity:.5;font-weight:400">(opcional)</span></label>
+        <textarea id="qvm-comentario" placeholder="Algo que viste, te dijo la tienda, pedido pendiente, situación particular…" rows="3" style="padding:11px 14px;font-size:14px;width:100%;box-sizing:border-box;border:1px solid rgba(0,0,0,.12);border-radius:10px;font-family:inherit;background:var(--bg-elevated,#fff);color:inherit;outline:none;resize:vertical;min-height:72px;line-height:1.4;letter-spacing:-0.005em;transition:border-color .15s" onfocus="this.style.borderColor='#007AFF'" onblur="this.style.borderColor='rgba(0,0,0,.12)'"></textarea>
       </div>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        <button class="bo-btn" onclick="closeQuickVisitaModal()" style="padding:10px 16px">Cancelar</button>
-        <button id="qvm-submit-btn" class="bo-btn" onclick="submitQuickVisita()" style="padding:10px 16px;background:#1e40af;color:#fff;border-color:#1e3a8a">Guardar</button>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+        <button onclick="closeQuickVisitaModal()" style="padding:10px 20px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;letter-spacing:-0.01em;transition:background .15s" onmouseover="this.style.background='rgba(0,0,0,.04)'" onmouseout="this.style.background='transparent'">Cancelar</button>
+        <button id="qvm-submit-btn" onclick="submitQuickVisita()" style="padding:10px 22px;border-radius:999px;border:none;background:#007AFF;color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;transition:background .15s" onmouseover="this.style.background='#0051d5'" onmouseout="this.style.background='#007AFF'">Guardar</button>
       </div>
     </div>
   </div>
