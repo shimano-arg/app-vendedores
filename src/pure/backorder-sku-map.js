@@ -215,48 +215,21 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
   /** @type {Object<string, SkuGroup>} */
   const skuMap = {};
 
-  // Fuente 1: backorderLines legacy (SAP). Típicamente vacío post-v700 pero
-  // se preserva por compat.
-  const backorderLines = Array.isArray(deps.backorderLines) ? deps.backorderLines : [];
-  for (const ln of backorderLines) {
-    if (!ln) continue;
-    if (
-      !passesFilters({
-        sqDocDate: ln.sqDocDate,
-        vendorKey: ln.vendorKey,
-        sku: ln.sku || '',
-        producto: ln.producto || '',
-        clienteNombre: ln.clienteNombre || '',
-      })
-    )
-      continue;
-    const sku = ln.sku || '';
-    if (!skuMap[sku]) {
-      skuMap[sku] = {
-        sku,
-        producto: ln.producto || '',
-        familia: ln.familia || '',
-        subfamilia: ln.subfamilia || '',
-        totalPendiente: 0,
-        dispSap: 0,
-        clientes: [],
-      };
-    }
-    skuMap[sku].clientes.push({
-      nombre: ln.clienteNombre || '',
-      code: ln.clienteCode || '',
-      ciudad: ln.clienteCiudad || '',
-      pendiente: parseFloat(ln.pendiente) || 0,
-      precio: parseFloat(ln.precioUnitario) || 0,
-      sqDocNum: ln.sqDocNum || 0,
-      sqDocDate: ln.sqDocDate || '',
-      vendorKey: ln.vendorKey || '',
-      source: 'sap',
-      state: null,
-      qtyAsignada: 0,
-      qtyBackorder: 0,
-    });
-  }
+  // v1197 (2026-10-08): Fuente 1 SAP ELIMINADA. Pedido Mariano:
+  // "Quiero que solo quede en la app el stock asignado y backorder generado
+  // en la app. Si está en SAP borralo. No quiero que el stock asignado ni
+  // backorder tenga relación con SAP, solo por la app. Lo que está en Stock
+  // Asignado debe ser lo que está reservado para ese cliente porque lo tenía
+  // pedido y al tocar 'Crear Pedido - ST' técnicamente debería tener todo
+  // disponible porque son cosas que hay pero están reservadas para ese
+  // cliente."
+  //
+  // Previamente iterabamos `deps.backorderLines` (collection sync SAP) como
+  // Fuente 1. Esto mezclaba pedidos de la app con SQs/BO viejas de SAP y
+  // confundia. Ahora: solo globalPedidos (Fuente 2 abajo).
+  //
+  // backorderLines sigue existiendo en el repo (sync SAP → BQ) para
+  // reportes y auditorias historicas, pero NO alimenta los modales.
 
   // Fuente 2: APP (globalPedidos).
   const arr = Array.isArray(pedidos) ? pedidos : [];

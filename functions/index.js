@@ -61,7 +61,7 @@ import { handleSapProxy } from './core/sap-proxy-core.js';
 import { sapGet, sapLogin, sapLogout, sapPost } from './core/sap-sl-client.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 // v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
-import { runSqCancelExpired } from './core/sq-cancel-core.js';
+import { runSqCancelExpired, runSqCancelManualBulk } from './core/sq-cancel-core.js';
 import { handleSyncSapDocTotals } from './core/sync-sap-doc-totals-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
 import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
@@ -1092,6 +1092,97 @@ export const expireAsigLinesTTLCF = onSchedule(
  * Cron diario 04:30 America/Argentina/Buenos_Aires (después del TTL ASIG a
  * las 03:00 para no colisionar).
  */
+/**
+ * v1196 (2026-10-08): cierre manual bulk de SQs desde panel admin (modal
+ * Stock Asignado > Limpiar SQs abiertas). Reusa helpers del core
+ * sq-cancel-core: verifySqCanBeCancelled + cancelSqInSap + markLinesCancelled.
+ *
+ * Auth: solo admin + Mariano email. Rate-limited por el UI (confirmation
+ * modal, no auto-trigger). Logea a sq_cancel_log con mode=manual_admin.
+ */
+export const closeSqsManuallyCF = onCall(
+  {
+    region: REGION,
+    memory: '512MiB',
+    timeoutSeconds: 540,
+    secrets: [SAP_SL_PASSWORD],
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = (auth.token && auth.token.email) || '';
+    const db = getFirestore();
+    const roleSnap = await db.doc('roles/' + auth.uid).get();
+    const role = roleSnap.exists ? (roleSnap.data() || {}).role : '';
+    if (role !== 'admin') {
+      throw new HttpsError('permission-denied', 'solo admin');
+    }
+    const pedidoIds = Array.isArray(request.data && request.data.pedidoIds)
+      ? request.data.pedidoIds.filter(
+          (/** @type {any} */ x) => typeof x === 'string' && x.length > 0
+        )
+      : [];
+    if (pedidoIds.length === 0) {
+      throw new HttpsError('invalid-argument', 'pedidoIds vacio');
+    }
+    if (pedidoIds.length > 100) {
+      throw new HttpsError('invalid-argument', 'maximo 100 pedidos por request');
+    }
+
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.exists ? sapCfgSnap.data() || {} : {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.url) {
+      throw new HttpsError('failed-precondition', 'SAP SL config incompleta');
+    }
+    const sapDeps = {
+      fetch: /** @type {any} */ (globalThis.fetch),
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+      },
+      log: (/** @type {string} */ msg, /** @type {any} */ extra) => console.log(msg, extra || {}),
+    };
+    const sapSession = await sapLogin(sapDeps);
+    const slFetchFn = async (/** @type {string} */ uri, /** @type {any} */ opts) => {
+      if (opts && opts.method === 'POST') {
+        return await sapPost(sapSession, uri, opts.body || {}, sapDeps);
+      }
+      return await sapGet(sapSession, uri, sapDeps);
+    };
+
+    try {
+      const r = await runSqCancelManualBulk(
+        {
+          fbDb: db,
+          log: (msg, extra) => console.log(msg, extra || {}),
+          slFetch: slFetchFn,
+        },
+        pedidoIds,
+        email
+      );
+      return {
+        ok: true,
+        requestedCount: pedidoIds.length,
+        cancelledCount: r.cancelledCount,
+        skipped: r.skipped,
+        errors: r.errors,
+      };
+    } finally {
+      try {
+        await sapLogout(sapSession, sapDeps);
+      } catch (e) {
+        console.warn('closeSqsManuallyCF: logout SL fallo', e);
+      }
+    }
+  }
+);
+
 export const sqCancelExpiredCF = onSchedule(
   {
     region: REGION,
