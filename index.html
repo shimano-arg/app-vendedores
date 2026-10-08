@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1212';
+const APP_VERSION = 'v1213';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14563,17 +14563,16 @@ window.renderBackordersTab = function(){
       const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
       // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion
       // reemplaza al modal "Reparto" (v1210). Permite reasignar unidades ASIG → BO
-      // del mismo cliente directo desde la lista. Solo admin + modo asignacion +
-      // 1 unico pedidoId (si hay multiples pedidos para el mismo cliente/SKU,
-      // mostrar el display estandar — caso edge, el admin puede editar por pedido
-      // via otra UI futura).
+      // del mismo cliente directo desde la lista.
+      // v1213 (2026-10-08): hotfix — soportar multiples pedidoIds. Tomamos el
+      // PRIMER pedidoId con state='ASIG' (hay clientes con 80u splitteadas en
+      // 2+ pedidos). El +/- aplica al primero; FIFO natural.
       const _isAdmin = (typeof userRole !== 'undefined') && userRole === 'admin';
-      const _singlePedidoForAdj = _isAsigMode && _isAdmin
-        && Array.isArray(c.pedidoIds) && c.pedidoIds.length === 1
-        && c.pedidoIds[0] && c.pedidoIds[0].pedidoId
-        && c.pedidoIds[0].state === 'ASIG';
-      if (_singlePedidoForAdj) {
-        const _pid = c.pedidoIds[0].pedidoId;
+      const _asigPedForAdj = (_isAsigMode && _isAdmin && Array.isArray(c.pedidoIds))
+        ? c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
+        : null;
+      if (_asigPedForAdj) {
+        const _pid = _asigPedForAdj.pedidoId;
         const _cur = Math.round(_qtyShow);
         const _argsAdj = escapeAttr(
           JSON.stringify(g.sku) + ',' +
