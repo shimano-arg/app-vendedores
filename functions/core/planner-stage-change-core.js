@@ -392,7 +392,9 @@ export async function handlePlannerStageChanged(event, deps) {
   const recipients = [];
   if (Array.isArray(columnConfig.emails)) {
     for (const e of columnConfig.emails) {
-      const _e = String(e || '').trim().toLowerCase();
+      const _e = String(e || '')
+        .trim()
+        .toLowerCase();
       if (_e && !recipients.includes(_e)) recipients.push(_e);
     }
   } else if (columnConfig.email) {
