@@ -6112,7 +6112,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1230';
+const APP_VERSION = 'v1231';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -29557,10 +29557,17 @@ function renderPlannerKanban() {
     const subtotalStr = subtotal.toLocaleString('es-AR', {
       style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
     });
-    // v???(2026-10-02): chip de métricas agregadas por columna via pure fn.
-    // v1230 (2026-10-09): chip de PROMEDIO destacado al lado del titulo (Mariano
-    // pidio que se vea el tiempo promedio prominente). Mantengo tambien el stats
-    // chico abajo para el max cuando hay outlier.
+    // v1231 (2026-10-09): chip con MEDIANA (no promedio) + semaforo verde/amarillo/
+    // rojo segun umbral por columna + click para ver detalle de pedidos lentos.
+    // Umbrales: cada columna tiene su (verde_max_dias, amarillo_max_dias).
+    // Mediana es mas robusta a outliers (1 pedido olvidado de 30d no la mueve).
+    var _COLUMN_THRESHOLDS = {
+      lista_espera: { verde: 2, amarillo: 5 }, // Lista de espera
+      oferta: { verde: 3, amarillo: 7 },
+      facturar: { verde: 1, amarillo: 3 }, // Pendiente de facturar
+      facturado: { verde: 2, amarillo: 5 },
+      cobrado: { verde: 7, amarillo: 15 },
+    };
     var _statsChipHtml = '';
     var _avgChipHtml = '';
     try {
@@ -29568,22 +29575,51 @@ function renderPlannerKanban() {
       if (_pureStats && typeof _pureStats.columnStats === 'function' && typeof _pureStats.formatAge === 'function') {
         var _stats = _pureStats.columnStats(byCol[col.key], col.key);
         if (_stats && _stats.count > 0) {
-          var _avgTxt = _pureStats.formatAge(0, _stats.avgMs);
-          var _showMax = _stats.maxMs > 2 * _stats.avgMs;
-          var _maxTxt = _showMax ? '  ·  max ' + _pureStats.formatAge(0, _stats.maxMs) : '';
-          // Chip prominente arriba al lado del titulo.
+          // v1231: USAR MEDIANA en vez de promedio.
+          var _medTxt = _pureStats.formatAge(0, _stats.medianMs);
+          var _medDays = _stats.medianMs / (24 * 60 * 60 * 1000);
+          // Semaforo por umbral de columna.
+          var _th = _COLUMN_THRESHOLDS[col.key] || { verde: 3, amarillo: 7 };
+          var _chipBg, _chipFg;
+          if (_medDays <= _th.verde) {
+            _chipBg = 'rgba(16,185,129,.14)'; _chipFg = '#047857'; // verde
+          } else if (_medDays <= _th.amarillo) {
+            _chipBg = 'rgba(234,179,8,.18)'; _chipFg = '#854d0e';  // amarillo
+          } else {
+            _chipBg = 'rgba(239,68,68,.14)'; _chipFg = '#b91c1c';  // rojo
+          }
+          // Count outliers = pedidos con age > 2× mediana. Count manual via columnStats
+          // (que no lo devuelve) → iterar aqui.
+          var _outlierCount = 0;
+          var _nowMsLocal = Date.now();
+          var _twoXMed = _stats.medianMs * 2;
+          try {
+            var _entFn = _pureStats.columnEnteredAt;
+            if (typeof _entFn === 'function') {
+              for (var _pi = 0; _pi < byCol[col.key].length; _pi++) {
+                var _p = byCol[col.key][_pi];
+                var _ent = _entFn(_p, col.key);
+                if (_ent === null || !Number.isFinite(_ent)) continue;
+                if ((_nowMsLocal - _ent) > _twoXMed) _outlierCount++;
+              }
+            }
+          } catch (_eOut) {}
+          var _tt = 'Mediana del tiempo en esta columna (' + _stats.count + ' pedidos). Click para ver detalle.';
           _avgChipHtml =
-            '<span class="planner-col-avg-chip" title="Tiempo promedio en esta columna (' + _stats.count + ' pedidos)" ' +
+            '<span class="planner-col-avg-chip" data-col-key="' + escapeAttr(col.key) + '" data-col-label="' + escapeAttr(col.label) + '" ' +
+              'onclick="openPlannerColumnDetail(event, this.getAttribute(\'data-col-key\'), this.getAttribute(\'data-col-label\'))" ' +
+              'title="' + escapeAttr(_tt) + '" ' +
               'style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:3px 10px;border-radius:999px;' +
-              'background:rgba(14,165,233,.12);color:#0369a1;font-weight:700;margin-left:8px;letter-spacing:-0.005em;' +
-              'white-space:nowrap">' +
-              '⏱ ' + escapeHtml(_avgTxt) +
+              'background:' + _chipBg + ';color:' + _chipFg + ';font-weight:700;margin-left:8px;letter-spacing:-0.005em;' +
+              'white-space:nowrap;cursor:pointer;user-select:none">' +
+              '⏱ ' + escapeHtml(_medTxt) +
             '</span>';
-          // Stats chico abajo para max (solo si outlier).
-          if (_showMax) {
+          // Mostrar outliers debajo si hay (count > 0).
+          if (_outlierCount > 0) {
             _statsChipHtml =
-              '<div class="planner-col-stats" style="font-size:11px;color:#8a8a8e;margin-top:2px;letter-spacing:-0.01em;">' +
-                escapeHtml(_maxTxt.replace(/^  ·  /, '')) +
+              '<div class="planner-col-stats" style="font-size:11px;color:#dc2626;margin-top:2px;letter-spacing:-0.01em;font-weight:600" ' +
+                'title="Pedidos con edad > 2× mediana (arrastran el numero hacia arriba). Click en el chip para ver detalle.">' +
+                '⚠ ' + _outlierCount + ' pedido(s) muy demorado(s)' +
               '</div>';
           }
         }
@@ -29938,6 +29974,85 @@ function renderPlannerModal() {
     body.innerHTML = renderPlannerModalHistorial(pedido);
   }
 }
+
+// v1231 (2026-10-09): modal detalle de columna del Planner. Lista los pedidos
+// ordenados por edad descendente (los mas viejos arriba) para que admin / VDE
+// identifiquen quien arrastra la mediana. Trigger: click en el chip ⏱.
+window.openPlannerColumnDetail = function(ev, colKey, colLabel) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  if (typeof byCol === 'undefined' || !byCol[colKey]) {
+    const peds = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+    const _byCol = {};
+    try {
+      const _ccol = window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeColumn;
+      for (const p of peds) {
+        if (!p) continue;
+        let col;
+        try { col = _ccol ? _ccol(p) : null; } catch (_e) {}
+        if (col === colKey) {
+          if (!_byCol[col]) _byCol[col] = [];
+          _byCol[col].push(p);
+        }
+      }
+    } catch (_e) {}
+    byCol = _byCol;
+  }
+  const pedidos = Array.isArray(byCol[colKey]) ? byCol[colKey] : [];
+  const _entFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.columnEnteredAt)
+    ? window.__phase0.pure.columnEnteredAt : null;
+  const _fmtFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.formatAge)
+    ? window.__phase0.pure.formatAge : null;
+  const nowMs = Date.now();
+  const rows = pedidos.map(p => {
+    let entered = null;
+    try { entered = _entFn ? _entFn(p, colKey) : null; } catch (_e) {}
+    const age = (entered && Number.isFinite(entered)) ? Math.max(0, nowMs - entered) : null;
+    return { p, age };
+  }).filter(r => r.age !== null).sort((a, b) => b.age - a.age);
+  // Mediana para marcar outliers.
+  const sorted = rows.map(r => r.age).sort((a, b) => a - b);
+  const med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const existing = document.getElementById('planner-col-detail-overlay');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'planner-col-detail-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:10001';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  const medStr = _fmtFn ? _fmtFn(0, med) : '';
+  const listHtml = rows.length === 0
+    ? '<div style="padding:40px;text-align:center;opacity:.6;font-size:13px">Sin pedidos resolubles en esta columna.</div>'
+    : rows.map((r, i) => {
+        const p = r.p;
+        const isOut = med > 0 && r.age > 2 * med;
+        const ageStr = _fmtFn ? _fmtFn(0, r.age) : (Math.floor(r.age/86400000) + 'd');
+        const cliente = escapeHtml((p.clientName || '(sin cliente)').substring(0, 50));
+        const vendor = escapeHtml((p.ownerVendor || p.vendedor || '').substring(0, 25));
+        const orden = p.orderNumber ? ('ORDEN ' + p.orderNumber) : '—';
+        return (
+          '<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(0,0,0,.05);background:' + (isOut ? 'rgba(239,68,68,.06)' : 'transparent') + '">'
+          + '<div style="font-size:14px;font-weight:700;color:' + (isOut ? '#b91c1c' : '#111827') + ';min-width:72px;text-align:right">' + escapeHtml(ageStr) + (isOut ? ' ⚠' : '') + '</div>'
+          + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:13px;font-weight:600;color:var(--text-primary,#111827)">' + cliente + '</div>'
+            + '<div style="font-size:11px;opacity:.65;margin-top:2px">' + vendor + ' · ' + orden + '</div>'
+          + '</div>'
+          + '</div>'
+        );
+      }).join('');
+  overlay.innerHTML = (
+    '<div style="background:var(--bg-elevated,#fff);border-radius:14px;width:min(600px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+    + '<div style="padding:16px 20px;border-bottom:1px solid rgba(0,0,0,.06);display:flex;align-items:center;gap:10px">'
+      + '<div style="flex:1">'
+        + '<div style="font-size:16px;font-weight:800;letter-spacing:-0.02em;color:var(--text-primary,#111827)">Detalle: ' + escapeHtml(colLabel) + '</div>'
+        + '<div style="font-size:12px;opacity:.65;margin-top:3px">' + rows.length + ' pedidos · mediana ' + escapeHtml(medStr) + ' · ordenados del más viejo al más reciente</div>'
+      + '</div>'
+      + '<button onclick="document.getElementById(\'planner-col-detail-overlay\').remove()" '
+        + 'style="padding:8px 14px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;cursor:pointer;font-family:inherit;font-weight:500">Cerrar</button>'
+    + '</div>'
+    + '<div style="flex:1;overflow-y:auto">' + listHtml + '</div>'
+    + '</div>'
+  );
+  document.body.appendChild(overlay);
+};
 
 function renderPlannerModalLineas(pedido) {
   // v1013 (2026-09-22): pedidos Firestore guardan las lineas en `lines` (ver
