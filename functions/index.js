@@ -2492,11 +2492,38 @@ export const generateVentasReportCF = onCall(
       .filter((x) => x !== null);
     console.log('[generateVentasReportCF] vendors:', vendors.length);
 
+    // Fetch visitas del mes (via campo fecha YYYY-MM-DD).
+    const monthStr = String(month).padStart(2, '0');
+    const startStr = `${year}-${monthStr}-01`;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const endStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+    const visitSnap = await db
+      .collection('visits')
+      .where('fecha', '>=', startStr)
+      .where('fecha', '<', endStr)
+      .get();
+    const visits = visitSnap.docs.map((d) => {
+      const data = d.data() || {};
+      return {
+        tienda: String(data.tienda || '').trim(),
+        vendor: String(data.vendor || '').trim(),
+        fecha: String(data.fecha || '').trim(),
+        provincia: String(data.provincia || '').trim(),
+        localidad: String(data.localidad || '').trim(),
+        formaContacto: String(data.formaContacto || '').trim(),
+        interactionType: String(data.interactionType || '').trim(),
+        tipo: String(data.tipo || '').trim(),
+      };
+    });
+    console.log('[generateVentasReportCF] visits:', visits.length);
+
     const buffer = await buildReportBuffer({
       ventas: ventasRows,
       items: itemsRows,
       clients,
       vendors,
+      visits,
       makeWorkbook: () => new ExcelJS.Workbook(),
     });
     const bytesBase64 = Buffer.from(buffer).toString('base64');
@@ -2515,6 +2542,7 @@ export const generateVentasReportCF = onCall(
         items: itemsRows.length,
         clients: clients.length,
         vendors: vendors.length,
+        visits: visits.length,
       },
     };
   }
