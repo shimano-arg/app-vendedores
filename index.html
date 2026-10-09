@@ -6112,7 +6112,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1229';
+const APP_VERSION = 'v1230';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -29557,11 +29557,12 @@ function renderPlannerKanban() {
     const subtotalStr = subtotal.toLocaleString('es-AR', {
       style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
     });
-    // v???(2026-10-02): chip de métricas agregadas por columna via pure fn
-    // columnStats (src/pure/planner-column-age.js). Muestra promedio + max
-    // (solo si outlier, max > 2*avg) para resaltar cuellos de botella.
-    // Try/catch defensivo igual que el badge por card.
+    // v???(2026-10-02): chip de métricas agregadas por columna via pure fn.
+    // v1230 (2026-10-09): chip de PROMEDIO destacado al lado del titulo (Mariano
+    // pidio que se vea el tiempo promedio prominente). Mantengo tambien el stats
+    // chico abajo para el max cuando hay outlier.
     var _statsChipHtml = '';
+    var _avgChipHtml = '';
     try {
       var _pureStats = window.__phase0 && window.__phase0.pure;
       if (_pureStats && typeof _pureStats.columnStats === 'function' && typeof _pureStats.formatAge === 'function') {
@@ -29570,10 +29571,21 @@ function renderPlannerKanban() {
           var _avgTxt = _pureStats.formatAge(0, _stats.avgMs);
           var _showMax = _stats.maxMs > 2 * _stats.avgMs;
           var _maxTxt = _showMax ? '  ·  max ' + _pureStats.formatAge(0, _stats.maxMs) : '';
-          _statsChipHtml =
-            '<div class="planner-col-stats" style="font-size:11px;color:#8a8a8e;margin-top:2px;letter-spacing:-0.01em;">' +
-              '⌀ ' + escapeHtml(_avgTxt) + escapeHtml(_maxTxt) +
-            '</div>';
+          // Chip prominente arriba al lado del titulo.
+          _avgChipHtml =
+            '<span class="planner-col-avg-chip" title="Tiempo promedio en esta columna (' + _stats.count + ' pedidos)" ' +
+              'style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:3px 10px;border-radius:999px;' +
+              'background:rgba(14,165,233,.12);color:#0369a1;font-weight:700;margin-left:8px;letter-spacing:-0.005em;' +
+              'white-space:nowrap">' +
+              '⏱ ' + escapeHtml(_avgTxt) +
+            '</span>';
+          // Stats chico abajo para max (solo si outlier).
+          if (_showMax) {
+            _statsChipHtml =
+              '<div class="planner-col-stats" style="font-size:11px;color:#8a8a8e;margin-top:2px;letter-spacing:-0.01em;">' +
+                escapeHtml(_maxTxt.replace(/^  ·  /, '')) +
+              '</div>';
+          }
         }
       }
     } catch (_errStats) { /* no-op: chip opcional */ }
@@ -29582,6 +29594,7 @@ function renderPlannerKanban() {
         '<div class="planner-col-header">' +
           '<span>' + escapeHtml(col.label) +
             '<span class="planner-col-count">' + byCol[col.key].length + '</span>' +
+            _avgChipHtml +
           '</span>' +
         '</div>' +
         '<div class="planner-col-subtotal">' + escapeHtml(subtotalStr) + '</div>' +
