@@ -5426,8 +5426,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <button id="btn-export-lista-plana" class="bo-btn" onclick="exportBackordersToExcel()">Exportar todo</button>
-            <button id="btn-export-stock-asig-cliente" class="bo-btn" onclick="openExportStockAsigCliente()">Exportar Stock Asignado por cliente</button>
+            <!-- v1225 (2026-10-09): 2 botones de export unificados en 1. Al tocar
+                 abre modal pequeno con 2 opciones. El viejo id btn-export-stock-asig-cliente
+                 queda eliminado; el gate de modo asignacion ahora lo hace openExportMenu. -->
+            <button id="btn-export-stock-asig" class="bo-btn" onclick="openExportStockAsigMenu()">Exportar</button>
             <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
             <!-- v1212 (2026-10-08): boton "Reparto" eliminado. La funcionalidad
                  se movio inline a cada row del Stock Asignado (control [-] NN [+])
@@ -6110,7 +6112,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1224';
+const APP_VERSION = 'v1225';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13559,9 +13561,12 @@ function _applyBackordersMode(mode){
     if (title) title.innerHTML = 'Backorder';
     if (subt) subt.textContent = 'SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.';
   }
-  // v509: boton "Exportar Stock Asignado" visible solo en modo asignacion.
-  const tplBtn = document.getElementById('btn-export-stock-asig-cliente');
-  if (tplBtn) tplBtn.style.display = (mode === 'asignacion') ? '' : 'none';
+  // v1225 (2026-10-09): botones de export unificados. En modo backorder el
+  // boton "Exportar" dispara export flat directo (no muestra el chooser porque
+  // "por cliente" solo tiene sentido en Stock Asignado). En modo asignacion
+  // el chooser aparece.
+  // Nota: openExportStockAsigMenu() decide segun el modo actual via
+  // backordersStockFilter — no requiere gate del DOM.
   // v1145 (2026-10-06): boton "Crear Pedido - ST" visible solo en modo asignacion.
   const stBtn = document.getElementById('btn-crear-pedido-st');
   if (stBtn) stBtn.style.display = (mode === 'asignacion') ? '' : 'none';
@@ -13992,6 +13997,48 @@ window.exportBackordersToExcel = async function(){
   }
 };
 // ============================================================
+// v1225 (2026-10-09): chooser unificado. En modo asignacion pregunta si exportar
+// todo o por cliente. En modo backorder (no asignacion) va directo al export flat
+// (porque "por cliente" solo tiene sentido con stock asignado).
+window.openExportStockAsigMenu = function(){
+  const isAsig = (typeof backordersStockFilter !== 'undefined' && backordersStockFilter === 'con');
+  if (!isAsig) {
+    // Modo Backorder: export flat directo.
+    if (typeof exportBackordersToExcel === 'function') exportBackordersToExcel();
+    return;
+  }
+  // Modo Stock Asignado: chooser pequeno con 2 opciones.
+  const existing = document.getElementById('export-stock-asig-menu');
+  if (existing) { existing.remove(); return; }
+  const overlay = document.createElement('div');
+  overlay.id = 'export-stock-asig-menu';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:10000';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = (
+    '<div style="background:var(--bg-elevated,#fff);border-radius:14px;padding:22px 24px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+    + '<div style="font-size:17px;font-weight:700;color:var(--text-primary,#111827);margin-bottom:6px;letter-spacing:-0.02em">¿Qué querés exportar?</div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted,#6b7280);margin-bottom:16px;letter-spacing:-0.005em">Elegí una opción.</div>'
+    + '<div style="display:flex;flex-direction:column;gap:10px">'
+      + '<button onclick="document.getElementById(\'export-stock-asig-menu\').remove(); exportBackordersToExcel();" '
+        + 'style="padding:13px 16px;border-radius:10px;border:1px solid rgba(0,0,0,.12);background:#ea580c;color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;text-align:left">'
+        + '<div>Todo el stock asignado</div>'
+        + '<div style="font-size:11.5px;font-weight:400;opacity:.9;margin-top:3px">Excel plano con todos los SKUs × clientes.</div>'
+      + '</button>'
+      + '<button onclick="document.getElementById(\'export-stock-asig-menu\').remove(); openExportStockAsigCliente();" '
+        + 'style="padding:13px 16px;border-radius:10px;border:1px solid rgba(0,0,0,.12);background:#1e3a8a;color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;text-align:left">'
+        + '<div>Por cliente (formato Lista de Precios)</div>'
+        + '<div style="font-size:11.5px;font-weight:400;opacity:.9;margin-top:3px">Un Excel por cliente, o 1 cliente específico.</div>'
+      + '</button>'
+    + '</div>'
+    + '<div style="margin-top:14px;text-align:right">'
+      + '<button onclick="document.getElementById(\'export-stock-asig-menu\').remove();" '
+        + 'style="padding:8px 16px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer">Cancelar</button>'
+    + '</div>'
+    + '</div>'
+  );
+  document.body.appendChild(overlay);
+};
+
 // v509 (2026-08-13): Template Stock Asig. por cliente
 // Genera Excel formato "Lista de Precios Shimano" (el que Mariano ya usa
 // historicamente, ejemplo: "Back Order Disponible Dinsport.xlsx"). Precarga
