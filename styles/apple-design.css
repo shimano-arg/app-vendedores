@@ -1972,6 +1972,26 @@
   background: rgba(255, 59, 48, 0.03) !important;
   box-shadow: 0 2px 8px rgba(255, 59, 48, 0.10);
 }
+/* v1224 (2026-10-09): cards STOCK ASIG (source=stock-asignado-batch) deben
+   pintarse amarillo. El inline define .source-cpst pero el !important del
+   apple-design base pisaba el fondo. Override explicito con !important para
+   ganar la cascada. */
+.slft-wl-item.source-cpst {
+  background: #fde68a !important;
+  border: 2px solid #f59e0b !important;
+  border-left: 6px solid #d97706 !important;
+  color: #78350f !important;
+}
+.slft-wl-item.source-cpst:hover {
+  background: #fcd34d !important;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.15);
+}
+.slft-wl-item.source-cpst.has-exceed {
+  background: #fdba74 !important;
+}
+.slft-wl-item.source-cpst.has-exceed:hover {
+  background: #fb923c !important;
+}
 
 /* Cliente */
 .slft-wl-cli {

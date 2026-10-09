@@ -38,7 +38,7 @@ else
   N=$(echo "$CHANGED_FILES" | wc -l)
   echo "[pre-push] (1/3) biome check sobre $N archivo(s) modificado(s)..."
   # xargs: ejecuta biome con la lista de archivos.
-  if ! echo "$CHANGED_FILES" | xargs npx biome check 2>&1 | tail -30; then
+  if ! echo "$CHANGED_FILES" | xargs npx biome check --no-errors-on-unmatched 2>&1 | tail -30; then
     echo ""
     echo "[pre-push] ❌ biome FAILED. Fixear con:"
     echo "            echo \"\$(git diff --name-only $BASE..HEAD)\" | xargs npx biome check --write"
