@@ -2452,7 +2452,7 @@ export const generateVentasReportCF = onCall(
 
     // Fetch items master.
     const itemsSql = `
-      SELECT item_code, item_name, fam AS familia, sub AS subfamilia
+      SELECT item_code, item_name, COALESCE(fam, cat) AS familia, COALESCE(sub, cat) AS subfamilia, cat
       FROM \`app-vendedores-shimano.shimano_app.v_sap_items_enriched\`
       WHERE item_code IS NOT NULL
         AND COALESCE(valid, 'tYES') = 'tYES'

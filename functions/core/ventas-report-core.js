@@ -101,6 +101,18 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
     if (cc && vn) cardCodeToVendor.set(cc, vn);
   }
 
+  // v1236 (2026-10-09): index items master por code para enriquecer ventas
+  // (v_ventas_lineas tiene item_name/familia/subfamilia NULL en 74% de rows).
+  const itemMetaByCode = new Map();
+  for (const it of items) {
+    if (!it.item_code) continue;
+    itemMetaByCode.set(it.item_code, {
+      item_name: it.item_name || '',
+      familia: it.familia || '',
+      subfamilia: it.subfamilia || '',
+    });
+  }
+
   // Indices.
   const ventasByVendorItem = new Set(); // "vendor||itemCode"
   const ventasByVendorClient = new Map(); // "vendor||cardCode" → acc
@@ -137,14 +149,19 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
     acc.importe += Number(v.importe_ars || 0);
     acc.skus.add(itemCode);
     acc.docs += Number(v.docs || 0);
+    // v1236: enriquecer con items master si BQ v_ventas_lineas trae NULLs.
+    const meta = itemMetaByCode.get(itemCode) || null;
+    const item_name = v.item_name || (meta && meta.item_name) || itemCode;
+    const familia = v.familia || (meta && meta.familia) || '';
+    const subfamilia = v.subfamilia || (meta && meta.subfamilia) || '';
     resolvedVentas.push({
       vendor: vn,
       card_code: cardCode,
       card_name: v.card_name || '',
       item_code: itemCode,
-      item_name: v.item_name || '',
-      familia: v.familia || '',
-      subfamilia: v.subfamilia || '',
+      item_name,
+      familia,
+      subfamilia,
       qty: Number(v.qty || 0),
       importe: Number(v.importe_ars || 0),
       docs: Number(v.docs || 0),
