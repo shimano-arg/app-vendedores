@@ -2377,3 +2377,145 @@ export const triggerRendicionesEmailManual = onCall(
     }
   }
 );
+
+// ============================================================
+// generateVentasReportCF (2026-10-09)
+// ============================================================
+// Reporte mensual "VENTAS x ARTICULO x CLIENTE/VENDEDOR" para Pablo (admin).
+// Lee BQ v_ventas_lineas + v_sap_items_enriched + Firestore client_master +
+// sap_vendors, genera xlsx con 4 hojas via exceljs, devuelve bytes base64.
+// Admin/gerente only. Timeout 540s (puede tardar 30-60s con BQ).
+export const generateVentasReportCF = onCall(
+  {
+    region: REGION,
+    memory: '1GiB',
+    timeoutSeconds: 540,
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const db = getFirestore();
+    const roleSnap = await db.doc('roles/' + auth.uid).get();
+    const role = roleSnap.exists ? (roleSnap.data() || {}).role : '';
+    if (role !== 'admin' && role !== 'gerente') {
+      throw new HttpsError('permission-denied', 'solo admin/gerente');
+    }
+    const year = Number(request.data && request.data.year);
+    const month = Number(request.data && request.data.month);
+    if (!Number.isInteger(year) || year < 2024 || year > 2030) {
+      throw new HttpsError('invalid-argument', 'year invalido');
+    }
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new HttpsError('invalid-argument', 'month invalido');
+    }
+
+    // Lazy imports (pesados, no cargar al init de todas las CFs).
+    const { BigQuery } = await import('@google-cloud/bigquery');
+    const ExcelJS = (await import('exceljs')).default;
+    const { buildReportBuffer } = await import('./core/ventas-report-core.js');
+
+    console.log('[generateVentasReportCF] start', { year, month, uid: auth.uid, role });
+
+    const bq = new BigQuery({
+      projectId: 'app-vendedores-shimano',
+      location: 'southamerica-east1',
+    });
+
+    // Fetch ventas (agrupadas).
+    const ventasSql = `
+      SELECT
+        sales_person_code AS slp_code,
+        card_code,
+        card_name,
+        item_code,
+        item_name_catalogo AS item_name,
+        familia,
+        subfamilia,
+        SUM(cantidad) AS qty,
+        ROUND(SUM(importe_linea_ars), 2) AS importe_ars,
+        COUNT(DISTINCT doc_entry) AS docs
+      FROM \`app-vendedores-shimano.shimano_app.v_ventas_lineas\`
+      WHERE anio = @year AND mes = @month AND item_code IS NOT NULL
+      GROUP BY slp_code, card_code, card_name, item_code, item_name, familia, subfamilia
+      ORDER BY slp_code, card_name, item_code
+    `;
+    const [ventasRows] = await bq.query({
+      query: ventasSql,
+      params: { year, month },
+      types: { year: 'INT64', month: 'INT64' },
+      location: 'southamerica-east1',
+    });
+    console.log('[generateVentasReportCF] ventas:', ventasRows.length);
+
+    // Fetch items master.
+    const itemsSql = `
+      SELECT item_code, item_name, fam AS familia, sub AS subfamilia
+      FROM \`app-vendedores-shimano.shimano_app.v_sap_items_enriched\`
+      WHERE item_code IS NOT NULL
+        AND COALESCE(valid, 'tYES') = 'tYES'
+        AND COALESCE(frozen, 'tNO') = 'tNO'
+    `;
+    const [itemsRows] = await bq.query({ query: itemsSql, location: 'southamerica-east1' });
+    console.log('[generateVentasReportCF] items:', itemsRows.length);
+
+    // Fetch client_master.
+    const clientSnap = await db.collection('client_master').get();
+    const clients = clientSnap.docs.map((d) => {
+      const data = d.data() || {};
+      return {
+        cardCode: String(data.sapCardCode || '').trim(),
+        clientName: String(data.clientName || '').trim(),
+        vendor: String(data.vendor || '').trim(),
+        provincia: String(data.provincia || '').trim(),
+        localidad: String(data.localidad || '').trim(),
+      };
+    });
+    console.log('[generateVentasReportCF] clients:', clients.length);
+
+    // Fetch sap_vendors.
+    const vendSnap = await db.collection('sap_vendors').get();
+    const vendors = vendSnap.docs
+      .map((d) => {
+        const data = d.data() || {};
+        const key = String(data.vendorKey || '').trim();
+        if (!key) return null;
+        return {
+          vendorKey: key,
+          slpCode: data.slpCode,
+          slpName: String(data.slpName || '').trim(),
+          zone: String(data.zone || '').trim(),
+        };
+      })
+      .filter((x) => x !== null);
+    console.log('[generateVentasReportCF] vendors:', vendors.length);
+
+    const buffer = await buildReportBuffer({
+      ventas: ventasRows,
+      items: itemsRows,
+      clients,
+      vendors,
+      makeWorkbook: () => new ExcelJS.Workbook(),
+    });
+    const bytesBase64 = Buffer.from(buffer).toString('base64');
+    const filename = `ventas_x_articulo_cliente_${year}-${String(month).padStart(2, '0')}.xlsx`;
+    console.log('[generateVentasReportCF] OK', {
+      filename,
+      kb: Math.round(bytesBase64.length / 1024),
+    });
+    return {
+      ok: true,
+      filename,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      bytesBase64,
+      stats: {
+        ventas: ventasRows.length,
+        items: itemsRows.length,
+        clients: clients.length,
+        vendors: vendors.length,
+      },
+    };
+  }
+);
