@@ -6112,7 +6112,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1227';
+const APP_VERSION = 'v1228';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15297,7 +15297,8 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
       _dbgLines.push({ sku: lSku, state: l.state, qty: l.qty, qtyOpen: qo, asigReserva: l.asigReserva });
       if (qo <= 0) continue;
       if (l.state === 'ASIG') {
-        if (l.asigReserva === false) continue;
+        // v1228 (2026-10-09): aceptar tambien asigReserva=false (SIN RESERVA).
+        // Modal Stock Asignado las muestra igual. Precedente OSVALDO CLC70HAR.
         currentAsig += qo;
         hasAsigOrConfirmed = true;
       } else if (l.state === 'confirmed') {
