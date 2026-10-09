@@ -6112,7 +6112,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1231';
+const APP_VERSION = 'v1232';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -32531,17 +32531,15 @@ if ('serviceWorker' in navigator) {
   </div>
 </div>
 
-<!-- v728 (2026-08-29): FAB WhatsApp fijo en toda la app. Abre WhatsApp Web
-     sin destino especifico; el user despues elige a quien escribirle.
-     display:none al inicio; se muestra cuando currentUser esta seteado
-     (ver onAuthStateChanged). z-index alto pero debajo del auth-overlay
-     (z=10000) para que quede tapado durante el flujo de login. -->
+<!-- v728 (2026-08-29): FAB WhatsApp fijo en toda la app.
+     v1232 (2026-10-09): deriva al agente Shimano (+54 9 11 5893-2710) con
+     mensaje predefinido. Antes abria WhatsApp Web generico. -->
 <a id="wa-fab"
-   href="https://web.whatsapp.com/"
+   href="https://wa.me/5491158932710?text=Hola%2C%20soy%20vendedor%20Shimano%20y%20necesito%20consultar..."
    target="_blank"
    rel="noopener noreferrer"
-   aria-label="Abrir WhatsApp"
-   title="Abrir WhatsApp Web"
+   aria-label="Chatear con el agente Shimano"
+   title="Chatear con el agente Shimano (+54 9 11 5893-2710)"
    style="display:none;position:fixed;bottom:40px;right:24px;width:56px;height:56px;border-radius:50%;background:#25D366;box-shadow:0 4px 12px rgba(0,0,0,.24),0 2px 4px rgba(0,0,0,.12);z-index:9990;align-items:center;justify-content:center;text-decoration:none;transition:transform .15s ease-out,box-shadow .15s ease-out"
    onmouseover="this.style.transform='scale(1.08)';this.style.boxShadow='0 6px 16px rgba(0,0,0,.32),0 3px 6px rgba(0,0,0,.16)'"
    onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 12px rgba(0,0,0,.24),0 2px 4px rgba(0,0,0,.12)'">
