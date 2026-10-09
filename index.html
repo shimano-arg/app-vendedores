@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1220';
+const APP_VERSION = 'v1221';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20774,17 +20774,16 @@ function _renderWaitlistCard(){
     const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
     r._yaEnOtroPedido = yaEnOtroFiltrado;
     // v767 (2026-09-01): UNIDADES RESERVADAS mostraba solo state='ASIG'.
-    // v962 (2026-09-17): REVERTIDO. Ahora muestra confirmed + ASIG (todo lo
-    // que reserva stock hoy). Rationale: el modal STOCK ASIGNADO tambien
-    // incluye confirmed desde v962, entonces la coherencia se mantiene. Ademas
-    // la resta visible STOCK - RESERVADAS = LIBRE ahora CIERRA en la UI, que
-    // era la fuente de confusion original (Mariano 2026-09-17 con CAPGL2401:
-    // stock=25, reservadas=0, libre=0 no cerraba porque confirmed=32 no se
-    // contaba). BO NO se incluye porque son unidades sin stock — cuentan en
-    // otra columna (backorder).
-    // Si necesita ser ASIG-solo, envolver con feature flag futura.
+    // v962 (2026-09-17): REVERTIDO. Ahora muestra confirmed + ASIG.
+    // v1221 (2026-10-09): INCLUYE tambien BO. Mariano quiere que coincida
+    // con lo que muestra el modal Stock Asignado (que muestra BO virtual-asig
+    // por FIFO). Antes: VDE veia "LIBRE PARA VENTA" alto y podia confirmar
+    // pedidos que pisaban a clientes esperando FIFO (OSVALDO/REBORN/GUSTAVO
+    // ejemplo MIR4000XG 2026-10-09). Ahora reserva=confirmed+ASIG+BO ⇒
+    // libre=max(0, stockDep11 - comprometidos) coincide con getStockReal.
     const asigConfirmed = ((desg.breakdown && desg.breakdown.ASIG) || 0)
-      + ((desg.breakdown && desg.breakdown.confirmed) || 0);
+      + ((desg.breakdown && desg.breakdown.confirmed) || 0)
+      + ((desg.breakdown && desg.breakdown.BO) || 0);
     const reservadasBacked = r.hasData
       ? Math.min(asigConfirmed, stockDep11Only || 0)
       : 0;
@@ -20795,12 +20794,12 @@ function _renderWaitlistCard(){
     tdReserv.className = 'num';
     tdReserv.textContent = r.hasData ? String(reservadasBacked) : '-';
     if (r.hasData && reservadasBacked > 0) {
-      // v962 (2026-09-17): tooltip actualizado — RESERVADAS ahora incluye
-      // confirmed + ASIG (no solo ASIG como v767). Ver comentario arriba.
-      tdReserv.title = 'Unidades Reservadas (confirmed + ASIG): ' + reservadasBacked + ' u\\n' +
+      // v1221 (2026-10-09): tooltip actualizado — RESERVADAS incluye tambien BO
+      // para coincidir con la vista Stock Asignado (BO virtual-asig via FIFO).
+      tdReserv.title = 'Unidades Reservadas (confirmed + ASIG + BO): ' + reservadasBacked + ' u\\n' +
         'Breakdown: confirmed ' + ((desg.breakdown && desg.breakdown.confirmed) || 0) +
         ' u · ASIG ' + ((desg.breakdown && desg.breakdown.ASIG) || 0) +
-        ' u · BO (no cuenta) ' + ((desg.breakdown && desg.breakdown.BO) || 0) + ' u\\n' +
+        ' u · BO ' + ((desg.breakdown && desg.breakdown.BO) || 0) + ' u\\n' +
         'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
       tdReserv.style.background = '#e0e7ff';
       tdReserv.style.color = '#3730a3';
