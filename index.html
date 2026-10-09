@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1221';
+const APP_VERSION = 'v1222';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20774,18 +20774,36 @@ function _renderWaitlistCard(){
     const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
     r._yaEnOtroPedido = yaEnOtroFiltrado;
     // v767 (2026-09-01): UNIDADES RESERVADAS mostraba solo state='ASIG'.
-    // v962 (2026-09-17): REVERTIDO. Ahora muestra confirmed + ASIG.
-    // v1221 (2026-10-09): INCLUYE tambien BO. Mariano quiere que coincida
-    // con lo que muestra el modal Stock Asignado (que muestra BO virtual-asig
-    // por FIFO). Antes: VDE veia "LIBRE PARA VENTA" alto y podia confirmar
-    // pedidos que pisaban a clientes esperando FIFO (OSVALDO/REBORN/GUSTAVO
-    // ejemplo MIR4000XG 2026-10-09). Ahora reserva=confirmed+ASIG+BO ⇒
-    // libre=max(0, stockDep11 - comprometidos) coincide con getStockReal.
-    const asigConfirmed = ((desg.breakdown && desg.breakdown.ASIG) || 0)
-      + ((desg.breakdown && desg.breakdown.confirmed) || 0)
-      + ((desg.breakdown && desg.breakdown.BO) || 0);
+    // v962 (2026-09-17): REVERTIDO a confirmed+ASIG.
+    // v1221: incluir BO del breakdown (filtrado por TTL).
+    // v1222 (2026-10-09): bypass filtro TTL — contar directo las lineas qtyOpen>0
+    // state in (confirmed,ASIG,BO) para que coincida 1:1 con el modal Stock
+    // Asignado (que tampoco filtra por TTL para el display). Antes: pedidos
+    // BO/ASIG con >7 dias desde createdAt quedaban invisibles en RESERVADAS pero
+    // visibles en Stock Asignado — Mariano reporto discrepancia MIR4000XG 2026-10-09
+    // (modal mostraba 4u ASIG/BO, columna decia 1 reservada).
+    let _rawCount = 0;
+    const _rawBd = { confirmed: 0, ASIG: 0, BO: 0 };
+    const _skuUp = String(r.code || '').toUpperCase();
+    if (r.hasData && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+      for (const _p of globalPedidos) {
+        if (!_p || _p.closedAt) continue;
+        const _lns = Array.isArray(_p.lines) ? _p.lines : [];
+        for (const _l of _lns) {
+          if (!_l || !_l.code) continue;
+          if (String(_l.code).toUpperCase() !== _skuUp) continue;
+          const _st = _l.state;
+          if (_st !== 'confirmed' && _st !== 'ASIG' && _st !== 'BO') continue;
+          if (_st === 'ASIG' && _l.asigReserva === false) continue;
+          const _qo = Number(_l.qtyOpen) || 0;
+          if (_qo <= 0) continue;
+          _rawCount += _qo;
+          _rawBd[_st] = (_rawBd[_st] || 0) + _qo;
+        }
+      }
+    }
     const reservadasBacked = r.hasData
-      ? Math.min(asigConfirmed, stockDep11Only || 0)
+      ? Math.min(_rawCount, stockDep11Only || 0)
       : 0;
     const demandaSinBacking = r.hasData
       ? Math.max((desg.comprometido || 0) - reservadasBacked, 0)
@@ -20794,12 +20812,12 @@ function _renderWaitlistCard(){
     tdReserv.className = 'num';
     tdReserv.textContent = r.hasData ? String(reservadasBacked) : '-';
     if (r.hasData && reservadasBacked > 0) {
-      // v1221 (2026-10-09): tooltip actualizado — RESERVADAS incluye tambien BO
-      // para coincidir con la vista Stock Asignado (BO virtual-asig via FIFO).
+      // v1222 (2026-10-09): tooltip usa _rawBd (sin filtro TTL) para coincidir
+      // con Stock Asignado.
       tdReserv.title = 'Unidades Reservadas (confirmed + ASIG + BO): ' + reservadasBacked + ' u\\n' +
-        'Breakdown: confirmed ' + ((desg.breakdown && desg.breakdown.confirmed) || 0) +
-        ' u · ASIG ' + ((desg.breakdown && desg.breakdown.ASIG) || 0) +
-        ' u · BO ' + ((desg.breakdown && desg.breakdown.BO) || 0) + ' u\\n' +
+        'Breakdown: confirmed ' + _rawBd.confirmed +
+        ' u · ASIG ' + _rawBd.ASIG +
+        ' u · BO ' + _rawBd.BO + ' u\\n' +
         'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
       tdReserv.style.background = '#e0e7ff';
       tdReserv.style.color = '#3730a3';
