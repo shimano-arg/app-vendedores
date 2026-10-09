@@ -3845,6 +3845,15 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <p>Todos los pedidos creados en el mes/anio (independiente del stage): cliente, vendedor, fecha, SKUs, unidades, ARS por linea, estado.</p>
           </div>
         </div>
+        <!-- v1233 (2026-10-09): pedido Pablo. Reporte server-side via CF
+             generateVentasReportCF. Admin/gerente only. Tarda 30-60s. -->
+        <div class="exp-opt" data-exp-kind="VENTAS_ART_CLI" onclick="closeExportDialog();showMonthPicker('VENTAS_ART_CLI')">
+          <div class="exp-icon" style="background:#047857"></div>
+          <div class="exp-body">
+            <h3>Ventas &times; art&iacute;culo &times; cliente / vendedor</h3>
+            <p>Reporte mensual con 4 hojas: productos vendidos / NO vendidos por VDE + clientes CON compra / SIN compra por VDE. Fuente SAP via BigQuery. Admin/gerente only. Tarda ~30-60s.</p>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -6112,7 +6121,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1232';
+const APP_VERSION = 'v1233';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

@@ -676,6 +676,7 @@ window.confirmMonthPicker = function () {
     else if (tipo === 'BACKORDER') exportBackorderForMonth(anio, monthIdx);
     else if (tipo === 'STOCK_ASIG') exportStockAsigForMonth(anio, monthIdx);
     else if (tipo === 'PEDIDOS_MES') exportPedidosMesForMonth(anio, monthIdx);
+    else if (tipo === 'VENTAS_ART_CLI') exportVentasArtCliForMonth(anio, monthIdx);
     else alert('Tipo desconocido: ' + tipo);
   } catch (e) {
     console.error('export ' + tipo, e);
@@ -1848,6 +1849,77 @@ function _resolveFantasiaForPedido(p) {
     }
   }
   return '';
+}
+
+// v1233 (2026-10-09): reporte "Ventas x articulo x cliente/vendedor" via CF.
+// Admin/gerente only. Tarda ~30-60s (BQ query + exceljs build server-side).
+async function exportVentasArtCliForMonth(anio, monthIdx) {
+  if (monthIdx === null || monthIdx === undefined) {
+    alert('Elegí un MES específico (no "Todo el año") — este reporte es mensual.');
+    return;
+  }
+  // monthIdx viene 0-based desde el picker (ene=0). CF espera 1-based.
+  const month = monthIdx + 1;
+  const year = anio;
+  const periodo = (window.MESES ? window.MESES[monthIdx] : month) + ' ' + year;
+  const confirmMsg =
+    'Generar reporte "VENTAS x ARTICULO x CLIENTE/VENDEDOR" de ' +
+    periodo +
+    '?\n\n' +
+    'Fuente: SAP via BigQuery (datos exactos).\n' +
+    'Puede tardar 30-60 segundos.\n' +
+    'Al terminar se descarga automaticamente el xlsx.';
+  if (!confirm(confirmMsg)) return;
+  showSyncTag('Generando reporte server-side (BQ)... puede tardar ~60s');
+  try {
+    // v1000 pattern: refresh IDToken antes de callable critico.
+    try {
+      const u = window.firebase.auth && window.firebase.auth().currentUser;
+      if (u && u.getIdToken) await u.getIdToken(true);
+    } catch (_e) {}
+    const callable = window.firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('generateVentasReportCF');
+    const resp = await callable({ year, month });
+    const r = (resp && resp.data) || {};
+    if (!r.ok || !r.bytesBase64) {
+      alert('CF devolvio error: ' + (r.error || JSON.stringify(r)));
+      return;
+    }
+    // Decode base64 → Blob → download trigger.
+    const bin = atob(r.bytesBase64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], {
+      type: r.mimeType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download =
+      r.filename ||
+      'ventas_x_articulo_cliente_' + year + '-' + String(month).padStart(2, '0') + '.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 1000);
+    const stats = r.stats || {};
+    showSyncTag(
+      'OK: ' +
+        (stats.ventas || 0) +
+        ' ventas / ' +
+        (stats.items || 0) +
+        ' SKUs / ' +
+        (stats.clients || 0) +
+        ' clientes'
+    );
+  } catch (e) {
+    console.error('[exportVentasArtCli] error', e);
+    alert('Error generando el reporte: ' + (e && e.message ? e.message : String(e)));
+  }
 }
 
 async function exportPedidosMesForMonth(anio, monthIdx) {
