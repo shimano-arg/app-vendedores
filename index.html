@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1218';
+const APP_VERSION = 'v1219';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14564,14 +14564,18 @@ window.renderBackordersTab = function(){
       // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion.
       // v1213: soportar multiples pedidoIds (FIFO).
       // v1214: aceptar state='BO' (virtual asig).
-      // v1215 (2026-10-08): aceptar state='confirmed' (SQ ya en SAP). Mariano
-      // decidio permitir reparto incluso cuando la linea esta transferida; el admin
-      // es responsable de cerrar las SQs viejas en SAP si queda desincronizacion.
+      // v1215: aceptar state='confirmed' (SQ ya en SAP).
+      // v1219 (2026-10-09): habilitar tambien en modo backorder (no solo asignacion).
+      // En modo backorder priorizamos BO primero; en modo asig priorizamos ASIG.
       const _isAdmin = (typeof userRole !== 'undefined') && userRole === 'admin';
-      const _pedForAdj = (_isAsigMode && _isAdmin && Array.isArray(c.pedidoIds))
-        ? (c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
-           || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'confirmed')
-           || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'BO'))
+      const _pedForAdj = (_isAdmin && Array.isArray(c.pedidoIds))
+        ? (_isAsigMode
+            ? (c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
+               || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'confirmed')
+               || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'BO'))
+            : (c.pedidoIds.find(x => x && x.pedidoId && x.state === 'BO')
+               || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
+               || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'confirmed')))
         : null;
       if (_pedForAdj) {
         const _pid = _pedForAdj.pedidoId;
@@ -14581,11 +14585,13 @@ window.renderBackordersTab = function(){
           JSON.stringify(_pid) + ',' +
           JSON.stringify(String(c.nombre || ''))
         );
+        const _titMinus = _isAsigMode ? 'Quitarle 1 unidad al cliente (va a BO)' : 'Quitarle 1 unidad al backorder del cliente';
+        const _titPlus = _isAsigMode ? 'Sumarle 1 unidad al cliente (de BO propio o stock libre)' : 'Sumarle 1 unidad al backorder del cliente';
         html += '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
-          + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', -1)" title="Mover 1 unidad de ASIG a BO del cliente" '
+          + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', -1)" title="' + escapeAttr(_titMinus) + '" '
             + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">−</button>'
           + '<div style="min-width:36px;text-align:center"><div style="font-size:14px;font-weight:800;color:#c2410c">' + _cur + '</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">unid</div></div>'
-          + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', 1)" title="Mover 1 unidad de BO (del cliente o stock libre) a ASIG" '
+          + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', 1)" title="' + escapeAttr(_titPlus) + '" '
             + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">+</button>'
           + '</div>';
       } else {
