@@ -90,6 +90,17 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
     }
   }
 
+  // v1235 (2026-10-09): fallback cardCode → client_master.vendor cuando el
+  // sales_person_code de SAP no matchea con sap_vendors. Antes el 70% de las
+  // ventas quedaban "(sin vendedor)" porque los slpCodes de usuarios SAP
+  // internos (admin/oficina) no estan en sap_vendors.
+  const cardCodeToVendor = new Map();
+  for (const c of clients) {
+    const cc = c.cardCode;
+    const vn = normVendor(c.vendor);
+    if (cc && vn) cardCodeToVendor.set(cc, vn);
+  }
+
   // Indices.
   const ventasByVendorItem = new Set(); // "vendor||itemCode"
   const ventasByVendorClient = new Map(); // "vendor||cardCode" → acc
@@ -97,11 +108,22 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
 
   for (const v of ventas) {
     let vn = null;
+    // 1) Match preciso por SAP slpCode.
     if (v.slp_code != null) {
       const n = Number(v.slp_code);
       if (Number.isFinite(n)) vn = slpToVendor.get(n) || null;
     }
-    if (!vn) vn = '(sin vendedor)';
+    // 2) Fallback: cardCode → vendor asignado en client_master.
+    if (!vn && v.card_code) {
+      vn = cardCodeToVendor.get(v.card_code) || null;
+    }
+    // 3) Fallback final: mostrar el SLP code para trazabilidad.
+    if (!vn) {
+      vn =
+        v.slp_code != null && v.slp_code !== -1
+          ? 'SAP SLP ' + String(v.slp_code)
+          : '(sin vendedor)';
+    }
     const itemCode = v.item_code || '';
     const cardCode = v.card_code || '';
     ventasByVendorItem.add(vn + '||' + itemCode);
