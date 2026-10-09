@@ -6110,7 +6110,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1222';
+const APP_VERSION = 'v1223';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20776,27 +20776,43 @@ function _renderWaitlistCard(){
     // v767 (2026-09-01): UNIDADES RESERVADAS mostraba solo state='ASIG'.
     // v962 (2026-09-17): REVERTIDO a confirmed+ASIG.
     // v1221: incluir BO del breakdown (filtrado por TTL).
-    // v1222 (2026-10-09): bypass filtro TTL — contar directo las lineas qtyOpen>0
-    // state in (confirmed,ASIG,BO) para que coincida 1:1 con el modal Stock
-    // Asignado (que tampoco filtra por TTL para el display). Antes: pedidos
-    // BO/ASIG con >7 dias desde createdAt quedaban invisibles en RESERVADAS pero
-    // visibles en Stock Asignado — Mariano reporto discrepancia MIR4000XG 2026-10-09
-    // (modal mostraba 4u ASIG/BO, columna decia 1 reservada).
+    // v1222: bypass TTL para coincidir con Stock Asignado.
+    // v1223 (2026-10-09): tambien filtrar stage==='confirmed' + aplicar
+    // lineReservesStock IGUAL que hace el modal Stock Asignado (fifo default).
+    // Antes v1222 contaba TODOS los pedidos (incluyendo pending) y sin TTL →
+    // extras que Stock Asignado no muestra.
     let _rawCount = 0;
     const _rawBd = { confirmed: 0, ASIG: 0, BO: 0 };
     const _skuUp = String(r.code || '').toUpperCase();
+    const _lrsFn = (typeof window !== 'undefined' && window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock)
+      ? window.__phase0.pure.lineReservesStock : null;
+    const _nowMs = Date.now();
     if (r.hasData && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
       for (const _p of globalPedidos) {
         if (!_p || _p.closedAt) continue;
+        if (_p.stage !== 'confirmed') continue; // match Stock Asignado modo fifo
         const _lns = Array.isArray(_p.lines) ? _p.lines : [];
         for (const _l of _lns) {
           if (!_l || !_l.code) continue;
           if (String(_l.code).toUpperCase() !== _skuUp) continue;
           const _st = _l.state;
           if (_st !== 'confirmed' && _st !== 'ASIG' && _st !== 'BO') continue;
-          if (_st === 'ASIG' && _l.asigReserva === false) continue;
           const _qo = Number(_l.qtyOpen) || 0;
           if (_qo <= 0) continue;
+          // TTL filter: match Stock Asignado modo fifo default.
+          if (_lrsFn && !_lrsFn(_l, _nowMs, _p)) {
+            // Excepcion v1072: ASIG permitido si asigAt<=15d (incluso sin reserva).
+            if (_st === 'ASIG') {
+              const _asigAt = _l.asigAt;
+              let _asigMs = 0;
+              if (typeof _asigAt === 'string') _asigMs = Date.parse(_asigAt);
+              else if (_asigAt && typeof _asigAt.toMillis === 'function') _asigMs = _asigAt.toMillis();
+              const _ageD = _asigMs ? (_nowMs - _asigMs) / (24*60*60*1000) : 999;
+              if (_ageD > 15) continue;
+            } else {
+              continue;
+            }
+          }
           _rawCount += _qo;
           _rawBd[_st] = (_rawBd[_st] || 0) + _qo;
         }
