@@ -6112,7 +6112,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1228';
+const APP_VERSION = 'v1229';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14613,9 +14613,11 @@ window.renderBackordersTab = function(){
       // v1214: aceptar state='BO' (virtual asig).
       // v1215: aceptar state='confirmed' (SQ ya en SAP).
       // v1219 (2026-10-09): habilitar tambien en modo backorder (no solo asignacion).
-      // En modo backorder priorizamos BO primero; en modo asig priorizamos ASIG.
-      const _isAdmin = (typeof userRole !== 'undefined') && userRole === 'admin';
-      const _pedForAdj = (_isAdmin && Array.isArray(c.pedidoIds))
+      // v1229 (2026-10-09): abrir a TODOS los usuarios logueados (no solo admin).
+      // Mariano decidio: los VDE tambien pueden ajustar unidades. Si en el futuro
+      // hay que restringir, cambiar _canAdj a chequear userRole.
+      const _canAdj = true;
+      const _pedForAdj = (_canAdj && Array.isArray(c.pedidoIds))
         ? (_isAsigMode
             ? (c.pedidoIds.find(x => x && x.pedidoId && x.state === 'ASIG')
                || c.pedidoIds.find(x => x && x.pedidoId && x.state === 'confirmed')
@@ -15258,10 +15260,9 @@ var _adjustAsigLock = new Set();
  * @param {number} delta -1 o +1
  */
 window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
-  if (typeof userRole === 'undefined' || userRole !== 'admin') {
-    alert('Solo admin.');
-    return;
-  }
+  // v1229 (2026-10-09): gate admin removido. Mariano decidio: todos los usuarios
+  // logueados pueden ajustar unidades. Si en el futuro hay abuso, re-agregar
+  // el gate por rol aqui + en el render del boton.
   const lockKey = pedidoId + '::' + sku;
   if (_adjustAsigLock.has(lockKey)) return;
   _adjustAsigLock.add(lockKey);
