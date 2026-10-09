@@ -13,19 +13,32 @@
   const path =
     '/b1s/v1/Quotations?$filter=DocNum eq ' +
     SAP_DOC_NUM +
-    '&$expand=DocumentLines' +
-    '&$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocumentLines';
-  const sqRes = await sap.fetchWithSession(path);
-  if (!sqRes.ok) {
-    console.error('[recover] FALLO SAP:', sqRes);
+    '&$select=DocEntry,DocNum,CardCode,CardName';
+  // SAP SL via sapProxy NO permite $expand (feedback_sap_sl_no_expand.md).
+  // Paso A: lookup DocEntry por DocNum.
+  const lookupRes = await sap.fetchWithSession(path);
+  if (!lookupRes.ok) {
+    console.error('[recover] FALLO SAP lookup:', lookupRes);
     return;
   }
-  const sq = sqRes.body && sqRes.body.value && sqRes.body.value[0];
-  if (!sq) {
+  const sqMeta = lookupRes.body && lookupRes.body.value && lookupRes.body.value[0];
+  if (!sqMeta) {
     console.error('[recover] SQ ' + SAP_DOC_NUM + ' NO EXISTE en SAP');
     return;
   }
-  console.log('[recover] 2/4 SQ encontrada:', {
+  console.log('[recover] 2a/4 DocEntry:', sqMeta.DocEntry, '— fetch full doc...');
+  // Paso B: fetch doc completo (incluye DocumentLines inline).
+  const fullRes = await sap.fetchWithSession('/b1s/v1/Quotations(' + sqMeta.DocEntry + ')');
+  if (!fullRes.ok) {
+    console.error('[recover] FALLO SAP full:', fullRes);
+    return;
+  }
+  const sq = fullRes.body;
+  if (!sq || !Array.isArray(sq.DocumentLines)) {
+    console.error('[recover] Full doc sin DocumentLines:', sq);
+    return;
+  }
+  console.log('[recover] 2b/4 SQ encontrada:', {
     DocEntry: sq.DocEntry,
     DocNum: sq.DocNum,
     CardCode: sq.CardCode,
