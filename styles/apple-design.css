@@ -1992,6 +1992,22 @@
 .slft-wl-item.source-cpst.has-exceed:hover {
   background: #fb923c !important;
 }
+/* v1226 (2026-10-09): textos interiores en blanco para que se lean bien sobre
+   el fondo amarillo (Mariano). Nombre bold en blanco puro + loc y meta tambien
+   en blanco con sombra sutil para contraste contra el amarillo. */
+.slft-wl-item.source-cpst .slft-wl-cli-name {
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(120, 53, 15, 0.6);
+  font-weight: 800 !important;
+}
+.slft-wl-item.source-cpst .slft-wl-loc {
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(120, 53, 15, 0.5);
+}
+.slft-wl-item.source-cpst .slft-wl-meta {
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(120, 53, 15, 0.5);
+}
 
 /* Cliente */
 .slft-wl-cli {
