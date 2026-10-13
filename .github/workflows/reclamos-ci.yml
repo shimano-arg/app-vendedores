@@ -26,10 +26,13 @@ jobs:
           cache: npm
           cache-dependency-path: apps/app-reclamos/package-lock.json
       - run: npm ci
-      - name: Typecheck
-        run: npm run typecheck
       - name: Unit tests
         run: npm test
       # Notas:
+      # - Typecheck DESHABILITADO: Next 16 genera tipos globales como
+      #   LayoutProps<'/'> durante `next build`, no al correr `tsc --noEmit`
+      #   solo. Correr typecheck sin un build previo falla aunque el codigo
+      #   este bien. Vercel hace build real al deploy → ese es el gate real
+      #   de types. Local: npm run dev o npm run build antes de typecheck.
       # - RLS tests (tests/rls/*.ts.skip) requieren docker o proyecto Supabase de test — skipeados en MVP.
       # - E2E Playwright idem — activar cuando exista test project.
