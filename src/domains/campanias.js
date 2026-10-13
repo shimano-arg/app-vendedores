@@ -597,6 +597,27 @@ function _normalizeVendorForMatch(v) {
     .replace(/\s+/g, ' ');
 }
 
+// v1251 (2026-10-13): aliases para grafias comunes que no matchean con VENDORS
+// canonico. El typo historico 'CASTELANELLI' (doble L) ya esta en Firestore
+// sap_vendors + client_master.assignedVendor + pedidos.ownerVendor + BQ views +
+// PBI dashboards. No lo cambiamos (seria rollback masivo). Mariano aclaro que
+// el apellido real es 'CASTELANELI' con una L — aceptamos ambas en el Excel.
+const _VENDOR_ALIASES = {
+  'FEDERICO CASTELANELI': 'FEDERICO CASTELANELLI',
+  CASTELANELI: 'FEDERICO CASTELANELLI',
+  FEDE: 'FEDERICO CASTELANELLI',
+  GONZALO: 'GONZALO DE LA ROSA',
+  'DE LA ROSA': 'GONZALO DE LA ROSA',
+  MAURICIO: 'MAURICIO GIL',
+  GIL: 'MAURICIO GIL',
+  IOANNIS: 'IOANNIS PALKOUDAKIS',
+  PALKOUDAKIS: 'IOANNIS PALKOUDAKIS',
+  SANTIAGO: 'SANTIAGO ESTEBAN',
+  ESTEBAN: 'SANTIAGO ESTEBAN',
+  DIEGO: 'DIEGO VALSI',
+  VALSI: 'DIEGO VALSI',
+};
+
 function _findVendorKey(vendorInput) {
   const target = _normalizeVendorForMatch(vendorInput);
   if (!target) return null;
@@ -607,6 +628,21 @@ function _findVendorKey(vendorInput) {
       const vk = _normalizeVendorForMatch(v.key || v.vendorKey || '');
       if (vk === target) return v.key || v.vendorKey;
     }
+  }
+  // Fallback: alias conocidos (grafias alternativas + nombres parciales).
+  if (_VENDOR_ALIASES[target]) {
+    // Verificar que el canonico sigue existiendo en VENDORS.
+    const canonical = _VENDOR_ALIASES[target];
+    const canonicalNorm = _normalizeVendorForMatch(canonical);
+    if (typeof VENDORS !== 'undefined' && Array.isArray(VENDORS)) {
+      for (const v of VENDORS) {
+        if (!v) continue;
+        if (_normalizeVendorForMatch(v.key || v.vendorKey || '') === canonicalNorm) {
+          return v.key || v.vendorKey;
+        }
+      }
+    }
+    return canonical;
   }
   return null;
 }
