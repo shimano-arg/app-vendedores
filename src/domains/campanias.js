@@ -757,6 +757,9 @@ window.handleCampaignImportFile = async function (ev) {
       return;
     }
     const validated = rows.map((r) => _validateCampaignRow(r.raw, r.rowNum));
+    // v1253 (2026-10-13): agrupar filas OK por NOMBRE → 1 campaña con N SKUs.
+    // Validar consistencia (vendor + fechas + meta iguales dentro del grupo).
+    _validateGroupConsistency(validated);
     _renderCampaignImportPreview(preview, validated);
   } catch (e) {
     console.error('[camp-import]', e);
@@ -764,9 +767,88 @@ window.handleCampaignImportFile = async function (ev) {
   }
 };
 
+// v1253 (2026-10-13): valida que filas con mismo NOMBRE tengan vendor + fechas
+// + tipo + meta iguales. Si no, marca TODAS las filas del grupo con error.
+// Modifica los objetos row in-place agregando errors al que corresponda.
+function _validateGroupConsistency(rows) {
+  const byName = new Map();
+  for (const r of rows) {
+    if (!r.ok || !r.name) continue;
+    const nameKey = r.name.toUpperCase().trim();
+    let group = byName.get(nameKey);
+    if (!group) {
+      group = [];
+      byName.set(nameKey, group);
+    }
+    group.push(r);
+  }
+  for (const [nameKey, group] of byName) {
+    if (group.length < 2) continue;
+    const first = group[0];
+    const inconsistencies = [];
+    for (const r of group.slice(1)) {
+      if (r.vendorKey !== first.vendorKey) inconsistencies.push('VENDEDOR difiere en el grupo');
+      if (r.startDate !== first.startDate) inconsistencies.push('FECHA_INICIO difiere en el grupo');
+      if (r.endDate !== first.endDate) inconsistencies.push('FECHA_FIN difiere en el grupo');
+      if (r.targetType !== first.targetType)
+        inconsistencies.push('Mezcla UNIDADES/MONTO en el grupo');
+      if (r.targetAmount !== first.targetAmount) inconsistencies.push('META difiere en el grupo');
+    }
+    if (inconsistencies.length) {
+      const uniqMsgs = Array.from(new Set(inconsistencies));
+      for (const r of group) {
+        r.ok = false;
+        r.errors = (r.errors || []).concat(uniqMsgs);
+      }
+    }
+    // Validar SKUs únicos dentro del grupo (si alguien repite = warning no bloqueante).
+    const skuSeen = new Set();
+    for (const r of group) {
+      if (!r.ok) continue;
+      if (skuSeen.has(r.sku)) {
+        r.ok = false;
+        r.errors = (r.errors || []).concat([
+          'SKU duplicado dentro de la campaña "' + nameKey + '"',
+        ]);
+      }
+      skuSeen.add(r.sku);
+    }
+  }
+}
+
+// v1253: agrupa filas OK por nombre normalizado → devuelve array de grupos.
+function _groupOkRowsByName(okRows) {
+  const groups = new Map();
+  for (const r of okRows) {
+    const key = (r.name || '').toUpperCase().trim();
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        name: r.name,
+        vendorKey: r.vendorKey,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        targetType: r.targetType,
+        targetAmount: r.targetAmount,
+        skus: [],
+        skuMetas: [],
+        rowNums: [],
+      };
+      groups.set(key, g);
+    }
+    g.skus.push(r.sku);
+    g.skuMetas.push(r.skuMeta);
+    g.rowNums.push(r.rowNum);
+  }
+  return Array.from(groups.values());
+}
+
 function _renderCampaignImportPreview(container, rows) {
   const okRows = rows.filter((r) => r.ok);
   const badRows = rows.filter((r) => !r.ok);
+  // v1253: contar campañas únicas post-agrupación por NOMBRE.
+  const groups = _groupOkRowsByName(okRows);
+  const nCampaigns = groups.length;
   while (container.firstChild) container.removeChild(container.firstChild);
   const header = document.createElement('div');
   header.style.cssText =
@@ -775,25 +857,29 @@ function _renderCampaignImportPreview(container, rows) {
   info.style.cssText = 'font-size:12px';
   const okB = document.createElement('b');
   okB.style.color = '#16a34a';
-  okB.textContent = okRows.length + ' OK';
+  okB.textContent = okRows.length + ' filas OK';
   const badB = document.createElement('b');
   badB.style.color = '#dc2626';
   badB.textContent = badRows.length + ' con error';
+  const campB = document.createElement('b');
+  campB.style.color = '#1e40af';
+  campB.textContent = nCampaigns + ' campaña(s)';
   info.appendChild(okB);
   info.appendChild(document.createTextNode(' · '));
   info.appendChild(badB);
-  info.appendChild(document.createTextNode(' · total ' + rows.length));
+  info.appendChild(document.createTextNode(' · total ' + rows.length + ' filas → '));
+  info.appendChild(campB);
   header.appendChild(info);
   const btnBar = document.createElement('div');
   btnBar.style.cssText = 'display:flex;gap:6px';
   const btnCreate = document.createElement('button');
   btnCreate.type = 'button';
-  btnCreate.textContent = 'Crear ' + okRows.length + ' campaña(s)';
-  btnCreate.disabled = okRows.length === 0;
+  btnCreate.textContent = 'Crear ' + nCampaigns + ' campaña(s)';
+  btnCreate.disabled = nCampaigns === 0;
   btnCreate.style.cssText =
     'background:#16a34a;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-size:11.5px;font-weight:700;cursor:pointer' +
-    (okRows.length === 0 ? ';opacity:.5;cursor:not-allowed' : '');
-  btnCreate.onclick = () => window._executeCampaignImport(okRows);
+    (nCampaigns === 0 ? ';opacity:.5;cursor:not-allowed' : '');
+  btnCreate.onclick = () => window._executeCampaignImport(groups);
   const btnCancel = document.createElement('button');
   btnCancel.type = 'button';
   btnCancel.textContent = 'Cancelar';
@@ -859,8 +945,8 @@ function _renderCampaignImportPreview(container, rows) {
   container.appendChild(wrap);
 }
 
-window._executeCampaignImport = async function (okRows) {
-  if (!okRows || okRows.length === 0) return;
+window._executeCampaignImport = async function (groups) {
+  if (!groups || groups.length === 0) return;
   const btn = event && event.currentTarget;
   if (btn) {
     btn.disabled = true;
@@ -868,23 +954,27 @@ window._executeCampaignImport = async function (okRows) {
   }
   let created = 0;
   const failed = [];
-  for (const r of okRows) {
+  // v1253: cada grupo = 1 campaña con N SKUs. Familia/subfamilia derivada del
+  // primer SKU del grupo (en la práctica todos los SKUs de una campaña suelen
+  // ser de la misma familia; si no, el primero gana como etiqueta visible).
+  for (const g of groups) {
     try {
-      const familia = (r.skuMeta && (r.skuMeta.fam || r.skuMeta.familia)) || '';
-      const subfamilia = (r.skuMeta && (r.skuMeta.sub || r.skuMeta.subfamilia)) || '';
+      const firstMeta = (g.skuMetas && g.skuMetas[0]) || null;
+      const familia = (firstMeta && (firstMeta.fam || firstMeta.familia)) || '';
+      const subfamilia = (firstMeta && (firstMeta.sub || firstMeta.subfamilia)) || '';
       await fbDb.collection('campaigns').add({
-        name: r.name,
+        name: g.name,
         familia,
         subfamilia,
-        skus: [r.sku],
+        skus: g.skus,
         filterType: 'sku',
-        filterValues: [r.sku],
-        targetType: r.targetType,
-        targetAmount: r.targetAmount,
-        startDate: r.startDate,
-        endDate: r.endDate,
+        filterValues: g.skus,
+        targetType: g.targetType,
+        targetAmount: g.targetAmount,
+        startDate: g.startDate,
+        endDate: g.endDate,
         scope: 'vendor',
-        scopeValues: [r.vendorKey],
+        scopeValues: [g.vendorKey],
         createdBy: currentUser.uid,
         createdByEmail: currentUser.email,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -892,8 +982,8 @@ window._executeCampaignImport = async function (okRows) {
       });
       created++;
     } catch (e) {
-      console.error('[camp-import] row ' + r.rowNum, e);
-      failed.push({ row: r.rowNum, error: e.message || String(e) });
+      console.error('[camp-import] grupo ' + g.name, e);
+      failed.push({ row: g.rowNums.join(','), error: e.message || String(e) });
     }
   }
   if (typeof showSyncTag === 'function') showSyncTag('Campañas importadas: ' + created);
