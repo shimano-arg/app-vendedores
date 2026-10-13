@@ -4717,6 +4717,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1244 (2026-10-13) — Mostrar BOs expirados (>15d) en modal + export
+
+**Archivos**:
+- `src/pure/backorder-sku-map.js:184-194,276` (nuevo flag `includeExpired`)
+- `index.html:13782` + `index.html:14391` (modal + export pasan `includeExpired: true`)
+- `app.bundle.js` + chunks regenerados
+- `index.html:6124` + `sw.js:20` (bump v1243 → v1244)
+
+**Antes**:
+`src/pure/backorder-sku-map.js:272` filtraba lineas con `lineReservesStock` (TTL 15 dias desde createdAt para BO). Modal + export fifo mode ocultaban BOs vencidos. `strict` mode los mostraba (v1137 fix para alinear con PBI).
+
+**Problema**:
+Reporte Mariano 2026-10-13: VALIÑA + PEREYRA + BENGOCHEA (pedidos sep 2026, >15d) desaparecian del modal Backorder/Stock Asignado y del export despues de v1243 (que alineo export con modal `fifo`). El VDE necesita VER esos clientes para contactarlos aunque el sistema ya no les reserve stock fisico por FIFO.
+
+Root cause: la misma funcion `lineReservesStock` servia 2 proposito distintos:
+1. **Motor de stock** (`src/pure/stock-realmente-disponible.js`): 15d TIENE sentido — no reservar stock a clientes abandonados.
+2. **Visibilidad modal/export**: 15d NO tiene sentido — el VDE quiere ver todos los BOs vivos.
+
+**Cambio**:
+Nuevo flag `includeExpired: true` en `computeBackorderSkuMap`. Si true, salta el filtro TTL (mismo efecto que strict en ese aspecto) pero mantiene FIFO cap por stock fisico. Modal + export lo pasan. Motor de stock NO cambia — sigue respetando TTL via `lineReservesStock`.
+
+Trade-off deliberado:
+- Modal muestra pedidos BO viejos → VDE sabe que existen, puede contactar cliente
+- Motor de stock sigue tratandolos como "expirados" → cuando llega mercaderia, no les toca a los viejos (FIFO prioriza <15d)
+- Separacion limpia entre "visibilidad" y "reserva fisica"
+
+**Verificacion**:
+- Buscar VALIÑA/PEREYRA en modal Backorder (post-deploy v1244) → aparecen.
+- `_cpstBuildCache` (`index.html:15038`) no afectado — sigue en strict (default = TTL ignorado via strict legacy).
+- 699/699 unit tests pass.
+
+**Rollback**:
+Revert flag en los 2 call sites (`index.html:13782, 14391`) → vuelve a esconder expirados.
+
+---
+
 ### v1243 (2026-10-13) — Export Backorder/Stock Asignado: paridad con modal (fifo + urgencyFilter)
 
 **Archivos**:

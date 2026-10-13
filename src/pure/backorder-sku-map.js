@@ -172,6 +172,16 @@ function toDateString(value) {
 function _buildSkuMapRaw(pedidos, mode, filters, deps) {
   const isAsig = mode === 'asignacion';
   const strictMode = filters.aggregationMode === 'strict';
+  // v1244 (2026-10-13): flag separa "visibilidad" (modal/export) de "reserva
+  // de stock" (motor). lineReservesStock() filtra BOs > TTL_DAYS porque despues
+  // de 15d no vale la pena reservar stock fisico — pero el VDE SI quiere ver
+  // los clientes viejos para contactarlos. Mariano reporto VALIÑA/PEREYRA/
+  // BENGOCHEA (>15d) desaparecian del modal + export sin saberlo.
+  // Cuando includeExpired=true, el filtro TTL se saltea pero la logica FIFO
+  // sigue capeando por stock fisico real. Motor de stock sigue respetando TTL
+  // (stock-realmente-disponible.js:lineReservesStock) — no se le reserva fisico
+  // a los expirados cuando llegue mercaderia.
+  const includeExpired = filters.includeExpired === true;
   const tq = String(filters.tiendaQuery || '').toLowerCase();
   const vf = String(filters.vendorKey || '');
   const mesF = String(filters.mesYYYYMM || '');
@@ -269,7 +279,9 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       // v978/v979: filtro vencidas.
       // v1137 (2026-10-05): strict mode omite TTL (lineReservesStock) para
       // alinear con tablero PBI que no filtra lineas BO/ASIG por edad.
-      if (!strictMode && !lineReservesStock(l, now, p)) {
+      // v1244 (2026-10-13): includeExpired tambien omite TTL — mismo efecto
+      // que strict pero mantiene FIFO cap. Usado por modal + export.
+      if (!strictMode && !includeExpired && !lineReservesStock(l, now, p)) {
         // v1072: en modo asignacion permitir ASIG sin reserva vigente (asigAt<=15d).
         // Fix auditor 2026-10-02: usar toMillisSafe para soportar Firestore
         // Timestamp (toMillis/seconds). Antes `new Date(timestampObj).getTime()`
