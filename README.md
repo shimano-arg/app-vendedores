@@ -4678,6 +4678,49 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1242 (2026-10-13) — Modal Productos: 5 lineas alineadas con modales Backorder y Stock Asignado
+
+**Archivos**:
+- `index.html:26815-26872` (simplificar a 5 lineas usando computeBackorderSkuMap)
+- `index.html:6124` + `sw.js:20` (bump v1241 → v1242)
+
+**Antes (v1238/v1239)**:
+Modal Productos mostraba 5-6 lineas con wording tecnico (`COMPROMETIDO (ASIG)`, `EN COLA FIFO (BO)`, `CONFIRMED (SQ en SAP pendiente)`) y numeros derivados de `getStockDesglose`. Los numeros NO coincidian con los modales Backorder / Stock Asignado que el VDE usaba para avisar clientes.
+
+**Problema**:
+Mariano reporto confusion directa 2026-10-13: "Si el modal Stock Asignado dice 22 unidades para EXGC70HBAR, el modal Productos deberia decir STOCK ASIGNADO: 22, no CONFIRMED 19 + ASIG 0 + BO 16". Caso real:
+- Modal Stock Asignado: *"1 SKUs con mercadería lista · 22 unidades para asignar · 5 clientes"*
+- Modal Productos (v1239): CONFIRMED=19 + ASIG=0 + BO=16 — ni suma 22, ni coincide con ninguno
+- VDE no entiende la relacion → desconfia de los numeros.
+
+**Cambio**:
+Modal Productos reducido a 5 lineas con labels claros y numeros 100% iguales a los modales:
+```
+STOCK FISICO (DEP 11): 22 unidades
+STOCK EN TRANSITO (DEP 12): 0 unidades
+BACKORDER: X unidades        ← == totalPendiente modo 'urgente' del modal Backorder
+STOCK ASIGNADO: 22 unidades  ← == totalPendiente modo 'asignacion' del modal Stock Asignado
+LIBRE PARA LA VENTA: max(22 - X - 22, 0) unidades
+```
+
+Implementacion: llama a `computeBackorderSkuMap` (del bundle, misma fn que ambos modales) 2 veces (una por modo), busca el SKU en `.skus[]`, lee `.totalPendiente`. Fallback a `STOCK_ASIG_APP` / `STOCK_BACKORDER_APP` si bundle no cargo.
+
+**Por que**:
+- Pedido explicito Mariano 2026-10-13: "YO SOLO QUIERO VER: STOCK FISICO, STOCK EN TRANSITO, BACKORDER, STOCK ASIGNADO, LIBRE PARA LA VENTA. Y EL STOCK ASIGNADO Y BACKORDER DEBERIA COINCIDIR CON LOS QUE DICEN LOS MODALES".
+- Garantiza modal↔modal coherencia perfecta. Si Mariano abre Stock Asignado y ve 22, el modal Productos tambien dira 22. Fin de la desconfianza.
+- Simplifica el wording — elimina "CONFIRMED (SQ en SAP pendiente)" / "COMPROMETIDO (ASIG)" / "EN COLA FIFO" (jerga tecnica interna del state machine) por BACKORDER / STOCK ASIGNADO (vocabulario de uso diario del VDE).
+
+**Verificacion**:
+- Abrir Stock Asignado para X SKU, anotar totalPendiente. Abrir modal Productos (boton STOCK en Master), verificar STOCK ASIGNADO coincide.
+- Idem con Backorder modal → BACKORDER coincide.
+- `npm run test:unit` → 699/699 pass.
+- Fallback: si `computeBackorderSkuMap` no cargo (edge case bootstrap), usa STOCK_ASIG_APP + STOCK_BACKORDER_APP (agregacion snapshot).
+
+**Rollback**:
+Revert index.html:26815-26872 al bloque v1239 (6 lineas con getStockDesglose). sw.js + APP_VERSION a v1241.
+
+---
+
 ### v1241 (2026-10-13) — Cards STOCK ASIG en PEDIDOS EN ESPERA: hover sin cambio de color
 
 **Archivos**:
