@@ -118,3 +118,17 @@ scripts/forecast/output/
 scripts/forecast/inputs/*.csv
 scripts/forecast/inputs/*.xlsx
 
+# v1254 (2026-10-13): monorepo apps/ subfolder (apps hermanas con stack
+# propio: app-reclamos usa Next.js + Supabase + Vercel). Excluir artefactos
+# de build + secrets de cada app para no commitearlos accidentalmente.
+apps/*/node_modules/
+apps/*/.next/
+apps/*/.vercel/
+apps/*/.env
+apps/*/.env.local
+apps/*/.env.*.local
+apps/*/*.tsbuildinfo
+apps/*/next-env.d.ts
+# Claude config local de cada app (settings con permisos de agente, no secrets).
+apps/*/.claude/
+

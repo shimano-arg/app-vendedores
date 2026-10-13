@@ -1,0 +1,35 @@
+name: Reclamos CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/app-reclamos/**'
+      - '.github/workflows/reclamos-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/app-reclamos/**'
+      - '.github/workflows/reclamos-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/app-reclamos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/app-reclamos/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      # Notas:
+      # - RLS tests (tests/rls/*.ts.skip) requieren docker o proyecto Supabase de test — skipeados en MVP.
+      # - E2E Playwright idem — activar cuando exista test project.
