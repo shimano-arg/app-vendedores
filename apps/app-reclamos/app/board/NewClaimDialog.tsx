@@ -81,7 +81,7 @@ export function NewClaimDialog() {
       </button>
       {open && (
         <div
-          className="sheet-backdrop flex items-start justify-center z-50 p-6 overflow-y-auto"
+          className="sheet-backdrop flex items-start justify-center z-50 p-6 pt-24 overflow-y-auto"
           onClick={() => {
             setOpen(false);
             reset();
