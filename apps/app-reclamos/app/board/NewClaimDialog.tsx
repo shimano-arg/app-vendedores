@@ -1,8 +1,9 @@
 'use client';
 import { useState, useTransition } from 'react';
 import { Paperclip, X } from 'lucide-react';
-import { createClaim, uploadAttachmentMetadata } from './actions';
+import { CLAIM_TYPES } from '@/lib/claim-types';
 import { createClient } from '@/lib/supabase/client';
+import { createClaim, uploadAttachmentMetadata } from './actions';
 
 export function NewClaimDialog() {
   const [open, setOpen] = useState(false);
@@ -35,6 +36,7 @@ export function NewClaimDialog() {
     const input = {
       remitoNumber: fd.get('remito_number'),
       observations: fd.get('observations'),
+      claimType: fd.get('claim_type'),
       invoiceNumber: fd.get('invoice_number'),
       clientName: fd.get('client_name'),
       fantasyName: fd.get('fantasy_name'),
@@ -155,6 +157,27 @@ export function NewClaimDialog() {
                 />
               </label>
             </div>
+
+            <label className="block">
+              <span className="text-xs font-medium text-[color:var(--text-secondary)]">
+                Tipo de reclamo
+              </span>
+              <select
+                name="claim_type"
+                required
+                defaultValue=""
+                className="field mt-1.5"
+              >
+                <option value="" disabled>
+                  Elegí un tipo…
+                </option>
+                {CLAIM_TYPES.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <label className="block">
               <span className="text-xs font-medium text-[color:var(--text-secondary)]">

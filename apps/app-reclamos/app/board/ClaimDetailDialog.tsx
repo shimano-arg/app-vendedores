@@ -1,8 +1,9 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
-import type { Database } from '@/lib/supabase/types';
+import { CLAIM_TYPE_LABEL, type ClaimType } from '@/lib/claim-types';
 import { COLUMN_LABEL, type ClaimColumn } from '@/lib/columns';
+import type { Database } from '@/lib/supabase/types';
 
 type Claim = Database['public']['Tables']['claims']['Row'];
 type Profile = Pick<Database['public']['Tables']['profiles']['Row'], 'id' | 'display_name' | 'email'>;
@@ -55,10 +56,20 @@ export function ClaimDetailDialog({
         </header>
         <div className="px-7 py-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
           <div className="space-y-6 min-w-0">
-            {(claim.invoice_number || claim.client_name || claim.fantasy_name) && (
+            {(claim.invoice_number || claim.client_name || claim.fantasy_name || claim.claim_type) && (
               <section>
                 <p className="eyebrow mb-2">Datos</p>
                 <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
+                  {claim.claim_type && (
+                    <div>
+                      <dt className="text-[color:var(--text-tertiary)] text-[11px] uppercase tracking-wide">
+                        Tipo
+                      </dt>
+                      <dd className="text-[color:var(--text-primary)]">
+                        {CLAIM_TYPE_LABEL[claim.claim_type as ClaimType] ?? claim.claim_type}
+                      </dd>
+                    </div>
+                  )}
                   {claim.invoice_number && (
                     <div>
                       <dt className="text-[color:var(--text-tertiary)] text-[11px] uppercase tracking-wide">

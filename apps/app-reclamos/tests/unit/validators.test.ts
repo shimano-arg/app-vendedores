@@ -8,6 +8,7 @@ describe('CreateClaimSchema', () => {
     const r = CreateClaimSchema.safeParse({
       remitoNumber: 'R-1',
       observations: 'obs',
+      claimType: 'faltante',
       assigneeId: UUID,
     });
     expect(r.success).toBe(true);
@@ -16,6 +17,7 @@ describe('CreateClaimSchema', () => {
     const r = CreateClaimSchema.safeParse({
       remitoNumber: '',
       observations: 'obs',
+      claimType: 'faltante',
       assigneeId: UUID,
     });
     expect(r.success).toBe(false);
@@ -24,6 +26,7 @@ describe('CreateClaimSchema', () => {
     const r = CreateClaimSchema.safeParse({
       remitoNumber: 'R-1',
       observations: 'obs',
+      claimType: 'faltante',
       assigneeId: 'not-uuid',
     });
     expect(r.success).toBe(false);
@@ -32,6 +35,25 @@ describe('CreateClaimSchema', () => {
     const r = CreateClaimSchema.safeParse({
       remitoNumber: 'R-'.padEnd(60, 'X'),
       observations: 'obs',
+      claimType: 'faltante',
+      assigneeId: UUID,
+    });
+    expect(r.success).toBe(false);
+  });
+  // v1259: claimType es required
+  it('rechaza sin claimType', () => {
+    const r = CreateClaimSchema.safeParse({
+      remitoNumber: 'R-1',
+      observations: 'obs',
+      assigneeId: UUID,
+    });
+    expect(r.success).toBe(false);
+  });
+  it('rechaza claimType invalido', () => {
+    const r = CreateClaimSchema.safeParse({
+      remitoNumber: 'R-1',
+      observations: 'obs',
+      claimType: 'otra_cosa',
       assigneeId: UUID,
     });
     expect(r.success).toBe(false);
