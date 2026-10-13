@@ -567,3 +567,376 @@ window.deleteCampaign = async function (id) {
 // El resto de las funciones ya se declaran como `window.foo = function(){}`.
 window.isCampaignApplicableToVendor = isCampaignApplicableToVendor;
 window.describeCampaignScope = describeCampaignScope;
+
+// ============================================================
+// v1247 (2026-10-13): importar campañas comerciales desde Excel.
+// Columnas: NOMBRE | VENDEDOR | FECHA_INICIO | FECHA_FIN | SKU | UNIDADES | MONTO
+// Regla: 1 fila = 1 campaña (vendedor obligatorio, UNIDADES o MONTO exclusivos).
+// ============================================================
+
+function _findSkuMeta(sku) {
+  const code = String(sku || '')
+    .toUpperCase()
+    .trim();
+  if (!code) return null;
+  if (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) {
+    for (const p of PRODUCTS) {
+      if (
+        p &&
+        String(p.code || '')
+          .toUpperCase()
+          .trim() === code
+      )
+        return p;
+    }
+  }
+  return null;
+}
+
+function _normalizeVendorForMatch(v) {
+  return String(v || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ');
+}
+
+function _findVendorKey(vendorInput) {
+  const target = _normalizeVendorForMatch(vendorInput);
+  if (!target) return null;
+  // VENDORS array (const en index.html:6531) tiene objetos {key, zone, label, ...}.
+  if (typeof VENDORS !== 'undefined' && Array.isArray(VENDORS)) {
+    for (const v of VENDORS) {
+      if (!v) continue;
+      const vk = _normalizeVendorForMatch(v.key || v.vendorKey || '');
+      if (vk === target) return v.key || v.vendorKey;
+    }
+  }
+  return null;
+}
+
+function _parseExcelDate(val) {
+  if (!val) return null;
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  if (typeof val === 'string') {
+    const d = new Date(val);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  if (typeof val === 'number' && Number.isFinite(val)) {
+    // Excel serial date → epoch ms. 25569 = días desde 1899-12-30 a 1970-01-01.
+    const ms = (val - 25569) * 86400 * 1000;
+    const d = new Date(ms);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+function _validateCampaignRow(raw, rowNum) {
+  const errors = [];
+  const name = String(raw.NOMBRE || raw.nombre || '').trim();
+  const vendorInput = String(raw.VENDEDOR || raw.vendedor || '').trim();
+  const startDate = _parseExcelDate(raw.FECHA_INICIO || raw['FECHA DE INICIO'] || raw.fecha_inicio);
+  const endDate = _parseExcelDate(raw.FECHA_FIN || raw['FECHA DE FINALIZACION'] || raw.fecha_fin);
+  const sku = String(raw.SKU || raw.sku || '')
+    .toUpperCase()
+    .trim();
+  const unidades = raw.UNIDADES != null && raw.UNIDADES !== '' ? Number(raw.UNIDADES) : null;
+  const monto = raw.MONTO != null && raw.MONTO !== '' ? Number(raw.MONTO) : null;
+
+  if (!name) errors.push('NOMBRE vacío');
+  if (!vendorInput) errors.push('VENDEDOR vacío');
+  if (!startDate) errors.push('FECHA_INICIO inválida');
+  if (!endDate) errors.push('FECHA_FIN inválida');
+  if (startDate && endDate && endDate < startDate) errors.push('FECHA_FIN < FECHA_INICIO');
+  if (!sku) errors.push('SKU vacío');
+  const hasUnid = unidades != null && !Number.isNaN(unidades) && unidades > 0;
+  const hasMonto = monto != null && !Number.isNaN(monto) && monto > 0;
+  if (hasUnid && hasMonto) errors.push('UNIDADES y MONTO ambos presentes — sólo uno');
+  if (!hasUnid && !hasMonto) errors.push('Falta UNIDADES o MONTO (uno obligatorio)');
+
+  const skuMeta = sku ? _findSkuMeta(sku) : null;
+  if (sku && !skuMeta) errors.push('SKU no existe en catálogo PESCA');
+
+  const vendorKey = vendorInput ? _findVendorKey(vendorInput) : null;
+  if (vendorInput && !vendorKey) errors.push('VENDEDOR no matchea sap_vendors');
+
+  return {
+    rowNum,
+    raw,
+    name,
+    vendorInput,
+    vendorKey,
+    startDate,
+    endDate,
+    sku,
+    skuMeta,
+    unidades: hasUnid ? unidades : null,
+    monto: hasMonto ? monto : null,
+    targetType: hasUnid ? 'units' : 'money',
+    targetAmount: hasUnid ? unidades : monto,
+    errors,
+    ok: errors.length === 0,
+  };
+}
+
+window.handleCampaignImportFile = async function (ev) {
+  const file = ev && ev.target && ev.target.files && ev.target.files[0];
+  ev.target.value = ''; // reset para permitir re-cargar el mismo archivo
+  if (!file) return;
+  const preview = document.getElementById('camp-import-preview');
+  if (!preview) return;
+  preview.style.display = '';
+  preview.textContent = 'Cargando ExcelJS...';
+  try {
+    if (typeof window.loadExcelJS === 'function') await window.loadExcelJS();
+    if (!window.ExcelJS) throw new Error('ExcelJS no disponible');
+    const buf = await file.arrayBuffer();
+    const wb = new window.ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const ws = wb.worksheets[0];
+    if (!ws) throw new Error('Excel sin hojas');
+    // Header en row 1.
+    const headers = [];
+    ws.getRow(1).eachCell({ includeEmpty: false }, (cell) => {
+      headers.push(
+        String(cell.value || '')
+          .trim()
+          .toUpperCase()
+      );
+    });
+    const rows = [];
+    ws.eachRow((row, rn) => {
+      if (rn === 1) return;
+      const obj = {};
+      row.eachCell({ includeEmpty: true }, (cell, colIdx) => {
+        const h = headers[colIdx - 1];
+        if (!h) return;
+        let v = cell.value;
+        if (v && typeof v === 'object' && 'text' in v) v = v.text; // rich text
+        if (v && typeof v === 'object' && 'result' in v) v = v.result; // formula
+        obj[h] = v;
+      });
+      // Skip rows completamente vacías.
+      if (Object.values(obj).every((x) => x == null || x === '')) return;
+      rows.push({ raw: obj, rowNum: rn });
+    });
+    if (!rows.length) {
+      preview.textContent = 'Excel vacío (sin filas después del header).';
+      return;
+    }
+    const validated = rows.map((r) => _validateCampaignRow(r.raw, r.rowNum));
+    _renderCampaignImportPreview(preview, validated);
+  } catch (e) {
+    console.error('[camp-import]', e);
+    preview.textContent = 'Error leyendo Excel: ' + (e.message || e);
+  }
+};
+
+function _renderCampaignImportPreview(container, rows) {
+  const okRows = rows.filter((r) => r.ok);
+  const badRows = rows.filter((r) => !r.ok);
+  while (container.firstChild) container.removeChild(container.firstChild);
+  const header = document.createElement('div');
+  header.style.cssText =
+    'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:6px;margin-bottom:8px';
+  const info = document.createElement('div');
+  info.style.cssText = 'font-size:12px';
+  const okB = document.createElement('b');
+  okB.style.color = '#16a34a';
+  okB.textContent = okRows.length + ' OK';
+  const badB = document.createElement('b');
+  badB.style.color = '#dc2626';
+  badB.textContent = badRows.length + ' con error';
+  info.appendChild(okB);
+  info.appendChild(document.createTextNode(' · '));
+  info.appendChild(badB);
+  info.appendChild(document.createTextNode(' · total ' + rows.length));
+  header.appendChild(info);
+  const btnBar = document.createElement('div');
+  btnBar.style.cssText = 'display:flex;gap:6px';
+  const btnCreate = document.createElement('button');
+  btnCreate.type = 'button';
+  btnCreate.textContent = 'Crear ' + okRows.length + ' campaña(s)';
+  btnCreate.disabled = okRows.length === 0;
+  btnCreate.style.cssText =
+    'background:#16a34a;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-size:11.5px;font-weight:700;cursor:pointer' +
+    (okRows.length === 0 ? ';opacity:.5;cursor:not-allowed' : '');
+  btnCreate.onclick = () => window._executeCampaignImport(okRows);
+  const btnCancel = document.createElement('button');
+  btnCancel.type = 'button';
+  btnCancel.textContent = 'Cancelar';
+  btnCancel.style.cssText =
+    'background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:7px 12px;font-size:11.5px;font-weight:700;cursor:pointer';
+  btnCancel.onclick = () => {
+    container.style.display = 'none';
+    while (container.firstChild) container.removeChild(container.firstChild);
+  };
+  btnBar.appendChild(btnCreate);
+  btnBar.appendChild(btnCancel);
+  header.appendChild(btnBar);
+  container.appendChild(header);
+
+  // Tabla preview
+  const table = document.createElement('table');
+  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px';
+  const thead = document.createElement('thead');
+  const trh = document.createElement('tr');
+  trh.style.cssText = 'background:var(--bg-muted);text-align:left';
+  ['#', 'Nombre', 'Vendedor', 'SKU', 'Desde', 'Hasta', 'Meta', 'Estado'].forEach((h) => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    th.style.cssText =
+      'padding:6px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--text-muted)';
+    trh.appendChild(th);
+  });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.style.cssText =
+      'border-bottom:1px solid #f1f5f9;background:' + (r.ok ? '#f0fdf4' : '#fef2f2');
+    const metaStr =
+      r.targetType === 'units'
+        ? r.unidades + ' u'
+        : '$' + Math.round(r.targetAmount).toLocaleString('es-AR');
+    const statusText = r.ok ? 'OK' : r.errors.join(', ');
+    [
+      String(r.rowNum),
+      r.name || '—',
+      r.vendorKey || r.vendorInput || '—',
+      r.sku || '—',
+      r.startDate || '—',
+      r.endDate || '—',
+      r.ok ? metaStr : '—',
+      statusText,
+    ].forEach((val, i) => {
+      const td = document.createElement('td');
+      td.textContent = val;
+      td.style.cssText = 'padding:5px 8px;color:' + (r.ok ? '#166534' : '#991b1b');
+      if (i === 7 && !r.ok) td.style.fontWeight = '700';
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  const wrap = document.createElement('div');
+  wrap.style.cssText =
+    'max-height:300px;overflow:auto;border:1px solid var(--border-subtle);border-radius:6px';
+  wrap.appendChild(table);
+  container.appendChild(wrap);
+}
+
+window._executeCampaignImport = async function (okRows) {
+  if (!okRows || okRows.length === 0) return;
+  const btn = event && event.currentTarget;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Creando...';
+  }
+  let created = 0;
+  const failed = [];
+  for (const r of okRows) {
+    try {
+      const familia = (r.skuMeta && (r.skuMeta.fam || r.skuMeta.familia)) || '';
+      const subfamilia = (r.skuMeta && (r.skuMeta.sub || r.skuMeta.subfamilia)) || '';
+      await fbDb.collection('campaigns').add({
+        name: r.name,
+        familia,
+        subfamilia,
+        skus: [r.sku],
+        filterType: 'sku',
+        filterValues: [r.sku],
+        targetType: r.targetType,
+        targetAmount: r.targetAmount,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        scope: 'vendor',
+        scopeValues: [r.vendorKey],
+        createdBy: currentUser.uid,
+        createdByEmail: currentUser.email,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        importedFromExcel: true,
+      });
+      created++;
+    } catch (e) {
+      console.error('[camp-import] row ' + r.rowNum, e);
+      failed.push({ row: r.rowNum, error: e.message || String(e) });
+    }
+  }
+  if (typeof showSyncTag === 'function') showSyncTag('Campañas importadas: ' + created);
+  await refreshCampaignsList();
+  const preview = document.getElementById('camp-import-preview');
+  if (preview) {
+    preview.style.display = 'none';
+    while (preview.firstChild) preview.removeChild(preview.firstChild);
+  }
+  if (failed.length > 0) {
+    alert(
+      'Creadas: ' +
+        created +
+        '\nFallaron: ' +
+        failed.length +
+        '\n\nDetalle:\n' +
+        failed
+          .slice(0, 5)
+          .map((f) => 'Fila ' + f.row + ': ' + f.error)
+          .join('\n')
+    );
+  } else {
+    alert('Creadas ' + created + ' campaña(s) correctamente.');
+  }
+};
+
+window.downloadCampaignTemplate = async function () {
+  try {
+    if (typeof window.loadExcelJS === 'function') await window.loadExcelJS();
+    if (!window.ExcelJS) throw new Error('ExcelJS no disponible');
+    const wb = new window.ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Campañas');
+    ws.columns = [
+      { header: 'NOMBRE', key: 'nombre', width: 25 },
+      { header: 'VENDEDOR', key: 'vendedor', width: 24 },
+      { header: 'FECHA_INICIO', key: 'inicio', width: 14 },
+      { header: 'FECHA_FIN', key: 'fin', width: 14 },
+      { header: 'SKU', key: 'sku', width: 16 },
+      { header: 'UNIDADES', key: 'unid', width: 10 },
+      { header: 'MONTO', key: 'monto', width: 14 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } };
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    // 2 filas de ejemplo (una unidades, una monto)
+    const today = new Date().toISOString().slice(0, 10);
+    const nextMonth = new Date(Date.now() + 30 * 86400 * 1000).toISOString().slice(0, 10);
+    ws.addRow([
+      'Ejemplo campaña unidades',
+      'GONZALO DE LA ROSA',
+      today,
+      nextMonth,
+      'fx2000fc',
+      100,
+      null,
+    ]);
+    ws.addRow([
+      'Ejemplo campaña monto',
+      'GONZALO DE LA ROSA',
+      today,
+      nextMonth,
+      'fx2000fc',
+      null,
+      400000,
+    ]);
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'template-campanas.xlsx';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) {
+    console.error('[camp-template]', e);
+    alert('Error generando template: ' + (e.message || e));
+  }
+};

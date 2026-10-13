@@ -4717,6 +4717,57 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1247 (2026-10-13) — Importar campañas comerciales desde Excel
+
+**Archivos**:
+- `index.html:4644-4651` (botones nuevos + input file + div preview)
+- `src/domains/campanias.js:+200 LOC` (handleCampaignImportFile, validateCampaignRow, renderPreview, executeImport, downloadCampaignTemplate)
+- `index.html:6126` + `sw.js:20` (bump v1246 → v1247)
+- `app.bundle.js` + chunks regenerados
+
+**Antes**:
+Admin creaba campañas de a una desde el modal UI (nombre, familia, subfamilia, SKUs, objetivo, fechas, alcance). Para armar 20 campañas = 20 veces el modal. Tedioso.
+
+**Problema**:
+Mariano queria cargar lote de campañas por archivo. Pasa 1 Excel con N filas y la app crea N campañas.
+
+**Cambio**:
+Nuevo flow "Importar Excel" en el modal Campañas comerciales. Estructura del Excel (decidida con Mariano 2026-10-13):
+
+```
+NOMBRE | VENDEDOR | FECHA_INICIO | FECHA_FIN | SKU | UNIDADES | MONTO
+```
+
+Reglas:
+- 1 fila = 1 campaña (si querés 10 SKUs → 10 filas separadas).
+- VENDEDOR obligatorio (match contra VENDORS global).
+- NOMBRE obligatorio (identifica la campaña en el panel).
+- UNIDADES **O** MONTO exclusivos (uno de los dos, no ambos).
+- SKU debe existir en PRODUCTS (PESCA).
+- FECHA_FIN >= FECHA_INICIO.
+
+Flow:
+1. Click "Importar Excel" → file picker
+2. Al elegir xlsx → parse via ExcelJS (ya cargado on-demand)
+3. Preview inline: tabla verde (OK) / roja (errores) + conteo
+4. Click "Crear N campañas" → batch add a `campaigns/` collection
+5. Alert con resumen (creadas / fallidas)
+
+Botón "Template" descarga un xlsx vacío con 2 filas ejemplo (una unidades, una monto).
+
+Schema Firestore: igual que las campañas creadas manualmente (`name, familia, subfamilia, skus, filterType, filterValues, targetType, targetAmount, startDate, endDate, scope='vendor', scopeValues=[vendor], createdBy, createdByEmail, createdAt, importedFromExcel=true`).
+
+**Verificacion**:
+- Descargar template → abrir en Excel → ver headers + 2 ejemplos
+- Cargar un Excel real → ver preview con filas OK/error
+- Click "Crear N campañas" → ver aparecer en panel ACTIVAS
+- Validaciones falsas: SKU inexistente, vendedor typo, fechas invertidas, UNIDADES+MONTO ambos → fila roja con mensaje
+
+**Rollback**:
+Revert `index.html:4644-4651` y las 5 funciones nuevas en `campanias.js` (buscar v1247).
+
+---
+
 ### v1246 (2026-10-13) — Rediseño modal Backorder/Stock Asignado como matriz expandible
 
 **Archivos**:

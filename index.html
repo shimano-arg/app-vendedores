@@ -4641,7 +4641,13 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
               </div>
             </div>
           </div>
-          <div style="display:flex;justify-content:center;margin-top:14px"><button class="btn-camp" onclick="saveCampaign()">Crear campa&ntilde;a</button></div>
+          <div style="display:flex;justify-content:center;margin-top:14px;gap:8px;flex-wrap:wrap">
+            <button class="btn-camp" onclick="saveCampaign()">Crear campa&ntilde;a</button>
+            <button type="button" onclick="document.getElementById('camp-import-file').click()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer">Importar Excel</button>
+            <button type="button" onclick="downloadCampaignTemplate()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:9px 12px;font-size:11px;font-weight:700;cursor:pointer" title="Descargar un Excel vac&iacute;o con las columnas correctas">Template</button>
+            <input id="camp-import-file" type="file" accept=".xlsx,.xls" style="display:none" onchange="handleCampaignImportFile(event)" />
+          </div>
+          <div id="camp-import-preview" style="display:none;margin-top:14px"></div>
         </div>
         <div style="margin-top:18px">
           <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:10px;gap:8px">
@@ -6123,7 +6129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1246';
+const APP_VERSION = 'v1247';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
