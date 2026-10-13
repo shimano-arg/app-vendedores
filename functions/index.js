@@ -2425,11 +2425,8 @@ export const generateVentasReportCF = onCall(
     });
 
     // Fetch ventas (agrupadas).
-    // v1245 (2026-10-13): filtrar SOLO PESCA. sap_items_raw es el master
-    // pesca; sap_items_bike_raw es bike. v_ventas_lineas mezcla ambos; sin
-    // filtro, el export incluia vendedores bike (via fallback "SAP SLP XXX"
-    // cuando no estan en sap_vendors) + items bike. Mariano explicito:
-    // "solo quiero pesca, nada mas".
+    // v1245 (2026-10-13): filtrar SOLO PESCA.
+    // v1252 (2026-10-13): agregar MAX(doc_date) para ULTIMA_FECHA en ws3.
     const ventasSql = `
       SELECT
         sales_person_code AS slp_code,
@@ -2441,7 +2438,8 @@ export const generateVentasReportCF = onCall(
         subfamilia,
         SUM(cantidad) AS qty,
         ROUND(SUM(importe_linea_ars), 2) AS importe_ars,
-        COUNT(DISTINCT doc_entry) AS docs
+        COUNT(DISTINCT doc_entry) AS docs,
+        FORMAT_DATE('%Y-%m-%d', MAX(doc_date)) AS doc_date
       FROM \`app-vendedores-shimano.shimano_app.v_ventas_lineas\`
       WHERE anio = @year AND mes = @month AND item_code IS NOT NULL
         AND item_code IN (
@@ -2529,12 +2527,32 @@ export const generateVentasReportCF = onCall(
     });
     console.log('[generateVentasReportCF] visits:', visits.length);
 
+    // v1252 (2026-10-13): query extra para columna ULTIMA_COMPRA en ws4
+    // ("Clientes sin compra"). Trae la ultima fecha historica por cliente,
+    // sin filtro de mes. Filtra solo PESCA (consistente con query ventas).
+    const ultimaCompraSql = `
+      SELECT card_code, FORMAT_DATE('%Y-%m-%d', MAX(doc_date)) AS ultima_compra
+      FROM \`app-vendedores-shimano.shimano_app.v_ventas_lineas\`
+      WHERE card_code IS NOT NULL AND doc_date IS NOT NULL
+        AND item_code IN (
+          SELECT item_code FROM \`app-vendedores-shimano.shimano_app.sap_items_raw\`
+          WHERE item_code IS NOT NULL
+        )
+      GROUP BY card_code
+    `;
+    const [ultimaCompraRows] = await bq.query({
+      query: ultimaCompraSql,
+      location: 'southamerica-east1',
+    });
+    console.log('[generateVentasReportCF] ultimaCompraPorCliente:', ultimaCompraRows.length);
+
     const buffer = await buildReportBuffer({
       ventas: ventasRows,
       items: itemsRows,
       clients,
       vendors,
       visits,
+      ultimaCompraPorCliente: ultimaCompraRows,
       makeWorkbook: () => new ExcelJS.Workbook(),
     });
     const bytesBase64 = Buffer.from(buffer).toString('base64');

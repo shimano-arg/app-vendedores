@@ -25,6 +25,27 @@ function normVendor(/** @type {any} */ name) {
     .toUpperCase();
 }
 
+// v1252 (2026-10-13): si el vendor no contiene uno de los 6 nombres principales,
+// agruparlo como "VENTAS ESPECIALES". Elimina ruido de "SAP SLP 72", "(sin
+// vendedor)", "SANTIAGO ESTEBAN", "DIEGO VALSI" etc del reporte comercial.
+// Pedido Mariano.
+const _VENDOR_PRINCIPAL_KEYWORDS = [
+  'MAURICIO',
+  'GONZALO',
+  'FEDERICO',
+  'MARTIN',
+  'PACHI',
+  'IOANNIS',
+];
+function normalizeVendorForReport(/** @type {any} */ name) {
+  const vn = normVendor(name);
+  if (!vn) return 'VENTAS ESPECIALES';
+  for (const k of _VENDOR_PRINCIPAL_KEYWORDS) {
+    if (vn.indexOf(k) >= 0) return vn;
+  }
+  return 'VENTAS ESPECIALES';
+}
+
 /**
  * Normaliza string de cliente para match: upper + trim + colapsa whitespace.
  * @param {any} s
@@ -75,10 +96,18 @@ function autosizeCols(/** @type {any} */ ws, maxWidth = 50) {
 
 /**
  * Genera el buffer xlsx a partir de los datasets.
- * @param {{ventas: Array<any>, items: Array<any>, clients: Array<any>, vendors: Array<any>, visits: Array<any>, makeWorkbook: () => any}} params
+ * @param {{ventas: Array<any>, items: Array<any>, clients: Array<any>, vendors: Array<any>, visits: Array<any>, ultimaCompraPorCliente?: Array<any>, makeWorkbook: () => any}} params
  * @returns {Promise<any>}
  */
-async function buildReportBuffer({ ventas, items, clients, vendors, visits, makeWorkbook }) {
+async function buildReportBuffer({
+  ventas,
+  items,
+  clients,
+  vendors,
+  visits,
+  ultimaCompraPorCliente,
+  makeWorkbook,
+}) {
   const vendorKeys = new Set(
     vendors.filter((v) => v.vendorKey).map((v) => normVendor(v.vendorKey))
   );
@@ -142,13 +171,30 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
     const key = vn + '||' + cardCode;
     let acc = ventasByVendorClient.get(key);
     if (!acc) {
-      acc = { card_name: v.card_name || '', qty: 0, importe: 0, skus: new Set(), docs: 0 };
+      acc = {
+        card_name: v.card_name || '',
+        qty: 0,
+        importe: 0,
+        skus: new Set(),
+        docs: 0,
+        ultimaFecha: null,
+      };
       ventasByVendorClient.set(key, acc);
     }
     acc.qty += Number(v.qty || 0);
     acc.importe += Number(v.importe_ars || 0);
     acc.skus.add(itemCode);
     acc.docs += Number(v.docs || 0);
+    // v1252: ULTIMA_FECHA del mes para ws3. v.doc_date viene como string YYYY-MM-DD
+    // (o Date). Max por comparacion lexicografica funciona bien si es ISO.
+    const vDate = v.doc_date
+      ? typeof v.doc_date === 'string'
+        ? v.doc_date.slice(0, 10)
+        : v.doc_date.value || String(v.doc_date).slice(0, 10)
+      : null;
+    if (vDate && (!acc.ultimaFecha || vDate > acc.ultimaFecha)) {
+      acc.ultimaFecha = vDate;
+    }
     // v1236: enriquecer con items master si BQ v_ventas_lineas trae NULLs.
     // v1237: fallback final 'OTROS' en vez de vacio (nn() lo convertiria a '—').
     const meta = itemMetaByCode.get(itemCode) || null;
@@ -200,7 +246,8 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
   ]);
   for (const r of resolvedVentas) {
     ws1.addRow([
-      nn(r.vendor),
+      // v1252: VENTAS ESPECIALES para vendedores no reconocidos.
+      nn(normalizeVendorForReport(r.vendor)),
       nn(r.card_code),
       nn(r.card_name),
       nn(r.item_code),
@@ -238,6 +285,7 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
     'UNIDADES',
     'IMPORTE_ARS',
     'DOCUMENTOS',
+    'ULTIMA_FECHA', // v1252: fecha de la última compra del mes
   ]);
   const sortedEntries = Array.from(ventasByVendorClient.entries()).sort((a, b) => {
     const [ka] = a;
@@ -250,31 +298,55 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
   for (const [key, acc] of sortedEntries) {
     const [vn, cc] = key.split('||');
     ws3.addRow([
-      nn(vn),
+      // v1252: VENTAS ESPECIALES tambien aqui para consistencia con ws1.
+      nn(normalizeVendorForReport(vn)),
       nn(cc),
       nn(acc.card_name),
       nnum(acc.skus.size),
       nnum(acc.qty),
       nnum(acc.importe),
       nnum(acc.docs),
+      nn(acc.ultimaFecha),
     ]);
   }
-  styleHeader(ws3, 7);
+  styleHeader(ws3, 8);
   autosizeCols(ws3);
 
   // === Hoja 4: Clientes sin compra ===
+  // v1252: nueva columna ULTIMA_COMPRA = max doc_date historica del cliente
+  // (viene de ultimaCompraByCardCode, query extra sin filtro de mes).
+  const ultimaCompraByCardCode = new Map();
+  if (Array.isArray(ultimaCompraPorCliente)) {
+    for (const row of ultimaCompraPorCliente) {
+      if (row && row.card_code) {
+        const fecha = row.ultima_compra
+          ? typeof row.ultima_compra === 'string'
+            ? row.ultima_compra.slice(0, 10)
+            : row.ultima_compra.value || String(row.ultima_compra).slice(0, 10)
+          : null;
+        if (fecha) ultimaCompraByCardCode.set(row.card_code, fecha);
+      }
+    }
+  }
   const ws4 = wb.addWorksheet('4. Clientes sin compra');
-  ws4.addRow(['VENDEDOR', 'CARD_CODE', 'CLIENTE', 'PROVINCIA', 'LOCALIDAD']);
+  ws4.addRow(['VENDEDOR', 'CARD_CODE', 'CLIENTE', 'PROVINCIA', 'LOCALIDAD', 'ULTIMA_COMPRA']);
   for (const vk of sortedVendors) {
     const arr = (clientsByVendor.get(vk) || [])
       .slice()
       .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.clientName < b.clientName ? -1 : 1));
     for (const c of arr) {
       if (ventasByVendorClient.has(vk + '||' + (c.cardCode || ''))) continue;
-      ws4.addRow([nn(vk), nn(c.cardCode), nn(c.clientName), nn(c.provincia), nn(c.localidad)]);
+      ws4.addRow([
+        nn(vk),
+        nn(c.cardCode),
+        nn(c.clientName),
+        nn(c.provincia),
+        nn(c.localidad),
+        nn(ultimaCompraByCardCode.get(c.cardCode) || null),
+      ]);
     }
   }
-  styleHeader(ws4, 5);
+  styleHeader(ws4, 6);
   autosizeCols(ws4);
 
   // === Visitas: procesar y agrupar por (vendor, clienteNormalized) ===
@@ -342,7 +414,7 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
     ws5.addRow([
       nn(acc.vendor),
       nn(acc.clienteOriginal),
-      inPadron ? 'SI' : 'NO (visita libre)',
+      inPadron ? 'SI' : 'NO', // v1252: antes "NO (visita libre)". Mariano pidio simplificar.
       nnum(acc.visitas),
       nn(acc.ultimaFecha),
       nn(acc.provincia),
