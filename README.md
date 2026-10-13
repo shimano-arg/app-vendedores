@@ -4717,6 +4717,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1246 (2026-10-13) — Rediseño modal Backorder/Stock Asignado como matriz expandible
+
+**Archivos**:
+- `index.html:14536-14756` (reemplazo del render cards por tabla matrix)
+- `index.html:6126` + `sw.js:20` (bump v1244 → v1246)
+
+**Antes**:
+Modal Backorder/Stock Asignado mostraba cards por SKU con header gigante coloreado (verde/naranja/rojo segun stock) + descripcion + familia/subfamilia + lista inline de clientes dentro de cada card. Scroll vertical denso. Cada SKU ocupaba ~120-180px de alto.
+
+**Problema**:
+Mariano pidio formato tipo PBI matricial: fila por SKU + columna Unidades + chip Estado + click para expandir y ver clientes. Mas compacto, mas facil scanear 100 SKUs.
+
+**Cambio**:
+`<table>` con 3 columnas (SKU + descripcion | Unidades + # clientes | chip Estado). Click en fila SKU despliega una sub-tabla con los clientes (nombre + qty + botones admin). Caret ▶/▼ indica estado expand/collapse. CSS por `.bkmat-sku-row` + `.bkmat-cli-wrap`.
+
+Preservado:
+- Filtros tienda / vendedor / mes / urgency.
+- Chips de VENCIDA (>15d BO, >7d confirmed).
+- Botones admin +/- (ajuste qty) + ELIMINAR en las filas cliente.
+- Totales en header + stats por estado (SIN REPO / EN TRANSITO / PARCIAL).
+- Dos modos (asig / urgente) + source stock-asig batch tag.
+
+Removido vs version anterior:
+- Header gigante con gradient de color — reemplazado por chip chico en columna Estado.
+- Descripcion del SKU + familia inline — ahora en segunda linea de la celda SKU, truncada con ellipsis.
+- Meta de cliente (ciudad + orden + fecha) — removido del expand (Mariano: "solo cliente").
+
+**Verificacion**:
+- Abrir modal Backorder → ver tabla con headers SKU / Unidades / Estado.
+- Click en fila SKU → despliega clientes (caret ▶ → ▼).
+- Click + de nuevo → colapsa.
+- Botones +/- y ELIMINAR funcionan igual.
+- 699/699 unit tests pass.
+
+**Rollback**:
+Revert `index.html:14536-14756`.
+
+---
+
 ### v1245 (2026-10-13) — Export VENTAS_ART_CLI: filtrar solo PESCA (quitar BIKE)
 
 **Archivos**:
