@@ -27,16 +27,13 @@ window.setTargetType = function (t) {
 window.openCampaignsPanel = async function () {
   if (userRole !== 'admin' && userRole !== 'gerente') return;
   document.getElementById('campaigns-modal').classList.add('open');
-  populateCampFamilias();
-  document.getElementById('cf-familia').value = '';
-  onCampFamiliaChange();
-  const today = new Date();
-  document.getElementById('cf-start').value = today.toISOString().slice(0, 10);
-  const end = new Date(today.getTime() + 60 * 86400 * 1000);
-  document.getElementById('cf-end').value = end.toISOString().slice(0, 10);
-  document.getElementById('cf-name').value = '';
-  document.getElementById('cf-target-amount').value = '';
-  setTargetType('units');
+  // v1249 (2026-10-13): form inline eliminado. Solo flujo Excel (template +
+  // importar). Reset del preview por si quedó algo de una sesion anterior.
+  const preview = document.getElementById('camp-import-preview');
+  if (preview) {
+    preview.style.display = 'none';
+    while (preview.firstChild) preview.removeChild(preview.firstChild);
+  }
   // Reset al tab Activas por default cada vez que se abre el panel.
   if (typeof setCampaignsTab === 'function') setCampaignsTab('active');
   else await refreshCampaignsList();
