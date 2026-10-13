@@ -3370,6 +3370,31 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ## 40) Power BI / BigQuery
 
+### Vistas tasa de cumplimiento Backorder (2026-10-13) — NUEVO
+
+Pedido Mariano: medir si el flujo "Crear Pedido - ST" (v1192+v1209, 2026-10-08) convierte efectivamente lineas BO → pedido confirmado en SAP.
+
+**3 vistas** en `scripts/bq/cumplimiento_bo.sql` (deploy con `python scripts/bq/deploy_cumplimiento_bo.py`):
+
+| Vista | Granularidad | Metrica |
+|---|---|---|
+| `v_bo_cumplimiento_pedidos` | 1 fila por mes | Tasa simple = pedidos `source='stock-asignado-batch'` / total pedidos confirmed en SAP |
+| `v_bo_cumplimiento_unidades` | 1 fila por mes | Tasa qty-weighted = unidades via STOCK ASIG / unidades totales. Incluye monto $ |
+| `v_bo_cumplimiento_funnel` | 1 fila por mes | Funnel: total → con BO historico → llegaron a SAP → via STOCK ASIG. 2 tasas: BO→SAP (eventual fulfillment) + Adopcion STOCK ASIG |
+
+**Flag clave**: `pedidos.source = 'stock-asignado-batch'` persistido en Firestore cuando el pedido se genera desde "Crear Pedido - ST" del modal Stock Asignado (`index.html:31229`).
+
+**Snapshot a 2026-10-13** (feature con 5 dias de vida):
+- Cumplimiento BO→SAP: **94-97%** historico (septiembre/octubre 2026) → funciona bien incluso sin el flujo nuevo.
+- Adopcion STOCK ASIG: **1-2%** → casi nadie usa el boton nuevo. Hipotesis: VDE prefiere avisar al cliente por WhatsApp y que arme el pedido normal.
+
+**Como consumirlas en PowerBI**:
+Conector BigQuery, project `app-vendedores-shimano`, dataset `shimano_app`, importar las 3 vistas. Para dashboard: card principal con tasa_cumplimiento_pct ultimo mes + line chart por mes + funnel chart con las 4 etapas de v_bo_cumplimiento_funnel.
+
+**Mantenimiento**: las vistas leen de `pedidos_raw_raw_latest` (ultimo estado) + `pedidos_raw_raw_changelog` (historial para el funnel). Zero mantenimiento mientras el flag `source` siga persistiendo. Si cambia el nombre del flag o se agrega otro origen (ej `'cpst-manual-batch'`), actualizar los `WHERE source = 'stock-asignado-batch'`.
+
+---
+
 **Estado a 2026-08-06**:
 - ✅ **Fase 1.1** Firestore → BigQuery (7 collecciones + backfill)
 - ✅ **Fase 1.2** SAP → BigQuery (**9 tablas raw**: BPs, Items, Invoices, Credit Notes, Quotations, Orders, POs, Deliveries, Returns)
