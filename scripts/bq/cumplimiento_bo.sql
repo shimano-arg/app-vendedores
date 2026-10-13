@@ -92,6 +92,90 @@ ORDER BY mes DESC;
 
 
 -- ========================================================================
+-- VISTA 4: *** LA PRINCIPAL *** — tasa real del flujo CPST (Crear Pedido - ST)
+-- ========================================================================
+-- Mide exactamente lo que Mariano pregunta: "cuantas unidades que los clientes
+-- tenian ASIGNADAS se terminaron enviando a SAP via Crear Pedido - ST".
+--
+-- Flujo medido:
+--   1. Cliente tiene linea state='ASIG' en un pedido (stock asignado FIFO)
+--   2. Admin/VDE abre modal Stock Asignado y clickea "Crear Pedido - ST"
+--      -> La linea vieja se MARCA con cancelledFrom='crear-pedido-st'
+--      -> Se crea NUEVO waitlist con source='stock-asignado-batch'
+--   3. Ese waitlist pasa a pedidos (confirmed) y se envia a SAP
+--
+-- Numerador  : unidades llegadas a SAP via source='stock-asignado-batch'
+-- Denominador: unidades que ENTRARON al flujo (cancelledFrom='crear-pedido-st')
+-- Tasa real  : % del flujo CPST que efectivamente llega a SAP
+--
+-- Si tasa es baja: muchas ASIG se "convierten" pero el waitlist no se procesa
+-- (el VDE no lo pasa a pending, o el pedido nuevo se cancela, o se traba).
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_bo_cumplimiento_cpst` AS
+WITH entradas AS (
+  -- Unidades que ENTRARON al flujo CPST (linea cancelada con marker)
+  SELECT
+    JSON_EXTRACT_SCALAR(line, '$.cancelledAt') AS cancelled_at,
+    JSON_EXTRACT_SCALAR(line, '$.code') AS sku,
+    SAFE_CAST(JSON_EXTRACT_SCALAR(line, '$.qty') AS FLOAT64) AS qty,
+    SAFE_CAST(JSON_EXTRACT_SCALAR(line, '$.precio') AS FLOAT64) AS precio,
+    JSON_EXTRACT_SCALAR(p.data, '$.clientCardCode') AS cardcode_origen,
+    JSON_EXTRACT_SCALAR(p.data, '$.ownerVendor') AS vendor_origen
+  FROM `app-vendedores-shimano.shimano_app.pedidos_raw_raw_latest` p,
+       UNNEST(JSON_EXTRACT_ARRAY(p.data, '$.lines')) AS line
+  WHERE JSON_EXTRACT_SCALAR(line, '$.cancelledFrom') = 'crear-pedido-st'
+),
+salidas AS (
+  -- Unidades que SALIERON por SAP via el flujo CPST
+  SELECT
+    SAFE_CAST(JSON_EXTRACT_SCALAR(p.data, '$.createdAt._seconds') AS INT64) AS created_sec,
+    JSON_EXTRACT_SCALAR(line, '$.code') AS sku,
+    SAFE_CAST(JSON_EXTRACT_SCALAR(line, '$.qty') AS FLOAT64) AS qty,
+    SAFE_CAST(JSON_EXTRACT_SCALAR(line, '$.precio') AS FLOAT64) AS precio,
+    JSON_EXTRACT_SCALAR(p.data, '$.clientCardCode') AS cardcode_destino,
+    JSON_EXTRACT_SCALAR(p.data, '$.ownerVendor') AS vendor_destino
+  FROM `app-vendedores-shimano.shimano_app.pedidos_raw_raw_latest` p,
+       UNNEST(JSON_EXTRACT_ARRAY(p.data, '$.lines')) AS line
+  WHERE JSON_EXTRACT_SCALAR(p.data, '$.source') = 'stock-asignado-batch'
+    AND JSON_EXTRACT_SCALAR(p.data, '$.transferidoSAP.docNum') IS NOT NULL
+    AND JSON_EXTRACT_SCALAR(line, '$.state') IN ('confirmed', 'invoiced', 'ASIG')
+),
+entradas_por_mes AS (
+  SELECT
+    DATE_TRUNC(DATE(TIMESTAMP(cancelled_at), 'America/Argentina/Buenos_Aires'), MONTH) AS mes,
+    SUM(qty) AS unidades_entraron,
+    SUM(qty * COALESCE(precio, 0)) AS monto_entraron_ars,
+    COUNT(DISTINCT cardcode_origen) AS clientes_tocados
+  FROM entradas
+  WHERE cancelled_at IS NOT NULL
+  GROUP BY mes
+),
+salidas_por_mes AS (
+  SELECT
+    DATE_TRUNC(DATE(TIMESTAMP_SECONDS(created_sec), 'America/Argentina/Buenos_Aires'), MONTH) AS mes,
+    SUM(qty) AS unidades_salieron_sap,
+    SUM(qty * COALESCE(precio, 0)) AS monto_salieron_sap_ars,
+    COUNT(DISTINCT cardcode_destino) AS clientes_cumplidos
+  FROM salidas
+  WHERE created_sec IS NOT NULL
+  GROUP BY mes
+)
+SELECT
+  COALESCE(e.mes, s.mes) AS mes,
+  COALESCE(e.unidades_entraron, 0) AS unidades_entraron_flujo,
+  COALESCE(s.unidades_salieron_sap, 0) AS unidades_llegaron_a_sap,
+  COALESCE(e.unidades_entraron, 0) - COALESCE(s.unidades_salieron_sap, 0) AS unidades_perdidas,
+  SAFE_DIVIDE(COALESCE(s.unidades_salieron_sap, 0), COALESCE(e.unidades_entraron, 0)) AS tasa_cumplimiento_pct,
+  COALESCE(e.monto_entraron_ars, 0) AS monto_entraron_ars,
+  COALESCE(s.monto_salieron_sap_ars, 0) AS monto_llegaron_sap_ars,
+  COALESCE(e.clientes_tocados, 0) AS clientes_entraron_flujo,
+  COALESCE(s.clientes_cumplidos, 0) AS clientes_cumplidos
+FROM entradas_por_mes e
+FULL OUTER JOIN salidas_por_mes s USING (mes)
+WHERE COALESCE(e.mes, s.mes) IS NOT NULL
+ORDER BY mes DESC;
+
+
+-- ========================================================================
 -- VISTA 3: Funnel historico BO -> Stock Asignado -> confirmed via STOCK ASIG
 -- ========================================================================
 -- Usa el changelog (historial completo) para rastrear:
