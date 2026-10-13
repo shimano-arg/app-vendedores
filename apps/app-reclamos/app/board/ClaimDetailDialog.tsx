@@ -26,7 +26,7 @@ export function ClaimDetailDialog({
   }
   return (
     <div
-      className="sheet-backdrop flex items-start justify-center z-40 p-6"
+      className="sheet-backdrop flex items-start justify-center z-40 p-6 pt-24"
       onClick={close}
     >
       <div
