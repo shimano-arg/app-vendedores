@@ -3611,6 +3611,12 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     <!-- v1140 (2026-10-05): boton Mercado Libre reubicado desde el Panel de Control al header.
          Mismo gate que panel-control-btn: solo Mariano admin. Runtime guard en applyRolePermissions. -->
     <button class="btn-zonas" id="meli-header-btn" onclick="openMeliModal()" title="Mercado Libre: datos sincronizados desde mercado-intelligence (solo Mariano)" style="background:#FFE600;color:#a86200;display:none">Mercado Libre</button>
+    <!-- v1254 (2026-10-13): boton App Reclamos. Abre https://app-reclamos-shimano.vercel.app
+         en nueva pestaña (stack Next.js + Supabase + Vercel, no se puede
+         embeber como modal). Mismo gate que Mercado Libre (Mariano admin).
+         Codigo fuente ahora vive en este repo en apps/app-reclamos/ (v1254
+         migración monorepo). -->
+    <button class="btn-zonas" id="reclamos-header-btn" onclick="window.open('https://app-reclamos-shimano.vercel.app', '_blank', 'noopener,noreferrer')" title="App Reclamos: kanban Shimano ↔ Depósito (abre en pestaña nueva, auth propia Supabase)" style="background:#0071E3;color:#fff;display:none">App Reclamos</button>
   </div>
 </div>
 
@@ -6126,7 +6132,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1253';
+const APP_VERSION = 'v1254';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -25686,6 +25692,13 @@ function applyRolePermissions(){
     const _meliBtn = document.getElementById('meli-header-btn');
     if (_meliBtn) {
       _meliBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
+    }
+    // v1254 (2026-10-13): boton App Reclamos, mismo gate que MELI (admin + whitelist).
+    // Abre https://app-reclamos-shimano.vercel.app en pestaña nueva (stack
+    // Next.js aparte, auth propia Supabase).
+    const _reclamosBtn = document.getElementById('reclamos-header-btn');
+    if (_reclamosBtn) {
+      _reclamosBtn.style.display = (_isMarianoHdr && userRole === 'admin') ? '' : 'none';
     }
     // v1008 (2026-09-22): mismo gate para el nuevo Planner header btn.
     // v1032 (2026-09-22): whitelist ampliada — Mariano + Pablo (admin/gerente)

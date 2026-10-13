@@ -42,7 +42,7 @@ window.closeCampaignsPanel = function () {
   document.getElementById('campaigns-modal').classList.remove('open');
 };
 
-function populateCampFamilias() {
+function _populateCampFamilias() {
   const fams = [...new Set(PRODUCTS.map((p) => p.fam).filter(Boolean))].sort();
   document.getElementById('cf-familia').innerHTML =
     '<option value="">Seleccionar...</option>' +
