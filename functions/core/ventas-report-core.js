@@ -150,10 +150,11 @@ async function buildReportBuffer({ ventas, items, clients, vendors, visits, make
     acc.skus.add(itemCode);
     acc.docs += Number(v.docs || 0);
     // v1236: enriquecer con items master si BQ v_ventas_lineas trae NULLs.
+    // v1237: fallback final 'OTROS' en vez de vacio (nn() lo convertiria a '—').
     const meta = itemMetaByCode.get(itemCode) || null;
     const item_name = v.item_name || (meta && meta.item_name) || itemCode;
-    const familia = v.familia || (meta && meta.familia) || '';
-    const subfamilia = v.subfamilia || (meta && meta.subfamilia) || '';
+    const familia = v.familia || (meta && meta.familia) || 'OTROS';
+    const subfamilia = v.subfamilia || (meta && meta.subfamilia) || 'OTROS';
     resolvedVentas.push({
       vendor: vn,
       card_code: cardCode,

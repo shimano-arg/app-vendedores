@@ -2450,13 +2450,25 @@ export const generateVentasReportCF = onCall(
     });
     console.log('[generateVentasReportCF] ventas:', ventasRows.length);
 
-    // Fetch items master.
+    // v1237 (2026-10-13): ampliar master a UNION pesca + bike + sin filtrar
+    // valid/frozen. v_sap_items_enriched solo tiene 332 de los 1717 items
+    // vendidos sept 2026 (19%). Union con bike raw lleva a ~10700 items.
     const itemsSql = `
-      SELECT item_code, item_name, COALESCE(fam, cat) AS familia, COALESCE(sub, cat) AS subfamilia, cat
-      FROM \`app-vendedores-shimano.shimano_app.v_sap_items_enriched\`
+      SELECT item_code, item_name,
+             COALESCE(fam, cat, 'PESCA (sin familia)') AS familia,
+             COALESCE(sub, cat, 'PESCA (sin subfamilia)') AS subfamilia
+      FROM \`app-vendedores-shimano.shimano_app.sap_items_raw\`
       WHERE item_code IS NOT NULL
-        AND COALESCE(valid, 'tYES') = 'tYES'
-        AND COALESCE(frozen, 'tNO') = 'tNO'
+      UNION ALL
+      SELECT item_code, item_name,
+             COALESCE(subcategoria, marca, 'BIKE') AS familia,
+             COALESCE(clase, subcategoria, 'BIKE') AS subfamilia
+      FROM \`app-vendedores-shimano.shimano_app.sap_items_bike_raw\`
+      WHERE item_code IS NOT NULL
+        AND item_code NOT IN (
+          SELECT item_code FROM \`app-vendedores-shimano.shimano_app.sap_items_raw\`
+          WHERE item_code IS NOT NULL
+        )
     `;
     const [itemsRows] = await bq.query({ query: itemsSql, location: 'southamerica-east1' });
     console.log('[generateVentasReportCF] items:', itemsRows.length);
