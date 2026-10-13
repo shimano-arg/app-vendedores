@@ -2425,6 +2425,11 @@ export const generateVentasReportCF = onCall(
     });
 
     // Fetch ventas (agrupadas).
+    // v1245 (2026-10-13): filtrar SOLO PESCA. sap_items_raw es el master
+    // pesca; sap_items_bike_raw es bike. v_ventas_lineas mezcla ambos; sin
+    // filtro, el export incluia vendedores bike (via fallback "SAP SLP XXX"
+    // cuando no estan en sap_vendors) + items bike. Mariano explicito:
+    // "solo quiero pesca, nada mas".
     const ventasSql = `
       SELECT
         sales_person_code AS slp_code,
@@ -2439,6 +2444,10 @@ export const generateVentasReportCF = onCall(
         COUNT(DISTINCT doc_entry) AS docs
       FROM \`app-vendedores-shimano.shimano_app.v_ventas_lineas\`
       WHERE anio = @year AND mes = @month AND item_code IS NOT NULL
+        AND item_code IN (
+          SELECT item_code FROM \`app-vendedores-shimano.shimano_app.sap_items_raw\`
+          WHERE item_code IS NOT NULL
+        )
       GROUP BY slp_code, card_code, card_name, item_code, item_name, familia, subfamilia
       ORDER BY slp_code, card_name, item_code
     `;
@@ -2450,25 +2459,15 @@ export const generateVentasReportCF = onCall(
     });
     console.log('[generateVentasReportCF] ventas:', ventasRows.length);
 
-    // v1237 (2026-10-13): ampliar master a UNION pesca + bike + sin filtrar
-    // valid/frozen. v_sap_items_enriched solo tiene 332 de los 1717 items
-    // vendidos sept 2026 (19%). Union con bike raw lleva a ~10700 items.
+    // v1237: ampliar master a UNION pesca + bike (v_sap_items_enriched solo
+    // tenia 332/1717 items vendidos). v1245 (2026-10-13): quitar UNION bike,
+    // solo pesca. Mariano: "solo quiero pesca, nada mas" en este export.
     const itemsSql = `
       SELECT item_code, item_name,
              COALESCE(fam, cat, 'PESCA (sin familia)') AS familia,
              COALESCE(sub, cat, 'PESCA (sin subfamilia)') AS subfamilia
       FROM \`app-vendedores-shimano.shimano_app.sap_items_raw\`
       WHERE item_code IS NOT NULL
-      UNION ALL
-      SELECT item_code, item_name,
-             COALESCE(subcategoria, marca, 'BIKE') AS familia,
-             COALESCE(clase, subcategoria, 'BIKE') AS subfamilia
-      FROM \`app-vendedores-shimano.shimano_app.sap_items_bike_raw\`
-      WHERE item_code IS NOT NULL
-        AND item_code NOT IN (
-          SELECT item_code FROM \`app-vendedores-shimano.shimano_app.sap_items_raw\`
-          WHERE item_code IS NOT NULL
-        )
     `;
     const [itemsRows] = await bq.query({ query: itemsSql, location: 'southamerica-east1' });
     console.log('[generateVentasReportCF] items:', itemsRows.length);
