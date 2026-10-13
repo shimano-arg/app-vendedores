@@ -4717,6 +4717,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1245 (2026-10-13) — Export VENTAS_ART_CLI: filtrar solo PESCA (quitar BIKE)
+
+**Archivos**:
+- `functions/index.js:2427-2473` (query ventas filtra por `sap_items_raw` + query items quita UNION bike)
+
+**Antes**:
+`generateVentasReportCF` ejecutaba:
+- Query items: UNION de `sap_items_raw` (PESCA ~332 items) + `sap_items_bike_raw` (~10700 items) → master de ~11k items incluyendo bike.
+- Query ventas: `v_ventas_lineas` sin filtro de categoria.
+
+Resultado: Excel incluia vendedores BIKE (via fallback "SAP SLP XXX" cuando no estan en `sap_vendors`) + items bike enriquecidos. v1237 (2026-10-09) habia agregado la UNION bike pensando que mejoraba cobertura, pero termino mezclando categorias.
+
+**Problema**:
+Reporte Mariano 2026-10-13 post-export: "me trae vendedores de bike, items de bike y solo quiero pesca, nada mas".
+
+**Cambio**:
+- Query ventas: agregar `AND item_code IN (SELECT item_code FROM sap_items_raw)` → solo lineas de ventas de items PESCA.
+- Query items: eliminar la UNION con `sap_items_bike_raw`, dejar solo `sap_items_raw`.
+
+Resultado: ventas de items BIKE se excluyen del grouping, vendedores BIKE no aparecen (porque no tienen lineas), items BIKE no se enriquecen.
+
+**Deploy**: `firebase deploy --only functions:generateVentasReportCF`
+
+**Verificacion**:
+- Ejecutar export (dialog "Reportes" → "VENTAS_ART_CLI") y chequear:
+  - Pestana "Ventas x vendedor": solo los 7 vendedores PESCA (`sap_vendors`) + "(sin vendedor)" si hay unmapped.
+  - Pestana "Items vendidos": solo codes PESCA.
+  - Totales $ bajan vs version previa (bike ya no suma).
+
+**Rollback**:
+Revert `functions/index.js:2427-2473` + redeploy CF.
+
+---
+
 ### v1244 (2026-10-13) — Mostrar BOs expirados (>15d) en modal + export
 
 **Archivos**:
