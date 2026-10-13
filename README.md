@@ -4678,6 +4678,62 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1239 (2026-10-13) — Modal Productos: 6ta linea CONFIRMED (SQ en SAP pendiente)
+
+**Archivos**:
+- `index.html:26794-26830` (reemplaza bloque v1238 por desglose 6-line via `getStockDesglose`)
+- `index.html:6124` + `sw.js:20` (bump v1238 → v1239)
+
+**Antes (v1238)**:
+Modal mostraba 5 lineas (DEP11/DEP12/ASIG/EN COLA (BO)/LIBRE) donde EN COLA FIFO contaba solo state='BO' via `STOCK_BACKORDER_APP`. LIBRE = disp - ASIG - BO.
+
+**Problema**:
+Diagnostico Task #1 2026-10-13 descubrio que v1238 todavia mentia porque **no contaba lineas state='confirmed' pendientes** (pedidos ya en SAP como SQ sin facturar aun — ocupan stock fisico porque van a ser entregados). Caso real EXGC70HBAR:
+- dep11 = 22 fisicas
+- confirmed = 22 (SNAKE 14, SEBASTIAN 3, MARIANELA 2, PESCA ESCOBAR 2, EZEQUIEL 1 = los 5 clientes del modal "Stock Asignado")
+- BO = 16 (agregacion app, incluye DANIEL BATTISTONI 2, ALBERTO PONTORIERO 10, KOVRA 1, + diff 3u por otro bug ortogonal)
+- ASIG = 0
+- Motor usa `getStockRealmenteDisponible = max(dep11 - confirmed - BO - ASIG, 0) = max(22-22-16-0,0) = 0` → nuevo pedido queda BO.
+- v1238 mostraba LIBRE=6 (contaba solo BO en comprometido). v1239 muestra LIBRE=0 real.
+
+**Cambio**:
+Usar `window.getStockDesglose(sku)` que ya existe (`index.html:6351`) y devuelve `{fisico, comprometido, real, breakdown: {confirmed, BO, ASIG, WAITLIST_CPST}}` — la MISMA fuente que el motor de armado usa post-v1208.
+
+Formula nueva (6 lineas que suman al dep11):
+- CONFIRMED (SQ en SAP pendiente) = `breakdown.confirmed`
+- COMPROMETIDO (ASIG) = `breakdown.ASIG`
+- EN COLA FIFO (BO) = `breakdown.BO`
+- LIBRE PARA LA VENTA = `max(dep11 - confirmed - BO - ASIG, 0)`
+
+Para EXGC70HBAR hoy se ve:
+```
+STOCK FISICO (DEP 11): 22 unidades
+UNIDADES EN TRANSITO (DEP 12): 0 unidades
+CONFIRMED (SQ en SAP pendiente): 22 unidades
+COMPROMETIDO (ASIG): 0 unidades
+EN COLA FIFO (BO): 16 unidades
+LIBRE PARA LA VENTA: 0 unidades
+```
+
+**Por que**:
+- v1238 alineaba el modal con el motor en 1 dimension (BO), v1239 lo alinea en las 3 (confirmed + BO + ASIG) = exactamente lo que `getStockRealmenteDisponible` usa.
+- Cero vendedor puede ser engañado creyendo que tiene stock libre cuando el motor va a crear la linea BO.
+- `getStockDesglose` es fn pura testeada (reutilizada en modal Revisar, modal Backorder, etc), cero logica nueva.
+
+**Verificacion**:
+- 699/699 unit tests pass.
+- Smoke prod: abrir Productos → buscar EXGC70HBAR → modal muestra 6 lineas con LIBRE=0 (previamente 22 en v1237, 6 en v1238).
+- SKU sin confirmed/BO/ASIG: solo DEP11 + DEP12 + 3 ceros + LIBRE=dep11 (comportamiento viejo preservado).
+- Fallback: si `window.getStockDesglose` no cargo (bundle no listo), fallback usa el breakdown viejo (reservado=ASIG, BO=STOCK_BACKORDER_APP, confirmed=0) → se degrada a v1238 pero no rompe.
+
+**Rollback**:
+Revert index.html:26794-26830 al bloque v1238. sw.js + APP_VERSION a v1238.
+
+**Bug ortogonal descubierto (abrir ticket aparte)**:
+`stock_snapshot_app.backorderBySkuApp[EXGC70HBAR] = 16` pero conteo directo de lineas state='BO' qtyOpen en pedidos.open=true = 13 (DANIEL 2, PONTORIERO 10, KOVRA 1). Diff 3u. Ademas `backorderByClientSkuApp[EXGC70HBAR] = {}` esta vacio aunque el total agregado dice 16. Investigar `functions/core/pedido-snapshot-core.js`.
+
+---
+
 ### v1238 (2026-10-13) — Modal Productos: separar ASIG vs EN COLA FIFO (BO)
 
 **Archivos**:
