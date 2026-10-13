@@ -5117,6 +5117,63 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             </div>
             <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
           </div>
+          <!-- v1256 (2026-10-13): Ficha cliente ampliada. 5 selects nuevos
+               con enums fijos. Pedido Mariano para perfilar clientes SAP.
+               Reusa saveClientCategoriaFromModal (es generica por fieldName).
+               Rules: admin/gerente pueden update sin whitelist. -->
+          <div style="border-top:1px dashed var(--border-default);margin:14px -2px 10px;padding-top:10px">
+            <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Perfil comercial <span style="font-weight:500;color:var(--text-muted);text-transform:none;letter-spacing:0">(uso interno — ayuda a segmentar campa&ntilde;as y acciones)</span></div>
+            <div style="margin-bottom:8px">
+              <label for="cm-fidelidad" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Fidelidad</label>
+              <select id="cm-fidelidad" onchange="saveClientCategoriaFromModal('fidelidad', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+                <option value="">(sin clasificar)</option>
+                <option value="ALTA">Alta</option>
+                <option value="MEDIA">Media</option>
+                <option value="BAJA">Baja</option>
+              </select>
+            </div>
+            <div style="margin-bottom:8px">
+              <label for="cm-pref-contacto" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Preferencia de contacto</label>
+              <select id="cm-pref-contacto" onchange="saveClientCategoriaFromModal('prefContacto', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+                <option value="">(sin clasificar)</option>
+                <option value="CALL_CENTER">Call Center</option>
+                <option value="PRESENCIAL">Presencial</option>
+                <option value="AMBOS">Ambos</option>
+                <option value="AUTOGESTION_B2B">Autogesti&oacute;n (B2B)</option>
+              </select>
+            </div>
+            <div style="margin-bottom:8px">
+              <label for="cm-tamano" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tama&ntilde;o</label>
+              <select id="cm-tamano" onchange="saveClientCategoriaFromModal('tamano', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+                <option value="">(sin clasificar)</option>
+                <option value="GRANDE">Grande</option>
+                <option value="MEDIANO">Mediano</option>
+                <option value="CHICA">Chica</option>
+                <option value="LODGE">Lodge</option>
+                <option value="GUIA_DE_PESCA">Gu&iacute;a de pesca</option>
+                <option value="VENTAS_ESPECIALES">Ventas especiales</option>
+              </select>
+            </div>
+            <div style="margin-bottom:8px">
+              <label for="cm-especializacion" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Especializaci&oacute;n</label>
+              <select id="cm-especializacion" onchange="saveClientCategoriaFromModal('especializacion', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+                <option value="">(sin clasificar)</option>
+                <option value="AGUA_DULCE">Agua dulce</option>
+                <option value="PESCA_DE_MAR">Pesca de mar</option>
+                <option value="ALTA_GAMA">Alta gama</option>
+                <option value="BAJA_GENERAL">Baja - General</option>
+              </select>
+            </div>
+            <div style="margin-bottom:8px">
+              <label for="cm-tipo-local" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tipo de local</label>
+              <select id="cm-tipo-local" onchange="saveClientCategoriaFromModal('tipoLocal', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+                <option value="">(sin clasificar)</option>
+                <option value="FISICO">F&iacute;sico</option>
+                <option value="ECOMMERCE">E-commerce</option>
+              </select>
+            </div>
+            <div id="cm-perfil-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
+          </div>
           <div id="cm-geo-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
         </div>
         <div id="cm-actions" class="client-actions-block pendiente">
@@ -6132,7 +6189,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1255';
+const APP_VERSION = 'v1256';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10771,6 +10828,19 @@ function openClientModal(clientName, tipo, province, localityName){
   // cada pedido - asi que no hay mas campos a nivel cliente.
   const selTipo = document.getElementById('cm-cli-tipo');
   if (selTipo) selTipo.value = cmData.cliTipo || '';
+  // v1256 (2026-10-13): populate 5 selects del Perfil comercial.
+  const selFid = document.getElementById('cm-fidelidad');
+  if (selFid) selFid.value = cmData.fidelidad || '';
+  const selPref = document.getElementById('cm-pref-contacto');
+  if (selPref) selPref.value = cmData.prefContacto || '';
+  const selTam = document.getElementById('cm-tamano');
+  if (selTam) selTam.value = cmData.tamano || '';
+  const selEsp = document.getElementById('cm-especializacion');
+  if (selEsp) selEsp.value = cmData.especializacion || '';
+  const selTL = document.getElementById('cm-tipo-local');
+  if (selTL) selTL.value = cmData.tipoLocal || '';
+  const perfilStatus = document.getElementById('cm-perfil-status');
+  if (perfilStatus) perfilStatus.textContent = '';
   // v1056: Credito cheque (ARS) - solo admin/gerente. Number > 0 permitido, guarda
   // en client_master.creditoCheque (+ updatedAt/By) via saveClientCreditoChequeFromModal.
   const credBlockEl = document.getElementById('cm-credito-cheque-block');
