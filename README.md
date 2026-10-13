@@ -4717,6 +4717,48 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1258 (2026-10-13) — Modal "FICHA CLIENTE" especifico (rework v1256)
+
+**Archivos**:
+- `index.html:5162-5175` (bloque "Perfil comercial" inline → boton que abre modal nuevo)
+- `index.html:5207-5277` (modal #ficha-cliente-modal nuevo con 5 selects + fc-status)
+- `index.html:10873-10877` (populate 5 selects borrado de openClientModal)
+- `index.html:11054-11103` (funciones openFichaClienteFromClientModal + closeFichaCliente)
+- `src/domains/master-clientes.js:2738-2763` (saveClientCategoriaFromModal + 3er param statusElId opcional)
+- `app.bundle.js` regenerado
+- `index.html:6234` + `sw.js:20` (bump v1257 → v1258)
+
+**Antes (v1256)**:
+Los 5 selects de perfilado comercial (fidelidad / prefContacto / tamaño / especializacion / tipoLocal) estaban inline dentro del `#client-modal`, debajo del bloque "Categorizacion comercial". Compartian espacio con los datos operativos del cliente (direccion, fantasia, precaucion, cliTipo, credito).
+
+**Problema**:
+Pedido original de Mariano era un modal **especifico "FICHA CLIENTE"** separado del modal operativo. En v1256 interprete mal y los meti inline en el modal cliente general. Mezcla visual + semantica: los datos operativos (que todo vendedor edita) y el perfil comercial (que solo admin/gerente usa para segmentar campanas) comparten espacio sin diferenciacion.
+
+**Cambio**:
+- Modal nuevo `#ficha-cliente-modal` (z-index:1200 encima del `#client-modal` que esta en z-index:1000). Header "FICHA CLIENTE" + nombre cliente + metadata (localidad - provincia - SAP docId). Body con los 5 selects + fc-status.
+- Trigger: boton Apple pill azul ("Ficha Cliente (perfil para segmentar)") dentro del `#client-modal`, en el lugar donde antes estaban los selects inline.
+- Reutilizacion: el nuevo modal **no duplica logica de abrir cliente**. Lee el `dataset.docId` que ya seteo `openClientModal` + `clientMasterCache`. Zero cambio en Firestore schema.
+- `saveClientCategoriaFromModal(field, sel, statusElId?)` ahora acepta 3er param opcional para redirigir el feedback "Guardando / Guardada / Error" al status del modal visible (fc-status en el nuevo modal). Default sigue siendo 'cm-cli-status' — cliTipo (que no pasa el 3er arg) sigue mostrando feedback en el modal cliente.
+
+**Por que**:
+- Separar operativo vs. segmentacion. El modal cliente queda limpio para vendedor (datos de contacto, direccion, precaucion). El modal Ficha Cliente queda enfocado en los 5 campos de perfilado para admin/gerente.
+- Zero rework de Firestore. Los campos siguen siendo string en `client_master/{docId}` con el mismo nombre.
+- Zero rework del flow de filtros v1257 (modal Master Clientes lista). Esos selects filtran la lista masiva y siguen pegandole a los mismos campos.
+- Patron apple-design §1 (feedback pointerdown en el boton pill) + §7 (open/close spatial consistency: el modal nuevo abre encima del modal cliente, cerrarlo vuelve al cliente).
+
+**Verificacion**:
+1. Abrir una card de cliente → modal cliente abre con datos operativos. Scroll hasta "Categorizacion comercial" → ver boton azul "Ficha Cliente (perfil para segmentar)".
+2. Click boton → modal "FICHA CLIENTE" abre encima con nombre + SAP docId + 5 selects populados desde client_master.
+3. Cambiar un select (ej fidelidad: Alta) → fc-status muestra "Guardando..." → "✓ Categorizacion guardada".
+4. Verificar en Firestore: `client_master/{docId}.fidelidad === 'ALTA'`.
+5. Cerrar modal Ficha → volver al modal cliente intacto (datos y position preservados).
+6. 699/699 unit tests pass.
+
+**Rollback**:
+Si rompe, revert tres edits: (a) index.html — eliminar modal `#ficha-cliente-modal`, restaurar bloque "Perfil comercial" inline con los 5 selects, restaurar populate `selFid/selPref/selTam/selEsp/selTL` en `openClientModal`, borrar funciones openFichaClienteFromClientModal + closeFichaCliente; (b) master-clientes.js — borrar 3er param `statusElId` + volver a `document.getElementById('cm-cli-status')` hardcoded; (c) rebuild bundle + bump versiones a v1259 (no revertir v1258 — datos nuevos en Firestore se preservan).
+
+---
+
 ### v1249 (2026-10-13) — Modal Campañas: solo flujo Excel (eliminar form inline)
 
 **Archivos**:
