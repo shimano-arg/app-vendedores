@@ -5159,62 +5159,15 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             </div>
             <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
           </div>
-          <!-- v1256 (2026-10-13): Ficha cliente ampliada. 5 selects nuevos
-               con enums fijos. Pedido Mariano para perfilar clientes SAP.
-               Reusa saveClientCategoriaFromModal (es generica por fieldName).
-               Rules: admin/gerente pueden update sin whitelist. -->
-          <div style="border-top:1px dashed var(--border-default);margin:14px -2px 10px;padding-top:10px">
-            <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Perfil comercial <span style="font-weight:500;color:var(--text-muted);text-transform:none;letter-spacing:0">(uso interno — ayuda a segmentar campa&ntilde;as y acciones)</span></div>
-            <div style="margin-bottom:8px">
-              <label for="cm-fidelidad" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Fidelidad</label>
-              <select id="cm-fidelidad" onchange="saveClientCategoriaFromModal('fidelidad', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
-                <option value="">(sin clasificar)</option>
-                <option value="ALTA">Alta</option>
-                <option value="MEDIA">Media</option>
-                <option value="BAJA">Baja</option>
-              </select>
-            </div>
-            <div style="margin-bottom:8px">
-              <label for="cm-pref-contacto" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Preferencia de contacto</label>
-              <select id="cm-pref-contacto" onchange="saveClientCategoriaFromModal('prefContacto', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
-                <option value="">(sin clasificar)</option>
-                <option value="CALL_CENTER">Call Center</option>
-                <option value="PRESENCIAL">Presencial</option>
-                <option value="AMBOS">Ambos</option>
-                <option value="AUTOGESTION_B2B">Autogesti&oacute;n (B2B)</option>
-              </select>
-            </div>
-            <div style="margin-bottom:8px">
-              <label for="cm-tamano" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tama&ntilde;o</label>
-              <select id="cm-tamano" onchange="saveClientCategoriaFromModal('tamano', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
-                <option value="">(sin clasificar)</option>
-                <option value="GRANDE">Grande</option>
-                <option value="MEDIANO">Mediano</option>
-                <option value="CHICA">Chica</option>
-                <option value="LODGE">Lodge</option>
-                <option value="GUIA_DE_PESCA">Gu&iacute;a de pesca</option>
-                <option value="VENTAS_ESPECIALES">Ventas especiales</option>
-              </select>
-            </div>
-            <div style="margin-bottom:8px">
-              <label for="cm-especializacion" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Especializaci&oacute;n</label>
-              <select id="cm-especializacion" onchange="saveClientCategoriaFromModal('especializacion', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
-                <option value="">(sin clasificar)</option>
-                <option value="AGUA_DULCE">Agua dulce</option>
-                <option value="PESCA_DE_MAR">Pesca de mar</option>
-                <option value="ALTA_GAMA">Alta gama</option>
-                <option value="BAJA_GENERAL">Baja - General</option>
-              </select>
-            </div>
-            <div style="margin-bottom:8px">
-              <label for="cm-tipo-local" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tipo de local</label>
-              <select id="cm-tipo-local" onchange="saveClientCategoriaFromModal('tipoLocal', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
-                <option value="">(sin clasificar)</option>
-                <option value="FISICO">F&iacute;sico</option>
-                <option value="ECOMMERCE">E-commerce</option>
-              </select>
-            </div>
-            <div id="cm-perfil-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
+          <!-- v1258 (2026-10-13): Perfil comercial movido a modal propio
+               "Ficha Cliente" (abre con el boton). Rework de v1256 que lo
+               tenia inline aqui. Dato de Firestore es el mismo (client_master)
+               — no hay cambio de schema. -->
+          <div style="border-top:1px dashed var(--border-default);margin:14px -2px 10px;padding-top:10px;display:flex;justify-content:center">
+            <button type="button" onclick="openFichaClienteFromClientModal()" title="Perfil comercial para segmentar: fidelidad, tama&ntilde;o, especializaci&oacute;n, etc."
+              style="padding:8px 16px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+              <span style="font-size:14px">&#128203;</span> Ficha Cliente (perfil para segmentar)
+            </button>
           </div>
           <div id="cm-geo-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
         </div>
@@ -5253,6 +5206,79 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       </div>
     </div>
   </div>
+
+  <!-- v1258 (2026-10-13): Modal especifico "FICHA CLIENTE" con los 5 campos
+       de segmentacion. Se abre encima del #client-modal — reusa su dataset.docId
+       asi saveClientCategoriaFromModal no necesita duplicacion de logica.
+       Pedido Mariano: rework del v1256 que habia metido los 5 selects dentro
+       del modal operativo del cliente (direccion / precaucion / cliTipo).
+       Z-index mas alto que #client-modal (que tiene z-index:1000). -->
+  <div class="modal-overlay" id="ficha-cliente-modal" onclick="if(event.target===this)closeFichaCliente()" style="z-index:1200">
+    <div class="modal-box" style="max-width:460px">
+      <div class="modal-head">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:10px;font-weight:800;color:#007aff;letter-spacing:1px">FICHA CLIENTE</div>
+          <h2 id="fc-name" style="margin:2px 0 0;font-size:18px">-</h2>
+          <div class="subt" id="fc-meta" style="font-size:11px;color:var(--text-secondary);margin-top:2px">-</div>
+        </div>
+        <button class="modal-close" onclick="closeFichaCliente()" title="Cerrar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.4">Perfil comercial para segmentar campa&ntilde;as y acciones. Los campos son opcionales y se guardan autom&aacute;ticamente al cambiar.</div>
+        <div style="margin-bottom:10px">
+          <label for="fc-fidelidad" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Fidelidad</label>
+          <select id="fc-fidelidad" onchange="saveClientCategoriaFromModal('fidelidad', this, 'fc-status')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+            <option value="">(sin clasificar)</option>
+            <option value="ALTA">Alta</option>
+            <option value="MEDIA">Media</option>
+            <option value="BAJA">Baja</option>
+          </select>
+        </div>
+        <div style="margin-bottom:10px">
+          <label for="fc-pref-contacto" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Preferencia de contacto</label>
+          <select id="fc-pref-contacto" onchange="saveClientCategoriaFromModal('prefContacto', this, 'fc-status')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+            <option value="">(sin clasificar)</option>
+            <option value="CALL_CENTER">Call Center</option>
+            <option value="PRESENCIAL">Presencial</option>
+            <option value="AMBOS">Ambos</option>
+            <option value="AUTOGESTION_B2B">Autogesti&oacute;n (B2B)</option>
+          </select>
+        </div>
+        <div style="margin-bottom:10px">
+          <label for="fc-tamano" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tama&ntilde;o</label>
+          <select id="fc-tamano" onchange="saveClientCategoriaFromModal('tamano', this, 'fc-status')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+            <option value="">(sin clasificar)</option>
+            <option value="GRANDE">Grande</option>
+            <option value="MEDIANO">Mediano</option>
+            <option value="CHICA">Chica</option>
+            <option value="LODGE">Lodge</option>
+            <option value="GUIA_DE_PESCA">Gu&iacute;a de pesca</option>
+            <option value="VENTAS_ESPECIALES">Ventas especiales</option>
+          </select>
+        </div>
+        <div style="margin-bottom:10px">
+          <label for="fc-especializacion" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Especializaci&oacute;n</label>
+          <select id="fc-especializacion" onchange="saveClientCategoriaFromModal('especializacion', this, 'fc-status')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+            <option value="">(sin clasificar)</option>
+            <option value="AGUA_DULCE">Agua dulce</option>
+            <option value="PESCA_DE_MAR">Pesca de mar</option>
+            <option value="ALTA_GAMA">Alta gama</option>
+            <option value="BAJA_GENERAL">Baja - General</option>
+          </select>
+        </div>
+        <div style="margin-bottom:4px">
+          <label for="fc-tipo-local" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tipo de local</label>
+          <select id="fc-tipo-local" onchange="saveClientCategoriaFromModal('tipoLocal', this, 'fc-status')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+            <option value="">(sin clasificar)</option>
+            <option value="FISICO">F&iacute;sico</option>
+            <option value="ECOMMERCE">E-commerce</option>
+          </select>
+        </div>
+        <div id="fc-status" style="font-size:11px;color:var(--text-muted);margin-top:12px;min-height:16px"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="sidebar">
     <!-- Stats-bar clonada para desktop: queda arriba de las pestañas. La
          original (en el header) se oculta via CSS en desktop. En mobile
@@ -6231,7 +6257,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1257';
+const APP_VERSION = 'v1258';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10870,19 +10896,9 @@ function openClientModal(clientName, tipo, province, localityName){
   // cada pedido - asi que no hay mas campos a nivel cliente.
   const selTipo = document.getElementById('cm-cli-tipo');
   if (selTipo) selTipo.value = cmData.cliTipo || '';
-  // v1256 (2026-10-13): populate 5 selects del Perfil comercial.
-  const selFid = document.getElementById('cm-fidelidad');
-  if (selFid) selFid.value = cmData.fidelidad || '';
-  const selPref = document.getElementById('cm-pref-contacto');
-  if (selPref) selPref.value = cmData.prefContacto || '';
-  const selTam = document.getElementById('cm-tamano');
-  if (selTam) selTam.value = cmData.tamano || '';
-  const selEsp = document.getElementById('cm-especializacion');
-  if (selEsp) selEsp.value = cmData.especializacion || '';
-  const selTL = document.getElementById('cm-tipo-local');
-  if (selTL) selTL.value = cmData.tipoLocal || '';
-  const perfilStatus = document.getElementById('cm-perfil-status');
-  if (perfilStatus) perfilStatus.textContent = '';
+  // v1258 (2026-10-13): los 5 selects de perfil (fidelidad / prefContacto /
+  // tamano / especializacion / tipoLocal) se moveron al modal #ficha-cliente-modal.
+  // El populate se hace al abrir ese modal via openFichaClienteFromClientModal.
   // v1056: Credito cheque (ARS) - solo admin/gerente. Number > 0 permitido, guarda
   // en client_master.creditoCheque (+ updatedAt/By) via saveClientCreditoChequeFromModal.
   const credBlockEl = document.getElementById('cm-credito-cheque-block');
@@ -11024,6 +11040,56 @@ function closeClientModal(){
   currentClientModalKey = null;
 }
 window.closeClientModal = closeClientModal;
+
+// ============================================================
+// v1258 (2026-10-13): Modal "FICHA CLIENTE" especifico. Abre encima del
+// #client-modal reusando su dataset.docId (que ya fue seteado por openClientModal).
+// Los 5 selects (fidelidad / prefContacto / tamano / especializacion / tipoLocal)
+// guardan auto via saveClientCategoriaFromModal(field, sel, 'fc-status') —
+// 3er param redirige el feedback al status local del modal nuevo.
+// Rework de v1256 (que los habia metido inline en el #client-modal operativo).
+// ============================================================
+function openFichaClienteFromClientModal(){
+  var cmEl = document.getElementById('client-modal');
+  var docId = cmEl && cmEl.dataset && cmEl.dataset.docId;
+  if (!docId) { alert('Abri primero el cliente desde su card.'); return; }
+  var cmData = (typeof clientMasterCache !== 'undefined' && clientMasterCache.get)
+    ? (clientMasterCache.get(docId) || {}) : {};
+  var clientName = (cmEl.dataset.clientName) || (cmData.clientName) || '-';
+  var provincia = (cmEl.dataset.provincia) || (cmData.provincia) || '';
+  var localidad = (cmEl.dataset.localidad) || (cmData.localidad) || '';
+  var fcName = document.getElementById('fc-name');
+  if (fcName) fcName.textContent = clientName;
+  var fcMeta = document.getElementById('fc-meta');
+  if (fcMeta) {
+    var parts = [];
+    if (localidad) parts.push(localidad);
+    if (provincia) parts.push(titleCase ? titleCase(provincia) : provincia);
+    parts.push('SAP ' + docId);
+    fcMeta.textContent = parts.join(' - ');
+  }
+  // Populate 5 selects desde client_master cache.
+  var map = {
+    'fc-fidelidad': cmData.fidelidad || '',
+    'fc-pref-contacto': cmData.prefContacto || '',
+    'fc-tamano': cmData.tamano || '',
+    'fc-especializacion': cmData.especializacion || '',
+    'fc-tipo-local': cmData.tipoLocal || '',
+  };
+  Object.keys(map).forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.value = map[id];
+  });
+  var status = document.getElementById('fc-status');
+  if (status) status.textContent = '';
+  document.getElementById('ficha-cliente-modal').classList.add('open');
+}
+window.openFichaClienteFromClientModal = openFichaClienteFromClientModal;
+
+function closeFichaCliente(){
+  document.getElementById('ficha-cliente-modal').classList.remove('open');
+}
+window.closeFichaCliente = closeFichaCliente;
 
 // ============================================================
 // Modal: detalle de localidad con clientes + direcciones.

@@ -2735,7 +2735,13 @@ window.onMcAddrInput = function (input, docId, originalSaved) {
 // del vendedor (client-modal). Se guarda directo a client_master Firestore
 // (no a localStorage clientMeta) porque es business logic global - todos
 // los vendedores y admin tienen que ver los mismos valores.
-window.saveClientCategoriaFromModal = async function (fieldName, sel) {
+// v1258 (2026-10-13): 3er param opcional `statusElId` redirige el feedback
+// (Guardando / Guardada / Error) al elemento DOM pasado. Introducido para que
+// los selects del nuevo modal #ficha-cliente-modal muestren el status
+// dentro de ese modal (fc-status) en vez de en #cm-cli-status del modal
+// cliente operativo (que queda detras). Default sigue siendo 'cm-cli-status'
+// para preservar el feedback del dropdown cliTipo que no pasa el 3er arg.
+window.saveClientCategoriaFromModal = async function (fieldName, sel, statusElId) {
   if (typeof canWrite === 'function' && !canWrite()) {
     alert('Tu rol no permite cambiar la categorizacion del cliente.');
     const modalEl = document.getElementById('client-modal');
@@ -2753,7 +2759,7 @@ window.saveClientCategoriaFromModal = async function (fieldName, sel) {
     localidad: modalEl.dataset.localidad || '',
     clientName: modalEl.dataset.clientName || '',
   };
-  const status = document.getElementById('cm-cli-status');
+  const status = document.getElementById(statusElId || 'cm-cli-status');
   if (status) status.innerHTML = '<span style="color:#1d4ed8">Guardando...</span>';
   sel.disabled = true;
   try {
