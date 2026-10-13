@@ -6123,7 +6123,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1244';
+const APP_VERSION = 'v1246';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14533,87 +14533,64 @@ window.renderBackordersTab = function(){
     list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">' + _msg + '</div>';
     return;
   }
-  let html = '';
-  skus.slice(0, 100).forEach(g => {
-    // v691: ordenar clientes por unidades DESC segun modo (qtyAsignada en STOCK ASIG.,
-    // qtyBackorder en BACKORDER). Antes ordenaba por pendiente original.
-    const _isAsigMode = (backordersMode === 'asignacion');
+  // v1246 (2026-10-13): rediseño UI como matriz expandible.
+  // Antes: cards por SKU con header coloreado + lista de clientes dentro.
+  // Ahora: tabla con fila SKU | Unidades | chip estado. Click en SKU
+  // despliega subfilas (una por cliente) con Cliente | Unidades + botones
+  // admin (+/-/eliminar). Pedido Mariano: formato matricial estilo PBI.
+  const _isAsigMode = (backordersMode === 'asignacion');
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr style="background:var(--bg-elevated);border-bottom:2px solid var(--border-strong);text-align:left">';
+  html += '<th style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);width:60%">SKU</th>';
+  html += '<th style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);text-align:right">Unidades</th>';
+  html += '<th style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);text-align:center;width:140px">Estado</th>';
+  html += '</tr></thead><tbody>';
+  skus.slice(0, 100).forEach((g, _skuIdx) => {
     g.clientes.sort((a,b) => {
       const qa = _isAsigMode ? (a.qtyAsignada || 0) : (a.qtyBackorder || 0);
       const qb = _isAsigMode ? (b.qtyAsignada || 0) : (b.qtyBackorder || 0);
       return qb - qa;
     });
     const totalStr = Math.round(g.totalPendiente);
-    // v403 (2026-08-05): pintar header segun disponibilidad de stock.
-    // Verde=whs 11 (venta), Amarillo=whs 12 (transito), Naranja=sin stock.
     const _stkDisp = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(g.sku) || 0) : 0;
     const _stkTran = (typeof getStockTransito === 'function') ? (getStockTransito(g.sku) || 0) : 0;
-    let _hdrGradient, _stkLabel;
-    if (_stkDisp > 0) {
-      _hdrGradient = 'linear-gradient(135deg,#166534,#16a34a)';
-      _stkLabel = '' + _stkDisp + ' disponibles en dep. 11';
-    } else if (_stkTran > 0) {
-      _hdrGradient = 'linear-gradient(135deg,#78350f,#d97706)';
-      _stkLabel = '' + _stkTran + ' en transito (dep. 12)';
-    } else {
-      _hdrGradient = 'linear-gradient(135deg,#7c2d12,#c2410c)';
-      _stkLabel = 'sin stock en ningun deposito';
-    }
-    html += '<div style="margin-bottom:12px;background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:8px;overflow:hidden">';
-    // Header del SKU
-    html += '<div style="padding:10px 14px;background:' + _hdrGradient + ';color:#fff">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">';
-    html += '<div style="flex:1;min-width:0">';
-    html += '<div style="font-size:13px;font-weight:800">' + escapeHtml(g.sku) + '</div>';
-    html += '<div style="font-size:11px;opacity:.9;margin-top:2px">' + escapeHtml(g.producto || '(sin descripcion)') + '</div>';
-    if (g.familia || g.subfamilia) {
-      html += '<div style="font-size:10px;opacity:.75;margin-top:2px">' + escapeHtml(g.familia || '-') + ' / ' + escapeHtml(g.subfamilia || '-') + '</div>';
-    }
-    html += '<div style="font-size:10px;opacity:.95;margin-top:4px;font-weight:700">' + _stkLabel + '</div>';
-    // v1136 (2026-10-05): badge "Estado Agregado" alineado con tablero PBI.
-    // Reemplaza el badge urgente/parcial legacy. Terminología idéntica al
-    // tablero: SIN REPOSICIÓN / EN TRÁNSITO / PARCIAL (en tránsito) / EN DEPÓSITO.
-    // Formula: SWITCH ( TRUE(), _bo<=0, BLANK(),
-    //   _dep11=0 && _dep12=0, "SIN REPOSICIÓN",
-    //   _dep12 >= _bo, "EN TRÁNSITO",
-    //   _dep12 > 0, "PARCIAL (en tránsito)", ...)
-    let _estadoPbi = '';
-    let _estadoBg = '';
+    // Chip estado (misma formula v1136 PBI, pero compactado para la celda).
+    let _estadoPbi = '', _estadoBg = '', _estadoFg = '#fff';
     if (_isAsigMode) {
-      // Modo asignacion: strict solo muestra SKUs con dispSap>0.
-      if (_stkDisp > 0) { _estadoPbi = 'EN DEPÓSITO'; _estadoBg = 'rgba(22,163,74,.55)'; }
-      else if (_stkTran > 0) { _estadoPbi = 'EN TRÁNSITO'; _estadoBg = 'rgba(234,179,8,.55)'; }
-      else { _estadoPbi = 'SIN STOCK FÍSICO'; _estadoBg = 'rgba(0,0,0,.35)'; }
-    } else if (g.urgency === 'urgente') {
-      // Modo backorder: strict solo muestra SKUs con dispSap=0.
+      if (_stkDisp > 0) { _estadoPbi = 'EN DEPÓSITO'; _estadoBg = '#16a34a'; }
+      else if (_stkTran > 0) { _estadoPbi = 'EN TRÁNSITO'; _estadoBg = '#d97706'; }
+      else { _estadoPbi = 'SIN STOCK'; _estadoBg = '#64748b'; }
+    } else {
       const _bo = g.totalPendiente || 0;
-      if (_stkTran === 0) { _estadoPbi = 'SIN REPOSICIÓN'; _estadoBg = 'rgba(0,0,0,.35)'; }
-      else if (_stkTran >= _bo) { _estadoPbi = 'EN TRÁNSITO'; _estadoBg = 'rgba(234,179,8,.55)'; }
-      else { _estadoPbi = 'PARCIAL (en tránsito)'; _estadoBg = 'rgba(234,179,8,.35)'; }
+      if (_stkTran === 0) { _estadoPbi = 'SIN REPOSICIÓN'; _estadoBg = '#dc2626'; }
+      else if (_stkTran >= _bo) { _estadoPbi = 'EN TRÁNSITO'; _estadoBg = '#d97706'; }
+      else { _estadoPbi = 'PARCIAL'; _estadoBg = '#ea580c'; }
     }
-    if (_estadoPbi) {
-      html += '<div style="margin-top:6px"><span style="background:' + _estadoBg + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px">' + _estadoPbi + '</span></div>';
-    }
-    html += '</div>';
-    html += '<div style="text-align:right;flex-shrink:0"><div style="font-size:18px;font-weight:800">' + totalStr + '</div><div style="font-size:9px;text-transform:uppercase;opacity:.9;letter-spacing:.4px">unidades</div></div>';
-    html += '</div></div>';
-    // Clientes
-    html += '<div style="padding:0">';
+    const _rowId = 'bkmat-' + _skuIdx;
+    // Fila principal SKU
+    html += '<tr class="bkmat-sku-row" data-target="' + _rowId + '" style="cursor:pointer;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated)">';
+    html += '<td style="padding:10px 10px;vertical-align:top">';
+    html += '<div style="display:flex;align-items:flex-start;gap:8px">';
+    html += '<span class="bkmat-caret" style="color:var(--text-muted);font-size:10px;margin-top:3px;flex-shrink:0">▶</span>';
+    html += '<div style="flex:1;min-width:0">';
+    html += '<div style="font-size:13px;font-weight:800;color:var(--text-primary)">' + escapeHtml(g.sku) + '</div>';
+    html += '<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(g.producto || '(sin descripcion)') + '</div>';
+    html += '</div></div></td>';
+    html += '<td style="padding:10px;text-align:right;vertical-align:top">';
+    html += '<div style="font-size:16px;font-weight:800;color:#c2410c">' + totalStr + '</div>';
+    html += '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">' + g.clientes.length + ' client' + (g.clientes.length === 1 ? 'e' : 'es') + '</div>';
+    html += '</td>';
+    html += '<td style="padding:10px;text-align:center;vertical-align:top">';
+    html += '<span style="background:' + _estadoBg + ';color:' + _estadoFg + ';padding:3px 9px;border-radius:10px;font-size:9.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap">' + _estadoPbi + '</span>';
+    html += '</td></tr>';
+    // Filas-cliente (ocultas por default; toggle via click en sku row)
+    html += '<tr id="' + _rowId + '" class="bkmat-cli-wrap" style="display:none;background:var(--bg-base)"><td colspan="3" style="padding:0 10px 8px 36px">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px">';
     g.clientes.forEach(c => {
-      // v1199 (2026-10-08): badges "APP" y "EN SAP" eliminados por pedido Mariano.
-      // "No quiero ver mas nada de SAP u ofertas de ventas en Stock Asignado.
-      // Todo lo que tenga que ver con backorder o stock asignado es lo que hay
-      // en la app, todo lo de SAP quitalo/eliminalo."
-      // Post v1197 ya no hay fuente SAP legacy (c.source siempre 'app'). Los
-      // chips eran redundantes. metaText tambien simplificado: solo ciudad +
-      // Orden N + fecha (sin "APP ·" prefix ni "OFERTA DE VENTA #").
       const ordenLbl = c.pedidoOrden ? ('Orden ' + c.pedidoOrden) : (c.pedidoId ? ('Pedido ' + String(c.pedidoId).slice(0, 6)) : '');
-      const metaText = escapeHtml(c.ciudad || '-')
-        + (ordenLbl ? ' · ' + escapeHtml(ordenLbl) : '')
-        + (c.sqDocDate ? ' · ' + escapeHtml(c.sqDocDate) : '');
-      html += '<div style="padding:8px 14px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px">';
-      html += '<div style="flex:1;min-width:0">';
-      html += '<div style="font-size:12px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+      html += '<tr style="border-bottom:1px solid #f1f5f9">';
+      html += '<td style="padding:6px 10px 6px 0;vertical-align:middle">';
+      html += '<div style="font-size:11.5px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
       // v958 (Fase 3, 2026-09-16): badges CON/SIN RESERVA para distinguir
       // clientes P/A (reservan) vs B/C (no reservan). v1202 (2026-10-08):
       // CHIP REMOVIDO del UI por pedido Mariano — en produccion 100% de las
@@ -14647,9 +14624,9 @@ window.renderBackordersTab = function(){
         }
       }
       html += '<span>' + escapeHtml(c.nombre) + '</span>';
-      html += '</div>';
-      html += '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">' + metaText + '</div>';
-      html += '</div>';
+      html += '</div></td>';
+      html += '<td style="padding:6px 8px;text-align:right;vertical-align:middle;white-space:nowrap">';
+      html += '<div style="display:inline-flex;align-items:center;gap:6px">';
       // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
       const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
       // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion.
@@ -14739,15 +14716,29 @@ window.renderBackordersTab = function(){
         );
         html += '<button onclick="window.deleteConfirmedAppLinesForClient(' + _argsSafeSap + ')" title="' + escapeAttr(_lblTitleSap) + '" style="flex-shrink:0;background:var(--color-danger-bg);color:var(--color-danger-strong);border:1px solid #fca5a5;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer">ELIMINAR</button>';
       }
-      html += '</div>';
+      html += '</div></td></tr>';
     });
-    html += '</div>';
-    html += '</div>';
+    html += '</table></td></tr>';
   });
+  html += '</tbody></table>';
   if (skus.length > 100) {
     html += '<div style="padding:14px;text-align:center;color:var(--text-muted);font-size:11px">Mostrando 100 de ' + skus.length + ' SKUs. Refina la busqueda para ver menos.</div>';
   }
   list.innerHTML = html;
+  // v1246: binding del toggle expand/collapse para las filas SKU.
+  list.querySelectorAll('tr.bkmat-sku-row').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      // No disparar si clickeo adentro de un boton (admin ajustes).
+      if (e.target.closest('button')) return;
+      const targetId = row.getAttribute('data-target');
+      const wrap = document.getElementById(targetId);
+      if (!wrap) return;
+      const open = wrap.style.display !== 'none';
+      wrap.style.display = open ? 'none' : '';
+      const caret = row.querySelector('.bkmat-caret');
+      if (caret) caret.textContent = open ? '▶' : '▼';
+    });
+  });
   // v721.1: restaurar scroll para que el user vea que el card se movio, no que desaparecio.
   try { list.scrollTop = _prevScrollTop; } catch(_e){}
 };
