@@ -4619,9 +4619,29 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             Descargá el template, completá las filas (una por campaña) y volvé a subirlo.
             <br/>Columnas: <code>NOMBRE</code> · <code>VENDEDOR</code> · <code>FECHA_INICIO</code> · <code>FECHA_FIN</code> · <code>SKU</code> · <code>UNIDADES</code> ó <code>MONTO</code>.
           </p>
+          <!-- v1250 (2026-10-13): botones Apple pill (match .btn-camp
+               existente en apple-design.css:186). Inline style por
+               feedback_apple_pill_inline_style (SW cache CSS tarda
+               varios reloads en propagar reglas nuevas). Primary=Shimano
+               blue #49A2DA, Secondary=blanco con borde sutil. -->
           <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
-            <button type="button" onclick="document.getElementById('camp-import-file').click()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer">Importar Excel</button>
-            <button type="button" onclick="downloadCampaignTemplate()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer" title="Descargar un Excel vacío con las columnas correctas">Descargar template</button>
+            <button type="button"
+                    onclick="document.getElementById('camp-import-file').click()"
+                    onmousedown="this.style.transform='scale(0.97)'"
+                    onmouseup="this.style.transform=''"
+                    onmouseleave="this.style.transform=''"
+                    onmouseover="this.style.background='#3A8CC0'"
+                    onmouseout="this.style.background='#49A2DA'"
+                    style="background:#49A2DA;color:#ffffff;border:none;border-radius:980px;padding:12px 28px;font-size:14px;font-weight:600;letter-spacing:-0.01em;cursor:pointer;transition:background 150ms ease-out,transform 100ms ease-out;box-shadow:0 1px 2px rgba(73,162,218,0.25);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif">Importar Excel</button>
+            <button type="button"
+                    onclick="downloadCampaignTemplate()"
+                    onmousedown="this.style.transform='scale(0.97)'"
+                    onmouseup="this.style.transform=''"
+                    onmouseleave="this.style.transform=''"
+                    onmouseover="this.style.background='#f5f5f7'"
+                    onmouseout="this.style.background='#ffffff'"
+                    title="Descargar un Excel vacío con las columnas correctas"
+                    style="background:#ffffff;color:#1d1d1f;border:1px solid rgba(0,0,0,0.1);border-radius:980px;padding:12px 24px;font-size:14px;font-weight:600;letter-spacing:-0.01em;cursor:pointer;transition:background 150ms ease-out,transform 100ms ease-out;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif">Descargar template</button>
             <input id="camp-import-file" type="file" accept=".xlsx,.xls" style="display:none" onchange="handleCampaignImportFile(event)" />
           </div>
           <div id="camp-import-preview" style="display:none;margin-top:14px"></div>
@@ -6106,7 +6126,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1249';
+const APP_VERSION = 'v1250';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
