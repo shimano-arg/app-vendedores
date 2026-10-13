@@ -4678,6 +4678,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1241 (2026-10-13) — Cards STOCK ASIG en PEDIDOS EN ESPERA: hover sin cambio de color
+
+**Archivos**:
+- `index.html:2185,2190` (2 reglas CSS :hover reseteadas al bg idle)
+- `index.html:6124` + `sw.js:20` (bump v1240 → v1241)
+
+**Antes**:
+Cards `.slft-wl-item.source-cpst` del listado "PEDIDOS EN ESPERA" (pedidos generados desde Stock Asignado, con chip "STOCK ASIG") cambiaban de fondo al hover:
+- Idle: `#fde68a` (amarillo claro) → Hover: `#fcd34d` (amarillo saturado)
+- Idle has-exceed: `#fdba74` (naranja) → Hover: `#fb923c` (naranja fuerte)
+
+**Problema**:
+Mariano pidio explicitamente que NO cambie color en hover — llama la atencion sin sumar informacion, se siente ruidoso.
+
+**Cambio**:
+Hover de ambas variantes seteado al mismo bg del idle. Cursor pointer + resto de estilos (border, color texto) sin cambios para preservar la indicacion de clickeable.
+
+**Verificacion**:
+- Abrir pane principal con pedidos "STOCK ASIG" en PEDIDOS EN ESPERA → pasar mouse sobre card amarilla → color inalterado.
+- Cards normales (sin chip STOCK ASIG) siguen con su hover amarillo claro `.slft-wl-item:hover` (sin cambio).
+
+**Rollback**:
+Revert index.html:2185 a `#fcd34d` y 2190 a `#fb923c`.
+
+---
+
 ### v1240 (2026-10-13) — Modal Stock Asignado: wording dinamico (no "backorder" en modo asignacion)
 
 **Archivos**:
