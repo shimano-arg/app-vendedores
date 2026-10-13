@@ -4606,50 +4606,22 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div><h2>Campa&ntilde;as comerciales</h2><div class="subt">Define un objetivo de venta (unidades o monto de dinero) para una familia/categor&iacute;a y un rango de fechas.</div></div>
         <button class="modal-close" onclick="closeCampaignsPanel()">&times;</button>
       </div>
-      <div class="users-wrap">
+<div class="users-wrap">
         <div class="camp-form">
-          <h4 style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--color-warning);margin-bottom:8px">Nueva campa&ntilde;a</h4>
-          <div class="cf-grid">
-            <div><label>Nombre</label><input id="cf-name" placeholder="ej. POWER PRO" /></div>
-            <div><label>Objetivo</label>
-              <div class="target-toggle">
-                <button type="button" class="tt-btn active" data-tt="units" onclick="setTargetType('units')">Unidades</button>
-                <button type="button" class="tt-btn" data-tt="money" onclick="setTargetType('money')">Monto $</button>
-              </div>
-              <input id="cf-target-amount" type="number" placeholder="100" />
-            </div>
-            <div><label>Desde</label><input id="cf-start" type="date" /></div>
-            <div><label>Hasta</label><input id="cf-end" type="date" /></div>
-            <div style="grid-column:1 / -1"><label>Familia</label>
-              <select id="cf-familia" onchange="onCampFamiliaChange()"><option value="">Seleccionar...</option></select>
-            </div>
-            <div style="grid-column:1 / -1"><label>Subfamilia</label>
-              <select id="cf-subfamilia" onchange="onCampSubfamiliaChange()"><option value="">Seleccionar familia primero...</option></select>
-            </div>
-            <div style="grid-column:1 / -1"><label>SKUs incluidos</label>
-              <div class="sku-list" id="cf-skus"><div style="color:var(--text-muted);font-size:11px;padding:14px;text-align:center">Seleccione familia y subfamilia primero</div></div>
-              <div class="sku-counter" id="cf-skus-counter">0 SKU seleccionados</div>
-            </div>
-            <div style="grid-column:1 / -1"><label>Alcance de la campa&ntilde;a</label>
-              <div class="scope-toggle">
-                <button type="button" class="scope-btn active" data-scope="all" onclick="setCampScope('all')">Todas las zonas</button>
-                <button type="button" class="scope-btn" data-scope="province" onclick="setCampScope('province')">Por provincia</button>
-                <button type="button" class="scope-btn" data-scope="vendor" onclick="setCampScope('vendor')">Por vendedor</button>
-              </div>
-              <div id="cf-scope-provinces" style="display:none;margin-top:8px">
-                <div class="sku-list" id="cf-province-list" style="max-height:160px"></div>
-                <div class="sku-counter" id="cf-province-counter">0 provincia(s) seleccionada(s)</div>
-              </div>
-              <div id="cf-scope-vendors" style="display:none;margin-top:8px">
-                <div class="sku-list" id="cf-vendor-list" style="max-height:160px"></div>
-                <div class="sku-counter" id="cf-vendor-counter">0 vendedor(es) seleccionado(s)</div>
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;justify-content:center;margin-top:14px;gap:8px;flex-wrap:wrap">
-            <button class="btn-camp" onclick="saveCampaign()">Crear campa&ntilde;a</button>
-            <button type="button" onclick="document.getElementById('camp-import-file').click()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer">Importar Excel</button>
-            <button type="button" onclick="downloadCampaignTemplate()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:9px 12px;font-size:11px;font-weight:700;cursor:pointer" title="Descargar un Excel vac&iacute;o con las columnas correctas">Template</button>
+          <!-- v1249 (2026-10-13): Mariano decidio que las campañas se crean SOLO
+               desde Excel. Form inline (nombre/objetivo/fechas/familia/subfamilia/
+               SKUs/alcance + boton "Crear campaña") eliminado. Dejamos solo
+               Template + Importar Excel. Funciones JS legacy (saveCampaign,
+               setTargetType, onCampFamiliaChange, etc) quedan como código muerto
+               en campanias.js — zero callers externos. Cleanup futuro. -->
+          <h4 style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--color-warning);margin-bottom:12px">Nueva campaña</h4>
+          <p style="margin:0 0 14px;color:var(--text-muted);font-size:12px;line-height:1.5">
+            Descargá el template, completá las filas (una por campaña) y volvé a subirlo.
+            <br/>Columnas: <code>NOMBRE</code> · <code>VENDEDOR</code> · <code>FECHA_INICIO</code> · <code>FECHA_FIN</code> · <code>SKU</code> · <code>UNIDADES</code> ó <code>MONTO</code>.
+          </p>
+          <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap">
+            <button type="button" onclick="document.getElementById('camp-import-file').click()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer">Importar Excel</button>
+            <button type="button" onclick="downloadCampaignTemplate()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:10px 16px;font-size:12px;font-weight:700;cursor:pointer" title="Descargar un Excel vacío con las columnas correctas">Descargar template</button>
             <input id="camp-import-file" type="file" accept=".xlsx,.xls" style="display:none" onchange="handleCampaignImportFile(event)" />
           </div>
           <div id="camp-import-preview" style="display:none;margin-top:14px"></div>
@@ -6134,7 +6106,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1248';
+const APP_VERSION = 'v1249';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

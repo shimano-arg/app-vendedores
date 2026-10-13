@@ -4717,6 +4717,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1249 (2026-10-13) — Modal Campañas: solo flujo Excel (eliminar form inline)
+
+**Archivos**:
+- `index.html:4604-4625` (reemplazo form inline por panel Excel-only)
+- `src/domains/campanias.js:openCampaignsPanel` (simplificado)
+- `index.html:6126` + `sw.js:20` (bump v1248 → v1249)
+
+**Antes**:
+Modal Campañas tenía form inline (nombre, objetivo, fechas, familia, subfamilia, SKUs checkboxes, alcance) + botón "Crear campaña". Después agregado en v1247 "Importar Excel" + "Template".
+
+**Problema**:
+Mariano reportó 2026-10-13 post-v1247: tener los 2 flujos duplicado y confuso. Decisión: eliminar form inline, campañas solo via Excel.
+
+**Cambio**:
+- DOM del form inline eliminado del modal.
+- Reemplazado por panel compacto: párrafo explicativo + 2 botones (Importar Excel / Descargar template).
+- `openCampaignsPanel` simplificado — no toca más campos inexistentes.
+- Funciones JS legacy (`saveCampaign`, `setTargetType`, `setCampScope`, `onCampFamiliaChange`, etc) quedan como código muerto en `campanias.js`. Cero callers externos. Cleanup futuro.
+
+**Verificacion**:
+- Abrir modal Campañas → ver solo panel Excel + listado.
+- Flow Importar + Template igual que v1247.
+- 699/699 unit tests pass.
+
+**Rollback**:
+Revert `index.html:4604-4625` y la fn `openCampaignsPanel` en `src/domains/campanias.js`.
+
+---
+
+### v1248 (2026-10-13) — Ocultar botón "Revisión Excel" en mobile
+
+CSS media query `@media (max-width:768px) { #revision-btn { display: none !important } }` dentro de `index.html:1927`. El flow Revisión Excel requiere pantalla grande + archivo xlsx — no se usa en mobile. `#waitlist-btn` (misma clase `.revision-btn` pero otro propósito) preservado.
+
+---
+
 ### v1247 (2026-10-13) — Importar campañas comerciales desde Excel
 
 **Archivos**:
