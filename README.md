@@ -3372,26 +3372,40 @@ Las dos colecciones requieren rules con helper `isSeguimientoUser()` (admin/gere
 
 ### Vistas tasa de cumplimiento Backorder (2026-10-13) — NUEVO
 
-Pedido Mariano: medir si el flujo "Crear Pedido - ST" (v1192+v1209, 2026-10-08) convierte efectivamente lineas BO → pedido confirmado en SAP.
+Pedido Mariano: medir si el flujo "Crear Pedido - ST" (v1145+v1209, 2026-10-06/08) convierte efectivamente lineas ASIG → pedido confirmado en SAP.
 
-**3 vistas** en `scripts/bq/cumplimiento_bo.sql` (deploy con `python scripts/bq/deploy_cumplimiento_bo.py`):
+**4 vistas** en `scripts/bq/cumplimiento_bo.sql` (deploy con `python scripts/bq/deploy_cumplimiento_bo.py`):
 
 | Vista | Granularidad | Metrica |
 |---|---|---|
+| `v_bo_cumplimiento_cpst` ⭐ | 1 fila por mes | **LA PRINCIPAL** — tasa real del flujo CPST: unidades llegadas a SAP via `source='stock-asignado-batch'` / unidades que entraron al flujo (`cancelledFrom='crear-pedido-st'`) |
 | `v_bo_cumplimiento_pedidos` | 1 fila por mes | Tasa simple = pedidos `source='stock-asignado-batch'` / total pedidos confirmed en SAP |
 | `v_bo_cumplimiento_unidades` | 1 fila por mes | Tasa qty-weighted = unidades via STOCK ASIG / unidades totales. Incluye monto $ |
 | `v_bo_cumplimiento_funnel` | 1 fila por mes | Funnel: total → con BO historico → llegaron a SAP → via STOCK ASIG. 2 tasas: BO→SAP (eventual fulfillment) + Adopcion STOCK ASIG |
 
-**Flag clave**: `pedidos.source = 'stock-asignado-batch'` persistido en Firestore cuando el pedido se genera desde "Crear Pedido - ST" del modal Stock Asignado (`index.html:31229`).
+**Flags clave en Firestore**:
+- Entrada al flujo: `pedidos.lines[].cancelledFrom = 'crear-pedido-st'` (linea vieja cancelada por el batch CPST)
+- Salida del flujo: `pedidos.source = 'stock-asignado-batch'` + `transferidoSAP.docNum IS NOT NULL`
+- Codigo que escribe los markers: `index.html:15617` (payload) + `index.html:15627` (cancelFrom)
 
-**Snapshot a 2026-10-13** (feature con 5 dias de vida):
-- Cumplimiento BO→SAP: **94-97%** historico (septiembre/octubre 2026) → funciona bien incluso sin el flujo nuevo.
-- Adopcion STOCK ASIG: **1-2%** → casi nadie usa el boton nuevo. Hipotesis: VDE prefiere avisar al cliente por WhatsApp y que arme el pedido normal.
+**Snapshot a 2026-10-13 (5 dias de vida del feature)**:
+| Metrica | Valor | Interpretacion |
+|---|---|---|
+| Unidades entraron al flujo CPST | 911 | 17 clientes capturados por admin/VDE |
+| Unidades llegaron a SAP via CPST | 20 | Solo 1 cliente cumplido |
+| **Tasa cumplimiento real** | **2.2%** | **Flujo quebrado — 97% se pierde entre ASIG y SAP** |
+| Monto entrado | $47M | Potencial |
+| Monto facturado | $1.6M | Real |
+
+**Hipotesis causa raiz** (requiere investigacion aparte):
+- El waitlist creado por CPST se queda en lista de espera (VDE no lo "pasa a pendientes")
+- O pasa a pending pero no llega a confirmed (user bail-out)
+- O se cancela antes de enviar a SAP (manual admin)
 
 **Como consumirlas en PowerBI**:
-Conector BigQuery, project `app-vendedores-shimano`, dataset `shimano_app`, importar las 3 vistas. Para dashboard: card principal con tasa_cumplimiento_pct ultimo mes + line chart por mes + funnel chart con las 4 etapas de v_bo_cumplimiento_funnel.
+Conector BigQuery, project `app-vendedores-shimano`, dataset `shimano_app`, importar las 4 vistas. Dashboard sugerido: card gigante con `v_bo_cumplimiento_cpst.tasa_cumplimiento_pct` ultimo mes + barra "entraron vs llegaron" + ranking de causas de "unidades perdidas".
 
-**Mantenimiento**: las vistas leen de `pedidos_raw_raw_latest` (ultimo estado) + `pedidos_raw_raw_changelog` (historial para el funnel). Zero mantenimiento mientras el flag `source` siga persistiendo. Si cambia el nombre del flag o se agrega otro origen (ej `'cpst-manual-batch'`), actualizar los `WHERE source = 'stock-asignado-batch'`.
+**Mantenimiento**: las vistas leen de `pedidos_raw_raw_latest` (ultimo estado) + `pedidos_raw_raw_changelog` (historial, solo en v_bo_cumplimiento_funnel). Zero mantenimiento mientras los flags `source` y `cancelledFrom` sigan persistiendo. Si cambia el nombre de alguno, actualizar los `WHERE` correspondientes.
 
 ---
 
