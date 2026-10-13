@@ -109,6 +109,8 @@ function toDateString(value) {
  * @property {string} [mesYYYYMM] Filtro por prefijo `YYYY-MM` del confirmedAt/createdAt.
  * @property {'urgente'|'parcial'|'todos'} [urgencyFilter] Solo aplica en mode='urgente'.
  * @property {AggregationMode} [aggregationMode] Default 'fifo'. Ver typedef arriba.
+ * @property {boolean} [includeExpired] v1244: salta filtro TTL de lineReservesStock para
+ *   mostrar BOs vencidos (>15d) en modal/export. NO afecta motor de stock.
  *
  * @typedef {Object} BackorderDeps
  * @property {(sku: string) => number} getStockDisponibleVenta Stock físico dep 11.
