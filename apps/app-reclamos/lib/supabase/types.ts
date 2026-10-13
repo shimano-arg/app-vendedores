@@ -141,6 +141,7 @@ export type Database = {
       claims: {
         Row: {
           assignee_id: string
+          claim_type: string | null
           client_name: string | null
           created_at: string
           created_by: string
@@ -156,6 +157,7 @@ export type Database = {
         }
         Insert: {
           assignee_id: string
+          claim_type?: string | null
           client_name?: string | null
           created_at?: string
           created_by: string
@@ -171,6 +173,7 @@ export type Database = {
         }
         Update: {
           assignee_id?: string
+          claim_type?: string | null
           client_name?: string | null
           created_at?: string
           created_by?: string

@@ -93,6 +93,7 @@ export async function createClaim(
   const {
     remitoNumber,
     observations,
+    claimType,
     assigneeId,
     invoiceNumber,
     clientName,
@@ -134,6 +135,7 @@ export async function createClaim(
       fantasy_name: fantasyName || null,
       video_armado_reviewed: videoArmadoReviewed ?? false,
       video_cliente_reviewed: videoClienteReviewed ?? false,
+      claim_type: claimType,
     })
     .select()
     .single();
