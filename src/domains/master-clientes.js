@@ -1950,6 +1950,126 @@ window.debouncedRenderMc = (function () {
   };
 })();
 
+// v1257 (2026-10-13): helpers para filtros de perfil comercial.
+function _mcPerfilFilterValue(id) {
+  const el = document.getElementById(id);
+  if (!el) return '';
+  const v = el.value || '';
+  return v === 'ALL' ? '' : v;
+}
+function _mcMatchPerfil(fieldValue, filterValue) {
+  if (!filterValue) return true;
+  if (filterValue === '__none__') return !fieldValue;
+  return fieldValue === filterValue;
+}
+
+// v1257 (2026-10-13): export Excel con el perfil comercial de los clientes
+// filtrados. Reutiliza loadExcelJS (on-demand). 6 campos de perfil + metadata
+// base. Respeta filtros activos (vendor + prov + loc + perfil + search).
+window.exportMasterClientesPerfil = async function () {
+  const btn = document.getElementById('mc-export-perfil-btn');
+  try {
+    if (btn) btn.disabled = true;
+    if (typeof window.loadExcelJS === 'function') await window.loadExcelJS();
+    if (!window.ExcelJS) throw new Error('ExcelJS no disponible');
+
+    // Replicar la logica de filtrado de renderMasterClientesTable.
+    const fv = document.getElementById('mc-filt-vendor').value;
+    const fp = document.getElementById('mc-filt-prov').value;
+    const fl = document.getElementById('mc-filt-loc').value;
+    const fq = (document.getElementById('mc-search').value || '').trim().toLowerCase();
+    const fcTipo = _mcPerfilFilterValue('mc-filt-clitipo');
+    const fcFid = _mcPerfilFilterValue('mc-filt-fidelidad');
+    const fcTam = _mcPerfilFilterValue('mc-filt-tamano');
+    const fcEsp = _mcPerfilFilterValue('mc-filt-especializacion');
+    const fcTL = _mcPerfilFilterValue('mc-filt-tipolocal');
+
+    let entries = getAllStoreEntries();
+    if (mcSapMode) entries = entries.filter((e) => e.tipo === 'sap_alta' && e.sapCardCode);
+    if (fv !== 'ALL') entries = entries.filter((e) => e.vendor === fv);
+    if (fp !== 'ALL') entries = entries.filter((e) => e.provincia === fp);
+    if (fl !== 'ALL') entries = entries.filter((e) => e.localidad === fl);
+    if (fq)
+      entries = entries.filter((e) =>
+        matchesAllTokens(
+          [e.nombre, e.localidad, e.provincia, e.vendor].filter(Boolean).join(' | '),
+          fq
+        )
+      );
+    if (fcTipo || fcFid || fcTam || fcEsp || fcTL) {
+      entries = entries.filter((e) => {
+        const docId = clientLocId(e.provincia, e.localidad, e.nombre);
+        const cm = clientMasterCache.get(docId) || {};
+        if (!_mcMatchPerfil(cm.cliTipo, fcTipo)) return false;
+        if (!_mcMatchPerfil(cm.fidelidad, fcFid)) return false;
+        if (!_mcMatchPerfil(cm.tamano, fcTam)) return false;
+        if (!_mcMatchPerfil(cm.especializacion, fcEsp)) return false;
+        if (!_mcMatchPerfil(cm.tipoLocal, fcTL)) return false;
+        return true;
+      });
+    }
+
+    const wb = new window.ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Perfil Clientes');
+    ws.columns = [
+      { header: 'CARD_CODE', key: 'cc', width: 16 },
+      { header: 'CLIENTE', key: 'cliente', width: 32 },
+      { header: 'VENDEDOR', key: 'vendor', width: 24 },
+      { header: 'PROVINCIA', key: 'prov', width: 18 },
+      { header: 'LOCALIDAD', key: 'loc', width: 22 },
+      { header: 'CATEGORIA', key: 'cliTipo', width: 10 },
+      { header: 'FIDELIDAD', key: 'fidelidad', width: 11 },
+      { header: 'PREF_CONTACTO', key: 'prefContacto', width: 16 },
+      { header: 'TAMANO', key: 'tamano', width: 16 },
+      { header: 'ESPECIALIZACION', key: 'especializacion', width: 18 },
+      { header: 'TIPO_LOCAL', key: 'tipoLocal', width: 12 },
+      { header: 'CREDITO_CHEQUE_ARS', key: 'credito', width: 16 },
+      { header: 'UPDATED_BY', key: 'ub', width: 28 },
+    ];
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } };
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+
+    for (const e of entries) {
+      const docId = clientLocId(e.provincia, e.localidad, e.nombre);
+      const cm = clientMasterCache.get(docId) || {};
+      ws.addRow([
+        e.sapCardCode || '',
+        e.nombre || '',
+        e.vendor || '',
+        e.provincia || '',
+        e.localidad || '',
+        cm.cliTipo || '',
+        cm.fidelidad || '',
+        cm.prefContacto || '',
+        cm.tamano || '',
+        cm.especializacion || '',
+        cm.tipoLocal || '',
+        cm.creditoCheque != null ? Number(cm.creditoCheque) : '',
+        cm.updatedBy || '',
+      ]);
+    }
+
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: entries.length + 1, column: 13 } };
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'perfil-clientes-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    if (typeof showSyncTag === 'function') showSyncTag('Exportados: ' + entries.length);
+  } catch (e) {
+    console.error('[mc-export-perfil]', e);
+    alert('Error exportando: ' + (e.message || e));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
 window.renderMasterClientesTable = function () {
   const cont = document.getElementById('mc-body');
   if (!cont) return;
@@ -1965,6 +2085,13 @@ window.renderMasterClientesTable = function () {
   const fl = document.getElementById('mc-filt-loc').value;
   const fe = document.getElementById('mc-filt-estado').value;
   const fq = (document.getElementById('mc-search').value || '').trim().toLowerCase();
+  // v1257 (2026-10-13): filtros de perfil comercial (6 selects). Patron __none__
+  // = filtra solo clientes SIN ese campo (null/vacio). ALL = sin filtro.
+  const fcTipo = _mcPerfilFilterValue('mc-filt-clitipo');
+  const fcFid = _mcPerfilFilterValue('mc-filt-fidelidad');
+  const fcTam = _mcPerfilFilterValue('mc-filt-tamano');
+  const fcEsp = _mcPerfilFilterValue('mc-filt-especializacion');
+  const fcTL = _mcPerfilFilterValue('mc-filt-tipolocal');
 
   let entries = getAllStoreEntries();
   // v349+: modo SAP-only aplica primero. Excluye POINTS del padron viejo y
@@ -1973,6 +2100,23 @@ window.renderMasterClientesTable = function () {
   if (fv !== 'ALL') entries = entries.filter((e) => e.vendor === fv);
   if (fp !== 'ALL') entries = entries.filter((e) => e.provincia === fp);
   if (fl !== 'ALL') entries = entries.filter((e) => e.localidad === fl);
+  // v1257: aplicar filtros perfil comercial. Resolvemos el valor del cliente
+  // leyendo clientMasterCache (donde viven los campos editados por el modal).
+  if (fcTipo || fcFid || fcTam || fcEsp || fcTL) {
+    entries = entries.filter((e) => {
+      const docId =
+        e.tipo === 'sap_alta'
+          ? clientLocId(e.provincia, e.localidad, e.nombre)
+          : clientLocId(e.provincia, e.localidad, e.nombre);
+      const cm = clientMasterCache.get(docId) || {};
+      if (!_mcMatchPerfil(cm.cliTipo, fcTipo)) return false;
+      if (!_mcMatchPerfil(cm.fidelidad, fcFid)) return false;
+      if (!_mcMatchPerfil(cm.tamano, fcTam)) return false;
+      if (!_mcMatchPerfil(cm.especializacion, fcEsp)) return false;
+      if (!_mcMatchPerfil(cm.tipoLocal, fcTL)) return false;
+      return true;
+    });
+  }
   if (fq)
     entries = entries.filter((e) =>
       matchesAllTokens(

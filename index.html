@@ -4859,6 +4859,48 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           <option value="sin">Solo sin direccion</option>
         </select>
         <input type="search" id="mc-search" placeholder="Buscar por nombre de tienda..." oninput="debouncedRenderMc()"/>
+        <!-- v1257 (2026-10-13): filtros de perfil comercial para segmentar cartera.
+             Siguen patron ALL=todos. Multi-select no (muy complejo UI); 1 valor por filtro. -->
+        <select id="mc-filt-clitipo" onchange="renderMasterClientesTable()" title="Filtrar por categorizacion P/A/B/C">
+          <option value="ALL">Todas las categorias</option>
+          <option value="P">Cat P (Premium)</option>
+          <option value="A">Cat A</option>
+          <option value="B">Cat B</option>
+          <option value="C">Cat C</option>
+          <option value="__none__">(sin categoria)</option>
+        </select>
+        <select id="mc-filt-fidelidad" onchange="renderMasterClientesTable()" title="Filtrar por fidelidad">
+          <option value="ALL">Toda fidelidad</option>
+          <option value="ALTA">Alta</option>
+          <option value="MEDIA">Media</option>
+          <option value="BAJA">Baja</option>
+          <option value="__none__">(sin fidelidad)</option>
+        </select>
+        <select id="mc-filt-tamano" onchange="renderMasterClientesTable()" title="Filtrar por tamano">
+          <option value="ALL">Todo tamano</option>
+          <option value="GRANDE">Grande</option>
+          <option value="MEDIANO">Mediano</option>
+          <option value="CHICA">Chica</option>
+          <option value="LODGE">Lodge</option>
+          <option value="GUIA_DE_PESCA">Gu&iacute;a de pesca</option>
+          <option value="VENTAS_ESPECIALES">Ventas especiales</option>
+          <option value="__none__">(sin tamano)</option>
+        </select>
+        <select id="mc-filt-especializacion" onchange="renderMasterClientesTable()" title="Filtrar por especializacion">
+          <option value="ALL">Toda especializacion</option>
+          <option value="AGUA_DULCE">Agua dulce</option>
+          <option value="PESCA_DE_MAR">Pesca de mar</option>
+          <option value="ALTA_GAMA">Alta gama</option>
+          <option value="BAJA_GENERAL">Baja - General</option>
+          <option value="__none__">(sin especializacion)</option>
+        </select>
+        <select id="mc-filt-tipolocal" onchange="renderMasterClientesTable()" title="Filtrar por tipo de local">
+          <option value="ALL">Todo tipo local</option>
+          <option value="FISICO">F&iacute;sico</option>
+          <option value="ECOMMERCE">E-commerce</option>
+          <option value="__none__">(sin tipo)</option>
+        </select>
+        <button id="mc-export-perfil-btn" class="mc-prov-btn" onclick="exportMasterClientesPerfil()" style="background:#065f46;box-shadow:0 1px 3px rgba(5,95,70,.3)" title="Exportar Excel con el perfil comercial de los clientes filtrados (6 campos: cliTipo + fidelidad + prefContacto + tamano + especializacion + tipoLocal + metadata)">Exportar Perfil</button>
         <!-- v413 (2026-08-06): removidos 5 botones del toolbar por pedido de Mariano:
              Importar desde SAP, Geocodificar tiendas SAP, Deduplicar SAP,
              Revisar direcciones, Masterfile-Base. Funciones siguen definidas
@@ -6189,7 +6231,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1256';
+const APP_VERSION = 'v1257';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
