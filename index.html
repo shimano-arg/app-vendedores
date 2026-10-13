@@ -6121,7 +6121,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1239';
+const APP_VERSION = 'v1240';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14433,7 +14433,26 @@ window.renderBackordersTab = function(){
   // separo la parte estática (contadores + labels) del texto de badges
   // filtros. El texto va por textContent en un elemento aparte, imposible
   // de inyectar HTML sin importar qué venga en `q`.
-  sum.innerHTML = '<b>' + skus.length + '</b> SKUs con backorder &middot; <b>' + Math.round(totalUnidades) + '</b> unidades pendientes &middot; <b>' + totalClientes + '</b> clientes';
+  // v1240 (2026-10-13): wording dinamico. En modo asignacion (Stock Asignado,
+  // mercaderia ya llego al dep 11) "backorder" era contradictorio — en ese
+  // modo los pedidos listados son state='confirmed' esperando entrega, no BO.
+  const _sumIsAsig = (typeof backordersMode !== 'undefined' && backordersMode === 'asignacion');
+  const _sumSkuLabel = _sumIsAsig ? ' SKUs con mercadería lista · ' : ' SKUs con backorder · ';
+  const _sumUnidLabel = _sumIsAsig ? ' unidades para asignar · ' : ' unidades pendientes · ';
+  const _sumClientLabel = _sumIsAsig ? ' clientes para avisar' : ' clientes';
+  // DOM API en vez de innerHTML (CodeQL + hook de seguridad).
+  while (sum.firstChild) sum.removeChild(sum.firstChild);
+  const _mk = (txt, bold) => {
+    const el = document.createElement(bold ? 'b' : 'span');
+    el.textContent = txt;
+    return el;
+  };
+  sum.appendChild(_mk(String(skus.length), true));
+  sum.appendChild(_mk(_sumSkuLabel, false));
+  sum.appendChild(_mk(String(Math.round(totalUnidades)), true));
+  sum.appendChild(_mk(_sumUnidLabel, false));
+  sum.appendChild(_mk(String(totalClientes), true));
+  sum.appendChild(_mk(_sumClientLabel, false));
   // v1136 (2026-10-05): breakdown por estado agregado PBI (SIN REPOSICIÓN /
   // EN TRÁNSITO / PARCIAL). Solo tiene sentido en modo backorder (en ASIG
   // todos van a EN DEPÓSITO por strict mode). DOM via createElement para

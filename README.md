@@ -4678,6 +4678,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1240 (2026-10-13) — Modal Stock Asignado: wording dinamico (no "backorder" en modo asignacion)
+
+**Archivos**:
+- `index.html:14436-14456` (summary dinamico via DOM API segura)
+- `index.html:6124` + `sw.js:20` (bump v1239 → v1240)
+
+**Antes**:
+Summary debajo del titulo "Stock Asignado" siempre decia: *"N SKUs con backorder • N unidades pendientes • N clientes"*. El modal tiene 2 modos (`backordersMode = 'urgente' | 'asignacion'`) y el wording era valido solo para 'urgente'.
+
+**Problema**:
+Modo asignacion = mercaderia que **YA LLEGO** al dep 11, listados son clientes con pedidos state='confirmed' esperando entrega (NO state='BO'). "Backorder" implica "sin stock" — contradiccion directa. Caso Mariano 2026-10-13: pantalla "Stock Asignado" para EXGC70HBAR mostraba "1 SKUs con backorder • 22 unidades pendientes • 5 clientes" pero EN DEPÓSITO verde + "22 disponibles en dep. 11" arriba, para 5 clientes confirmed. Contradictorio.
+
+**Cambio**:
+Summary ahora cambia segun `backordersMode`:
+- `urgente`: *"N SKUs con backorder · N unidades pendientes · N clientes"* (igual que antes)
+- `asignacion`: *"N SKUs con mercadería lista · N unidades para asignar · N clientes para avisar"*
+
+Implementacion con createElement/textContent (DOM API segura) para pasar el hook de seguridad y mantener CodeQL feliz.
+
+**Por que**:
+- Pedido explicito Mariano 2026-10-13 (post-shippear v1239): "deja ambas cosas arregladas" = (A) agregacion no-bug + (B) wording UX modal.
+- Minimal change: solo 1 string, cero logica nueva, cero breaking.
+- El titulo del modal ("Stock Asignado"), el button trigger ("Stock Asignado"), y el banner ("LLegó mercadería...") ya eran correctos — solo faltaba el summary.
+
+**Verificacion**:
+- Abrir boton verde "Stock Asignado" → summary dice "mercadería lista" / "para asignar" / "para avisar".
+- Abrir boton "Backorders" (urgente) → summary igual que antes "con backorder" / "pendientes" / "clientes".
+- 699/699 unit tests pass.
+
+**Rollback**:
+Revert index.html:14436-14456 al bloque anterior. sw.js + APP_VERSION a v1239.
+
+**Nota sobre badge "BACKORDER APP"** (`index.html:23493`):
+NO cambiado. Ese badge aparece en lineas con `state='BO'` dentro de pedidos (ej pedido KRENZ screenshot 1) y es CORRECTO — esa linea realmente no se envio a SAP por falta de stock. Si el badge aparece en una linea `state='confirmed'`, seria un bug independiente a investigar.
+
+---
+
 ### v1239 (2026-10-13) — Modal Productos: 6ta linea CONFIRMED (SQ en SAP pendiente)
 
 **Archivos**:
@@ -4729,8 +4766,11 @@ LIBRE PARA LA VENTA: 0 unidades
 **Rollback**:
 Revert index.html:26794-26830 al bloque v1238. sw.js + APP_VERSION a v1238.
 
-**Bug ortogonal descubierto (abrir ticket aparte)**:
-`stock_snapshot_app.backorderBySkuApp[EXGC70HBAR] = 16` pero conteo directo de lineas state='BO' qtyOpen en pedidos.open=true = 13 (DANIEL 2, PONTORIERO 10, KOVRA 1). Diff 3u. Ademas `backorderByClientSkuApp[EXGC70HBAR] = {}` esta vacio aunque el total agregado dice 16. Investigar `functions/core/pedido-snapshot-core.js`.
+**Bug ortogonal descartado post-verificacion (2026-10-13)**:
+Mi diagnostico v3 revelo que el presunto bug (16 vs 13 + `backorderByClientSkuApp={}` vacio) era mi lectura mal:
+- El diff 3u = DANIEL BATTISTONI 2u expirado por TTL 15d (createdAt 2026-09-25, hoy 2026-10-13 = 18d) y mi conteo v2 no filtraba TTL. Ademas KRENZ 5u se envio despues de mi primer conteo. Agregacion real correcta: PONTORIERO 10 + KOVRA 1 + KRENZ 5 = 16.
+- `backorderByClientSkuApp` NO esta vacio — es un mapa PLANO con keys `CARDCODE::SKU` (no nested). Hay 3 keys validas para el SKU. Mi acceso `[SKU]` daba undefined → `{}`.
+- Agregador en `functions/core/pedido-snapshot-core.js:200` esta OK. Cero cambio pendiente.
 
 ---
 
