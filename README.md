@@ -4717,6 +4717,38 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1243 (2026-10-13) — Export Backorder/Stock Asignado: paridad con modal (fifo + urgencyFilter)
+
+**Archivos**:
+- `index.html:13771-13784` (export alineado con modal)
+- `index.html:6124` + `sw.js:20` (bump v1242 → v1243)
+
+**Antes**:
+`exportBackordersToExcel` llamaba `computeBackorderSkuMap` con `aggregationMode: 'strict'` y SIN `urgencyFilter`. El modal (`renderBackordersTab`) usaba `'fifo'` + `urgencyFilter` desde v1201 (2026-10-08).
+
+**Problema**:
+Reporte Mariano 2026-10-13: ADRIAN HORACIO VALIÑA y DARIO RUBEN PEREYRA (vendor IOANNIS PALKOUDAKIS, pedidos 2026-09-17 y 2026-09-22) aparecian en el Excel exportado pero NO en el modal Stock Asignado ni Backorder. Confuso para Pablo que trabaja con el Excel.
+
+Root cause: `strict` mostraba `qtyAsignada = pendiente` sin cap por stock fisico (ej ASIG state con dispSap>0 pero otros clientes mas viejos ya tomando el stock FIFO). `fifo` cortaba a qtyAsignada=0 cuando el cliente caia del reparto FIFO → excluido del modal. El export huerfano desde v1201.
+
+**Cambio**:
+`exportBackordersToExcel` pasa ahora `aggregationMode: 'fifo'` + `urgencyFilter: backordersUrgencyFilter`. Paridad 100% con el modal — mismo set de clientes/SKUs en Excel que en pantalla.
+
+**Verificacion**:
+- Buscar VALIÑA en modal Backorder → si aparece, va a aparecer en el Excel. Si NO aparece en modal, tampoco en Excel.
+- Si tenes filtro de urgency activo (urgente/parcial), el Excel va a respetarlo tambien.
+- 699/699 unit tests pass.
+
+**Trade-off conocido**:
+El Excel ahora refleja la "realidad operativa" (quien va a recibir mercaderia por FIFO) en vez de "lista contable de pedidos pendientes". Si Pablo necesitaba la lista total sin cap FIFO, hay que exportarlo desde BQ con las vistas v_bo_cumplimiento_* o pedirle a Admin que exporte sin filtros de urgency.
+
+**Nota**: `_cpstBuildCache` (`index.html:15038`) sigue usando `'strict'` a proposito — el chooser del modal "Crear Pedido - ST" quiere mostrar TODOS los clientes con pedido pendiente para que admin elija, no solo los que ganaron FIFO.
+
+**Rollback**:
+Revert index.html:13771-13784 al `{ tiendaQuery: tq, vendorKey: vf, mesYYYYMM: mesF, aggregationMode: 'strict' }`.
+
+---
+
 ### v1242 (2026-10-13) — Modal Productos: 5 lineas alineadas con modales Backorder y Stock Asignado
 
 **Archivos**:
