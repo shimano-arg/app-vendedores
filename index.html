@@ -6121,7 +6121,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1237';
+const APP_VERSION = 'v1238';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26794,17 +26794,25 @@ window.queryStockLive = function(code, btn){
       // v973 (2026-09-17): 4 lineas — dep 11 + dep 12 + comprometido + libre.
       // v974 (2026-09-17): Lista de Espera NO compromete stock (Mariano). Es
       // solo pre-carga de VDE — hasta que se confirma el pedido, no reserva.
-      // Solo state='ASIG' compromete (lineas BO que ya recibieron stock FIFO).
+      // v1238 (2026-10-13): se agrega 5ta linea "EN COLA FIFO (BO)" porque la
+      // formula vieja mostraba LIBRE=disp cuando habia BO esperando. Ejemplo
+      // real EXGC70HBAR: dep11=22, ASIG=0, BO=22 (5 clientes esperando desde
+      // 2026-10-07). La formula vieja mostraba LIBRE=22 pero el motor de
+      // armado respeta FIFO: nuevo pedido iba al final de la cola -> BO.
+      // Ahora el vendedor ve exactamente el libre que el motor va a usar.
       // Formula:
-      //   COMPROMETIDO = min(disp, reservado_ASIG)  ← capado a disp
-      //   LIBRE = max(disp - reservado_ASIG, 0)
-      //   disp = COMPROMETIDO + LIBRE               ← siempre cierra
-      const libre = Math.max(disp - reservado, 0);
-      const comprometido = disp - libre;
+      //   ASIG       = reservado (lineas BO que ya recibieron FIFO)
+      //   EN COLA    = min(disp - ASIG, backorder_app)  ← cap a lo que queda post-ASIG
+      //   LIBRE      = max(disp - ASIG - EN COLA, 0)
+      //   disp       = ASIG + EN COLA + LIBRE  ← siempre cierra
+      const asig = Math.min(disp, reservado);
+      const enColaFifo = Math.min(Math.max(disp - asig, 0), pendienteSinStock);
+      const libre = Math.max(disp - asig - enColaFifo, 0);
       const lines = [
         'STOCK FISICO (DEP 11): ' + disp + ' unidades',
         'UNIDADES EN TRANSITO (DEP 12): ' + transito + ' unidades',
-        'COMPROMETIDO: ' + comprometido + ' unidades',
+        'COMPROMETIDO (ASIG): ' + asig + ' unidades',
+        'EN COLA FIFO (BO): ' + enColaFifo + ' unidades',
         'LIBRE PARA LA VENTA: ' + libre + ' unidades',
       ];
       status = lines.join('\n');

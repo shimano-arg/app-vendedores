@@ -4678,6 +4678,50 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1238 (2026-10-13) — Modal Productos: separar ASIG vs EN COLA FIFO (BO)
+
+**Archivos**:
+- `index.html:26794-26817` (nueva formula 5-line + comentario explicativo)
+- `index.html:6124` + `sw.js:20` (bump v1237 → v1238)
+
+**Antes**:
+Modal del Master de Productos mostraba 4 lineas: `DEP11 / DEP12 / COMPROMETIDO / LIBRE`. `COMPROMETIDO` solo contaba state='ASIG' (lineas BO que ya recibieron FIFO). Las lineas state='BO' preexistentes NO contaban en COMPROMETIDO.
+
+**Problema**:
+Caso real reportado 2026-10-13 (SKU EXGC70HBAR): dep11=22 fisicas, ASIG=0, BO=22 (5 clientes esperando desde 2026-10-07/09). Vendedor armo pedido para IVAN KRENZ por 5 unidades. Modal mostraba "LIBRE PARA LA VENTA: 22" → vendedor esperaba linea confirmada. Realidad: la linea entro a cola FIFO al final → quedo `state='BO'` + badge "BACKORDER APP" rojo. El motor de armado respeta FIFO sobre ASIG+BO (no solo ASIG), por lo que la fomula vieja del modal engañaba.
+
+**Cambio**:
+Separar en 5 lineas, usando la variable `pendienteSinStock` ya calculada arriba:
+```
+STOCK FISICO (DEP 11): 22 unidades
+UNIDADES EN TRANSITO (DEP 12): 0 unidades
+COMPROMETIDO (ASIG): 0 unidades
+EN COLA FIFO (BO): 22 unidades
+LIBRE PARA LA VENTA: 0 unidades
+```
+
+Formula:
+- `asig       = min(disp, reservado)`
+- `enColaFifo = min(max(disp - asig, 0), pendienteSinStock)` ← capado a lo que queda post-ASIG
+- `libre      = max(disp - asig - enColaFifo, 0)`
+- Invariante: `disp = asig + enColaFifo + libre` (siempre cierra)
+
+**Por que**:
+- Vendedor ahora ve el libre REAL que va a usar el motor de armado → cero confusion al crear pedido.
+- La separacion ASIG vs COLA preserva la semantica historica (v974 2026-09-17: Lista de Espera NO compromete; solo ASIG retiene stock fisico). Lo que cambia es la **visibilidad** de la cola BO que antes era invisible desde Productos.
+- Decision explicita Mariano 2026-10-13: opcion "5 lineas" sobre "sumar ASIG+BO en 1 numero" o "warning extra sin cambiar formula".
+
+**Verificacion**:
+- Abrir modal "Stock" en EXGC70HBAR (o cualquier SKU con dep11>0 + BO>0) → debe mostrar 5 lineas con libre=0 cuando BO cubre el fisico.
+- SKU sin BO (ej: cualquiera con solo ASIG o nada): `EN COLA FIFO (BO): 0 unidades` + libre = disp - asig (comportamiento viejo preservado).
+
+**Rollback**:
+Revertir index.html:26794-26817 al bloque anterior (4 lineas con solo ASIG). sw.js + APP_VERSION a v1237.
+
+**Diferido (Task #1)**: Problema B ortogonal — hay 22 BO esperando desde hace dias con 22 fisicas en dep11 pero el CF `onStockChangeFIFOAssign` no los promovio a ASIG. Investigacion pendiente, requiere lectura prod Firestore + logs del CF (ver `app_config/sap_sync_state.mode` + severity>=WARNING del CF).
+
+---
+
 ### v1210 (2026-10-08) — Reparto de Stock Asignado (reemplaza "Cerrar SQs viejas")
 
 **Archivos**:
