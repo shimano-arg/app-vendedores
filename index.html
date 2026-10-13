@@ -6123,7 +6123,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1241';
+const APP_VERSION = 'v1242';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26813,38 +26813,61 @@ window.queryStockLive = function(code, btn){
         }
       }
       // v973 (2026-09-17): 4 lineas — dep 11 + dep 12 + comprometido + libre.
-      // v974 (2026-09-17): Lista de Espera NO compromete stock (Mariano). Es
-      // solo pre-carga de VDE — hasta que se confirma el pedido, no reserva.
-      // v1238 (2026-10-13): 5 lineas (ASIG + EN COLA FIFO). Pero seguia
-      // mintiendo porque no contaba lineas state='confirmed' pendientes (SQ
-      // en SAP sin facturar) que SI reservan el stock fisico. Caso real
-      // EXGC70HBAR: dep11=22, ASIG=0, confirmed=22, BO=16. Mi v1238 mostraba
-      // LIBRE=6 cuando el motor (getStockRealmenteDisponible, v1208) usa
-      // max(disp - confirmed - BO - ASIG, 0) = 0.
-      // v1239 (2026-10-13): usar getStockDesglose(sku) que ya existe y
-      // devuelve el breakdown {confirmed, BO, ASIG} alineado con el motor.
-      // Resultado 6 lineas que suman al dep11 exacto que ve el motor:
-      //   CONFIRMED (SQ en SAP) + COMPROMETIDO (ASIG) + EN COLA (BO) + LIBRE
-      //
-      // Nota: usamos disp (whs 11) como fisico para mantener consistencia
-      // visual con la primera linea del modal (dep 11 = fuente SAP crudo).
-      // getStockDesglose.fisico puede diferir si getStockDisponibleVenta
-      // suma otros warehouses; para el modal queremos ver 11 limpio.
-      const desglose = (typeof window.getStockDesglose === 'function')
-        ? window.getStockDesglose(k)
-        : { breakdown: { confirmed: 0, BO: pendienteSinStock, ASIG: reservado } };
-      const bk = (desglose && desglose.breakdown) || { confirmed: 0, BO: 0, ASIG: 0 };
-      const confirmedQty = Number(bk.confirmed) || 0;
-      const asigQty = Number(bk.ASIG) || 0;
-      const boQty = Number(bk.BO) || 0;
-      const comprometidoTotal = confirmedQty + asigQty + boQty;
-      const libre = Math.max(disp - comprometidoTotal, 0);
+      // v974 (2026-09-17): Lista de Espera NO compromete stock (Mariano).
+      // v1238/v1239 (2026-10-13): intenta usar getStockDesglose pero los
+      // numeros no coincidian con los modales Backorder / Stock Asignado,
+      // confundiendo al VDE: "si abro Stock Asignado dice 22, el modal
+      // Productos dice CONFIRMED=19+ASIG=0+BO=16 ???".
+      // v1242 (2026-10-13): simplificar a 5 lineas y SIEMPRE calcular desde
+      // la misma fuente que los modales (computeBackorderSkuMap con mode
+      // 'asignacion' y 'urgente'). Garantiza:
+      //   STOCK ASIGNADO (modal Productos) == totalPendiente modal Stock
+      //                                       Asignado para el mismo SKU.
+      //   BACKORDER     (modal Productos) == totalPendiente modal Backorder.
+      //   LIBRE          = max(disp - STOCK_ASIGNADO - BACKORDER, 0)
+      const _bkFn = (window.__phase0 && window.__phase0.pure
+        && window.__phase0.pure.computeBackorderSkuMap);
+      const _bkDeps = {
+        getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function')
+          ? getStockDisponibleVenta : () => 0,
+        canonVendor: (typeof _canonVendor === 'function')
+          ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
+        products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
+          ? PRODUCTS : [],
+        backorderLines: (typeof backorderLines !== 'undefined'
+          && Array.isArray(backorderLines)) ? backorderLines : [],
+        sapGetClienteCode: (typeof sapGetClienteCode === 'function')
+          ? sapGetClienteCode : undefined,
+      };
+      const _bkFilters = { aggregationMode: 'fifo' };
+      const _bkGP = (typeof globalPedidos !== 'undefined'
+        && Array.isArray(globalPedidos)) ? globalPedidos : [];
+      let stockAsignadoQty = 0;
+      let backorderQty = 0;
+      if (_bkFn) {
+        try {
+          const _asigRes = _bkFn(_bkGP, 'asignacion', _bkFilters, _bkDeps);
+          const _asigSku = (_asigRes.skus || []).find((g) => g.sku === k);
+          if (_asigSku) stockAsignadoQty = Math.round(_asigSku.totalPendiente || 0);
+          const _urgRes = _bkFn(_bkGP, 'urgente', _bkFilters, _bkDeps);
+          const _urgSku = (_urgRes.skus || []).find((g) => g.sku === k);
+          if (_urgSku) backorderQty = Math.round(_urgSku.totalPendiente || 0);
+        } catch (_bkErr) {
+          console.warn('[stock-modal] computeBackorderSkuMap fallo:', _bkErr);
+          // Fallback a desglose generico.
+          stockAsignadoQty = reservado;
+          backorderQty = pendienteSinStock;
+        }
+      } else {
+        stockAsignadoQty = reservado;
+        backorderQty = pendienteSinStock;
+      }
+      const libre = Math.max(disp - stockAsignadoQty - backorderQty, 0);
       const lines = [
         'STOCK FISICO (DEP 11): ' + disp + ' unidades',
-        'UNIDADES EN TRANSITO (DEP 12): ' + transito + ' unidades',
-        'CONFIRMED (SQ en SAP pendiente): ' + confirmedQty + ' unidades',
-        'COMPROMETIDO (ASIG): ' + asigQty + ' unidades',
-        'EN COLA FIFO (BO): ' + boQty + ' unidades',
+        'STOCK EN TRANSITO (DEP 12): ' + transito + ' unidades',
+        'BACKORDER: ' + backorderQty + ' unidades',
+        'STOCK ASIGNADO: ' + stockAsignadoQty + ' unidades',
         'LIBRE PARA LA VENTA: ' + libre + ' unidades',
       ];
       status = lines.join('\n');
