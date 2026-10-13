@@ -8,6 +8,8 @@ Kanban tipo Trello para gestionar reclamos entre Shimano y el depósito.
 
 ## Estado
 
+- **2026-10-13** — Vercel migrado al monorepo: ahora deploya desde `shimano-arg/app-vendedores` branch `main` con Root Directory `apps/app-reclamos`. El repo viejo `erbinomariano-propio/app-reclamos-shimano` quedó 404 en GitHub por lo que los 5 últimos commits del repo viejo nunca llegaron a prod (incluyendo el que removió el campo Responsable del modal — se re-ship con v1259).
+- **2026-10-13** — v1259 shipped: lista desplegable "Tipo de reclamo" (required) al crear + rename labels columnas (Respuesta depósito → Revisión depósito, Resuelto → Pendiente, Cerrado → Resuelto). Migration DB `claims.claim_type` pendiente de `supabase db push`.
 - **2026-09-21** — MVP shipped en producción: https://app-reclamos-shimano.vercel.app
   6 columnas, DnD, adjuntos, comentarios, timeline, email al assignee (best-effort). Base para V1.
 - **2026-09-25** — Post-MVP en un dia: rediseño Apple (glass, foto de fondo, motion), responsables default por columna, eliminar reclamo, campos extra (Nº factura / Cliente / Nombre fantasía) + checklist videos, botón "Pasar a <col>" en modal detalle, layout kanban full-width con `grid-cols-6` en desktop, modal detalle 2 columnas, `DragOverlay` para arrastre por encima de backdrop-blur de columnas hermanas.
