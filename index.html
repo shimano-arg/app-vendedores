@@ -6123,7 +6123,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1242';
+const APP_VERSION = 'v1243';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13768,7 +13768,20 @@ window.exportBackordersToExcel = async function(){
   const _bkResult = _computeFnBk ? _computeFnBk(
     (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
     isAsigMode ? 'asignacion' : 'urgente',
-    { tiendaQuery: tq, vendorKey: vf, mesYYYYMM: mesF, aggregationMode: 'strict' },
+    // v1243 (2026-10-13): paridad con el modal — fifo + urgencyFilter. Antes
+    // era strict + sin urgencyFilter, lo que generaba discrepancias (clientes
+    // aparecian en el export pero no en el modal, o viceversa). Precedente
+    // VALIÑA + PEREYRA 2026-10-13: strict mostraba qtyAsignada = pendiente
+    // sin cap por stock fisico, mientras fifo lo cortaba cuando otros clientes
+    // mas viejos agarraban todo el FIFO. Mariano v1201 ya habia revertido el
+    // modal a fifo; el export quedo huerfano. Ahora alineados.
+    {
+      tiendaQuery: tq,
+      vendorKey: vf,
+      mesYYYYMM: mesF,
+      aggregationMode: 'fifo',
+      urgencyFilter: (typeof backordersUrgencyFilter !== 'undefined') ? backordersUrgencyFilter : '',
+    },
     {
       getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
       canonVendor: (typeof _canonVendor === 'function') ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
