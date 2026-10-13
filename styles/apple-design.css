@@ -6737,6 +6737,25 @@ html[data-theme="dark"] #pane-locs h3 {
 #planner-header-btn.btn-zonas:hover { background: #ffa726 !important; }
 #planner-header-btn.btn-zonas:active { transform: scale(0.97) !important; }
 
+/* ==== #reclamos-header-btn (pill Apple azul Shimano) v1255 ==== */
+/* Mismo pattern que #planner-header-btn pero con color #0071E3 (Shimano blue
+   coherente con app-reclamos que usa esta misma paleta). */
+#reclamos-header-btn.btn-zonas {
+  background: #0071E3 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#reclamos-header-btn.btn-zonas:hover { background: #0862c7 !important; }
+#reclamos-header-btn.btn-zonas:active { transform: scale(0.97) !important; }
+
 /* ==== #planner-board-modal (Mariano-only Kanban modal) ==== */
 #planner-board-modal.modal-overlay {
   background: rgba(0, 0, 0, 0.35);
