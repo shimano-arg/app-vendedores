@@ -212,14 +212,12 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     expect(r.skus).toHaveLength(0);
   });
 
-  it('v1270: escenario reporte Mariano — destildar DEVOTO libera stock para MARIANOPESCA+PESCAMAGIC virtual', () => {
-    // 10u fisico. 5 WEEKEND ASIG+tildado + 5 DEVOTO ASIG+DESTILDADO +
-    // 2 MARIANOPESCA BO + 6 PESCAMAGIC BO. Resultado esperado:
-    // - WEEKEND 5u qtyAsignada=5 (prioritario, tildado).
-    // - MARIANOPESCA 2u qtyAsignada=2 (promovido virtual).
-    // - PESCAMAGIC 6u qtyAsignada=3 (promovido parcial virtual), qtyBackorder=3.
-    // - DEVOTO 5u qtyAsignada=0 + sinReserva=true (visible pero no bloquea).
-    // Fechas dentro del TTL de 7d (v1198): asigAt y createdAt ≤6d.
+  it('v1288 (revert v1270): BO ya no aparece en modo asignacion', () => {
+    // Post rediseño reparto manual (v1278+): BO viven en el modal "Reparto"
+    // de Pablo, no en Stock Asignado. El escenario v1270 (DEVOTO/MARIANOPESCA/
+    // PESCAMAGIC virtual) ya no aplica a modo asignacion. Las ASIG tildadas
+    // (WEEKEND) siguen apareciendo. Las ASIG destildadas (DEVOTO) tambien
+    // (via sinReserva). Pero los BO NO.
     const pedidos = [
       pedido({
         _fsId: 'pW',
@@ -257,13 +255,10 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     expect(r.skus).toHaveLength(1);
     const byNombre = Object.fromEntries(r.skus[0].clientes.map((c) => [c.nombre, c]));
     expect(byNombre.WEEKEND.qtyAsignada).toBe(5);
-    expect(byNombre.WEEKEND.sinReserva).not.toBe(true);
-    expect(byNombre.DEVOTO.qtyAsignada).toBe(0);
     expect(byNombre.DEVOTO.sinReserva).toBe(true);
-    expect(byNombre.DEVOTO.pendiente).toBe(5);
-    expect(byNombre.MARIANOPESCA.qtyAsignada).toBe(2);
-    expect(byNombre.PESCAMAGIC.qtyAsignada).toBe(3);
-    expect(byNombre.PESCAMAGIC.qtyBackorder).toBe(3);
+    // BOs ya NO aparecen (v1288).
+    expect(byNombre.MARIANOPESCA).toBeUndefined();
+    expect(byNombre.PESCAMAGIC).toBeUndefined();
   });
 
   it('v1270 regresion: strict mode mantiene qtyAsignada=pendiente para destildadas (no afecta _cpstBuildCache)', () => {
@@ -305,14 +300,14 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     ];
     const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
     const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    // v1288: BO ya no aparece en modo asignacion. Solo queda la ASIG
+    // destildada (sinReserva=true).
     expect(r.skus).toHaveLength(1);
     expect(r.skus[0].clientes).toHaveLength(1);
     const row = r.skus[0].clientes[0];
     expect(row.nombre).toBe('REBORN');
-    // BO contribuye reserva (promovido virtual) → cliente NO es sinReserva.
-    expect(row.sinReserva).toBe(false);
-    // qtyAsignada = qtyBO (2u asignadas virtual) + qtyASIG destildada (0u).
-    expect(row.qtyAsignada).toBe(2);
+    expect(row.sinReserva).toBe(true);
+    expect(row.qtyAsignada).toBe(0);
   });
 
   it('v1270: re-tildar DEVOTO le devuelve prioridad por fecha original (desplaza PESCAMAGIC virtual)', () => {
