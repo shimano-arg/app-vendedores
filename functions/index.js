@@ -62,6 +62,8 @@ import { applyRepartoManualCore, createIngresosRepartoFromDelta } from './core/r
 // v1278 (2026-10-14): migracion ASIG → BO + create ingresos_reparto para
 // SKUs con stock libre. Switchover al reparto manual.
 import { migrateAsigToBOAndCreateReparto } from './core/reparto-migration-core.js';
+// v1280 (2026-10-14): TTL 7d waitlists stock-asignado-batch.
+import { expireStockAsignadoWaitlists } from './core/waitlist-ttl-core.js';
 // v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos (incident
 // cowork — ~1570 lineas sin cliente_code en v_pedidos_lines).
 import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core.js';
@@ -1253,6 +1255,41 @@ export const expireAsigLinesTTLCF = onSchedule(
       errors: r.errors.length,
     });
   }
+);
+
+/**
+ * v1280 (2026-10-14): expireStockAsignadoWaitlistsCF — cron diario 04:00 ART.
+ * Elimina waitlists stock-asignado-batch con expiresAt < now (TTL 7d).
+ *
+ * Rationale Mariano: "cada pedido creado desde el stock asignado tiene un
+ * temporizador maximo de 7 dias. Pasado esos 7 dias se elimina el pedido
+ * de la lista de espera para que no reserven stock de forma indefinida".
+ *
+ * Al delete NO toca los pedidos originales (sus lineas ASIG siguen vivas).
+ * El admin puede destildarlas despues desde el modal Stock Asignado si no
+ * las quiere mas.
+ */
+export const expireStockAsignadoWaitlistsCF = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 4 * * *',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '256MiB',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const db = getFirestore();
+    const r = await expireStockAsignadoWaitlists({
+      fbDb: db,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('expireStockAsignadoWaitlistsCF summary', {
+      scanned: r.scanned,
+      expiredCount: r.expired.length,
+      errors: r.errors.length,
+    });
+  },
 );
 
 /**
