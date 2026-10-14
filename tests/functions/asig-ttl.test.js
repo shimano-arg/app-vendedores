@@ -110,12 +110,12 @@ describe('_toMs', () => {
 });
 
 describe('expireAsigLinesTTL — cutoff', () => {
-  // Bug #2 fix: TTL ahora es 15d (antes 30d). Alineado con RESERVA_TTL_DAYS
-  // en src/pure/stock-realmente-disponible.js — las lineas se marcan expired
-  // en el mismo boundary donde dejan de reservar stock (sin el ghost ASIG de
-  // 15 dias que existia pre-fix).
-  it('expira lineas ASIG con asigAt > 15 dias', async () => {
-    const oldAsigAt = new Date(NOW.getTime() - 16 * DAY).toISOString();
+  // v1274 (2026-10-14): TTL ahora es 60d (antes 15d). Rationale Mariano: "si
+  // no se confirmo en 60 dias es basura". El RESERVA_TTL_DAYS (7d) sigue por
+  // su lado — ya no estan sincronizados. Durante 7-60d la linea esta en ghost
+  // ASIG (visible, no reserva stock).
+  it('expira lineas ASIG con asigAt > 60 dias', async () => {
+    const oldAsigAt = new Date(NOW.getTime() - 61 * DAY).toISOString();
     const p = _pedido('P1', [
       { code: 'X', state: 'ASIG', qtyOpen: 5, qtyExpired: 0, asigAt: oldAsigAt },
     ]);
@@ -131,17 +131,17 @@ describe('expireAsigLinesTTL — cutoff', () => {
     expect(line.expiredAt).toBeTruthy();
   });
 
-  // Bug #2 regression: asegurar que lineas con asigAt entre 15d y 30d SI expiran
-  // ahora (antes del fix quedaban en limbo "ghost ASIG" 15 dias).
-  it('Bug #2 regression: linea con asigAt=16d SI es expirada (antes del fix requeria 31d)', async () => {
+  it('v1274: linea ghost ASIG (16d) NO expira — ahora el TTL es 60d', async () => {
+    // Pre-v1274 esta linea estaba expirada; post-v1274 queda ghost ASIG hasta
+    // los 60d. No bloquea stock (RESERVA_TTL_DAYS=7 ya la ignora) pero sigue
+    // visible en modal.
     const sixteenDaysAgo = new Date(NOW.getTime() - 16 * DAY).toISOString();
     const p = _pedido('P1', [{ code: 'X', state: 'ASIG', qtyOpen: 7, asigAt: sixteenDaysAgo }]);
     const fbDb = makeFakeFbDb([p]);
     const deps = { fbDb, now: () => NOW, log: vi.fn() };
     const r = await expireAsigLinesTTL(deps);
-    expect(r.expiredLines).toHaveLength(1);
-    expect(r.expiredLines[0].sku).toBe('X');
-    expect(fbDb._store.pedidos[0].data.lines[0].state).toBe('expired');
+    expect(r.expiredLines).toEqual([]);
+    expect(fbDb._store.pedidos[0].data.lines[0].state).toBe('ASIG');
   });
 
   it('NO expira lineas ASIG dentro del TTL (asigAt reciente)', async () => {
@@ -154,13 +154,13 @@ describe('expireAsigLinesTTL — cutoff', () => {
     expect(fbDb._store.pedidos[0].data.lines[0].state).toBe('ASIG');
   });
 
-  it('borde exacto 15d — SI expira (cutoff: asigMs > cutoff es false cuando iguales)', async () => {
-    const exactly15dAsigAt = new Date(NOW.getTime() - 15 * DAY).toISOString();
-    const p = _pedido('P1', [{ code: 'X', state: 'ASIG', qtyOpen: 5, asigAt: exactly15dAsigAt }]);
+  it('borde exacto 60d — SI expira (cutoff: asigMs > cutoff es false cuando iguales)', async () => {
+    const exactly60dAsigAt = new Date(NOW.getTime() - 60 * DAY).toISOString();
+    const p = _pedido('P1', [{ code: 'X', state: 'ASIG', qtyOpen: 5, asigAt: exactly60dAsigAt }]);
     const fbDb = makeFakeFbDb([p]);
     const deps = { fbDb, now: () => NOW, log: vi.fn() };
     const r = await expireAsigLinesTTL(deps);
-    // Cutoff: NOW - 15d ms; asigMs == cutoff → asigMs > cutoff es false → SI expira.
+    // Cutoff: NOW - 60d ms; asigMs == cutoff → asigMs > cutoff es false → SI expira.
     // (Comportamiento definido por `if (asigMs > cutoffMs) continue`.)
     expect(r.expiredLines).toHaveLength(1);
   });
@@ -200,7 +200,7 @@ describe('expireAsigLinesTTL — cutoff', () => {
 
 describe('expireAsigLinesTTL — pedido closure', () => {
   it('cierra pedido si TODAS las lineas quedan con qtyOpen=0 tras expirar', async () => {
-    const old = new Date(NOW.getTime() - 30 * DAY).toISOString();
+    const old = new Date(NOW.getTime() - 61 * DAY).toISOString();
     const p = _pedido('P1', [
       { code: 'X', state: 'ASIG', qtyOpen: 5, asigAt: old },
       { code: 'Y', state: 'invoiced', qtyOpen: 0, qtyInvoiced: 3 },
@@ -214,7 +214,7 @@ describe('expireAsigLinesTTL — pedido closure', () => {
   });
 
   it('NO cierra pedido si hay otras lineas abiertas (state=BO)', async () => {
-    const old = new Date(NOW.getTime() - 30 * DAY).toISOString();
+    const old = new Date(NOW.getTime() - 61 * DAY).toISOString();
     const p = _pedido('P1', [
       { code: 'X', state: 'ASIG', qtyOpen: 5, asigAt: old },
       { code: 'Y', state: 'BO', qtyOpen: 3 },
@@ -229,14 +229,14 @@ describe('expireAsigLinesTTL — pedido closure', () => {
 
 describe('expireAsigLinesTTL — audit log', () => {
   it('escribe doc en asig_ttl_log con detalle', async () => {
-    const old = new Date(NOW.getTime() - 30 * DAY).toISOString();
+    const old = new Date(NOW.getTime() - 61 * DAY).toISOString();
     const p = _pedido('P1', [{ code: 'X', state: 'ASIG', qtyOpen: 5, asigAt: old }]);
     const fbDb = makeFakeFbDb([p]);
     const deps = { fbDb, now: () => NOW, log: vi.fn() };
     await expireAsigLinesTTL(deps);
     expect(fbDb._store.logs).toHaveLength(1);
     const audit = fbDb._store.logs[0].data;
-    expect(audit.ttlDays).toBe(15);
+    expect(audit.ttlDays).toBe(60);
     expect(audit.pedidosScanned).toBe(1);
     expect(audit.expiredLines).toHaveLength(1);
     expect(audit.pedidosClosed).toBe(1);
@@ -255,7 +255,7 @@ describe('expireAsigLinesTTL — audit log', () => {
 
 describe('expireAsigLinesTTL — pedidos cerrados', () => {
   it('ignora pedidos con closedAt seteado', async () => {
-    const old = new Date(NOW.getTime() - 30 * DAY).toISOString();
+    const old = new Date(NOW.getTime() - 61 * DAY).toISOString();
     const p = _pedido('P1', [{ code: 'X', state: 'ASIG', qtyOpen: 5, asigAt: old }], {
       closedAt: '2026-08-01T00:00:00Z',
     });

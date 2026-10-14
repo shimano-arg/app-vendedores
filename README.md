@@ -4717,6 +4717,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1274 (2026-10-14) — TTL ASIG subido de 15 a 60 días
+
+**Archivos**:
+- `functions/core/asig-ttl-core.js:31` (`TTL_DAYS = 60`, antes 15)
+- `functions/core/asig-ttl-core.js:1-29` (comentarios header actualizados)
+- `functions/index.js:1047-1054` (doc del cron CF `expireAsigLinesTTLCF`)
+- `tests/functions/asig-ttl.test.js` (6 tests actualizados: 15/16/30→60/61 días)
+- `index.html:6260` + `sw.js:20` (bump v1273 → v1274)
+
+**Antes (v1273)**:
+Mariano pregunto "el stock asignado que esta hace mas de 60 dias se borra no?". Yo respondi erroneamente que si (en nota inicial del v1272 README). Realidad del codigo: TTL ASIG era 15d, no 60d. Mariano aclaro: "quiero que si hay lineas con stock asignado que estan hace mas de 60 dias la app los elimine. sino se confirmo en 60 dias es basura".
+
+**Problema**:
+TTL de 15d era demasiado agresivo para la operativa real. Clientes pueden tardar >15d en confirmar un pedido ASIG (contactos, logistica, pagos). Expirar a los 15d descartaba demanda viva por error.
+
+**Cambio**:
+- `TTL_DAYS = 15` → `TTL_DAYS = 60` en `functions/core/asig-ttl-core.js`.
+- Comentarios actualizados aclarando que RESERVA_TTL_DAYS (7d, en `stock-realmente-disponible.js`) y TTL_DAYS (60d, aqui) YA NO ESTAN sincronizados — son 2 TTLs con proposito distinto:
+  - 7d: la linea deja de bloquear stock fisico pero sigue visible como "ghost ASIG" (demanda viva no reservada).
+  - 60d: la CF cron expira la linea (`state='expired'`, `qtyOpen=0`, `qtyExpired += qty`). Pedido se cierra si todas las lineas quedaron sin qty abierta.
+- Tests actualizados: 16/15/30d → 61/60/61d. El `ttlDays` del audit log cambio de 15 a 60.
+
+**Por que**:
+- "Si no se confirmo en 60 dias es basura" — spec Mariano explicita.
+- Durante 7-60d la linea NO bloquea stock (RESERVA_TTL_DAYS ya la ignora), entonces no hay riesgo operativo de dejarla visible mas tiempo.
+- El audit log en `asig_ttl_log/{iso}` sigue intacto — queda traza de que lineas se expiraron y cuando.
+
+**Verificacion**:
+- `vitest run tests/functions/asig-ttl.test.js` → 15/15 pass.
+- `npm run test:unit` → 706/706 pass.
+- `npm run typecheck` → clean.
+- Smoke manual post-deploy funciones: `firebase deploy --only functions:expireAsigLinesTTLCF`. Proximo cron 03:00 ART expira solo lineas >60d. Audit en `asig_ttl_log/{iso}` muestra `ttlDays: 60`.
+
+**Rollback**:
+`git revert <commit>`. TTL vuelve a 15d. Las lineas que hubieran sido expiradas entre 15-60d permanecen state='ASIG' (habian sido expiradas por el CF del cron pre-rollback; post-rollback la CF no las re-expira al pasarlas por el flow — pero quedan con state='expired' igual).
+
 ### v1273 (2026-10-14) — Fix filter "Crear Pedido Desde SA": 0 clientes porque motor FIFO pone asigReserva=false
 
 **Archivos**:
@@ -4780,7 +4816,9 @@ El flow previo `_cpstConfirmar` cancelaba la linea ASIG original ENTERA (`qtyOpe
 Ejemplo pre-fix: asignada 24u + stock 20u → waitlist 20u + 24u cancelled en pedido original → 4u desaparecen.
 
 **Problema**:
-Las ASIG se eliminan cada 60 días para evitar basura (regla negocio). Pero las unidades recortadas por falta de stock HOY deberían quedar en el pedido original ASIG tildadas, "a la espera de más stock". El flow pre-v1272 asumía 1:1 entre waitlist y cancelación, lo que no es correcto cuando hay recorte.
+Las ASIG dejan de reservar stock a los 7d (RESERVA_TTL_DAYS en stock-realmente-disponible.js) y se expiran a los 60d (TTL_DAYS en asig-ttl-core.js, CF cron diario 03:00 ART; v1274 subio de 15 a 60 por pedido Mariano).
+
+Las unidades recortadas por falta de stock HOY deberían quedar en el pedido original ASIG tildadas, "a la espera de más stock" hasta su propio TTL. El flow pre-v1272 asumía 1:1 entre waitlist y cancelación, lo que no es correcto cuando hay recorte.
 
 **Cambio**:
 - **Split parcial**: en `_cpstConfirmar` PASO 2, para cada SKU del cliente:
@@ -4794,7 +4832,7 @@ Las ASIG se eliminan cada 60 días para evitar basura (regla negocio). Pero las 
 - **Error message mejorado**: "No hay unidades disponibles para crear el pedido. El stock físico libre para este cliente es 0 en todos los SKUs tildados. Las lineas ASIG quedan intactas." (reemplaza el genérico "No hay lineas para cancelar").
 
 **Por que**:
-- La regla de 60 días es un garbage collector, no un trigger de descarte proactivo. Si una linea ASIG tiene demanda activa, debe quedar hasta la próxima oportunidad.
+- Los TTLs (7d sin reservar + 60d expired) son garbage collectors tiempo-based, no triggers de descarte proactivo. Si una linea ASIG tiene demanda activa, debe quedar hasta su propio TTL.
 - El split preserva la demanda del cliente sin crear basura: la linea sigue en el mismo pedido, mismo estado, solo con qtyOpen reducido.
 - `partialCancelAt/From/Qty` dan trazabilidad para auditoría: ¿cuándo se recortó? ¿cuántas unidades? ¿por qué flow? Mariano puede investigar un caso en 1 query.
 

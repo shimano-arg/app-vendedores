@@ -1,11 +1,14 @@
 // @ts-check
-// Must stay in sync with RESERVA_TTL_DAYS in src/pure/stock-realmente-disponible.js.
-// Bug #2 fix: alineado a 15d (antes 30d) — el snapshot y lineReservesStock
-// stops counting ASIG lines as reserving at asigAt > 15d; si la TTL CF marcaba
-// expired recien a los 30d, habia 15 dias de "ghost ASIG" en la UI (operador
-// las ve como state='ASIG' pero el stock ya no las retiene).
+// v1274 (2026-10-14): TTL ASIG 15d → 60d por pedido Mariano. Rationale: "si no
+// se confirmo en 60 dias es basura". Durante 7-60d la linea NO reserva stock
+// fisico (RESERVA_TTL_DAYS=7 en stock-realmente-disponible.js) pero sigue visible
+// en el modal como demanda viva ("ghost ASIG"). Pasados 60d la CF la expira.
+//
+// RESERVA_TTL_DAYS (7d) y este TTL_DAYS (60d) ya NO estan en sync — son 2 TTLs
+// con proposito distinto: 7d marca "no bloquea stock mas", 60d marca "basura
+// definitiva".
 /**
- * E7: TTL 15d para lineas ASIG. Diariamente libera lineas que llevan > 15 dias
+ * E7: TTL 60d para lineas ASIG. Diariamente libera lineas que llevan > 60 dias
  * en state='ASIG' sin reciclar ni cancelar.
  *
  * Efecto por linea expirada:
@@ -28,7 +31,7 @@
  * de lineas expiradas. Solo admin/gerente lee (rules).
  */
 
-const TTL_DAYS = 15;
+const TTL_DAYS = 60;
 const ASIG_TTL_LOG_COLLECTION = 'asig_ttl_log';
 
 /**
