@@ -434,9 +434,7 @@ export async function applyRepartoManualCore(deps, opts) {
         }
         const qty = Number(a.qtyAsignada) || 0;
         if (qty <= 0) {
-          throw new Error(
-            'qtyAsignada=' + qty + ' invalido @ ' + a.pedidoId + ':' + a.lineIndex
-          );
+          throw new Error('qtyAsignada=' + qty + ' invalido @ ' + a.pedidoId + ':' + a.lineIndex);
         }
         if (qty > qo) {
           // v1292 (2026-10-14): sobre-asignacion. Pablo le da mas al cliente
