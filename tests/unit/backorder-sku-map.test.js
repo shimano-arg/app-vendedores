@@ -182,7 +182,10 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     expect(r.skus).toHaveLength(0);
   });
 
-  it('ASIG con asigReserva=false vigente (v1072) → INCLUIDA en asignacion', () => {
+  it('v1270: ASIG con asigReserva=false → aparece con sinReserva=true + qtyAsignada=0 (no consume del FIFO)', () => {
+    // Pre-v1270: qtyAsignada=2 (contaba como reservada). Post-v1270: la linea
+    // destildada aparece pero no bloquea stock. Admin ve demanda viva + badge
+    // "SIN RESERVA" en el UI.
     const pedidos = [
       pedido({
         lines: [line({ state: 'ASIG', qtyOpen: 2, asigReserva: false, asigAt: daysAgo(3) })],
@@ -191,7 +194,9 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
     const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
     expect(r.skus).toHaveLength(1);
-    expect(r.skus[0].clientes[0].qtyAsignada).toBe(2);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(0);
+    expect(r.skus[0].clientes[0].sinReserva).toBe(true);
+    expect(r.skus[0].clientes[0].pendiente).toBe(2);
   });
 
   it('ASIG con asigReserva=false y >15d → excluida incluso en asignacion', () => {
@@ -203,6 +208,156 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
     const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
     expect(r.skus).toHaveLength(0);
+  });
+
+  it('v1270: escenario reporte Mariano — destildar DEVOTO libera stock para MARIANOPESCA+PESCAMAGIC virtual', () => {
+    // 10u fisico. 5 WEEKEND ASIG+tildado + 5 DEVOTO ASIG+DESTILDADO +
+    // 2 MARIANOPESCA BO + 6 PESCAMAGIC BO. Resultado esperado:
+    // - WEEKEND 5u qtyAsignada=5 (prioritario, tildado).
+    // - MARIANOPESCA 2u qtyAsignada=2 (promovido virtual).
+    // - PESCAMAGIC 6u qtyAsignada=3 (promovido parcial virtual), qtyBackorder=3.
+    // - DEVOTO 5u qtyAsignada=0 + sinReserva=true (visible pero no bloquea).
+    // Fechas dentro del TTL de 7d (v1198): asigAt y createdAt ≤6d.
+    const pedidos = [
+      pedido({
+        _fsId: 'pW',
+        clientName: 'WEEKEND',
+        clientCardCode: 'C-W',
+        confirmedAt: daysAgo(6),
+        lines: [line({ state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: daysAgo(6) })],
+      }),
+      pedido({
+        _fsId: 'pD',
+        clientName: 'DEVOTO',
+        clientCardCode: 'C-D',
+        confirmedAt: daysAgo(5),
+        lines: [line({ state: 'ASIG', qtyOpen: 5, asigReserva: false, asigAt: daysAgo(5) })],
+      }),
+      pedido({
+        _fsId: 'pM',
+        clientName: 'MARIANOPESCA',
+        clientCardCode: 'C-M',
+        createdAt: daysAgo(4),
+        confirmedAt: daysAgo(4),
+        lines: [line({ state: 'BO', qtyOpen: 2 })],
+      }),
+      pedido({
+        _fsId: 'pP',
+        clientName: 'PESCAMAGIC',
+        clientCardCode: 'C-P',
+        createdAt: daysAgo(2),
+        confirmedAt: daysAgo(2),
+        lines: [line({ state: 'BO', qtyOpen: 6 })],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 10 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    expect(r.skus).toHaveLength(1);
+    const byNombre = Object.fromEntries(r.skus[0].clientes.map((c) => [c.nombre, c]));
+    expect(byNombre.WEEKEND.qtyAsignada).toBe(5);
+    expect(byNombre.WEEKEND.sinReserva).not.toBe(true);
+    expect(byNombre.DEVOTO.qtyAsignada).toBe(0);
+    expect(byNombre.DEVOTO.sinReserva).toBe(true);
+    expect(byNombre.DEVOTO.pendiente).toBe(5);
+    expect(byNombre.MARIANOPESCA.qtyAsignada).toBe(2);
+    expect(byNombre.PESCAMAGIC.qtyAsignada).toBe(3);
+    expect(byNombre.PESCAMAGIC.qtyBackorder).toBe(3);
+  });
+
+  it('v1270 regresion: strict mode mantiene qtyAsignada=pendiente para destildadas (no afecta _cpstBuildCache)', () => {
+    // _cpstBuildCache (Crear Pedido-ST v1145) llama compute con strict mode y
+    // consume destildadas con qtyAsignada=pendiente para consolidar waitlist.
+    // Mi fix v1270 solo toca el branch FIFO; strict debe preservar el comportamiento.
+    const pedidos = [
+      pedido({
+        clientName: 'CLIENTE DESTILDADO',
+        lines: [line({ state: 'ASIG', qtyOpen: 4, asigReserva: false, asigAt: daysAgo(2) })],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 10 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', { aggregationMode: 'strict' }, deps);
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(4);
+  });
+
+  it('v1270 edge I1: cliente con ASIG destildada + BO del mismo SKU → sinReserva=false (BO tiene reserva)', () => {
+    // Cliente REBORN tiene 2 lineas del mismo SKU en 2 pedidos distintos:
+    // ASIG destildada 3u + BO 2u. Resultado agregado: pendiente=5, qtyAsignada
+    // depende del stock, pero sinReserva=false porque el BO contribuye reserva.
+    const pedidos = [
+      pedido({
+        _fsId: 'pA',
+        clientName: 'REBORN',
+        clientCardCode: 'C-R',
+        confirmedAt: daysAgo(5),
+        lines: [line({ state: 'ASIG', qtyOpen: 3, asigReserva: false, asigAt: daysAgo(5) })],
+      }),
+      pedido({
+        _fsId: 'pB',
+        clientName: 'REBORN',
+        clientCardCode: 'C-R',
+        createdAt: daysAgo(3),
+        confirmedAt: daysAgo(3),
+        lines: [line({ state: 'BO', qtyOpen: 2 })],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].clientes).toHaveLength(1);
+    const row = r.skus[0].clientes[0];
+    expect(row.nombre).toBe('REBORN');
+    // BO contribuye reserva (promovido virtual) → cliente NO es sinReserva.
+    expect(row.sinReserva).toBe(false);
+    // qtyAsignada = qtyBO (2u asignadas virtual) + qtyASIG destildada (0u).
+    expect(row.qtyAsignada).toBe(2);
+  });
+
+  it('v1270: re-tildar DEVOTO le devuelve prioridad por fecha original (desplaza PESCAMAGIC virtual)', () => {
+    // Mismo escenario pero DEVOTO con asigReserva=true (re-tildado).
+    // Resultado: WEEKEND+DEVOTO consumen 10u (prioritarios por fecha).
+    // MARIANOPESCA+PESCAMAGIC vuelven a qtyAsignada=0 (sin stock).
+    const pedidos = [
+      pedido({
+        _fsId: 'pW',
+        clientName: 'WEEKEND',
+        clientCardCode: 'C-W',
+        confirmedAt: daysAgo(6),
+        lines: [line({ state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: daysAgo(6) })],
+      }),
+      pedido({
+        _fsId: 'pD',
+        clientName: 'DEVOTO',
+        clientCardCode: 'C-D',
+        confirmedAt: daysAgo(5),
+        lines: [line({ state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: daysAgo(5) })],
+      }),
+      pedido({
+        _fsId: 'pM',
+        clientName: 'MARIANOPESCA',
+        clientCardCode: 'C-M',
+        createdAt: daysAgo(4),
+        confirmedAt: daysAgo(4),
+        lines: [line({ state: 'BO', qtyOpen: 2 })],
+      }),
+      pedido({
+        _fsId: 'pP',
+        clientName: 'PESCAMAGIC',
+        clientCardCode: 'C-P',
+        createdAt: daysAgo(2),
+        confirmedAt: daysAgo(2),
+        lines: [line({ state: 'BO', qtyOpen: 6 })],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 10 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    const byNombre = Object.fromEntries(r.skus[0].clientes.map((c) => [c.nombre, c]));
+    expect(byNombre.WEEKEND.qtyAsignada).toBe(5);
+    expect(byNombre.DEVOTO.qtyAsignada).toBe(5);
+    expect(byNombre.DEVOTO.sinReserva).not.toBe(true);
+    // MARIANOPESCA+PESCAMAGIC quedan filtrados del modal asignacion (qtyAsignada=0 y no sinReserva).
+    expect(byNombre.MARIANOPESCA).toBeUndefined();
+    expect(byNombre.PESCAMAGIC).toBeUndefined();
   });
 
   it('FIFO cap: ASIG total > dispSap → excedente cae a qtyBackorder (invisible en modo ASIG)', () => {
@@ -389,8 +544,11 @@ describe('computeBackorderSkuMap — fix auditor 2026-10-02 Timestamp handling',
     const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
     // Pre-fix: new Date(timestampObj).getTime() -> NaN, isAsigSinReservaVigente
     // devolvia false -> la linea quedaba descartada. Post-fix aparece.
+    // v1270: asigReserva=false ya no consume FIFO → qtyAsignada=0 + sinReserva=true.
     expect(r.skus).toHaveLength(1);
-    expect(r.skus[0].clientes[0].qtyAsignada).toBe(2);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(0);
+    expect(r.skus[0].clientes[0].sinReserva).toBe(true);
+    expect(r.skus[0].clientes[0].pendiente).toBe(2);
   });
 
   it('C2: ASIG con asigReserva=0 (entero) + asigAt Timestamp fresca -> aparece en modo asignacion', () => {
@@ -411,8 +569,11 @@ describe('computeBackorderSkuMap — fix auditor 2026-10-02 Timestamp handling',
     ];
     const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
     const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    // v1270: asigReserva=0 (entero legacy SAP) ya no consume FIFO.
     expect(r.skus).toHaveLength(1);
-    expect(r.skus[0].clientes[0].qtyAsignada).toBe(2);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(0);
+    expect(r.skus[0].clientes[0].sinReserva).toBe(true);
+    expect(r.skus[0].clientes[0].pendiente).toBe(2);
   });
 
   it('C2: sqDocDate normalizado a YYYY-MM-DD cuando confirmedAt es Timestamp (no "[object O")', () => {

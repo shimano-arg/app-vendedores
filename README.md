@@ -4717,6 +4717,62 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1270 (2026-10-14) — Fix: FIFO cliente modal ignoraba `asigReserva=false` + badge "SIN RESERVA"
+
+**Archivos**:
+- `src/pure/backorder-sku-map.js` (FIFO cap excluye destildadas + propagacion sinReserva + filtro v1270 mantiene destildadas visibles aunque qtyAsignada=0)
+- `index.html:14870+` (badge "SIN RESERVA" en row destildada + qty mostrada=pendiente para destildadas)
+- `index.html:14071+` (export plano incluye destildadas con qty=pendiente)
+- `tests/unit/backorder-sku-map.test.js` (4 tests nuevos v1270: escenario Mariano DEVOTO/WEEKEND/MARIANOPESCA/PESCAMAGIC + re-tildar restaura prioridad + regresion strict mode + edge I1 cliente ASIG destildada + BO)
+- `app.bundle.js` + chunks regenerados
+- `index.html:6260` + `sw.js:20` (bump v1269 → v1270)
+
+**Antes (v1269)**:
+Mariano reporto que en el modal Stock Asignado, cuando destildaba una row ASIG, los clientes BO del mismo SKU no veian el stock liberado. Ejemplo: 10u fisicas, WEEKEND 5u ASIG+tildado, DEVOTO 5u ASIG+DESTILDADO, MARIANOPESCA 2u BO, PESCAMAGIC 6u BO. El modal seguia mostrando DEVOTO con qtyAsignada=5 (consumiendo el `restante` del cap), y MARIANOPESCA/PESCAMAGIC quedaban qtyAsignada=0 — como si DEVOTO estuviera bloqueando stock que no deberia bloquear.
+
+**Problema**:
+El FIFO cliente del modal (`src/pure/backorder-sku-map.js:_buildSkuMapRaw`) armaba 2 tiers:
+1. **Prioritarios** = `source==='app' && (state==='ASIG' || state==='confirmed')`, sorted por sqDocDate ASC.
+2. **Competidores** = resto (BO), sorted por SAP first + fecha ASC.
+
+El filtro NUNCA consultaba `asigReserva`. Entonces una linea ASIG con asigReserva=false SIGUE pasando por el FIFO como prioritaria y consumiendo del `restante`. Las lineas BO que querian recibir ese stock liberado se quedaban sin asignacion.
+
+Agentes paralelos auditaron server-side + cliente-side antes del fix. Server-side: `onPedidoWriteRecalcSnapshot` + `onStockChangeFIFOAssign` existen pero `extractSkusWithStockIncrease` solo mira `warehouseBreakdown['11']` (fisico), no stock libre (fisico - asig). Entonces el motor server-side TAMPOCO reasigna automaticamente al destildar. v1270 cubre solo cliente (fix principal). Server-side pendiente para v1271 si Mariano lo pide.
+
+**Cambio**:
+- **Fix cliente FIFO**: en el branch `aggregationMode==='fifo'` (default), lineas con `asigReserva=false/0` NO entran ni a prioritarios ni a competidores. En paso 3 nuevo se marcan con `qtyAsignada=0`, `qtyBackorder=pendiente`, `sinReserva=true`. Semantica: la demanda sigue viva pero no consume stock del cap.
+- **Filtro agregacion**: en `isAsig` mode, mantener destildadas visibles aunque qtyAsignada=0 (requiere que sinReserva=true). El admin necesita verlas para decidir re-tildar o dejarlas liberando stock.
+- **Dedupe mejorado (edge I1)**: cliente agregado es `sinReserva=true` SOLO si tiene al menos una linea ASIG/confirmed destildada **y no tiene ninguna otra linea con reserva** (ni ASIG/confirmed tildada ni BO vigente). BO joven cuenta como "con reserva" porque bloquea stock fisico.
+- **Badge UI**: en `index.html:14870+`, agregado `<span>SIN RESERVA</span>` amarillo/naranja antes del nombre del cliente cuando `c.sinReserva === true` en modo asignacion. Tooltip explica que la demanda sigue viva pero no bloquea stock.
+- **Qty mostrada**: para destildadas, el display muestra `c.pendiente` (demanda original) en lugar de `qtyAsignada=0`. Admin ve "cuanto podria recuperar al re-tildar".
+- **Export plano**: en `renderBackordersTab`'s export flow (`index.html:14071+`), destildadas incluidas en el aplanado con `qty = pendiente` + `sinReserva: true` flag para que el Excel generado tenga la info.
+- **Regresion strict mode**: NO afectado — mi fix solo esta en branch FIFO, strict (usado por `_cpstBuildCache`/`Crear Pedido-ST`) sigue viendo destildadas con qtyAsignada=pendiente. Test nuevo garantiza el invariante.
+
+**Por que**:
+- v1268 agrego el checkbox UI pero el flow logico del FIFO cliente no respetaba el flag → "destildar" era visualmente eficaz pero no re-asignaba el stock a los otros clientes.
+- v1269 cubrio el motor de reservas (`lineReservesStock`) para que agregados server-side (STOCK_ASIG_APP) bajen al destildar.
+- v1270 cierra el loop cliente para que el modal muestre coherencia: WEEKEND+MARIANOPESCA+PESCAMAGIC con qtyAsignada reflejando el stock libre tras liberar DEVOTO. Y cuando se re-tilda DEVOTO, el FIFO cliente le devuelve prioridad por fecha original (desplaza las promociones virtuales).
+
+**Verificacion**:
+- `npm run test:unit` → 706/706 pass (4 nuevos v1270 OK + 2 pre-existentes actualizados a nueva semantica).
+- `npm run typecheck` → clean.
+- Code review via agente `pr-review-toolkit:code-reviewer` identifico 2 BLOCKERS + 1 IMPORTANT antes del commit:
+  - B1 (strict regresion): verificado via test, NO afecta porque mi fix esta solo en branch FIFO.
+  - B2 (export plano): fixeado — ahora destildadas aparecen con qty=pendiente.
+  - I1 (dedupe BO + ASIG destildada): fixeado — dedupe considera BO como "con reserva".
+
+**Smoke manual pendiente post-deploy**:
+1. Abrir modal Stock Asignado para SKU con configuracion similar al escenario Mariano (ASIG tildado + ASIG destildado + BO del mismo SKU).
+2. Verificar badge amarillo "SIN RESERVA" en la row destildada.
+3. Verificar que BO virtuales aparezcan con qtyAsignada>0 (promovidos a stock asignado visual).
+4. Exportar a Excel y verificar que destildadas estan incluidas con qty=pendiente.
+
+**Pendiente v1271 (si Mariano lo pide)**:
+Extender `extractSkusWithStockIncrease` server-side para detectar deltas de stock libre (no solo fisico). Esto activaria el motor FIFO automatico al destildar — hoy las promociones BO→ASIG solo ocurren cuando sube el fisico SAP.
+
+**Rollback**:
+`git revert <commit>`. El FIFO cliente vuelve a tratar destildadas como prioritarias. Badge desaparece. Modal muestra la realidad "congelada" pre-v1270.
+
 ### v1269 (2026-10-14) — Fix: toggle "Reserva stock" no persistia + no liberaba stock en confirmed
 
 **Archivos**:

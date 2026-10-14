@@ -142,6 +142,7 @@ function toDateString(value) {
  * @property {boolean} [asigReserva]
  * @property {string} [asigCliTipo]
  * @property {any} [pedidoCreatedAt]
+ * @property {boolean} [sinReserva] v1270: true cuando TODAS las lineas contribuyentes tienen asigReserva=false. Row visible pero qtyAsignada=0 (no consumio del FIFO).
  * @property {Array<{pedidoId: string, state: string|null, qty: number}>} [pedidoIds]
  *
  * @typedef {Object} SkuGroup
@@ -410,10 +411,25 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       if (!isAsig) g.urgency = dispSap === 0 ? 'urgente' : undefined;
     } else {
       // Modo FIFO (comportamiento histórico v1100+).
+      // v1270 (2026-10-14): lineas con asigReserva=false (admin destildo manualmente
+      // en modal Stock Asignado) NO deben consumir del `restante`. La demanda sigue
+      // viva (visible en modal) pero no bloquea stock → los BO pendientes pueden
+      // llenarse con esas unidades libres. Reporte Mariano: destildar DEVOTO 5u
+      // debia pasar 2u MARIANOPESCA + 3u PESCAMAGIC de BO a visualmente ASIG, pero
+      // DEVOTO seguia consumiendo las 5u del restante → nadie promovia.
+      /** @param {ClienteRow} c */
+      const isSinReserva = (c) => {
+        // SAP serializa booleanos como 0/1 enteros; cast via any para
+        // compararlos sin que TS rompa el narrow de boolean|undefined.
+        const flag = /** @type {any} */ (c.asigReserva);
+        return c.state !== 'BO' && (flag === false || flag === 0);
+      };
       let restante = dispSap;
-      // Paso 1: prioritarios (ASIG + confirmed) FIFO por fecha ascendente.
+      // Paso 1: prioritarios (ASIG + confirmed) FIFO por fecha ascendente,
+      // EXCLUYENDO destildadas (asigReserva=false).
       const prioritarios = g.clientes.filter(
-        (c) => c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed')
+        (c) =>
+          c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed') && !isSinReserva(c)
       );
       prioritarios.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
       for (const c of prioritarios) {
@@ -426,7 +442,9 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       // Paso 2: competidores (SAP + APP-BO). SAP gana primero (transición SAP→APP),
       // luego fecha ascendente.
       const competidores = g.clientes.filter(
-        (c) => !(c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed'))
+        (c) =>
+          !(c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed')) &&
+          !isSinReserva(c)
       );
       competidores.sort((a, b) => {
         if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
@@ -437,6 +455,16 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
         c.qtyAsignada = asignable;
         c.qtyBackorder = c.pendiente - asignable;
         restante -= asignable;
+      }
+      // Paso 3 (v1270): destildadas se marcan explicitamente qtyAsignada=0 y
+      // qtyBackorder=pendiente. Visibles en el modal (ver filtro v1270 abajo)
+      // con badge "SIN RESERVA" en la UI.
+      for (const c of g.clientes) {
+        if (isSinReserva(c)) {
+          c.qtyAsignada = 0;
+          c.qtyBackorder = Number(c.pendiente) || 0;
+          c.sinReserva = true;
+        }
       }
       // urgency es SKU-level (dispSap-based), inmutable a partir de aquí.
       if (!isAsig) g.urgency = dispSap > 0 ? 'parcial' : 'urgente';
@@ -464,13 +492,22 @@ export function computeBackorderSkuMap(pedidos, mode, filters, deps) {
   Object.values(skuMap).forEach((g) => {
     // Filtro por modo.
     if (isAsig) {
-      g.clientes = g.clientes.filter((c) => (c.qtyAsignada || 0) > 0);
+      // v1270: en modo Stock Asignado, mantener destildadas visibles aunque
+      // qtyAsignada=0 (sinReserva=true). El admin necesita verlas para
+      // decidir re-tildar (volver a reservar) o dejarlas liberando stock.
+      g.clientes = g.clientes.filter((c) => (c.qtyAsignada || 0) > 0 || c.sinReserva === true);
     } else {
       g.clientes = g.clientes.filter((c) => (c.qtyBackorder || 0) > 0);
     }
     // Consolidar duplicados por cliente (mismo cardCode/nombre en varios pedidos).
     /** @type {Object<string, ClienteRow>} */
     const byKeyC = {};
+    // v1270: cliente agregado es sinReserva=true SOLO si tiene al menos una
+    // linea ASIG/confirmed destildada Y NO tiene ninguna ASIG/confirmed con
+    // reserva. BO no influye (BO siempre esta esperando stock, el flag es un
+    // toggle manual del admin solo relevante en ASIG/confirmed).
+    /** @type {Record<string, {tieneConReserva: boolean, tieneSinReserva: boolean}>} */
+    const dedupeFlags = {};
     for (const c of g.clientes) {
       const k = String(c.code || c.nombre || '(sin key)').toUpperCase();
       if (!byKeyC[k]) {
@@ -480,10 +517,23 @@ export function computeBackorderSkuMap(pedidos, mode, filters, deps) {
           qtyBackorder: 0,
           pedidoIds: [],
         });
+        dedupeFlags[k] = { tieneConReserva: false, tieneSinReserva: false };
       }
       byKeyC[k].pendiente += Number(c.pendiente) || 0;
       byKeyC[k].qtyAsignada += Number(c.qtyAsignada) || 0;
       byKeyC[k].qtyBackorder += Number(c.qtyBackorder) || 0;
+      if (c.state === 'ASIG' || c.state === 'confirmed') {
+        if (c.sinReserva === true) {
+          dedupeFlags[k].tieneSinReserva = true;
+        } else {
+          dedupeFlags[k].tieneConReserva = true;
+        }
+      } else if (c.state === 'BO') {
+        // v1270: BO joven (ya filtradas las vencidas por v969 arriba) reserva
+        // stock fisico. Un cliente con ASIG destildada + BO vigente NO es
+        // "sin reserva" total — el BO sigue bloqueando stock.
+        dedupeFlags[k].tieneConReserva = true;
+      }
       if (c.pedidoId && Array.isArray(byKeyC[k].pedidoIds)) {
         byKeyC[k].pedidoIds.push({
           pedidoId: c.pedidoId,
@@ -491,6 +541,11 @@ export function computeBackorderSkuMap(pedidos, mode, filters, deps) {
           qty: Number(c.pendiente) || 0,
         });
       }
+    }
+    // v1270: resolver sinReserva post-agregacion.
+    for (const k of Object.keys(byKeyC)) {
+      const flags = dedupeFlags[k];
+      byKeyC[k].sinReserva = flags && flags.tieneSinReserva && !flags.tieneConReserva;
     }
     g.clientes = Object.values(byKeyC);
     // Total según modo.

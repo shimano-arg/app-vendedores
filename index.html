@@ -6289,7 +6289,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1269';
+const APP_VERSION = 'v1270';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14069,10 +14069,17 @@ window.exportBackordersToExcel = async function(){
     }
   ) : { skus: [], totalUnidades: 0, totalClientes: 0 };
   // Aplanar skus[].clientes[] en `filtered` (1 fila por cliente).
+  // v1270: en modo asignacion, destildadas (sinReserva=true) tienen qtyAsignada=0
+  // pero deben incluirse en el export con su `pendiente` como demanda viva (admin
+  // sigue necesitando contactar al cliente). qty del export = pendiente para esas,
+  // qtyAsignada para las demas.
   const filtered = [];
   _bkResult.skus.forEach(g => {
     (g.clientes || []).forEach(c => {
-      const qty = isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
+      const _sinReserva = isAsigMode && c.sinReserva === true;
+      const qty = isAsigMode
+        ? (_sinReserva ? (c.pendiente || 0) : (c.qtyAsignada || 0))
+        : (c.qtyBackorder || 0);
       if (qty <= 0) return;
       filtered.push({
         sku: g.sku,
@@ -14084,6 +14091,7 @@ window.exportBackordersToExcel = async function(){
         precioUnitario: c.precio,
         sqDocNum: c.sqDocNum || '',
         sqDocDate: c.sqDocDate,
+        sinReserva: _sinReserva,
       });
     });
   });
@@ -14904,12 +14912,22 @@ window.renderBackordersTab = function(){
           }
         }
       }
+      // v1270 (2026-10-14): badge "SIN RESERVA" para rows destildadas en modal
+      // Stock Asignado. La linea esta ASIG o confirmed pero el admin libero la
+      // reserva (asigReserva=false). Visible como demanda pero no bloquea stock.
+      if (_isAsigMode && c.sinReserva === true) {
+        html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Admin destildo esta row. La demanda sigue viva (' + Math.round(c.pendiente || 0) + ' unidades) pero NO bloquea stock. Las unidades liberadas quedan disponibles para los proximos clientes en Backorder. Volver a tildar la reactiva (vuelve a reservar).">SIN RESERVA</span>';
+      }
       html += '<span>' + escapeHtml(c.nombre) + '</span>';
       html += '</div></td>';
       html += '<td style="padding:6px 8px;text-align:right;vertical-align:middle;white-space:nowrap">';
       html += '<div style="display:inline-flex;align-items:center;gap:6px">';
       // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
-      const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
+      // v1270: destildadas tienen qtyAsignada=0 pero mostramos pendiente (demanda
+      // original) para que admin vea cuanto podria recuperar al re-tildar.
+      const _qtyShow = _isAsigMode
+        ? (c.sinReserva === true ? (c.pendiente || 0) : (c.qtyAsignada || 0))
+        : (c.qtyBackorder || 0);
       // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion.
       // v1213: soportar multiples pedidoIds (FIFO).
       // v1214: aceptar state='BO' (virtual asig).
