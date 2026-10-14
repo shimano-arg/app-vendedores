@@ -6332,7 +6332,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1279';
+const APP_VERSION = 'v1280';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16053,55 +16053,59 @@ window._cpstConfirmar = async function(){
     skusVanWaitlist + ' SKU(s), ' + totalAjustado + ' unidad(es) van a Lista de Espera' +
     detalleRecorte +
     detalleOmitidos + '\n\n' +
-    'Esto va a (atomico - todo o nada):\n' +
-    '1) Cancelar parcialmente (o completamente) las lineas ASIG tildadas en los pedidos originales.\n' +
-    '2) Crear un pedido NUEVO en LISTA DE ESPERA con las unidades disponibles.\n' +
-    '3) Si alguna cancellation falla, NADA se escribe (rollback automatico).\n\n' +
+    'IMPORTANTE: el pedido tiene 7 dias para ser confirmado por el VDE. Pasados\n' +
+    'los 7 dias, se elimina automaticamente de la Lista de Espera y las unidades\n' +
+    'vuelven al stock asignado (quedan reservadas para el cliente igual que ahora).\n\n' +
+    'Mientras el pedido esta en Lista de Espera, las unidades siguen reservadas\n' +
+    'en el stock asignado — otro VDE no puede confirmarlas para otros clientes.\n\n' +
     'Despues el VDE revisa el pedido + completa la forma de entrega + lo envia a SAP.';
   if (!confirm(confirmMsg)) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Procesando...'; }
   const nowIso = new Date().toISOString();
   try {
     // PASO 1: reservar orderNumber (fuera del batch porque usa runTransaction).
-    // Si el batch falla despues, el orderNumber "se desperdicia" pero no causa
-    // duplicados (el counter es monotonic). Peor caso: hueco en la secuencia.
     let ordenNum;
     try {
       ordenNum = await reserveNextOrderNumber();
     } catch (e) {
       throw new Error('No se pudo reservar el numero de orden: ' + (e.message || e));
     }
-    // PASO 2: construir las modificaciones por pedidoId. Agrupamos porque
-    // Firestore requiere escribir el array `lines` completo (no field-level).
-    // pedidoId -> { newLines, origLines (para auto-close check), originalPedido }
+    // v1280 (2026-10-14): REDISEÑO del flow. Antes (v1272) cancelabamos las
+    // lineas ASIG originales via split al momento de crear el waitlist. Esto
+    // liberaba el stock → otro VDE podia confirmarlo para otro cliente.
+    // Mariano: "mientras esta en lista de espera reserva las unidades".
+    // Ahora: NO tocamos las lineas originales. Solo creamos el waitlist con
+    // pedidosOrigenes[] que apunta a las lineas que se van a cancelar al
+    // momento de confirmar el waitlist (en doConfirmPedido). Si expira el
+    // waitlist (CF cron a los 7d), las lineas siguen intactas (siguen
+    // reservando como ASIG normales).
     //
-    // v1272 (2026-10-14): split parcial. Solo cancelar qtyAjustada (lo que
-    // efectivamente va a waitlist). Si qtyAjustada < qtyOpen total del SKU
-    // para el cliente, las unidades sobrantes quedan ASIG tildadas en el
-    // pedido original. Si qtyAjustada=0, NO tocar la linea (sigue completa).
-    // Pedido Mariano: "si asignado 24u pero stock=20, waitlist 20u y queden
-    // 4u ASIG tildadas".
+    // pedidosOrigenes shape: [{pedidoId, lineIndex, sku, qtyAsignada}, ...]
     //
-    // Distribucion entre entries (si cliente tiene multiples pedidos del
-    // mismo SKU): FIFO por el orden del compute (entries vienen en orden
-    // sqDocDate ASC). Primeros entries se cancelan completos, el ultimo
-    // puede ser parcial si queda remanente de qtyAjustada.
-    const updates = new Map();
+    // El idx de la linea se calcula aca con lookup para que doConfirmPedido
+    // no tenga que hacer un findIndex por string match (mas robusto si el
+    // array lines cambia su orden por otros flows).
+    /** @type {Array<{pedidoId: string, lineIndex: number, sku: string, qtyAsignada: number}>} */
+    const pedidosOrigenes = [];
+    /** @type {string[]} */
     const errors = [];
+    // Cache de pedidos para no fetchear 2 veces el mismo.
+    /** @type {Map<string, any>} */
+    const pedidosCache = new Map();
     for (const sk of c.skus) {
       const qtyAjustadaTotal = Number(sk.qtyAjustada) || 0;
-      if (qtyAjustadaTotal <= 0) continue; // Nada va a waitlist → no tocar lineas.
-      let restanteACancelar = qtyAjustadaTotal;
+      if (qtyAjustadaTotal <= 0) continue;
+      let restantePorAsignar = qtyAjustadaTotal;
       for (const entry of (sk.entries || [])) {
-        if (restanteACancelar <= 0) break;
+        if (restantePorAsignar <= 0) break;
         const pid = entry.pedidoId;
         if (!pid) {
           errors.push(sk.sku + ': pedidoId vacio');
           continue;
         }
         // Fetch del pedido (cache local -> Firestore fallback).
-        if (!updates.has(pid)) {
-          let p = null;
+        let p = pedidosCache.get(pid);
+        if (!p) {
           if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
             p = globalPedidos.find(pp => pp && pp._fsId === pid);
           }
@@ -16118,76 +16122,45 @@ window._cpstConfirmar = async function(){
               continue;
             }
           }
-          if (!Array.isArray(p.lines)) {
-            errors.push(sk.sku + ' (pedido ' + pid + '): pedido sin lineas');
-            continue;
-          }
-          updates.set(pid, { newLines: p.lines.slice(), originalPedido: p });
+          pedidosCache.set(pid, p);
         }
-        // Modificar la linea en newLines (mutando el array acumulado).
-        const u = updates.get(pid);
+        if (!Array.isArray(p.lines)) {
+          errors.push(sk.sku + ' (pedido ' + pid + '): pedido sin lineas');
+          continue;
+        }
         const st = entry.state || 'ASIG';
-        const idx = u.newLines.findIndex(l =>
-          l && String(l.code).toUpperCase() === String(sk.sku).toUpperCase() && l.state === st
+        const idx = p.lines.findIndex(l =>
+          l && String(l.code).toUpperCase() === String(sk.sku).toUpperCase() && l.state === st,
         );
         if (idx < 0) {
-          // v1272: break (no continue) para evitar que subsiguientes entries
-          // consuman restanteACancelar parcialmente y despues tiremos un
-          // "faltaron Xu desync" confuso. El error primario se preserva.
           errors.push(sk.sku + ' (pedido ' + pid + '): linea no encontrada state=' + st);
           break;
         }
-        const qo = Number(u.newLines[idx].qtyOpen) || 0;
+        const qo = Number(p.lines[idx].qtyOpen) || 0;
         if (qo <= 0) {
-          // v1272: no silent. Si entry viene con pedidoId cuya linea tiene
-          // qtyOpen=0, registrar para debug (puede ser cache stale vs
-          // Firestore o linea ya cancelada por otro flow concurrente).
-          errors.push(sk.sku + ' (pedido ' + pid + '): linea con qtyOpen=0, state=' + st + ' (ya cerrada o cancelada por otro flow)');
+          errors.push(sk.sku + ' (pedido ' + pid + '): linea con qtyOpen=0, state=' + st);
           break;
         }
-        // v1272: cancelar solo lo que necesitamos (toCancel). El resto queda ASIG.
-        const toCancel = Math.min(qo, restanteACancelar);
-        const newQtyOpen = qo - toCancel;
-        if (newQtyOpen > 0) {
-          // Split parcial: mantener state=ASIG + asigReserva, bajar qtyOpen,
-          // subir qtyCancelled. La linea sigue reservando stock para las qty
-          // sobrantes (admin eligio tildarla).
-          u.newLines[idx] = Object.assign({}, u.newLines[idx], {
-            qtyOpen: newQtyOpen,
-            qtyCancelled: (Number(u.newLines[idx].qtyCancelled) || 0) + toCancel,
-            partialCancelAt: nowIso,
-            partialCancelFrom: 'crear-pedido-st',
-            partialCancelQty: (Number(u.newLines[idx].partialCancelQty) || 0) + toCancel,
-          });
-        } else {
-          // Cancelacion completa (qtyOpen=0 post-cancel).
-          u.newLines[idx] = Object.assign({}, u.newLines[idx], {
-            qtyOpen: 0,
-            qtyCancelled: (Number(u.newLines[idx].qtyCancelled) || 0) + toCancel,
-            state: 'cancelled',
-            cancelledAt: nowIso,
-            cancelledFrom: 'crear-pedido-st',
-          });
-        }
-        restanteACancelar -= toCancel;
+        const toAssign = Math.min(qo, restantePorAsignar);
+        pedidosOrigenes.push({
+          pedidoId: pid,
+          lineIndex: idx,
+          sku: sk.sku,
+          qtyAsignada: toAssign,
+        });
+        restantePorAsignar -= toAssign;
       }
-      if (restanteACancelar > 0) {
-        // Edge case: qtyAjustada > sum(entries.qtyOpen). No deberia pasar porque
-        // qtyAjustada = min(sk.qty, libreParaCliente) y sk.qty = sum(entries).
-        // Si pasa, es desync entre cache y Firestore — mejor fallar que mentir.
-        errors.push(sk.sku + ': faltaron ' + restanteACancelar + 'u para completar qtyAjustada (desync cache/Firestore)');
+      if (restantePorAsignar > 0) {
+        errors.push(sk.sku + ': faltaron ' + restantePorAsignar + 'u para cubrir qtyAjustada');
       }
     }
-    // Si HUBO errores, abortar todo (atomic). Antes de commitear nada.
     if (errors.length > 0) {
       throw new Error('Pre-flight check fallo (' + errors.length + ' errores). Nada se escribio.\n\n' +
                       errors.slice(0, 10).join('\n') +
                       (errors.length > 10 ? '\n...y ' + (errors.length - 10) + ' mas' : ''));
     }
-    if (updates.size === 0) {
-      // v1272: lo mas probable es que todos los SKUs tengan qtyAjustada=0
-      // (stock físico libre para el cliente = 0 para todos). Mensaje acorde.
-      throw new Error('No hay unidades disponibles para crear el pedido. El stock físico libre para este cliente es 0 en todos los SKUs tildados. Las lineas ASIG quedan intactas.');
+    if (pedidosOrigenes.length === 0) {
+      throw new Error('No hay unidades disponibles para crear el pedido. El stock físico libre para este cliente es 0 en todos los SKUs tildados.');
     }
     // PASO 3: construir items[] del waitlist payload.
     // v1198 (2026-10-08): usa qtyAjustada (= min(sk.qty, libreParaCliente_hoy))
@@ -16230,72 +16203,23 @@ window._cpstConfirmar = async function(){
       deliveryMethod: '',
       deliveryDetails: {},
       source: 'stock-asignado-batch',
-      sourceCancelledLines: 0, // se llena abajo
-      sourceCancelFailed: 0,
       items: items,
+      // v1280 (2026-10-14): pedidosOrigenes apunta a las lineas ASIG que se
+      // van a cancelar cuando el VDE confirme el waitlist (doConfirmPedido).
+      // Mientras tanto, esas lineas siguen vivas en los pedidos originales
+      // → siguen reservando stock. Si expira el waitlist (7d), se elimina sin
+      // tocar los originales (las ASIG siguen intactas).
+      pedidosOrigenes: pedidosOrigenes,
+      // v1280: TTL 7 dias. CF expireStockAsignadoWaitlistsCF corre cron
+      // diario 04:00 ART y borra waitlists con expiresAt < now + stage !=
+      // 'consumed'.
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
-    // Contar lineas efectivamente modificadas para auditoria. v1272: incluye
-    // tanto cancellaciones completas como splits parciales.
-    let totalCancelled = 0;
-    let totalPartialCancel = 0;
-    for (const u of updates.values()) {
-      for (const l of u.newLines) {
-        if (!l) continue;
-        if (l.cancelledAt === nowIso && l.cancelledFrom === 'crear-pedido-st') totalCancelled++;
-        else if (l.partialCancelAt === nowIso && l.partialCancelFrom === 'crear-pedido-st') totalPartialCancel++;
-      }
-    }
-    payload.sourceCancelledLines = totalCancelled;
-    payload.sourcePartialCancelLines = totalPartialCancel;
-    // PASO 4: BATCH ATOMIC. Todas las updates de pedidos + crear waitlist en 1 commit.
-    // Si falla cualquier operacion, nada se escribe (Firestore batch rollback).
-    const batch = fbDb.batch();
-    for (const [pid, u] of updates) {
-      batch.update(fbDb.collection('pedidos').doc(pid), {
-        lines: u.newLines,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    }
+    // v1280: solo se crea el waitlist. NO se tocan los pedidos originales.
     const waitlistRef = fbDb.collection('revision_waitlist').doc();
-    batch.set(waitlistRef, payload);
-    await batch.commit();
-    // PASO 5 (post-batch, best-effort): auto-cerrar pedidos originales que
-    // quedan con 100% lineas cancelled. No critico — si falla, el pedido queda
-    // "vivo" pero con qtyOpen=0, visualmente feo pero no funcional.
-    const closedPedidos = [];
-    const nowClose = new Date().toISOString();
-    for (const [pid, u] of updates) {
-      try {
-        const allCancelled = u.newLines.length > 0 && u.newLines.every(l =>
-          l && (l.state === 'cancelled' || Number(l.qtyOpen) === 0)
-        );
-        if (allCancelled && !u.originalPedido.closedAt) {
-          await fbDb.collection('pedidos').doc(pid).update({
-            closedAt: nowClose,
-            closedReason: 'cancelled_by_cpst',
-            closedBy: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || '') : '',
-          });
-          closedPedidos.push(pid);
-        }
-      } catch (e) {
-        console.warn('[cpst] auto-close pedido fallo ' + pid + ':', e);
-      }
-    }
-    // Optimistic update local de globalPedidos.
-    if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-      globalPedidos = globalPedidos.map(p => {
-        if (!p || !updates.has(p._fsId)) return p;
-        const u = updates.get(p._fsId);
-        const patch = Object.assign({}, p, { lines: u.newLines });
-        if (closedPedidos.includes(p._fsId)) {
-          patch.closedAt = nowClose;
-          patch.closedReason = 'cancelled_by_cpst';
-        }
-        return patch;
-      });
-    }
+    await waitlistRef.set(payload);
     // Optimistic update de revisionWaitlist.
     try {
       const optimistic = Object.assign({}, payload, {
@@ -16307,32 +16231,17 @@ window._cpstConfirmar = async function(){
         revisionWaitlist.push(optimistic);
       }
     } catch (_e) {}
-    // Audit log por cada linea cancelada (para busqueda por SKU/cliente).
-    for (const [pid, u] of updates) {
-      for (const l of u.newLines) {
-        if (l && l.cancelledAt === nowIso && l.cancelledFrom === 'crear-pedido-st') {
-          try {
-            if (typeof logOp === 'function') logOp('pedido_line_delete', 'pedidos/' + pid, l.code, {
-              sku: l.code, qty: 0, cliente: c.nombre, state: 'ASIG', source: 'crear-pedido-st-batch',
-            });
-          } catch (_e) {}
-        }
-      }
-    }
     try {
       if (typeof logOp === 'function') logOp('cpst_create', 'revision_waitlist/' + waitlistRef.id, c.nombre, {
         cliente: c.nombre, orderNumber: ordenNum, skus: c.skus.length, unidades: c.totalU,
-        cancelledOk: totalCancelled, pedidosAfectados: updates.size, pedidosCerrados: closedPedidos.length,
+        pedidosOrigenes: pedidosOrigenes.length, expiresAt: payload.expiresAt,
       });
     } catch (_e) {}
     if (typeof showSyncTag === 'function') showSyncTag('Pedido ORDEN ' + ordenNum + ' creado en lista de espera');
     let msg = 'Pedido ORDEN ' + ordenNum + ' creado en LISTA DE ESPERA.\n\n' +
-              c.nombre + '\n' + c.skus.length + ' SKU(s) · ' + c.totalU + ' unidades.\n\n' +
-              totalCancelled + ' linea(s) ASIG cancelada(s) en ' + updates.size + ' pedido(s) original(es).';
-    if (closedPedidos.length > 0) {
-      msg += '\n' + closedPedidos.length + ' pedido(s) original(es) cerrado(s) automatico (100% canceladas).';
-    }
-    msg += '\n\nAhora el VDE puede revisarlo en LISTA DE ESPERA y enviarlo a SAP.';
+              c.nombre + '\n' + c.skus.length + ' SKU(s) · ' + totalAjustado + ' unidades.\n\n' +
+              'Las unidades siguen reservadas en el pedido original hasta que el VDE confirme el waitlist.\n' +
+              'Timer: 7 dias (vence ' + new Date(payload.expiresAt).toLocaleDateString('es-AR') + '). Pasados 7 dias se elimina solo del waitlist.';
     alert(msg);
     closeCrearPedidoSTModal();
     try {
@@ -18761,6 +18670,36 @@ function _renderWaitlistSidebar(){
       chip.textContent = 'STOCK ASIG';
       chip.title = 'Pedido generado desde Stock Asignado (unidades reservadas para el cliente)';
       cli.appendChild(chip);
+      // v1280 (2026-10-14): badge con timer TTL. Verde si quedan >3d,
+      // amarillo si 1-3d, rojo si <1d. Si no hay expiresAt (waitlist pre-v1280),
+      // no mostrar — queda sin timer.
+      if (w.expiresAt) {
+        const expMs = new Date(w.expiresAt).getTime();
+        if (Number.isFinite(expMs)) {
+          const diffMs = expMs - Date.now();
+          const diffDays = diffMs / (24 * 60 * 60 * 1000);
+          let bg, label;
+          if (diffMs <= 0) {
+            bg = '#991b1b';
+            label = 'VENCIDO';
+          } else if (diffDays < 1) {
+            bg = '#dc2626';
+            const hs = Math.max(1, Math.round(diffMs / (60 * 60 * 1000)));
+            label = 'VENCE EN ' + hs + 'h';
+          } else if (diffDays <= 3) {
+            bg = '#d97706';
+            label = 'VENCE EN ' + Math.round(diffDays) + 'd';
+          } else {
+            bg = '#15803d';
+            label = 'VENCE EN ' + Math.round(diffDays) + 'd';
+          }
+          const timer = document.createElement('span');
+          timer.style.cssText = 'background:' + bg + ';color:#fff;font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap';
+          timer.textContent = label;
+          timer.title = 'TTL 7 dias desde la creacion. Pasados 7d se elimina del waitlist (las unidades del pedido original siguen reservadas en Stock Asignado).';
+          cli.appendChild(timer);
+        }
+      }
     }
     // v499/v501: chip ORDEN N alineado al costado derecho.
     if (w.orderNumber) {
@@ -23199,6 +23138,10 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // manteniendo la etiqueta de STOCK ASIG para saber que ese pedido fue por
   // stock asignado".
   window._pendingPedidoSource = w.source || null;
+  // v1280 (2026-10-14): propagar pedidosOrigenes del waitlist para que al
+  // confirmar el pedido se cancelen las lineas ASIG originales (que hasta
+  // ahora estaban reservando stock mientras el waitlist estaba en espera).
+  window._pendingPedidoOrigenes = Array.isArray(w.pedidosOrigenes) ? w.pedidosOrigenes.slice() : null;
   closeWaitlistCardModal();
   closeWaitlistModal();
   // v843 (2026-09-09): si viene de "Generar Backorder", saltar el modal
@@ -32259,6 +32202,10 @@ window.doConfirmPedido = async function(){
       window._pendingPedidoWaitlistId = null;
       // v1209 (2026-10-08): reset del source heredado.
       window._pendingPedidoSource = null;
+      // v1280 (2026-10-14): grab + reset de pedidosOrigenes para pasarlo al
+      // paso de cancelacion de ASIG originales (abajo).
+      const _origenesACancelar = Array.isArray(window._pendingPedidoOrigenes) ? window._pendingPedidoOrigenes.slice() : null;
+      window._pendingPedidoOrigenes = null;
       // v1118 (2026-09-30): reset del flag bypass ASIG — ya se persistio.
       window._pendingBypassAsigGate = null;
       // Fallback local: solo cuando Firestore lo acepto. Si fallo por permisos,
@@ -32331,6 +32278,100 @@ window.doConfirmPedido = async function(){
           extra: { pedidoId: ref.id, clientName: currentOrderClient && currentOrderClient.name },
           userMsg: 'No pude auto-confirmar el pedido 100% backorder. Confirmalo manualmente desde el listado.',
         }));
+      }
+      // v1280 (2026-10-14): si el waitlist tenia pedidosOrigenes[] (fue
+      // creado desde "Crear Pedido Desde Stock Asignado"), cancelar las
+      // lineas ASIG originales ahora que el pedido B ya existe. Hasta este
+      // momento las lineas estaban reservando stock (reserva "transferible"
+      // al waitlist). Al confirmar, se cancelan para evitar doble reserva.
+      // Si falla alguna cancelacion, el pedido B ya existe — logueamos y
+      // avisamos al VDE pero no bloqueamos el flow.
+      if (_origenesACancelar && _origenesACancelar.length > 0) {
+        (async () => {
+          const _nowCancelIso = new Date().toISOString();
+          /** @type {Map<string, {newLines: any[], originalPedido: any}>} */
+          const _updatesByPedido = new Map();
+          const _cancelErrors = [];
+          // Agrupar por pedidoId para hacer un solo update por pedido.
+          for (const org of _origenesACancelar) {
+            const pid = org.pedidoId;
+            if (!pid) continue;
+            if (!_updatesByPedido.has(pid)) {
+              let p = null;
+              if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+                p = globalPedidos.find((pp) => pp && pp._fsId === pid);
+              }
+              if (!p || !Array.isArray(p.lines)) {
+                try {
+                  const _snap = await fbDb.collection('pedidos').doc(pid).get();
+                  if (!_snap.exists) {
+                    _cancelErrors.push('pedido ' + pid + ': no encontrado');
+                    continue;
+                  }
+                  p = Object.assign({ _fsId: pid }, _snap.data() || {});
+                } catch (e) {
+                  _cancelErrors.push('pedido ' + pid + ': fetch fallo ' + (e.message || e));
+                  continue;
+                }
+              }
+              _updatesByPedido.set(pid, { newLines: p.lines.slice(), originalPedido: p });
+            }
+            const u = _updatesByPedido.get(pid);
+            const li = Number(org.lineIndex);
+            const linea = u.newLines[li];
+            if (!linea) {
+              _cancelErrors.push('pedido ' + pid + ' linea ' + li + ': no existe');
+              continue;
+            }
+            if (linea.state !== 'ASIG') {
+              // Alguien ya la movio (recycle/cancel). No pisar.
+              _cancelErrors.push('pedido ' + pid + ' linea ' + li + ': state=' + linea.state + ' (no es ASIG, skip)');
+              continue;
+            }
+            const qo = Number(linea.qtyOpen) || 0;
+            const qty = Number(org.qtyAsignada) || 0;
+            if (qty <= 0 || qty > qo) {
+              _cancelErrors.push('pedido ' + pid + ' linea ' + li + ': qtyAsignada=' + qty + ' invalido (qtyOpen=' + qo + ')');
+              continue;
+            }
+            if (qty === qo) {
+              u.newLines[li] = Object.assign({}, linea, {
+                qtyOpen: 0,
+                qtyCancelled: (Number(linea.qtyCancelled) || 0) + qty,
+                state: 'cancelled',
+                cancelledAt: _nowCancelIso,
+                cancelledFrom: 'waitlist-confirm',
+                cancelledIntoPedidoId: ref.id,
+              });
+            } else {
+              u.newLines[li] = Object.assign({}, linea, {
+                qtyOpen: qo - qty,
+                qtyCancelled: (Number(linea.qtyCancelled) || 0) + qty,
+                partialCancelAt: _nowCancelIso,
+                partialCancelFrom: 'waitlist-confirm',
+                partialCancelQty: (Number(linea.partialCancelQty) || 0) + qty,
+                partialCancelIntoPedidoId: ref.id,
+              });
+            }
+          }
+          // Aplicar updates.
+          for (const [pid, u] of _updatesByPedido) {
+            try {
+              await fbDb.collection('pedidos').doc(pid).update({
+                lines: u.newLines,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+            } catch (e) {
+              _cancelErrors.push('pedido ' + pid + ' update: ' + (e.message || e));
+            }
+          }
+          if (_cancelErrors.length > 0) {
+            console.warn('[waitlist-confirm] cancel ASIG originales con errores', _cancelErrors);
+            try { showSyncTag('Pedido confirmado pero fallo cancelar algunas lineas originales. Revisar manual.'); } catch(_e){}
+          } else {
+            console.log('[waitlist-confirm] cancel ASIG originales OK:', _updatesByPedido.size, 'pedidos.');
+          }
+        })();
       }
       // v460: si el pedido venia de un "Dejar recalculando" y llego OK a
       // pedidos/{}, ahora si borrar el doc de revision_waitlist. Antes de

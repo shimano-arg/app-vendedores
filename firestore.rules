@@ -690,6 +690,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v1280 (2026-10-14): audit log del CF expireStockAsignadoWaitlistsCF.
+    match /waitlist_expire_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
     // v964 (2026-09-17): audit logs de sqCancelExpiredCF.
     // sq_cancel_log_shadow: Fase B (deploy sin riesgo, solo loguea).
     // sq_cancel_log:        Fase C (cancela SQs reales).

@@ -4717,6 +4717,48 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1280 (2026-10-14) — Waitlist stock-asignado-batch con TTL 7d + reserva de stock durante waitlist
+
+**Archivos**:
+- `functions/core/waitlist-ttl-core.js` (nuevo)
+- `functions/index.js`: CF scheduled `expireStockAsignadoWaitlistsCF` (cron diario 04:00 ART)
+- `index.html` `_cpstConfirmar`: rediseño — NO cancela ASIG originales. Guarda `pedidosOrigenes[]` + `expiresAt` en el waitlist.
+- `index.html` `doConfirmPedido`: nuevo paso de cancelación de ASIG originales al confirmar waitlist (via `_pendingPedidoOrigenes`).
+- `index.html` `_renderWaitlistSidebar`: badge timer "VENCE EN Xd" con color según urgencia.
+- `firestore.rules`: `waitlist_expire_log` collection.
+- `tests/functions/waitlist-ttl.test.js` (nuevo — 6 tests).
+- `index.html:6260` + `sw.js:20` (bump v1279 → v1280).
+
+**Antes (v1279)**:
+Mariano reportó que el flow v1272 cancelaba las ASIG originales al crear el waitlist. Esto liberaba stock → otro VDE podía confirmar las mismas unidades para otro cliente. Además no había timeout: un waitlist olvidado se quedaba indefinidamente.
+
+**Cambio**:
+- **No cancelar ASIG originales en `_cpstConfirmar`**: el waitlist nuevo solo guarda referencia (`pedidosOrigenes: [{pedidoId, lineIndex, sku, qtyAsignada}]`). Las líneas ASIG del pedido original siguen vivas → siguen reservando stock.
+- **Cancelar en `doConfirmPedido`**: cuando el VDE confirma el waitlist, un nuevo paso async itera `pedidosOrigenes[]` y cancela las ASIG originales (patrón split v1272: entero o parcial según qtyAsignada vs qtyOpen). Se marca `cancelledFrom='waitlist-confirm' + cancelledIntoPedidoId=<ref.id>` para audit.
+- **TTL 7d**: cada waitlist tiene `expiresAt = createdAt + 7d`. CF scheduled `expireStockAsignadoWaitlistsCF` corre diariamente a las 04:00 ART (después del TTL ASIG a 03:00 para no colisionar), escanea `revision_waitlist` where `source='stock-asignado-batch'` + `expiresAt < now` + `stage != 'consumed'` y los elimina. NO toca los pedidos originales — las ASIG siguen reservando.
+- **Badge timer en sidebar**: card nueva muestra "VENCE EN Xd" con color (verde >3d, amarillo 1-3d, rojo <1d). Si expiró y aún no corrió el cron, dice "VENCIDO".
+- **Confirm message actualizado**: avisa al admin que las unidades siguen reservadas durante el waitlist + el pedido tiene 7d.
+
+**Por que**:
+- Rationale Mariano: "mientras está en lista de espera reserva las unidades a esos clientes para evitar que se carguen nuevos pedidos y se confirmen esas unidades".
+- Rationale TTL: "para que no reserven stock de forma indefinida".
+- La reserva se logra reutilizando el motor existente (ASIG = reserva) sin tocar `lineReservesStock`.
+- Al expirar, el stock no cambia: las ASIG siguen intactas en los pedidos originales. El admin puede destildarlas desde el modal Stock Asignado si decide liberarlas.
+
+**Verificacion**:
+- `vitest run tests/functions/waitlist-ttl.test.js` → 6/6 pass.
+- `npm run test:unit` → 706/706 pass.
+- `npm run typecheck` → clean.
+- Deploy: `firebase deploy --only functions:expireStockAsignadoWaitlistsCF,firestore:rules`.
+- Smoke manual:
+  1. "Crear Pedido Desde Stock Asignado" → confirmar → ver que `revision_waitlist` tiene `expiresAt` (7d en el futuro) + `pedidosOrigenes[]` + las ASIG originales **intactas**.
+  2. Abrir sidebar → ver badge "VENCE EN 7d" verde en la card nueva.
+  3. VDE confirma waitlist → pedido B creado → ASIG originales canceladas con `cancelledFrom='waitlist-confirm'`.
+  4. CF scheduled al día siguiente 04:00 ART: borra waitlists expirados (si hay).
+
+**Rollback**:
+`git revert` + redeploy. Las waitlists con `expiresAt` y `pedidosOrigenes` quedan en Firestore pero no son tocadas por el flow viejo (que sigue iterando `items[]`). Mariano puede necesitar borrarlos manualmente desde Firebase Console si quiere limpiar.
+
 ### v1279 (2026-10-14) — Reparto manual Fase 3: eliminar FIFO automático (cleanup)
 
 **Archivos eliminados**:
