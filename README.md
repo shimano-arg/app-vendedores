@@ -4717,6 +4717,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1266 (2026-10-14) — Remover badge "Estado del LEAD" de las cards
+
+**Archivos**:
+- `index.html:10665-10671` (removido bloque if que agregaba el `<span class="cli-origen-inline">` con el leadEstado label)
+- `index.html:6260` + `sw.js:20` (bump v1265 → v1266)
+
+**Antes (v1265)**:
+Las cards del sidebar CLIENTES mostraban un badge inline con el `leadEstado` (ej. "CONTACTADO - ENVIO DOCUMENTACION" / "CONTACTADO - SIN DOCUMENTACION AUN" / "MARCADO PARA ELIMINAR") cuando el alta era un LEAD sin `cardCodeSap`. Introducido en v396 (2026-08-04) junto con el feature de follow-up para LEADs.
+
+**Problema**:
+Pedido Mariano (2026-10-14): "ya no es necesario". Agrega ruido visual en la card sin aportar valor accionable en ese contexto.
+
+**Cambio**:
+- Removido el bloque `if (!a.cardCodeSap && a.leadEstado && window.LEAD_ESTADO_LABELS[a.leadEstado])` que renderizaba el span inline en el `<div class="client-meta">` de la card SAP alta.
+- Comment preservado explicando donde vive el estado (sigue en `client_applications.leadEstado`).
+- El bloque "Estado del LEAD" dentro del modal #sap-alta-info-modal se MANTIENE (sigue funcional para editar el estado desde ahi).
+
+**Por que**:
+- Simplificacion visual: el badge en la card competia con otros chips (Cat, SAP origen, state badge) y pocas veces era accionable sin abrir el modal.
+- Dato preservado en Firestore + sigue editable desde el modal.
+
+**Verificacion**:
+- Smoke manual pendiente post-deploy: cards del sidebar CLIENTES sin badge LEAD_ESTADO visible. Abrir alta SAP de un LEAD -> modal muestra bloque "Estado del LEAD" con los 3 botones.
+
+**Rollback**:
+`git revert <commit>`. Badge vuelve a renderizarse. Datos en Firestore intactos.
+
 ### v1265 (2026-10-14) — Mover "Tipo de cliente" (cliTipo) a Ficha Cliente
 
 **Archivos**:
