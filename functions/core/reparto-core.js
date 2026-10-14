@@ -369,7 +369,7 @@ export function validateRepartoPayload(ingresoDoc, assignments) {
  * @param {string} opts.ingresoId
  * @param {Assignment[]} opts.assignments
  * @param {string} opts.appliedByEmail Email del user que aplica (audit).
- * @returns {Promise<{ok: boolean, errors: string[], applied: Assignment[]}>}
+ * @returns {Promise<{ok: boolean, errors: string[], applied: Assignment[], unassignedCancelled?: Array<{pedidoId: string, lineIndex: number}>}>}
  */
 export async function applyRepartoManualCore(deps, opts) {
   const log = deps.log || (() => {});
@@ -557,7 +557,10 @@ export async function applyRepartoManualCore(deps, opts) {
         });
       } catch (e) {
         const msg =
-          'cancel unassigned fallo (pedido ' + pid + '): ' + (e && e.message ? e.message : String(e));
+          'cancel unassigned fallo (pedido ' +
+          pid +
+          '): ' +
+          (e && e.message ? e.message : String(e));
         errors.push(msg);
       }
     }
