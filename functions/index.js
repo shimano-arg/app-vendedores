@@ -1033,12 +1033,18 @@ export const migrateAsigToBOCF = onCall(
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
     const db = getFirestore();
-    // Gate: solo admin (Mariano). Operacion sensible one-shot.
+    // Gate: admin/gerente. v1282 (2026-10-14): expandido de solo admin a
+    // admin|gerente porque Mariano reporto que el gate role==='admin' lo
+    // rechazaba (su cuenta tiene role=gerente). La operacion sigue siendo
+    // sensible pero coherente con applyRepartoManualCF (v1278 mismo gate).
     try {
       const userDoc = await db.collection('users').doc(auth.uid).get();
       const role = String((userDoc.data() || {}).role || '').toLowerCase();
-      if (role !== 'admin') {
-        throw new HttpsError('permission-denied', 'solo admin puede ejecutar migracion');
+      if (role !== 'admin' && role !== 'gerente') {
+        throw new HttpsError(
+          'permission-denied',
+          'solo admin/gerente puede ejecutar migracion (role actual: ' + role + ')'
+        );
       }
     } catch (e) {
       if (e instanceof HttpsError) throw e;
