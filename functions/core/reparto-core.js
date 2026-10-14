@@ -505,6 +505,63 @@ export async function applyRepartoManualCore(deps, opts) {
       errors.push(msg);
     }
   }
+  // v1295 (2026-10-14): si quedó stock LIBRE post-apply (Pablo decidió no
+  // asignar todo), cancelar los BO de clientesBO que NO recibieron asignacion.
+  // Rationale Mariano: "si habia stock disponible y lo deje en 0, es que ese
+  // cliente ya no va a esperar — eliminame el backorder". Si no quedo libre
+  // (todo se asigno), los no-asignados MANTIENEN su BO (siguen esperando otro
+  // ingreso).
+  const sumAsignada = applied.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
+  const libre = Math.max(0, (Number(ingresoDoc.qtyIngresada) || 0) - sumAsignada);
+  /** @type {Array<{pedidoId: string, lineIndex: number}>} */
+  const unassignedCancelled = [];
+  if (libre > 0) {
+    const clientesBO = Array.isArray(ingresoDoc.clientesBO) ? ingresoDoc.clientesBO : [];
+    const assignedKeys = new Set(applied.map((a) => a.pedidoId + '|' + a.lineIndex));
+    const toCancel = clientesBO.filter(
+      (c) => c && c.pedidoId && !assignedKeys.has(c.pedidoId + '|' + c.lineIndex)
+    );
+    // Agrupar por pedidoId: 1 tx por pedido con todas las lineas a cancelar.
+    /** @type {Map<string, number[]>} */
+    const byPedido = new Map();
+    for (const c of toCancel) {
+      const li = Number(c.lineIndex);
+      if (!byPedido.has(c.pedidoId)) byPedido.set(c.pedidoId, []);
+      /** @type {number[]} */ (byPedido.get(c.pedidoId)).push(li);
+    }
+    for (const [pid, lineIdxs] of byPedido) {
+      try {
+        await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+          const pedidoRef = deps.fbDb.collection('pedidos').doc(pid);
+          const pSnap = await tx.get(pedidoRef);
+          if (!pSnap.exists) throw new Error('pedido no existe: ' + pid);
+          const data = pSnap.data();
+          const lines = Array.isArray(data.lines) ? [...data.lines] : [];
+          for (const li of lineIdxs) {
+            const line = lines[li];
+            if (!line) continue;
+            if (line.state !== 'BO') continue; // Alguien ya la movio (race).
+            const qo = Number(line.qtyOpen) || 0;
+            if (qo <= 0) continue;
+            lines[li] = Object.assign({}, line, {
+              qtyOpen: 0,
+              qtyCancelled: (Number(line.qtyCancelled) || 0) + qo,
+              state: 'cancelled',
+              cancelledAt: nowIso,
+              cancelledFrom: 'reparto-unassigned-with-stock-libre',
+              cancelledFromIngreso: opts.ingresoId,
+            });
+            unassignedCancelled.push({ pedidoId: pid, lineIndex: li });
+          }
+          tx.update(pedidoRef, { lines, updatedAt: nowIso });
+        });
+      } catch (e) {
+        const msg =
+          'cancel unassigned fallo (pedido ' + pid + '): ' + (e && e.message ? e.message : String(e));
+        errors.push(msg);
+      }
+    }
+  }
   // Marcar ingreso como done (parcialmente OK, en progreso, o done segun errors).
   const nextStatus = errors.length === 0 ? 'done' : applied.length > 0 ? 'in_progress' : 'pending';
   try {
@@ -533,6 +590,9 @@ export async function applyRepartoManualCore(deps, opts) {
       errorsCount: errors.length,
       errors: errors.slice(0, 10),
       status: nextStatus,
+      // v1295: lineas BO canceladas por no-asignado + stock libre.
+      unassignedCancelledCount: unassignedCancelled.length,
+      unassignedCancelled: unassignedCancelled.slice(0, 20),
     });
   } catch (logErr) {
     const msg =
@@ -541,5 +601,5 @@ export async function applyRepartoManualCore(deps, opts) {
     log('reparto_log write failed', { ingresoId: opts.ingresoId, err: msg });
     errors.push(msg);
   }
-  return { ok: errors.length === 0, errors, applied };
+  return { ok: errors.length === 0, errors, applied, unassignedCancelled };
 }
