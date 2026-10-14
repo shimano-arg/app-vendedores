@@ -277,6 +277,13 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       if (!l || !l.code) continue;
       // v962: confirmed también entra (SQ enviada a SAP, prioridad = ASIG).
       if (l.state !== 'BO' && l.state !== 'ASIG' && l.state !== 'confirmed') continue;
+      // v1286 (2026-10-14): en modo asignacion, confirmed NO se incluye. Son
+      // pedidos ya enviados a SAP esperando entrega — reservan stock en el
+      // motor via lineReservesStock pero no aparecen en el modal Stock
+      // Asignado (que post-reparto manual solo muestra lo que Pablo asigno
+      // via modal "Reparto"). v1285 solo las habia sacado de prioritarios
+      // en FIFO; seguian apareciendo en competidores con qtyAsignada > 0.
+      if (isAsig && l.state === 'confirmed') continue;
       const qtyOpen = Number(l.qtyOpen || 0);
       if (qtyOpen <= 0) continue;
       // v978/v979: filtro vencidas.

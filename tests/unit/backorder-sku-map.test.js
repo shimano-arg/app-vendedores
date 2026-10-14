@@ -158,7 +158,10 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     expect(r.skus[0].totalPendiente).toBe(3);
   });
 
-  it('confirmed (v962) también entra a Stock Asignado', () => {
+  it('v1286 (revert v962): confirmed YA NO entra a Stock Asignado', () => {
+    // Pre-v1286: confirmed aparecia en el modal (v962/v1190 agregaron).
+    // Post-v1286: solo state='ASIG' aparece — las confirmed son pedidos en
+    // SAP esperando entrega, no deben ocupar el modal Stock Asignado.
     const pedidos = [
       pedido({
         confirmedAt: daysAgo(2),
@@ -167,8 +170,7 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     ];
     const deps = baseDeps({ getStockDisponibleVenta: () => 10 });
     const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
-    expect(r.skus).toHaveLength(1);
-    expect(r.skus[0].clientes[0].qtyAsignada).toBe(4);
+    expect(r.skus).toHaveLength(0);
   });
 
   it('ASIG expirada (>15d) → excluida del modo asignacion', () => {
