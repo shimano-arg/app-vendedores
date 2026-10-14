@@ -33,6 +33,35 @@ def main():
         raise SystemExit('[ERROR] NEW_QTY debe ser > 0')
 
     db = firestore.Client(project=PROJECT)
+
+    # v1300 (2026-10-14): validar NEW_QTY vs stock dep11 real de SAP para
+    # evitar typos destructivos (ej: 220 por 22 arma masacre al asignar
+    # unidades inexistentes a 15 clientes). Precedente H3 security audit.
+    force = (os.environ.get('FORCE', 'false').lower() == 'true')
+    try:
+        snap_stock = db.collection('app_config').document('stock_snapshot').get()
+        stock_data = snap_stock.to_dict() or {}
+        whb_raw = stock_data.get('warehouseBreakdown')
+        if isinstance(whb_raw, str):
+            import json as _json
+            try:
+                whb = _json.loads(whb_raw)
+            except Exception:
+                whb = {}
+        else:
+            whb = whb_raw or {}
+        stock_dep11 = int(((whb.get(SKU) or {}).get('11')) or 0)
+    except Exception as e:
+        log(f'  [WARN] no se pudo leer stock_snapshot: {e}')
+        stock_dep11 = None
+    if stock_dep11 is not None:
+        log(f'  stock dep11 real del SKU: {stock_dep11}')
+        if NEW_QTY > stock_dep11 and not force:
+            raise SystemExit(
+                f'[ERROR] NEW_QTY={NEW_QTY} > stock dep11 real ({stock_dep11}). '
+                f'Posible typo. Si es intencional, correr con FORCE=true.'
+            )
+
     snap = (
         db.collection('ingresos_reparto')
         .where('sku', '==', SKU)
@@ -73,6 +102,7 @@ def main():
             'status': 'cancelled',
             'cancelledAt': datetime.utcnow().isoformat() + 'Z',
             'cancelledReason': 'consolidado en ' + keeper.id + ' por bump qtyIngresada',
+            'cancelledBy': 'bump_ingreso_qty_adc.py',
         })
     log('=== DONE (APPLIED) ===')
 
