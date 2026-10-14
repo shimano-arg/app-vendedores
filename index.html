@@ -2383,6 +2383,19 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 }
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
+/* v1299 (2026-10-14): en hover/focus/row seleccionada (fondo azul oscuro),
+   las columnas destacadas disp-sap-col y pedido-final-col mantienen su fondo
+   claro (verde/azul claro) por el !important previo. Pero el texto heredaba
+   blanco del hover y quedaba ilegible. Forzar color oscuro para que sean
+   legibles. Pedido Mariano: "Libre para la venta queda blanco y no se ve". */
+#wcard-rows tr:hover td.disp-sap-col,
+#wcard-rows tr:focus-within td.disp-sap-col,
+#wcard-rows tr.highlighted td.disp-sap-col,
+#wcard-rows tr.selected td.disp-sap-col{color:#14532d !important}
+#wcard-rows tr:hover td.pedido-final-col,
+#wcard-rows tr:focus-within td.pedido-final-col,
+#wcard-rows tr.highlighted td.pedido-final-col,
+#wcard-rows tr.selected td.pedido-final-col{color:#1e3a8a !important}
 #wcard-rows tr td.mono{font-family:monospace;font-size:10px;text-align:center}
 #wcard-rows tr td.num{text-align:center;font-weight:600}
 #wcard-rows tr td.left-align{text-align:left}
@@ -6341,7 +6354,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1298';
+const APP_VERSION = 'v1299';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
