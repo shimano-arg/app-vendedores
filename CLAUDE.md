@@ -2,6 +2,57 @@
 
 Este archivo captura reglas de comportamiento aprendidas durante Fase 0 (rama `fase-0`). Cada regla incluye el contexto que la disparó y cuándo aplicar.
 
+---
+
+## 0. Protocolo de trabajo obligatorio (acordado 2026-10-14)
+
+Estas reglas aplican a todas las sesiones de este proyecto. No son sugerencias.
+
+### 0.1 Inventario al inicio de cada sesion
+
+Antes de tocar cualquier archivo, y cada vez que Mariano escriba "inventario", hacer esto:
+
+1. Relevar todo lo instalado y disponible, de todos los origenes: skills (globales en `~/.claude/skills` y del proyecto en `.claude/skills`), subagentes (`~/.claude/agents` y `.claude/agents`), plugins habilitados en `settings.json`, servers MCP (`~/.claude.json` y `.mcp.json`) y repositorios clonados dentro del proyecto que contengan `SKILL.md` o agentes.
+2. Mostrarlo como checklist, agrupado por tipo. Para cada item: nombre, origen (ruta o plugin), explicacion simple de para que sirve, ejemplo concreto de tarea de ESTA app donde conviene usarlo. Sin jerga.
+3. Marcar aparte lo que esta clonado pero NO registrado (repo con SKILL.md fuera de ruta de descubrimiento). Eso esta mal instalado y hay que avisarlo.
+4. Si dos skills hacen lo mismo, decirlo y recomendar cual conservar.
+
+Ejecutar `/skills`, `/agents` y `/plugin` para verificar, no asumir de memoria.
+
+### 0.2 Antes de cada tarea: revision de skills aplicables
+
+Cada pedido de cambio/edicion/fix/feature, ANTES de escribir codigo:
+
+1. Revisar inventario, listar skills/subagentes/MCP que aplican. Una linea cada uno explicando POR QUE.
+2. Si no aplica ninguna, decirlo explicitamente. No saltearlo en silencio.
+3. Usar efectivamente las elegidas (invocacion con Skill tool o `/nombre`). Prometer sin invocar NO cuenta.
+
+### 0.3 Rol de arquitecto: planificar antes de ejecutar
+
+Para cualquier tarea que toque mas de un archivo o mas de una seccion:
+
+1. Si existe skill o plugin de planificacion (ej: `superpowers:brainstorming`, `writing-plans`, `executing-plans`, `subagent-driven-development`), usarla. Si no, aplicar el proceso igual a mano.
+2. Producir un plan antes de codear: objetivo, division en secciones/pasos, para cada paso que skill o subagente lo ejecuta y cual lo revisa.
+3. ANALISIS DE IMPACTO obligatorio: antes de modificar algo, identificar todos los lugares de la app que dependen o consumen lo mismo (componentes, rutas, API, esquema de datos, estados compartidos, estilos, tests). Listarlos en el plan.
+4. Mostrar el plan y esperar OK antes de ejecutar, salvo que Mariano diga "dale directo".
+5. Al terminar cada paso: verificacion real (tests, build, lint, abrir el resultado), no "deberia funcionar". Si hay skill de verificacion o code review instalada, usarla.
+6. Antes de cerrar: revision de codigo buscando bugs, regresiones, desalineacion con el resto de la app. Reportar lo que se encontro y lo que se corrigio.
+
+### 0.4 Buscar e instalar skills nuevas (AUTORIZADO PREVIAMENTE)
+
+Mariano autorizo previa y explicitamente instalar skills/plugins/subagentes/repos que mejoren la app o la calidad.
+
+1. Usar `find-skills`, `skills.sh` o cualquier buscador instalado. Si no hay ninguno, instalar `find-skills` primero.
+2. NO volver a pedir OK por cada instalacion.
+3. Condiciones: instalar en ruta correcta segun tipo (marketplace via `/plugin`, skills sueltas en `~/.claude/skills`, agentes en `~/.claude/agents`). Verificar despues con `/skills` que quedo registrado. Avisar en una linea: que se instalo, de donde, si trae hooks o MCPs. Preferir fuentes conocidas con mantenimiento reciente.
+4. Si lo que se encuentra parece dudoso (sin mantenimiento, pide credenciales raras), NO instalar y explicar por que.
+
+### 0.5 Formato de las respuestas
+
+Primero el resultado o la decision, despues el detalle. Espanol rioplatense. Nada de "deberia andar": si no se verifico, decirlo.
+
+---
+
 ## 1. Deps npm por etapa, no big-bang
 
 **Regla**: instalar en `package.json` solo las devDependencies necesarias para la etapa actual + inmediatas. Deps pesadas (Playwright con browsers ~600 MB, firebase-tools con emulators bundled ~200 MB, firebase-admin con grpc, firebase-functions) van en su propia etapa o dentro de subcarpetas (`functions/`).

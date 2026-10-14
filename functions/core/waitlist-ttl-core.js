@@ -113,12 +113,20 @@ export async function expireStockAsignadoWaitlists(deps) {
     // v1289 (2026-10-14): fallback para waitlists pre-v1280 — si no tienen
     // expiresAt, inferir createdAt + 7d. El frontend hace el mismo fallback
     // para mostrar el badge timer, por lo que esto los mantiene consistentes.
+    // v1300 (2026-10-14) M3 fix: usar _toMs() helper que acepta Timestamp,
+    // ISO string, Date y number. Antes solo Timestamp.toDate() → docs con
+    // createdAt como string nunca expiraban (varias colecciones usan ISO).
     let expMs = _toMs(data.expiresAt);
-    if (expMs <= 0 && data.createdAt && typeof data.createdAt.toDate === 'function') {
-      try {
-        expMs = data.createdAt.toDate().getTime() + 7 * 24 * 60 * 60 * 1000;
-      } catch (_e) {
-        /* ignore */
+    if (expMs <= 0) {
+      const createdMs = _toMs(data.createdAt);
+      if (createdMs > 0) {
+        // v1300 M7 fix: guard contra createdAt corrupto (ej. new Date(0)) —
+        // si el expiry calculado sería más de 1 año en el pasado, probablemente
+        // el dato está roto. No borrar automático.
+        const candidateExpMs = createdMs + 7 * 24 * 60 * 60 * 1000;
+        if (candidateExpMs >= nowMs - 365 * 24 * 60 * 60 * 1000) {
+          expMs = candidateExpMs;
+        }
       }
     }
     if (expMs <= 0) return; // Sin expiresAt NI createdAt usable → no expirar.
