@@ -871,7 +871,6 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
 // + modal "Reparto" de Pablo. Al deployar este cambio, Firebase borra la CF
 // del backend. Para re-habilitar en el futuro: ver git log antes de este commit.
 
-
 /**
  * v1277 (2026-10-14): onDep11IncreaseCreateReparto — reparto manual Fase 1.
  *
