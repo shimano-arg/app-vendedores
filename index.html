@@ -2501,6 +2501,39 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .modal-overlay{contain:content}
 .modal-box{background:var(--bg-elevated);border-radius:10px;width:min(900px,96vw);max-height:90vh;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,.35);display:flex;flex-direction:column;contain:layout style}
 
+/* v1301 (2026-10-14) Apple-style para modal Reparto. Aplica apple-design skill:
+   §1 feedback pointerdown (scale 0.97 100ms), §7 spatial consistency,
+   §12 backdrop blur + saturate, §14 prefers-reduced-motion, §15 typography
+   tracking size-specific (letter-spacing negativo en display, 0 body, +ve small). */
+.reparto-apple *{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',sans-serif}
+.reparto-apple-close:hover{background:rgba(120,120,128,.2) !important;color:#1d1d1f}
+.reparto-apple-close:active{transform:scale(.9);background:rgba(120,120,128,.3) !important}
+#reparto-search:focus{border-color:rgba(0,122,255,.5) !important;box-shadow:0 0 0 4px rgba(0,122,255,.1)}
+.reparto-apple-card{background:#fff;border:0.5px solid rgba(0,0,0,.08);border-radius:14px;overflow:hidden;transition:box-shadow .2s ease}
+.reparto-apple-card:hover{box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.reparto-apple-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:980px;font-size:11px;font-weight:600;letter-spacing:-0.1px;white-space:nowrap}
+.reparto-apple-btn{border:none;border-radius:980px;cursor:pointer;font-family:inherit;font-weight:600;letter-spacing:-0.1px;transition:transform .1s ease-out,background .15s ease,opacity .15s ease;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.reparto-apple-btn:active{transform:scale(.97)}
+.reparto-apple-btn:disabled{opacity:.4;cursor:not-allowed}
+.reparto-apple-btn-primary{background:#007aff;color:#fff;padding:9px 18px;font-size:13px}
+.reparto-apple-btn-primary:hover:not(:disabled){background:#0051d5}
+.reparto-apple-btn-tinted{background:rgba(0,122,255,.1);color:#007aff;padding:5px 12px;font-size:11.5px}
+.reparto-apple-btn-tinted:hover:not(:disabled){background:rgba(0,122,255,.17)}
+.reparto-apple-btn-gray{background:rgba(120,120,128,.12);color:#1d1d1f;padding:5px 12px;font-size:11.5px}
+.reparto-apple-btn-gray:hover:not(:disabled){background:rgba(120,120,128,.2)}
+.reparto-apple-btn-max{background:rgba(52,199,89,.12);color:#248a3d;padding:4px 11px;font-size:11px;font-weight:700;letter-spacing:.2px}
+.reparto-apple-btn-max:hover:not(:disabled){background:rgba(52,199,89,.2)}
+.reparto-apple-input{width:72px;padding:7px 10px;border:0.5px solid rgba(0,0,0,.12);border-radius:8px;text-align:center;font-weight:600;font-family:inherit;font-size:13px;background:#fff;color:#1d1d1f;outline:none;transition:border-color .15s ease,box-shadow .15s ease}
+.reparto-apple-input:focus{border-color:rgba(0,122,255,.5);box-shadow:0 0 0 3px rgba(0,122,255,.1)}
+.reparto-apple th{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#86868b;padding:10px 12px;background:rgba(0,0,0,.025)}
+.reparto-apple td{padding:9px 12px;font-size:12.5px;color:#1d1d1f;letter-spacing:-0.1px}
+.reparto-apple tr{border-top:0.5px solid rgba(0,0,0,.05)}
+.reparto-apple tr:first-child{border-top:none}
+@media (prefers-reduced-motion:reduce){
+  .reparto-apple-btn,.reparto-apple-close,.reparto-apple-card,#reparto-search{transition:none !important}
+  .reparto-apple-btn:active,.reparto-apple-close:active{transform:none !important}
+}
+
 
 /* v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a
    ./styles/apple-design.css - cargado como link stylesheet despues
@@ -6201,19 +6234,23 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
      Submit llama callable `applyRepartoManualCF` server-side (que valida +
      aplica split BO→ASIG + marca ingreso done).
      Precedente: PR #988 (v1277) deployeo el backend; este modal cierra el loop. -->
+<!-- v1301 (2026-10-14): rediseño completo del modal "Reparto" con estilo Apple
+     (apple-design skill §1 feedback pointerdown + §7 spatial consistency +
+     §12 backdrop-filter + §14 reduced-motion + §15 typography tracking).
+     Minimalista, neutro, sans-serif system, bordes sutiles, radios amplios. -->
 <div class="modal-overlay" id="reparto-modal" onclick="if(event.target===this)closeRepartoModal()">
-  <div class="modal-box" style="width:min(1100px,98vw);height:92vh;max-height:92vh;display:flex;flex-direction:column;box-sizing:border-box">
-    <div class="modal-head" style="background:linear-gradient(135deg,#7c2d12,#c2410c)">
+  <div class="modal-box reparto-apple" style="width:min(1100px,98vw);height:92vh;max-height:92vh;display:flex;flex-direction:column;box-sizing:border-box;border-radius:18px;overflow:hidden;background:#fbfbfd;box-shadow:0 24px 70px rgba(0,0,0,.18)">
+    <div class="reparto-apple-head" style="padding:22px 26px 18px;background:rgba(251,251,253,.92);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:0.5px solid rgba(0,0,0,.08);display:flex;align-items:flex-start;gap:14px">
       <div style="flex:1;min-width:0">
-        <h2>Reparto de ingresos</h2>
-        <div class="subt">Para cada SKU que ingresó al depósito, repartí manualmente las unidades entre los clientes con backorder.</div>
+        <h2 style="margin:0 0 4px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',sans-serif;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#1d1d1f">Reparto de ingresos</h2>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;letter-spacing:-0.1px;color:#86868b">Repartí manualmente las unidades entre los clientes con backorder.</div>
       </div>
-      <button class="modal-close" onclick="closeRepartoModal()">&times;</button>
+      <button class="reparto-apple-close" onclick="closeRepartoModal()" aria-label="Cerrar" style="border:none;background:rgba(120,120,128,.12);width:30px;height:30px;border-radius:50%;cursor:pointer;color:#86868b;font-size:16px;display:flex;align-items:center;justify-content:center;transition:transform .12s ease-out,background .15s ease">&times;</button>
     </div>
-    <div style="padding:14px;display:flex;flex-direction:column;gap:12px;flex:1 1 0;overflow:hidden;min-height:0;box-sizing:border-box">
-      <input type="search" id="reparto-search" placeholder="Buscar por SKU o cliente..." oninput="_repartoRender()" style="padding:10px 14px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:14px;outline:none;flex-shrink:0;box-sizing:border-box" />
-      <div id="reparto-summary" style="padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;text-align:center;flex-shrink:0">Cargando ingresos pending…</div>
-      <div id="reparto-list" style="flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;border:1px solid #e5e7eb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:14px"></div>
+    <div style="padding:16px 26px 20px;display:flex;flex-direction:column;gap:14px;flex:1 1 0;overflow:hidden;min-height:0;box-sizing:border-box">
+      <input type="search" id="reparto-search" placeholder="Buscar por SKU o cliente" oninput="_repartoRender()" style="padding:11px 16px;border:0.5px solid rgba(0,0,0,.1);border-radius:10px;font-size:14px;font-family:inherit;outline:none;flex-shrink:0;box-sizing:border-box;background:#fff;color:#1d1d1f;letter-spacing:-0.1px;transition:border-color .15s ease,box-shadow .15s ease" />
+      <div id="reparto-summary" style="padding:10px 14px;background:rgba(255,204,0,.08);border:0.5px solid rgba(255,204,0,.2);border-radius:10px;font-size:12.5px;color:#8a6d00;text-align:center;flex-shrink:0;font-family:inherit;letter-spacing:-0.08px">Cargando ingresos pending…</div>
+      <div id="reparto-list" style="flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0;display:flex;flex-direction:column;gap:12px"></div>
     </div>
   </div>
 </div>
@@ -6354,7 +6391,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1300';
+const APP_VERSION = 'v1301';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18979,109 +19016,108 @@ function _repartoRender(){
 }
 
 function _repartoBuildCard(ing){
+  // v1301 (2026-10-14): rediseno Apple-style. Minimalista, neutro, chips
+  // tinted (pastel/transparencia), tipografia SF Pro-like, radios 14px,
+  // bordes 0.5px, feedback pointerdown (CSS .reparto-apple-btn:active scale).
   const card = document.createElement('div');
+  card.className = 'reparto-apple-card reparto-apple';
   card.setAttribute('data-ingreso-id', ing._id);
-  // v1284 (2026-10-14): flex-shrink:0 + box-sizing. El contenedor
-  // #reparto-list tiene display:flex;flex-direction:column — sin esto los
-  // cards se comprimen a altura ~0 y solo se ven los borders como lineas
-  // horizontales vacias (reporte Mariano con 119 ingresos renderizando mal).
-  card.style.cssText = 'flex-shrink:0;box-sizing:border-box;border:1px solid #e5e7eb;border-radius:8px;background:#fff;overflow:hidden';
+  card.style.cssText = 'flex-shrink:0;box-sizing:border-box';
   // Header del card.
   const head = document.createElement('div');
-  head.style.cssText = 'padding:12px 14px;background:#fef3c7;border-bottom:1px solid #fde68a;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+  head.style.cssText = 'padding:14px 18px;background:#f5f5f7;border-bottom:0.5px solid rgba(0,0,0,.06);display:flex;align-items:center;gap:10px;flex-wrap:wrap';
   const skuEl = document.createElement('div');
-  skuEl.style.cssText = 'font-weight:800;font-size:16px;color:#78350f;letter-spacing:-0.3px';
+  skuEl.style.cssText = 'font-weight:700;font-size:15px;color:#1d1d1f;letter-spacing:-0.4px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif';
   skuEl.textContent = ing.sku || '(sin sku)';
   const chipIng = document.createElement('span');
-  chipIng.style.cssText = 'background:#059669;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:800';
-  chipIng.textContent = 'INGRESO: ' + _repartoFmtQty(ing.qtyIngresada) + ' u';
+  chipIng.className = 'reparto-apple-chip';
+  chipIng.style.cssText = 'background:rgba(52,199,89,.14);color:#248a3d';
+  chipIng.textContent = 'Ingreso: ' + _repartoFmtQty(ing.qtyIngresada) + ' u';
   const chipBO = document.createElement('span');
-  chipBO.style.cssText = 'background:#b45309;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:800';
-  chipBO.textContent = 'DEMANDA: ' + _repartoFmtQty(ing.qtyBackorderTotal) + ' u · ' + (ing.clientesCount || 0) + ' clientes';
+  chipBO.className = 'reparto-apple-chip';
+  chipBO.style.cssText = 'background:rgba(255,149,0,.14);color:#b25000';
+  chipBO.textContent = 'Demanda: ' + _repartoFmtQty(ing.qtyBackorderTotal) + ' u · ' + (ing.clientesCount || 0) + ' clientes';
   const chipStatus = document.createElement('span');
-  chipStatus.style.cssText = 'background:' + (ing.status === 'in_progress' ? '#dc2626' : '#64748b') + ';color:#fff;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800';
-  chipStatus.textContent = (ing.status || 'pending').toUpperCase();
+  chipStatus.className = 'reparto-apple-chip';
+  const _statusColor = ing.status === 'in_progress'
+    ? 'background:rgba(255,59,48,.14);color:#c7372f'
+    : 'background:rgba(120,120,128,.14);color:#6e6e73';
+  chipStatus.style.cssText = _statusColor;
+  chipStatus.textContent = (ing.status || 'pending');
   head.appendChild(skuEl);
   head.appendChild(chipIng);
   head.appendChild(chipBO);
   head.appendChild(chipStatus);
   if (ing.source === 'migration-v1278') {
     const chipMig = document.createElement('span');
-    chipMig.style.cssText = 'background:#7c3aed;color:#fff;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800';
-    chipMig.textContent = 'MIGRACION';
+    chipMig.className = 'reparto-apple-chip';
+    chipMig.style.cssText = 'background:rgba(175,82,222,.14);color:#8944ab';
+    chipMig.textContent = 'Migración';
     head.appendChild(chipMig);
   }
-  // v1287 (2026-10-14): botones "FIFO" + "RESET" en el header para
-  // automatizar la asignacion. FIFO reparte por fecha de pedido (viejos
-  // primero) hasta agotar el ingreso. RESET pone todo en 0.
   const spacer = document.createElement('div');
   spacer.style.cssText = 'flex:1';
   head.appendChild(spacer);
   const btnFifo = document.createElement('button');
   btnFifo.type = 'button';
-  btnFifo.style.cssText = 'background:#0891b2;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px';
-  btnFifo.textContent = 'FIFO AUTO';
-  btnFifo.title = 'Reparte automatico por fecha de pedido (viejos primero) hasta agotar el ingreso. Podes modificar manual despues.';
+  btnFifo.className = 'reparto-apple-btn reparto-apple-btn-tinted';
+  btnFifo.textContent = 'FIFO auto';
+  btnFifo.title = 'Reparte automático por fecha de pedido (viejos primero) hasta agotar el ingreso. Podés modificar manual después.';
   btnFifo.onclick = () => _repartoFifoAuto(ing._id);
   head.appendChild(btnFifo);
   const btnReset = document.createElement('button');
   btnReset.type = 'button';
-  btnReset.style.cssText = 'background:#64748b;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px';
-  btnReset.textContent = 'RESET';
+  btnReset.className = 'reparto-apple-btn reparto-apple-btn-gray';
+  btnReset.textContent = 'Reset';
   btnReset.title = 'Pone todo en 0';
   btnReset.onclick = () => _repartoReset(ing._id);
   head.appendChild(btnReset);
   card.appendChild(head);
-  // Tabla clientes.
+  // Tabla clientes (estilos Apple via class).
   const tableWrap = document.createElement('div');
   tableWrap.style.cssText = 'overflow-x:auto';
   const table = document.createElement('table');
-  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px';
+  table.style.cssText = 'width:100%;border-collapse:collapse';
   const thead = document.createElement('thead');
-  // v1296 (2026-10-14): columnas centradas + "Ingreso" renombrado a "Stock disponible".
-  thead.innerHTML = '<tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb">'
-    + '<th style="padding:8px 10px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b">Codigo</th>'
-    + '<th style="padding:8px 10px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b">Cliente</th>'
-    + '<th style="padding:8px 10px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b">Backorder</th>'
-    + '<th style="padding:8px 10px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b">Stock disponible</th>'
-    + '<th style="padding:8px 10px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b">Asignado</th>'
+  thead.innerHTML = '<tr>'
+    + '<th style="text-align:center">Código</th>'
+    + '<th style="text-align:center">Cliente</th>'
+    + '<th style="text-align:center">Backorder</th>'
+    + '<th style="text-align:center">Stock disponible</th>'
+    + '<th style="text-align:center">Asignado</th>'
     + '</tr>';
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
   const _clientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
   if (_clientes.length === 0) {
-    // v1284: fallback visual si clientesBO viene vacio. Antes solo renderizaba
-    // thead → se veian lineas horizontales sin contenido. Ahora un warning
-    // explicito.
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.setAttribute('colspan', '5');
-    td.style.cssText = 'padding:16px;text-align:center;color:#dc2626;font-weight:600;font-size:12px;background:#fef2f2';
-    td.textContent = '⚠ Este ingreso no tiene clientes BO cargados (clientesBO vacio). Reporte este caso a soporte.';
+    td.style.cssText = 'padding:20px;text-align:center;color:#c7372f;font-weight:500;background:rgba(255,59,48,.06)';
+    td.textContent = '⚠ Este ingreso no tiene clientes BO cargados.';
     tr.appendChild(td);
     tbody.appendChild(tr);
   }
   _clientes.forEach((c) => {
     const tr = document.createElement('tr');
-    tr.style.cssText = 'border-bottom:1px solid #f1f5f9';
     tr.innerHTML = ''
-      + '<td style="padding:8px 10px;font-family:monospace;font-weight:700;text-align:center">' + _escHtml(ing.sku || '') + '</td>'
-      + '<td style="padding:8px 10px;text-align:center"><div style="font-weight:600">' + _escHtml(c.clientName || '') + '</div>'
-      + '<div style="font-size:10.5px;color:#64748b">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div></td>'
-      + '<td style="padding:8px 10px;text-align:center;font-weight:700;color:#b45309">' + _repartoFmtQty(c.qtyBackorder) + '</td>'
-      + '<td style="padding:8px 10px;text-align:center;color:#059669;font-weight:600">' + _repartoFmtQty(ing.qtyIngresada) + '</td>'
-      + '<td style="padding:8px 10px;text-align:center">'
-      + '<div style="display:inline-flex;align-items:center;gap:4px">'
+      + '<td style="text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#1d1d1f">' + _escHtml(ing.sku || '') + '</td>'
+      + '<td style="text-align:center"><div style="font-weight:600;color:#1d1d1f;letter-spacing:-0.1px">' + _escHtml(c.clientName || '') + '</div>'
+      + '<div style="font-size:11px;color:#86868b;margin-top:1px;letter-spacing:-0.05px">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div></td>'
+      + '<td style="text-align:center;font-weight:700;color:#b25000">' + _repartoFmtQty(c.qtyBackorder) + '</td>'
+      + '<td style="text-align:center;color:#248a3d;font-weight:600">' + _repartoFmtQty(ing.qtyIngresada) + '</td>'
+      + '<td style="text-align:center">'
+      + '<div style="display:inline-flex;align-items:center;gap:6px">'
       + '<input type="number" min="0" max="' + (Number(ing.qtyIngresada) || 0) + '" step="1" value="0" '
       + 'data-reparto-input="' + _escAttr(ing._id) + '" '
       + 'data-pedido-id="' + _escAttr(c.pedidoId) + '" '
       + 'data-line-index="' + Number(c.lineIndex) + '" '
       + 'data-max-bo="' + (Number(c.qtyBackorder) || 0) + '" '
       + 'oninput="_repartoRecalc(this)" '
-      + 'style="width:70px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;font-weight:700" />'
+      + 'class="reparto-apple-input" />'
       + '<button type="button" onclick="_repartoSetMax(this.previousElementSibling)" '
       + 'title="Asignar lo que pueda al cliente (hasta las unidades libres del ingreso)" '
-      + 'style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">MAX</button>'
+      + 'class="reparto-apple-btn reparto-apple-btn-max">MAX</button>'
       + '</div>'
       + '</td>';
     tbody.appendChild(tr);
@@ -19091,14 +19127,14 @@ function _repartoBuildCard(ing){
   card.appendChild(tableWrap);
   // Footer con total asignado + boton aplicar.
   const foot = document.createElement('div');
-  foot.style.cssText = 'padding:10px 14px;background:#f8fafc;border-top:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
+  foot.style.cssText = 'padding:14px 18px;background:#fafafa;border-top:0.5px solid rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
   const totals = document.createElement('div');
-  totals.style.cssText = 'font-size:12px;color:#475569';
-  totals.innerHTML = 'Asignado: <b data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(ing.qtyIngresada) + ' · Libre: <b data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(ing.qtyIngresada) + '</b>';
+  totals.style.cssText = 'font-size:12.5px;color:#6e6e73;letter-spacing:-0.1px';
+  totals.innerHTML = 'Asignado: <b style="color:#1d1d1f;font-weight:600" data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(ing.qtyIngresada) + ' · Libre: <b style="color:#1d1d1f;font-weight:600" data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(ing.qtyIngresada) + '</b>';
   foot.appendChild(totals);
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.style.cssText = 'background:#1e40af;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px';
+  btn.className = 'reparto-apple-btn reparto-apple-btn-primary';
   btn.textContent = 'Aplicar reparto';
   btn.setAttribute('data-reparto-apply', ing._id);
   btn.onclick = () => _repartoApply(ing._id);
