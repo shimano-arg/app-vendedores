@@ -1,7 +1,8 @@
 'use client';
 import { useDraggable } from '@dnd-kit/core';
-import type { DurationBadge } from '@/lib/timeInColumn';
+import { AlertCircle } from 'lucide-react';
 import type { Database } from '@/lib/supabase/types';
+import type { DurationBadge } from '@/lib/timeInColumn';
 
 type Claim = Database['public']['Tables']['claims']['Row'];
 type Profile = Pick<Database['public']['Tables']['profiles']['Row'], 'id' | 'display_name' | 'email'>;
@@ -28,16 +29,26 @@ function CardBody({
   claim,
   profiles,
   duration,
+  stuck,
 }: {
   claim: Claim;
   profiles: Profile[];
   duration?: DurationBadge;
+  stuck?: boolean;
 }) {
   const assignee = profiles.find((p) => p.id === claim.assignee_id);
   return (
     <>
       <div className="flex items-baseline justify-between mb-1.5 gap-2">
-        <span className="eyebrow text-[10px]">Remito</span>
+        <span className="eyebrow text-[10px] inline-flex items-center gap-1">
+          {stuck && (
+            <AlertCircle
+              className="h-3 w-3 text-[#C7301B]"
+              aria-label="Reclamo stuck sin actividad > 72hs"
+            />
+          )}
+          Remito
+        </span>
         <div className="flex items-baseline gap-1.5">
           {duration && <DurationChip duration={duration} />}
           <span className="text-[10px] font-medium text-[color:var(--text-tertiary)] tabular-nums">
@@ -67,10 +78,12 @@ export function ClaimCard({
   claim,
   profiles,
   duration,
+  stuck,
 }: {
   claim: Claim;
   profiles: Profile[];
   duration?: DurationBadge;
+  stuck?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: String(claim.id),
@@ -81,7 +94,7 @@ export function ClaimCard({
       {...attributes}
       {...listeners}
       suppressHydrationWarning
-      className={`card-elevated p-3.5 cursor-grab w-full min-w-0 ${isDragging ? 'opacity-40' : ''}`}
+      className={`card-elevated p-3.5 cursor-grab w-full min-w-0 ${isDragging ? 'opacity-40' : ''} ${stuck ? 'ring-1 ring-[#F4C7C7]' : ''}`}
     >
       <a
         href={`/board?claim=${claim.id}`}
@@ -90,7 +103,7 @@ export function ClaimCard({
           if (isDragging) e.preventDefault();
         }}
       >
-        <CardBody claim={claim} profiles={profiles} duration={duration} />
+        <CardBody claim={claim} profiles={profiles} duration={duration} stuck={stuck} />
       </a>
     </div>
   );

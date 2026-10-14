@@ -33,6 +33,7 @@ export function Column({
   claims,
   profiles,
   cardDurations,
+  stuckSet,
 }: {
   column: {
     key: ClaimColumn;
@@ -44,6 +45,7 @@ export function Column({
   claims: Claim[];
   profiles: Profile[];
   cardDurations: Record<number, DurationBadge>;
+  stuckSet?: Set<number>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.key });
   const Icon = column.iconName ? ICONS[column.iconName] : null;
@@ -92,6 +94,7 @@ export function Column({
               claim={c}
               profiles={profiles}
               duration={cardDurations[c.id]}
+              stuck={stuckSet?.has(c.id)}
             />
           ))
         )}

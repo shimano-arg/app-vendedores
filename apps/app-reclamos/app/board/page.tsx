@@ -47,7 +47,7 @@ export default async function BoardPage({
       .from('claim_events')
       .select('claim_id, event_type, from_column, to_column, created_at')
       .in('claim_id', claimIds)
-      .in('event_type', ['moved', 'created']);
+      .in('event_type', ['moved', 'created', 'commented']);
     boardEvents = (data ?? []) as BoardEvent[];
   }
   const eventsByClaim = new Map<number, BoardEvent[]>();
@@ -60,6 +60,21 @@ export default async function BoardPage({
   const cardDurations: Record<number, DurationBadge> = {};
   (claims ?? []).forEach((cl) => {
     cardDurations[cl.id] = getCardDurationBadge(cl, eventsByClaim.get(cl.id) ?? [], now);
+  });
+
+  // v1263: calcular stuck claims = abiertos sin actividad (move/comment/create) > 72h.
+  // Fuente: max(claim.updated_at, max(events.created_at del claim)).
+  const STUCK_HOURS = 72;
+  const stuckThresholdMs = STUCK_HOURS * 60 * 60 * 1000;
+  const stuckClaimIds: number[] = [];
+  (claims ?? []).forEach((cl) => {
+    if (cl.current_column === 'resuelto' || cl.current_column === 'cerrado') return;
+    const evTimes = (eventsByClaim.get(cl.id) ?? []).map((e) =>
+      new Date(e.created_at).getTime(),
+    );
+    const updatedTime = new Date(cl.updated_at).getTime();
+    const lastActivity = Math.max(updatedTime, ...(evTimes.length ? evTimes : [0]));
+    if (now.getTime() - lastActivity > stuckThresholdMs) stuckClaimIds.push(cl.id);
   });
   const currentUserName =
     (profiles ?? []).find((p) => p.id === user?.id)?.display_name?.split(' ')[0] ?? '';
@@ -139,6 +154,7 @@ export default async function BoardPage({
         columnDefaults={columnDefaults}
         currentUserName={currentUserName}
         cardDurations={cardDurations}
+        stuckClaimIds={stuckClaimIds}
       />
       {detail}
     </>
