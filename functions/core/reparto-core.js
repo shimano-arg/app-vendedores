@@ -426,7 +426,10 @@ export async function applyRepartoManualCore(deps, opts) {
         }
         if (data.transferidoSAP && data.transferidoSAP.docNum) {
           throw new Error(
-            'pedido ya en SAP (SQ #' + data.transferidoSAP.docNum + '), no se puede repartir @ ' + a.pedidoId
+            'pedido ya en SAP (SQ #' +
+              data.transferidoSAP.docNum +
+              '), no se puede repartir @ ' +
+              a.pedidoId
           );
         }
         const lines = Array.isArray(data.lines) ? [...data.lines] : [];
