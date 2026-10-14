@@ -4717,6 +4717,53 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1271 (2026-10-14) — Fix scroll modal "Crear Pedido - ST" + rename + inversion semantica
+
+**Archivos**:
+- `index.html:5631-5665` (modal estructura: `height:92vh` fijo en vez de max-height + box-sizing + overscroll-behavior)
+- `index.html:5614-5620` (comentario boton + rename "Crear Pedido - ST" → "Crear Pedido Desde Stock Asignado")
+- `index.html:5635-5636` (title + subtitle actualizados)
+- `index.html:15320-15430` (`_cpstBuildCache` invertido: acepta tildadas, omite destildadas, + pre-pass para omitir SKU si cliente tiene alguna destildada del mismo SKU)
+- `index.html:15460-15486` (labels "SIN RESERVA" → "CON RESERVA" + DOM API en empty state)
+- `index.html:6260` + `sw.js:20` (bump v1270 → v1271)
+
+**Antes (v1270)**:
+3 problemas reportados por Mariano:
+1. **Scroll vertical no funcionaba** en el modal "Crear Pedido - ST": veia 13/67 clientes, se cortaba el 13 sin barra scrollable. Fix v1267 (min-height:0 + flex:1 1 0) no alcanzaba.
+2. **Logica inversa**: el boton consolidaba SKUs **SIN RESERVA** (destildados = cliTipo B/C). Mariano quiere invertir: solo consolidar SKUs **CON RESERVA** (tildados). Los destildados se omiten.
+3. **Nombre poco claro**: boton decia "Crear Pedido - ST" (ambiguo). Mariano pide "Crear Pedido Desde Stock Asignado".
+
+**Problema**:
+1. **Scroll**: `.modal-box` global tiene `contain:layout style` (v882 PERF) + `overflow:hidden`. Con `max-height:92vh` el parent flex se auto-ajusta a su contenido en lugar de capear al viewport → children con `flex:1` no tenian denominador firme → scroll no activaba.
+2. **Logica**: `_cpstBuildCache` filtraba `if (c.asigReserva !== false) return;` (solo destildadas). Esto hacia que el modal solo listara clientes B/C con stock asignado sin reserva. Pero el flujo util para Mariano es el inverso: toma TILDADAS del cliente, consolida en pedido-waitlist nuevo, cancela originales (acelera el ciclo "stock reservado → factura").
+3. **Nombre**: "ST" era abreviatura interna. Admin externo no sabe que significa.
+
+**Cambio**:
+- **Scroll fix**: `height:92vh;max-height:92vh` + `box-sizing:border-box` + `overscroll-behavior:contain`. El height explicito garantiza que el flex children siempre tengan denominador. box-sizing previene que el padding:14px sume al 100% y provoque overflow invisible. overscroll-behavior:contain evita que el scroll al final del listado scrollee la pagina detras.
+- **Logica invertida**: `_cpstBuildCache` ahora acepta `asigReserva !== false && asigReserva !== 0` (tildadas: true/undefined/1). Omite false/0.
+- **Omision por SKU mixto**: pre-pass sobre globalPedidos arma un `Set<"nombreUP|skuUP">` con pares que tienen al menos una linea ASIG destildada. Al construir el cache, si el par del cliente+SKU esta en ese Set, se omite ese SKU para ese cliente — aunque haya otras lineas tildadas del mismo SKU en otros pedidos. Semantica Mariano: "si tiene alguna unidad no tildada omitirla".
+- **Rename**: boton "Crear Pedido - ST" → "Crear Pedido Desde Stock Asignado". Tooltip actualizado. Title del modal + subtitle actualizados. Comentarios doc + strings de summary ("SIN RESERVA" → "CON RESERVA") + empty state message.
+- **DOM API en empty state**: reemplazo `innerHTML = '<div>...</div>'` por `createElement + textContent` (zero vector XSS incluso con contenido estatico; cumple el hook de seguridad del repo).
+
+**Por que**:
+- Mariano reporto end-to-end los 3 cambios en una sola iteracion → bundle logico (todos tocan el mismo modal/flow).
+- El fix v1267 anterior fue CSS puro, no suficiente — ahora height explicito garantiza el comportamiento aunque el `.modal-box` global cambie en el futuro.
+- La inversion semantica se alinea con el workflow post-v1270: destildar = "pausar", tildar + boton = "procesar lo que elegi".
+
+**Verificacion**:
+- `npm run test:unit` → 706/706 pass (no se agregaron tests para este flow — es UI + Firestore write-heavy, cubierto por smoke).
+- `npm run typecheck` → clean.
+- Smoke manual pendiente post-deploy:
+  1. Abrir modal "Crear Pedido Desde Stock Asignado" (boton nuevo).
+  2. Verificar que lista scrollea con rueda del mouse hasta el final sin cortar.
+  3. Verificar summary dice "clientes con Stock Asignado CON RESERVA".
+  4. Elegir un cliente, verificar que solo aparecen SKUs tildados.
+  5. Si el cliente tiene algun SKU con 1 linea tildada + 1 destildada (en pedidos distintos), ese SKU NO debe aparecer en el preview.
+  6. Confirmar: pedido-waitlist se crea con los SKUs tildados + lineas ASIG originales se marcan cancelled.
+
+**Rollback**:
+`git revert <commit>`. Scroll vuelve a estado v1270 (quizas sigue roto por el root cause CSS/contain). Logica vuelve a consolidar destildadas. Nombre vuelve a "Crear Pedido - ST".
+
 ### v1270 (2026-10-14) — Fix: FIFO cliente modal ignoraba `asigReserva=false` + badge "SIN RESERVA"
 
 **Archivos**:
