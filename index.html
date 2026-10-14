@@ -2362,6 +2362,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 /* v454: card individual + listado de pedidos en espera. */
 #wcard-rows tr.exceed td{background:#fef2f2;color:var(--color-danger-strong);font-weight:700}
 #wcard-rows tr.exceed td.exc-cell{background:var(--color-danger);color:#fff}
+/* v1298 (2026-10-14): la celda .exc-cell siempre fondo rojo + numeros blancos,
+   gana sobre warn-duplicado, repeat-sku, warn-quiebra. Pedido Mariano:
+   "quiero que los numeros de Backorder Unidades se pinten de blanco". */
+#wcard-rows tr td.exc-cell{background:var(--color-danger) !important;color:#fff !important;font-weight:800}
 /* v479: SKU pedido >= 80% del Disponible SAP -> amarillo (quebramos stock
    para el resto de clientes que pidan lo mismo). */
 #wcard-rows tr.warn-quiebra td{background:var(--color-warning-bg);color:#78350f;font-weight:700}
@@ -6058,9 +6062,13 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
            de stock/fecha. Info pura, sin acciones. Colapsable con <details>.
            Pedido Mariano 2026-09-04: "no puedo ver los SKU que tiene en Stock
            Asignado ese cliente, poner un boton MOSTRAR o que aparezcan directo". -->
-      <details id="wcard-cliente-open-lines" style="margin-bottom:12px;background:#f8fafc;border:1.5px solid #cbd5e1;border-radius:6px;padding:0" open>
-        <summary id="wcard-cliente-open-lines-summary" style="cursor:pointer;padding:10px 12px;font-size:12px;font-weight:800;color:var(--text-primary);user-select:none;list-style:none">Cargando stock asignado del cliente...</summary>
-        <div id="wcard-cliente-open-lines-body" style="padding:0 12px 10px 12px"></div>
+      <!-- v1298 (2026-10-14): oculto a pedido de Mariano. "Stock asignado /
+           Backorder del cliente" era redundante con los modales dedicados
+           Stock Asignado + Backorder. Element se mantiene en el DOM para
+           que _renderClienteAllOpenLines no rompa. -->
+      <details id="wcard-cliente-open-lines" style="display:none" open>
+        <summary id="wcard-cliente-open-lines-summary"></summary>
+        <div id="wcard-cliente-open-lines-body"></div>
       </details>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera. -->
       <div style="position:relative;margin-bottom:10px">
@@ -6333,7 +6341,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1297';
+const APP_VERSION = 'v1298';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
