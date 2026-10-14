@@ -4717,6 +4717,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1264 (2026-10-14) — Remover columna "Credito ARS" del Master Clientes
+
+**Archivos**:
+- `src/domains/master-clientes.js:2258-2265` (removido `<th>` + comment v1055)
+- `src/domains/master-clientes.js:2609-2614` (removido `<td>` + bloque if/else creditoCanEdit)
+- `src/domains/master-clientes.js:2270-2287` (limpieza del `curCredito` populate que ya no se lee)
+- `app.bundle.js` regenerado
+- `index.html:6260` + `sw.js:20` (bump v1263 → v1264)
+
+**Antes (v1263)**:
+Master de Clientes modal tenia una columna "Credito ARS" editable (admin/gerente) con input numeric + hint "$X.XXX.XXX" al lado. Ocupaba 17% del ancho de la tabla.
+
+**Problema**:
+Pedido Mariano (2026-10-14): el dato "Credito cheque (ARS)" ahora vive en el modal Ficha Cliente (v1260). Mantenerlo en la tabla del Master era duplicacion visual que no servia de atajo — para configurar el crédito, el admin ya tiene que abrir el cliente igualmente (via Ficha).
+
+**Cambio**:
+- `<th>Credito ARS</th>` removido del header de la tabla.
+- `<td>` con input numeric + hint ARS removidos del body (if/else creditoCanEdit).
+- Variable local `curCredito` limpiada (ya no se lee en el markup; el export CSV lee `cmData.creditoCheque` directo del cache, no via esta variable).
+- Rebuild `app.bundle.js` obligatorio (regla #18 CLAUDE.md).
+
+**Por que**:
+- Fuente unica de edicion: solo Ficha Cliente edita el credito. Evita dos UIs para el mismo dato (riesgo de desincronizacion visual si una pisa a la otra).
+- Tabla Master mas liviana: 17% de ancho recuperado para los otros campos (direccion, tipo, acciones).
+- `saveMcClientNumField` + `saveClientCreditoChequeFromModal` siguen existiendo (otros flows podrian usarlos; sin cambios).
+- Export CSV sigue incluyendo "Credito cheque (ARS)" en los exports — es export, no UI de edicion.
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass.
+- `node build.js` -> OK, bundle 2.48 MB.
+- Smoke manual pendiente post-deploy: abrir Master de Clientes → tabla sin columna "Credito ARS". Export CSV incluye columna.
+
+**Rollback**:
+`git revert <commit>`. Columna vuelve al Master. El dato en Firestore sigue intacto (`client_master.creditoCheque` no se toca).
+
 ### v1263 (2026-10-14) — Rediseno Apple modal Ficha Cliente + Credito full-width
 
 **Archivos**:
