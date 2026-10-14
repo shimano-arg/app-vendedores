@@ -54,6 +54,9 @@ import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
+// v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
+// FIFO automatico (que queda en paralelo durante Fase 1 para safety net).
+import { applyRepartoManualCore, createIngresosRepartoFromDelta } from './core/reparto-core.js';
 // v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos (incident
 // cowork — ~1570 lineas sin cliente_code en v_pedidos_lines).
 import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core.js';
@@ -891,6 +894,126 @@ export const onStockChangeFIFOAssign = onDocumentWritten(
       promotions: r.promotions.length,
       errors: r.errors.length,
     });
+  }
+);
+
+/**
+ * v1277 (2026-10-14): onDep11IncreaseCreateReparto — reparto manual Fase 1.
+ *
+ * Mismo trigger que onStockChangeFIFOAssign (on-write app_config/stock_snapshot),
+ * CORRE EN PARALELO para dual mode. Mientras:
+ *   - El FIFO viejo sigue promoviendo BO → ASIG automatico (safety net).
+ *   - Este CF nuevo crea docs en `ingresos_reparto/` por cada SKU con delta
+ *     positivo en dep 11 + clientes BO. Pablo los procesa manualmente desde
+ *     el modal "Reparto" (que llega en Fase 2 / v1278).
+ *
+ * Fase 2 shippea el modal UI + migracion ASIG→BO + deshabilita este viejo
+ * trigger (ya migrado todo al reparto manual).
+ *
+ * Observabilidad Fase 1: logs separados ("onDep11IncreaseCreateReparto done")
+ * para debuggear sin confundir con el FIFO viejo.
+ */
+export const onDep11IncreaseCreateReparto = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'app_config/stock_snapshot',
+    retry: false,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+  },
+  async (event) => {
+    const before = event.data?.before?.data() ?? null;
+    const after = event.data?.after?.data() ?? null;
+    if (!after) return;
+    const db = getFirestore();
+    const r = await createIngresosRepartoFromDelta(
+      { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+      before,
+      after
+    );
+    console.log('onDep11IncreaseCreateReparto done', {
+      created: r.created.length,
+      skipped: r.skipped.length,
+      errors: r.errors.length,
+    });
+  }
+);
+
+/**
+ * v1277: applyRepartoManualCF — callable HTTPS para que Pablo/admin aplique
+ * un reparto manual desde el modal "Reparto".
+ *
+ * Input:
+ *   {
+ *     ingresoId: 'docId_de_ingresos_reparto',
+ *     assignments: [{pedidoId, lineIndex, qtyAsignada}, ...]
+ *   }
+ *
+ * Output: {ok, applied, errors}
+ *
+ * Gate (Fase 1): admin/gerente (role check). Fase 2 agregara chequeo email
+ * de Pablo cuando se consolide la lista whitelist.
+ *
+ * Auth: validado via auth.token del callable (misma convencion que
+ * updateAsigLineStateCF). enforceAppCheck=false por consistency con el
+ * resto de callables (ver reference_appcheck).
+ */
+export const applyRepartoManualCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const db = getFirestore();
+    // Role gate: admin/gerente puede aplicar. Fase 2 agregara email de Pablo
+    // al whitelist si corresponde.
+    try {
+      const userDoc = await db.collection('users').doc(auth.uid).get();
+      const role = String((userDoc.data() || {}).role || '').toLowerCase();
+      if (role !== 'admin' && role !== 'gerente') {
+        throw new HttpsError('permission-denied', 'solo admin/gerente puede aplicar reparto');
+      }
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('internal', 'no se pudo validar rol: ' + (e?.message || String(e)));
+    }
+    const data = req.data || {};
+    const ingresoId = String(data.ingresoId || '').trim();
+    const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+    if (!ingresoId) throw new HttpsError('invalid-argument', 'ingresoId requerido');
+    if (assignments.length === 0) {
+      throw new HttpsError('invalid-argument', 'assignments vacio');
+    }
+    try {
+      const r = await applyRepartoManualCore(
+        { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+        {
+          ingresoId,
+          assignments: assignments.map((/** @type {any} */ a) => ({
+            pedidoId: String(a.pedidoId || ''),
+            lineIndex: Number(a.lineIndex) || 0,
+            qtyAsignada: Number(a.qtyAsignada) || 0,
+          })),
+          appliedByEmail: email,
+        }
+      );
+      return r;
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('internal', 'reparto fallo: ' + (e?.message || String(e)));
+    }
   }
 );
 

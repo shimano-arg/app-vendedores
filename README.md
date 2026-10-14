@@ -4717,6 +4717,48 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1277 (2026-10-14) — Reparto manual Fase 1: backend + CF trigger + callable (dual mode con FIFO viejo)
+
+**Archivos**:
+- `functions/core/reparto-core.js` (nuevo)
+- `functions/index.js` — trigger `onDep11IncreaseCreateReparto` + callable `applyRepartoManualCF`
+- `firestore.rules` — collections `ingresos_reparto` + `reparto_log`
+- `tests/functions/reparto.test.js` (nuevo — 22 tests)
+- `docs/plans/2026-10-14-reparto-manual-pablo-plan.md` (nuevo)
+- `index.html:6260` + `sw.js:20` (bump v1276 → v1277)
+
+**Antes (v1276)**:
+`onStockChangeFIFOAssign` promovia lineas BO → ASIG automatico con FIFO tier-based por cliTipo cuando subia dep 11.
+
+**Problema**:
+Mariano pidio reparto manual asistido para que Pablo decida caso por caso (cliente VIP, pedido urgente, ruta de entrega).
+
+**Cambio (Fase 1 — backend only)**:
+- `reparto-core.js`:
+  - `detectDep11Increases(before, after)`: delta positivo en dep 11.
+  - `extractClientesBOForSku(openPedidos, sku)`: lista clientes BO ordenada FIFO por createdAt (visual).
+  - `validateRepartoPayload(ingresoDoc, assignments)`: valida sum ≤ qtyIngresada + qtyAsignada ≤ qtyBackorder + status pending.
+  - `createIngresosRepartoFromDelta(deps, before, after)`: por SKU con delta + clientes BO, crea doc en `ingresos_reparto/`. Dedupe via `dedupeKey = sku|afterDep11`.
+  - `applyRepartoManualCore(deps, {ingresoId, assignments, appliedByEmail})`: aplica split por linea. qtyAsignada < qtyOpen → 2 lineas (BO reducida + nueva ASIG). qtyAsignada === qtyOpen → entera a ASIG.
+- CF trigger `onDep11IncreaseCreateReparto`: mismo evento que FIFO (`app_config/stock_snapshot` write). DUAL MODE — FIFO viejo intacto como safety net.
+- CF callable `applyRepartoManualCF`: role=admin/gerente, domain shimano.com.ar/uy.
+- Rules: `ingresos_reparto` + `reparto_log` lectura admin/gerente; writes solo CF.
+
+**Fase 2 (próximo PR v1278)**:
+- Modal UI "Reparto" (reemplaza boton "ESTADO").
+- CF `revertAllAsigToBO` manual (migracion).
+- Deshabilitar `onStockChangeFIFOAssign`.
+
+**Verificacion**:
+- `vitest run tests/functions/reparto.test.js` → 22/22 pass.
+- `npm run test:unit` → 706/706 pass.
+- `npm run typecheck` → clean.
+- Deploy: `firebase deploy --only functions:onDep11IncreaseCreateReparto,functions:applyRepartoManualCF`.
+- Smoke manual: proximo sync SAP (30min) → `ingresos_reparto/` collection recibe docs.
+
+**Rollback Fase 1**:
+`git revert <commit>` + redeploy functions. FIFO viejo intacto. Docs ingresos_reparto quedan como data historica.
+
 ### v1275 (2026-10-14) — Total $ en header modal Backorder + Stock Asignado + summary centrado
 
 **Archivos**:

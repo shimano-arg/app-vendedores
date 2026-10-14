@@ -672,6 +672,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v1277 (2026-10-14): reparto manual por Pablo.
+    // ingresos_reparto: creado por CF onDep11IncreaseCreateReparto cuando sube
+    //   stock dep 11 (via Admin SDK). admin/gerente lee para mostrar en modal
+    //   "Reparto"; actualizado por CF applyRepartoManualCF (status, appliedBy,
+    //   assignments). Writes directos del cliente estan bloqueados — todo pasa
+    //   por la CF para que valide (sum assignments vs qtyIngresada, etc).
+    match /ingresos_reparto/{ingresoId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
+    // v1277: audit log por aplicacion de reparto. Escrito por CF (Admin SDK).
+    match /reparto_log/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
     // v964 (2026-09-17): audit logs de sqCancelExpiredCF.
     // sq_cancel_log_shadow: Fase B (deploy sin riesgo, solo loguea).
     // sq_cancel_log:        Fase C (cancela SQs reales).
