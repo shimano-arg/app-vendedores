@@ -2,32 +2,40 @@
 import { useState, useTransition, useEffect } from 'react';
 import {
   DndContext,
-  DragEndEvent,
+  type DragEndEvent,
   DragOverlay,
-  DragStartEvent,
+  type DragStartEvent,
   PointerSensor,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import { useRouter } from 'next/navigation';
 import { CLAIM_COLUMNS, type ClaimColumn, COLUMN_KEYS } from '@/lib/columns';
-import { Column } from './Column';
-import { ClaimCardOverlay } from './ClaimCard';
-import { moveClaim } from './actions';
-import { NewClaimDialog } from './NewClaimDialog';
-import { ColumnDefaultsDialog } from './ColumnDefaultsDialog';
-import { createClient as createBrowserClient } from '@/lib/supabase/client';
 import type { DurationBadge } from '@/lib/timeInColumn';
 import type { Database } from '@/lib/supabase/types';
+import { createClient as createBrowserClient } from '@/lib/supabase/client';
+import { AssigneePopover } from './AssigneePopover';
+import { ClaimCardOverlay } from './ClaimCard';
+import { Column } from './Column';
+import { ColumnDefaultsDialog } from './ColumnDefaultsDialog';
+import { NewClaimDialog } from './NewClaimDialog';
+import { moveClaim } from './actions';
 
 type Claim = Database['public']['Tables']['claims']['Row'];
 type Profile = Pick<Database['public']['Tables']['profiles']['Row'], 'id' | 'email' | 'display_name' | 'role'>;
 
+type PendingMove = {
+  claimId: number;
+  toColumn: ClaimColumn;
+  defaultAssigneeId: string | null;
+  x: number;
+  y: number;
+};
+
 function greetingByHour(name: string): string {
   const h = new Date().getHours();
   const salute =
-    h >= 5 && h < 12 ? 'Buen día'
-    : h >= 12 && h < 19 ? 'Buenas tardes'
-    : 'Buenas noches';
+    h >= 5 && h < 12 ? 'Buen día' : h >= 12 && h < 19 ? 'Buenas tardes' : 'Buenas noches';
   return name ? `${salute}, ${name}` : salute;
 }
 
@@ -44,31 +52,40 @@ export function Board({
   currentUserName: string;
   cardDurations: Record<number, DurationBadge>;
 }) {
+  const router = useRouter();
   const [grouped, setGrouped] = useState(initialGrouped);
   const [activeClaimId, setActiveClaimId] = useState<number | null>(null);
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [, startTransition] = useTransition();
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const activeClaim =
     activeClaimId != null
-      ? Object.values(grouped).flat().find((c) => c.id === activeClaimId) ?? null
+      ? (Object.values(grouped).flat().find((c) => c.id === activeClaimId) ?? null)
       : null;
 
-  // Realtime: recarga la página cuando cambia alguna fila de `claims`.
+  // v1260: en vez de window.location.reload() en cada postgres_change,
+  // llamamos router.refresh() — invalida el Server Component cache sin
+  // perder scroll ni modales abiertos. Para INSERTs/UPDATEs del propio user
+  // ya actualizamos el state optimista; el refresh trae la verdad del server
+  // en background sin flashear la UI.
   useEffect(() => {
     const supabase = createBrowserClient();
     const channel = supabase
       .channel('claims-board')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'claims' }, () => {
-        window.location.reload();
+        router.refresh();
       })
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [router]);
+
+  // Mantener grouped sincronizado si cambia initialGrouped (post router.refresh).
+  useEffect(() => {
+    setGrouped(initialGrouped);
+  }, [initialGrouped]);
 
   function onDragStart(e: DragStartEvent) {
     setActiveClaimId(Number(e.active.id));
@@ -76,6 +93,32 @@ export function Board({
 
   function onDragCancel() {
     setActiveClaimId(null);
+  }
+
+  function commitMove(claimId: number, toColumn: ClaimColumn, newAssigneeId: string) {
+    const claim = Object.values(grouped).flat().find((c) => c.id === claimId);
+    if (!claim) return;
+
+    setGrouped((prev) => {
+      const clone: Record<ClaimColumn, Claim[]> = Object.fromEntries(
+        Object.entries(prev).map(([k, v]) => [k, [...v]]),
+      ) as Record<ClaimColumn, Claim[]>;
+      const fromCol = claim.current_column as ClaimColumn;
+      clone[fromCol] = clone[fromCol].filter((c) => c.id !== claimId);
+      clone[toColumn] = [
+        { ...claim, current_column: toColumn, assignee_id: newAssigneeId },
+        ...clone[toColumn],
+      ];
+      return clone;
+    });
+
+    startTransition(async () => {
+      const res = await moveClaim({ claimId, toColumn, newAssigneeId });
+      if (!res.ok) {
+        alert(res.error);
+        setGrouped(initialGrouped);
+      }
+    });
   }
 
   function onDragEnd(e: DragEndEvent) {
@@ -89,40 +132,31 @@ export function Board({
     if (!claim || claim.current_column === toColumn) return;
 
     const defaultAssigneeId = columnDefaults[toColumn];
-    const defaultEmail = defaultAssigneeId
-      ? profiles.find((p) => p.id === defaultAssigneeId)?.email ?? ''
-      : profiles[0]?.email ?? '';
-    const emailPrompt = window.prompt(
-      `¿Asignar a? (email exacto) para columna "${toColumn}":`,
-      defaultEmail,
-    );
-    if (!emailPrompt) return;
-    const newAssignee = profiles.find((p) => p.email === emailPrompt);
-    if (!newAssignee) {
-      alert('Email no encontrado entre los usuarios.');
+
+    // v1260: si hay default + el user NO mantiene shift, asignar silent y commit.
+    // Si no hay default O el user mantiene shift (quiere elegir), abrir popover.
+    const activatorEvent = (e.activatorEvent as PointerEvent | undefined) ?? null;
+    const wantsPicker = activatorEvent?.shiftKey === true;
+
+    if (defaultAssigneeId && !wantsPicker) {
+      commitMove(claimId, toColumn, defaultAssigneeId);
       return;
     }
 
-    setGrouped((prev) => {
-      const clone: Record<ClaimColumn, Claim[]> = Object.fromEntries(
-        Object.entries(prev).map(([k, v]) => [k, [...v]]),
-      ) as Record<ClaimColumn, Claim[]>;
-      const fromCol = claim.current_column as ClaimColumn;
-      clone[fromCol] = clone[fromCol].filter((c) => c.id !== claimId);
-      clone[toColumn] = [
-        { ...claim, current_column: toColumn, assignee_id: newAssignee.id },
-        ...clone[toColumn],
-      ];
-      return clone;
-    });
+    // Posicionar popover cerca del drop point.
+    const x = activatorEvent?.clientX ?? window.innerWidth / 2 - 130;
+    const y = activatorEvent?.clientY ?? window.innerHeight / 2 - 160;
+    setPendingMove({ claimId, toColumn, defaultAssigneeId, x, y });
+  }
 
-    startTransition(async () => {
-      const res = await moveClaim({ claimId, toColumn, newAssigneeId: newAssignee.id });
-      if (!res.ok) {
-        alert(res.error);
-        setGrouped(initialGrouped);
-      }
-    });
+  function onPickAssignee(assigneeId: string) {
+    if (!pendingMove) return;
+    commitMove(pendingMove.claimId, pendingMove.toColumn, assigneeId);
+    setPendingMove(null);
+  }
+
+  function onCancelAssignee() {
+    setPendingMove(null);
   }
 
   return (
@@ -139,9 +173,7 @@ export function Board({
               textShadow: '0 1px 12px rgba(255,255,255,0.9), 0 0 4px rgba(255,255,255,0.6)',
             }}
           >
-            <p className="eyebrow mb-1 text-[color:var(--text-primary)]">
-              Reclamos abiertos
-            </p>
+            <p className="eyebrow mb-1 text-[color:var(--text-primary)]">Reclamos abiertos</p>
             <h1 className="display text-2xl">{greetingByHour(currentUserName)}</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -170,6 +202,16 @@ export function Board({
           />
         ) : null}
       </DragOverlay>
+      {pendingMove && (
+        <AssigneePopover
+          profiles={profiles}
+          defaultAssigneeId={pendingMove.defaultAssigneeId}
+          x={pendingMove.x}
+          y={pendingMove.y}
+          onPick={onPickAssignee}
+          onCancel={onCancelAssignee}
+        />
+      )}
     </DndContext>
   );
 }
