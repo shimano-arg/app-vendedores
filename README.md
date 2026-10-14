@@ -4717,6 +4717,47 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1268 (2026-10-14) — Checkbox "Reserva stock" por row en Stock Asignado
+
+**Archivos**:
+- `index.html:14942-14962` (checkbox UI dentro del row del modal Stock Asignado, solo en `_isAsigMode`)
+- `index.html:15568-15635` (nueva funcion `window._toggleAsigReserva(sku, pedidoId, nombre, qty, newValue)`)
+- `index.html:6260` + `sw.js:20` (bump v1267 → v1268)
+
+**Antes (v1267)**:
+El campo `asigReserva: false` ya existia como flag por linea (introducido en v1072 Fase 3 2026-09-16) para marcar lineas ASIG que NO reservan stock. Flow "Crear Pedido - ST" (v1210+) consolida esas lineas. Pero NO habia UI para toglar el flag manualmente — Mariano no podia decidir "esta linea deja de reservar stock" desde el modal Stock Asignado.
+
+**Problema**:
+Mariano pidio (2026-10-14): "cuando quiero sacar una fila de Stock Asignado para que el stock se libere, pero no eliminar la demanda del cliente". Caso tipico: PESCAR.INFO tiene 24u ASIG de FXC3000FC + otros clientes tienen demanda BO. Admin quiere liberar las 24u para que BO reasigne a los otros clientes, pero mantener la demanda de PESCAR.INFO viva.
+
+**Cambio**:
+- Checkbox agregado al row del modal Stock Asignado, antes del control [−] NN [+].
+- Tildado (default): `asigReserva === true` → reserva stock fisico. Border cyan, visible solo en modo Stock Asignado.
+- Destildado: `asigReserva === false` → libera stock al pool. Linea sigue viva pero NO bloquea.
+- Al destildar: `confirm()` nativo con mensaje explicito ("Vas a liberar X unidades...").
+- Al tildar: silent (operacion reversible, zero riesgo).
+- `window._toggleAsigReserva(sku, pedidoId, nombre, qty, newValue)` hace fresh fetch del pedido, encuentra lineas con sku+state='ASIG' matching, update `asigReserva` + `asigReservaChangedAt` + `asigReservaChangedBy`, commit Firestore.
+- Error handling: si el update falla, re-render del modal para resetear el checkbox visualmente.
+- `showSyncTag` para feedback: "Reserva activada" o "Reserva liberada".
+- Zero cambios en SAP (lineReservesStock queda intacto, el flag vive solo app-side).
+
+**Por que**:
+- Modelo existente `asigReserva: false` ya resolvia el problema a nivel datos. Solo faltaba la UI para que admin lo use.
+- Mas simple que inventar un nuevo estado "POSTERGADO" (idea descartada en brainstorming previo).
+- Reversible (destildar + volver a tildar en cualquier momento).
+- Firestore Rules: `'lines'` ya esta en el whitelist VDE/admin -> update funciona sin cambios de rules.
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass.
+- Smoke manual pendiente post-deploy:
+  1. Abrir modal Stock Asignado, buscar un SKU con cliente ASIG + otros clientes BO.
+  2. Destildar la row del cliente ASIG -> confirm aparece -> Aceptar.
+  3. Verificar que `showSyncTag` muestra "Reserva liberada".
+  4. Re-render del modal: la linea sigue visible pero el motor BO debe reasignar las unidades al proximo cliente de la cola.
+
+**ROLLBACK**:
+`git revert <commit>`. El checkbox desaparece. El flag `asigReserva` en Firestore queda intacto (otros flows siguen funcionando).
+
 ### v1267 (2026-10-14) — Fix scroll vertical en modal "Crear Pedido - Stock Asignado"
 
 **Archivos**:
