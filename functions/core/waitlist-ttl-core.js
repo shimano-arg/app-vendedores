@@ -142,7 +142,9 @@ export async function expireStockAsignadoWaitlists(deps) {
               newLines: Array.isArray(data.lines) ? data.lines.slice() : [],
             });
           } catch (e) {
-            lineErrors.push('pedido ' + pid + ' fetch: ' + (e && e.message ? e.message : String(e)));
+            lineErrors.push(
+              'pedido ' + pid + ' fetch: ' + (e && e.message ? e.message : String(e))
+            );
             continue;
           }
         }
@@ -163,7 +165,15 @@ export async function expireStockAsignadoWaitlists(deps) {
         const qty = Number(org.qtyAsignada) || 0;
         if (qty <= 0 || qty > qo) {
           lineErrors.push(
-            'pedido ' + pid + ' line ' + li + ': qtyAsignada=' + qty + ' invalido (qtyOpen=' + qo + ')',
+            'pedido ' +
+              pid +
+              ' line ' +
+              li +
+              ': qtyAsignada=' +
+              qty +
+              ' invalido (qtyOpen=' +
+              qo +
+              ')'
           );
           continue;
         }

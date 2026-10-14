@@ -213,7 +213,9 @@ describe('expireStockAsignadoWaitlists', () => {
       pedidos: [
         {
           id: 'p1',
-          data: { lines: [{ code: 'FXC', state: 'ASIG', qtyOpen: 10, qty: 10, asigReserva: true }] },
+          data: {
+            lines: [{ code: 'FXC', state: 'ASIG', qtyOpen: 10, qty: 10, asigReserva: true }],
+          },
         },
       ],
     });
