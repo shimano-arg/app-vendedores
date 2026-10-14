@@ -1,0 +1,56 @@
+name: reclamos-digest
+
+# v1266 (2026-10-13): cron jobs para APP-RECLAMOS.
+# Vercel Hobby no tiene Cron Jobs — usamos GitHub Actions schedulado +
+# POST a endpoints HTTP de la app autenticados con Bearer CRON_SECRET.
+#
+# Setup requerido (una sola vez):
+# 1. Vercel env var: CRON_SECRET=<string random largo>
+# 2. GitHub repo secret: RECLAMOS_CRON_SECRET=<mismo string>
+# 3. Verificar NEXT_PUBLIC_APP_URL en Vercel apunta a https://app-reclamos-shimano.vercel.app
+
+on:
+  schedule:
+    # Diario 9:00 ART = 12:00 UTC — stuck digest.
+    - cron: '0 12 * * *'
+    # Lunes 9:05 ART = 12:05 UTC — weekly digest (5min después para no colisionar).
+    - cron: '5 12 * * 1'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Qué cron correr manualmente'
+        type: choice
+        required: true
+        default: 'stuck'
+        options:
+          - stuck
+          - weekly
+
+jobs:
+  stuck:
+    name: Stuck digest (diario)
+    if: github.event.schedule == '0 12 * * *' || (github.event_name == 'workflow_dispatch' && inputs.job == 'stuck')
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST stuck-digest
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.RECLAMOS_CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --fail-with-body \
+            --max-time 60 \
+            https://app-reclamos-shimano.vercel.app/api/cron/stuck-digest
+
+  weekly:
+    name: Weekly digest (lunes 9am ART)
+    if: github.event.schedule == '5 12 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.job == 'weekly')
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST weekly-digest
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.RECLAMOS_CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --fail-with-body \
+            --max-time 60 \
+            https://app-reclamos-shimano.vercel.app/api/cron/weekly-digest
