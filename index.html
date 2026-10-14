@@ -5182,8 +5182,8 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                — no hay cambio de schema. -->
           <div style="border-top:1px dashed var(--border-default);margin:14px -2px 10px;padding-top:10px;display:flex;justify-content:center">
             <button type="button" onclick="openFichaClienteFromClientModal()" title="Perfil comercial para segmentar: fidelidad, tama&ntilde;o, especializaci&oacute;n, etc."
-              style="padding:8px 16px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-              <span style="font-size:14px">&#128203;</span> Ficha Cliente (perfil para segmentar)
+              style="padding:9px 18px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,122,255,0.22);letter-spacing:-.005em;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;transition:background-color .18s cubic-bezier(.32,.72,0,1),transform .18s cubic-bezier(.32,.72,0,1)">
+              Ficha Cliente (perfil para segmentar)
             </button>
           </div>
           <div id="cm-geo-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
@@ -6284,7 +6284,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1262';
+const APP_VERSION = 'v1263';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -9268,8 +9268,8 @@ function openSapAltaInfoModal(fsId){
         // acceso al perfilado comercial.
         '<div style="border-top:1px dashed var(--border-default);margin:8px -2px 10px;padding-top:10px;display:flex;justify-content:center">' +
           '<button type="button" onclick="openFichaClienteFromSapModal(\'' + safeFsId + '\')" title="Perfil comercial para segmentar: fidelidad, tamano, especializacion, etc."' +
-            ' style="padding:8px 16px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,0,0,0.08);font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif">' +
-            '<span style="font-size:14px">&#128203;</span> Ficha Cliente (perfil para segmentar)' +
+            ' style="padding:9px 18px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,122,255,0.22);letter-spacing:-.005em;font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif;transition:background-color .18s cubic-bezier(.32,.72,0,1),transform .18s cubic-bezier(.32,.72,0,1)">' +
+            'Ficha Cliente (perfil para segmentar)' +
           '</button>' +
         '</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +

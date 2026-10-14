@@ -6854,3 +6854,142 @@ html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
   background: #1c1c1e !important;
 }
 
+/* ============================================================
+   v1263 (2026-10-14) apple-design REDISEÑO VISUAL modal #ficha-cliente-modal
+   Mariano reporto: header con fondo azul oscuro + texto blanco ilegible,
+   Credito cheque en media columna (grid 2-cols default .modal-body), diseno
+   agresivo. Rework a minimalista Apple: fondo blanco, 1 columna single-stack
+   (todos los campos full-width), inputs Apple style, focus ring celeste
+   #007aff. Mismo tratamiento que #master-cli-modal (v656) / #campaigns-modal
+   (v653).
+   ============================================================ */
+#ficha-cliente-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#ficha-cliente-modal.modal-overlay.open .modal-box {
+  background: #ffffff !important;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  letter-spacing: 0;
+  max-width: 440px;
+}
+/* Header: fondo blanco, texto oscuro, eyebrow azul Apple */
+#ficha-cliente-modal .modal-head {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border-bottom: 1px solid #e5e5ea !important;
+  padding: 20px 24px !important;
+}
+#ficha-cliente-modal .modal-head h2 {
+  color: #1d1d1f !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em !important;
+  margin: 2px 0 0 !important;
+}
+#ficha-cliente-modal .modal-head .subt,
+#ficha-cliente-modal .modal-head #fc-meta {
+  color: #86868b !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+  letter-spacing: -0.01em !important;
+  margin-top: 4px !important;
+  word-break: break-word;
+  line-height: 1.4;
+}
+/* Eyebrow FICHA CLIENTE (primer div dentro del wrapper del head) */
+#ficha-cliente-modal .modal-head > div > div:first-child {
+  color: #007aff !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.6px !important;
+}
+#ficha-cliente-modal .modal-head .modal-close {
+  color: #86868b !important;
+  font-size: 24px !important;
+  font-weight: 400 !important;
+  transition: color 150ms ease-out;
+}
+#ficha-cliente-modal .modal-head .modal-close:hover {
+  color: #1d1d1f !important;
+}
+/* Body: 1 columna single-stack (default .modal-body base es grid 2-cols).
+   Todos los campos ocupan el ancho completo del modal (incluye el Credito
+   cheque que antes quedaba apretado en media columna). */
+#ficha-cliente-modal .modal-body {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  padding: 20px 24px 24px !important;
+  background: #ffffff !important;
+}
+/* Reset margins de wrappers de campo (los selects originales tenian
+   margin-bottom; con flex gap no hace falta). */
+#ficha-cliente-modal .modal-body > div {
+  margin: 0 !important;
+}
+/* Texto introductorio Apple style */
+#ficha-cliente-modal .modal-body > div:first-child {
+  color: #86868b !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+  margin-bottom: 2px !important;
+}
+/* Labels */
+#ficha-cliente-modal .modal-body label {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #1d1d1f !important;
+  letter-spacing: -0.005em !important;
+  display: block !important;
+  margin-bottom: 6px !important;
+}
+#ficha-cliente-modal .modal-body label span {
+  font-weight: 400 !important;
+  color: #86868b !important;
+}
+/* Selects + inputs Apple */
+#ficha-cliente-modal .modal-body select,
+#ficha-cliente-modal .modal-body input {
+  width: 100% !important;
+  border: 1px solid #d2d2d7 !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: #1d1d1f !important;
+  background: #ffffff !important;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif !important;
+  outline: none !important;
+}
+#ficha-cliente-modal .modal-body select:focus,
+#ficha-cliente-modal .modal-body input:focus {
+  border-color: #007aff !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15) !important;
+}
+#ficha-cliente-modal .modal-body input::placeholder {
+  color: #c7c7cc !important;
+}
+/* Bloque Credito cheque: separador superior sutil estilo Apple */
+#ficha-cliente-modal #cm-credito-cheque-block {
+  margin-top: 6px !important;
+  padding-top: 16px !important;
+  border-top: 1px solid #e5e5ea !important;
+}
+#ficha-cliente-modal #cm-credito-cheque-status {
+  font-size: 11px !important;
+  color: #86868b !important;
+  margin-top: 6px !important;
+  min-height: 14px;
+}
+#ficha-cliente-modal #fc-status {
+  font-size: 11px !important;
+  color: #86868b !important;
+  margin-top: 4px !important;
+}
+
