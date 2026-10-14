@@ -102,6 +102,12 @@ export function lineReservesStock(line, nowMs, pedido) {
     return true;
   }
   if (state === 'confirmed') {
+    // v1269 (2026-10-14): asigReserva=false libera reserva tambien para
+    // confirmed. Mirror client-side (src/pure/stock-realmente-disponible.js).
+    // El toggle manual del modal Stock Asignado escribe asigReserva=false en
+    // lineas confirmed; esta CF agrega STOCK_ASIG_APP → sin este check, el
+    // agregado seguiria contando la linea destildada como reservada.
+    if (line.asigReserva === false || line.asigReserva === 0) return false;
     // v963: expira 15d desde pedido.confirmedAt.
     if (pedido && pedido.confirmedAt) {
       const confirmedAtMs = toMillisSafe(pedido.confirmedAt);

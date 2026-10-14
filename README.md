@@ -4717,6 +4717,74 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1269 (2026-10-14) — Fix: toggle "Reserva stock" no persistia + no liberaba stock en confirmed
+
+**Archivos**:
+- `index.html:15568-15635` (`_toggleAsigReserva` extendido para aceptar `state='confirmed'`)
+- `src/pure/stock-realmente-disponible.js:162-186` (`lineReservesStock` respeta `asigReserva=false/0` tambien para `state='confirmed'`)
+- `functions/core/pedido-snapshot-core.js:104-128` (mirror server-side)
+- `tests/unit/stock-realmente-disponible.test.js` + `tests/functions/pedido-snapshot.test.js` (7 casos nuevos v1269)
+- `app.bundle.js` + `chunks/` regenerados por `node build.js`
+- `index.html:6260` + `sw.js:20` (bump v1268 → v1269)
+
+**Antes (v1268)**:
+Reporte Mariano 2026-10-14: destildo el checkbox "Reserva stock" en modal Stock Asignado para SVPAC270XH / MONICA ANDREA VIRGONE ORDEN 251 (2u). Al refrescar, el checkbox vuelve a aparecer tildado. Al ir al pedido, las 2u siguen "Reservadas" (azul) → la liberacion nunca ocurrio.
+
+**Problema**:
+Bug de 2 capas:
+
+1. **Toggle filtraba solo `state='ASIG'`.** El modal Stock Asignado (v1190) muestra tanto lineas `state='ASIG'` como `state='confirmed'` (via `isAsigLike`). Pero `_toggleAsigReserva` tenia:
+   ```js
+   if (!l || l.state !== 'ASIG') continue;
+   ```
+   Si Mariano destildaba una row cuya linea era `state='confirmed'` (pedido ya enviado a SAP, esperando entrega), el loop no matcheaba, `changed=0`, aparecia alert "No se encontraron lineas ASIG matching" (que Mariano probablemente cerro sin leer), y el flag `asigReserva` jamas se escribia en Firestore. Al re-render el `(c.asigReserva !== false)` seguia dando true → checkbox tildado.
+
+2. **`lineReservesStock` ignoraba `asigReserva` para confirmed.** Aunque el toggle hubiera persistido para confirmed, la funcion que decide "esta linea reserva stock?" solo chequeaba `asigReserva===false` en el branch `state==='ASIG'`:
+   ```js
+   if (state === 'ASIG') {
+     if (line.asigReserva === false || line.asigReserva === 0) return false;
+     ...
+   }
+   if (state === 'confirmed') {
+     // v963: solo expira por 15d — NO consulta asigReserva
+     ...
+     return true;
+   }
+   ```
+   → las 2u seguirian reservadas en el motor de reservas (`STOCK_ASIG_APP`, `getStockRealmenteDisponible`, columna "Reservadas" del modal del pedido).
+
+**Cambio**:
+- **Fix 1 (toggle UI)**: aceptar `l.state === 'ASIG' || l.state === 'confirmed'`. El modal muestra ambos → el toggle debe escribir ambos. Alert tambien actualizado a "lineas ASIG/confirmed matching".
+- **Fix 2a (pure fn client)**: en el branch `state === 'confirmed'`, agregar guard identico al de ASIG:
+  ```js
+  if (line.asigReserva === false || line.asigReserva === 0) return false;
+  ```
+  Explicito con 0/false (SAP serializa booleanos como 0/1; `0===false` es false en JS). undefined/null mantienen "default true" historicamente.
+- **Fix 2b (CF core server)**: mirror exacto en `pedido-snapshot-core.js:lineReservesStock` para mantener client ↔ server sincronizados (el aggregado `STOCK_ASIG_APP` lo computa la CF, debe aplicar el mismo filtro).
+- **Tests**: 3 nuevos en `stock-realmente-disponible.test.js` (confirmed+asigReserva=false, confirmed+asigReserva=0, confirmed+undefined/true backwards-compat). 4 nuevos en `pedido-snapshot.test.js` (mismo matrix server-side).
+
+**Por que**:
+- El flag `asigReserva=false` fue introducido en v956/v957/v1072 con la semantica "esta linea NO reserva stock aunque este en estado reservante". v1268 agrego la UI para toglarla manualmente desde el modal Stock Asignado. La extension natural a `state='confirmed'` cierra el loop para pedidos ya enviados a SAP (muy comun en el modal, por v1190).
+- Backwards-compat: `asigReserva=undefined` sigue reservando igual que pre-v1269. Solo lineas confirmed con flag EXPLICITO `false/0` cambian de comportamiento. Pre-v1269 ningun flow server-side escribia asigReserva en lineas confirmed, asi que solo el toggle manual nuevo las puede marcar.
+- No se extendio a `state='BO'` porque BO esta en el modal Backorder (no en Stock Asignado) y conceptualmente "liberar un BO" no tiene sentido — BO esta esperando stock, no reservando lo fisico.
+
+**Verificacion**:
+- `npm run test:unit` → 702/702 pass (3 nuevos v1269 OK).
+- `npx vitest run tests/functions/pedido-snapshot.test.js` → 30/30 pass (4 nuevos v1269 OK).
+- `npm run typecheck` → clean.
+- `npx biome lint` sobre los 4 archivos tocados → clean.
+- `node build.js` → bundle + chunks regenerados.
+- Smoke manual pendiente post-deploy:
+  1. Abrir modal Stock Asignado para SKU con linea confirmed de un cliente.
+  2. Destildar el checkbox → confirm → Aceptar.
+  3. Esperar `showSyncTag` "Reserva liberada: Xu SKU" (NO el alert "No se encontraron lineas ASIG...").
+  4. Refresh → checkbox sigue destildado.
+  5. Abrir el pedido del cliente → columna "Reservadas" del SKU debe ser 0 (en vez de X).
+  6. En el modal Stock Asignado, las unidades liberadas se re-asignan por FIFO al siguiente cliente con BO del mismo SKU.
+
+**Rollback**:
+`git revert <commit>`. El toggle vuelve a filtrar solo ASIG. `lineReservesStock` vuelve a ignorar `asigReserva` para confirmed. Las lineas confirmed que hubieran sido destildadas en el ventana post-v1269 vuelven a reservar stock (hasta que un admin re-abra el flow para esos clientes).
+
 ### v1268 (2026-10-14) — Checkbox "Reserva stock" por row en Stock Asignado
 
 **Archivos**:
