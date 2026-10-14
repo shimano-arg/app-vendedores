@@ -201,9 +201,26 @@ export function Board({
       return clone;
     });
 
+    // v1267: haptic sutil al confirmar el drop (10ms = tap breve).
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(10);
+      } catch {
+        /* silent */
+      }
+    }
+
     startTransition(async () => {
       const res = await moveClaim({ claimId, toColumn, newAssigneeId });
       if (!res.ok) {
+        // v1267: haptic de error (pattern) + alert.
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate([30, 20, 30]);
+          } catch {
+            /* silent */
+          }
+        }
         alert(res.error);
         setGrouped(initialGrouped);
       }
