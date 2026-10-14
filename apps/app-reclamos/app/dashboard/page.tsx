@@ -120,7 +120,7 @@ export default async function DashboardPage() {
     <main className="page-bg page-bg-board min-h-[calc(100vh-56px)] px-6 py-6 lg:py-8">
       <div className="mb-6">
         <p className="eyebrow mb-1">Dashboard</p>
-        <h1 className="display text-2xl">Métricas de reclamos</h1>
+        <h1 className="display display-lg text-2xl">Métricas de reclamos</h1>
       </div>
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

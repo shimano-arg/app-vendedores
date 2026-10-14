@@ -168,6 +168,22 @@
     letter-spacing: -0.022em;
     font-weight: 600;
   }
+  /* v1268: typography size-specific tracking segun Apple HIG §15.
+     Display large (>=20px) → tracking más tight. Body → tracking neutral
+     con mínimo negativo. Small (<=11px) → sin tracking. Opt-in: aplicar
+     en elementos que requieran tracking ajustado. */
+  h1, .display-lg {
+    letter-spacing: -0.028em;
+  }
+  .display-sm {
+    letter-spacing: -0.018em;
+  }
+  .text-tracked-normal {
+    letter-spacing: -0.01em;
+  }
+  .text-tracked-small {
+    letter-spacing: 0;
+  }
   .eyebrow {
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -224,7 +240,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 1.125rem;
+    padding: 0.5rem 1rem;
     border-radius: 999px;
     background-color: var(--accent-blue);
     color: #FFFFFF;
