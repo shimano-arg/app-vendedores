@@ -340,11 +340,9 @@ export function validateRepartoPayload(ingresoDoc, assignments) {
       errors.push('assignment no coincide con ningun cliente BO (' + key + ')');
       continue;
     }
-    if (qty > bo.qtyBackorder) {
-      errors.push(
-        'assignment qtyAsignada=' + qty + ' > qtyBackorder=' + bo.qtyBackorder + ' (' + key + ')'
-      );
-    }
+    // v1292 (2026-10-14): se permite qty > bo.qtyBackorder (sobre-asignacion).
+    // Pablo puede darle mas al cliente de lo que pidio. La linea se expande
+    // (qtyOpen aumenta) en applyRepartoManualCore. Antes rechazaba con error.
     sumAsignada += qty;
   }
   if (sumAsignada > ingresoDoc.qtyIngresada) {
@@ -435,19 +433,25 @@ export async function applyRepartoManualCore(deps, opts) {
           throw new Error('linea con qtyOpen=0 @ ' + a.pedidoId + ':' + a.lineIndex);
         }
         const qty = Number(a.qtyAsignada) || 0;
-        if (qty <= 0 || qty > qo) {
-          throw new Error(
-            'qtyAsignada=' +
-              qty +
-              ' invalido (qtyOpen=' +
-              qo +
-              ') @ ' +
-              a.pedidoId +
-              ':' +
-              a.lineIndex
-          );
+        if (qty <= 0) {
+          throw new Error('qtyAsignada=' + qty + ' invalido @ ' + a.pedidoId + ':' + a.lineIndex);
         }
-        if (qty === qo) {
+        if (qty > qo) {
+          // v1292 (2026-10-14): sobre-asignacion. Pablo le da mas al cliente
+          // de lo que pidio. La linea se expande: qty > qo, state=ASIG,
+          // qtyOpen = qty. qty del pedido original tambien se amplia para
+          // mantener consistencia (qty = qtyOpen cuando no hay invoiced).
+          lines[a.lineIndex] = Object.assign({}, line, {
+            qty: qty,
+            qtyOpen: qty,
+            state: 'ASIG',
+            asigAt: nowIso,
+            asigReserva: true,
+            asigFromReparto: opts.ingresoId,
+            overAssigned: true,
+            overAssignedDelta: qty - qo,
+          });
+        } else if (qty === qo) {
           // Linea entera pasa a ASIG.
           lines[a.lineIndex] = Object.assign({}, line, {
             state: 'ASIG',
