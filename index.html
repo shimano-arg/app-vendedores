@@ -6354,7 +6354,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1299';
+const APP_VERSION = 'v1300';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7028,15 +7028,17 @@ window.getBoDupeForCurrentOrder = function(skuCode){
   for (const p of globalPedidos) {
     if (!p || p.closedAt) continue;
     if (p.stage !== 'confirmed') continue;
-    // Match cliente: cardCode primero, fallback nombre+loc+prov.
+    // Match cliente: cardCode OR nombre+loc+prov (ambos independientes).
+    // v1300 (2026-10-14) H4 fix: antes era ternary — si current tenia cardCode
+    // y pedido viejo tenia pCard='' (BO legados pre-cardCode), nunca matcheaba
+    // y el badge "YA TIENE EN BO" no aparecia. Ahora OR cubre ambos vectores.
     const pCard = String(p.clientCardCode || '').trim();
     const pName = String(p.clientName || '').trim().toUpperCase();
     const pLoc = String(p.locName || p.clientLocality || '').trim().toUpperCase();
     const pProv = String(p.province || p.clientProvince || '').trim().toUpperCase();
-    const sameClient = cardCode
-      ? pCard === cardCode
-      : (pName === cliName && pLoc === cliLoc && pProv === cliProv);
-    if (!sameClient) continue;
+    const matchByCard = !!(cardCode && pCard && pCard === cardCode);
+    const matchByNamLoc = !!(pName && pName === cliName && pLoc === cliLoc && pProv === cliProv);
+    if (!matchByCard && !matchByNamLoc) continue;
     const lines = Array.isArray(p.lines) ? p.lines : [];
     for (const l of lines) {
       if (!l || !l.code) continue;
@@ -18753,11 +18755,20 @@ function _renderWaitlistSidebar(){
       // v1289 (2026-10-14): fallback para waitlists pre-v1280 sin expiresAt —
       // inferir createdAt + 7d para que las cards viejas tambien muestren timer.
       // El CF expireStockAsignadoWaitlistsCF usa el mismo fallback.
+      // v1300 (2026-10-14) M4 fix: aceptar createdAt como Timestamp O ISO string.
+      // Antes solo Timestamp.toDate() -> pre-v1280 con ISO string no mostraban badge.
       let _expMs = 0;
       if (w.expiresAt) {
         _expMs = new Date(w.expiresAt).getTime();
-      } else if (w.createdAt && typeof w.createdAt.toDate === 'function') {
-        _expMs = w.createdAt.toDate().getTime() + 7 * 24 * 60 * 60 * 1000;
+      } else if (w.createdAt) {
+        if (typeof w.createdAt.toDate === 'function') {
+          _expMs = w.createdAt.toDate().getTime() + 7 * 24 * 60 * 60 * 1000;
+        } else if (typeof w.createdAt === 'string') {
+          const _t = Date.parse(w.createdAt);
+          if (Number.isFinite(_t)) _expMs = _t + 7 * 24 * 60 * 60 * 1000;
+        } else if (w.createdAt instanceof Date) {
+          _expMs = w.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000;
+        }
       }
       if (_expMs > 0) {
         const expMs = _expMs;

@@ -417,6 +417,18 @@ export async function applyRepartoManualCore(deps, opts) {
           throw new Error('pedido no existe: ' + a.pedidoId);
         }
         const data = pedidoSnap.data();
+        // v1300 (2026-10-14) M1 fix: no permitir reparto sobre pedidos ya
+        // enviados a SAP (transferidoSAP.docNum setado) ni cerrados. Precedente
+        // FATECHI 2026-10-06: expandir qtyOpen sin SQ correspondiente genera
+        // stock reservado app-side eterno + factura SAP por qty vieja.
+        if (data.closedAt) {
+          throw new Error('pedido cerrado (closedAt), no se puede repartir @ ' + a.pedidoId);
+        }
+        if (data.transferidoSAP && data.transferidoSAP.docNum) {
+          throw new Error(
+            'pedido ya en SAP (SQ #' + data.transferidoSAP.docNum + '), no se puede repartir @ ' + a.pedidoId
+          );
+        }
         const lines = Array.isArray(data.lines) ? [...data.lines] : [];
         const line = lines[a.lineIndex];
         if (!line) {
