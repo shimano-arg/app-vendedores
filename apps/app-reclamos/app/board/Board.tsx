@@ -22,6 +22,7 @@ import { ClaimCardOverlay } from './ClaimCard';
 import { Column } from './Column';
 import { ColumnDefaultsDialog } from './ColumnDefaultsDialog';
 import { NewClaimDialog } from './NewClaimDialog';
+import { StuckPanel } from './StuckPanel';
 import { moveClaim } from './actions';
 
 type Claim = Database['public']['Tables']['claims']['Row'];
@@ -48,13 +49,16 @@ export function Board({
   columnDefaults,
   currentUserName,
   cardDurations,
+  stuckClaimIds,
 }: {
   initialGrouped: Record<ClaimColumn, Claim[]>;
   profiles: Profile[];
   columnDefaults: Record<ClaimColumn, string | null>;
   currentUserName: string;
   cardDurations: Record<number, DurationBadge>;
+  stuckClaimIds: number[];
 }) {
+  const stuckSet = useMemo(() => new Set(stuckClaimIds), [stuckClaimIds]);
   const router = useRouter();
   const [grouped, setGrouped] = useState(initialGrouped);
   const [activeClaimId, setActiveClaimId] = useState<number | null>(null);
@@ -274,6 +278,12 @@ export function Board({
           totalMatches={totalMatches}
           totalClaims={totalClaims}
         />
+        <StuckPanel
+          stuckClaims={Object.values(grouped)
+            .flat()
+            .filter((c) => stuckSet.has(c.id))}
+          profiles={profiles}
+        />
         <div className="flex gap-4 overflow-x-auto -mx-6 px-6 pb-4 lg:grid lg:grid-cols-6 lg:overflow-x-visible lg:mx-0 lg:px-0">
           {CLAIM_COLUMNS.map((col) => (
             <Column
@@ -282,6 +292,7 @@ export function Board({
               claims={filteredGrouped[col.key]}
               profiles={profiles}
               cardDurations={cardDurations}
+              stuckSet={stuckSet}
             />
           ))}
         </div>
