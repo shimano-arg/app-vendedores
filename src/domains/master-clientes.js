@@ -2255,11 +2255,13 @@ window.renderMasterClientesTable = function () {
   html += '<th style="width:9%">Provincia</th>';
   html += '<th style="width:11%">Vendedor</th>';
   html += '<th style="width:18%">Direcci&oacute;n exacta</th>';
-  html += '<th style="width:8%" title="Categoria comercial del cliente">Tipo</th>';
+  // v1265 (2026-10-14): columna "Tipo" (cliTipo P/A/B/C) REMOVIDA. El dato
+  // vive en client_master.cliTipo y se edita desde el modal Ficha Cliente
+  // (perfilado comercial unificado). Mantener aqui era duplicacion con la
+  // Ficha.
   // v1055 (2026-09-24) + v1264 (2026-10-14): columna "Credito ARS" REMOVIDA
   // del Master de Clientes. El dato vive en client_master.creditoCheque y se
-  // edita desde el modal Ficha Cliente (admin/gerente only). Dejar aqui era
-  // duplicacion visual.
+  // edita desde el modal Ficha Cliente (admin/gerente only).
   html += '<th style="width:8%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
@@ -2593,23 +2595,8 @@ window.renderMasterClientesTable = function () {
       "', '" +
       escapeAttr(savedAddr) +
       "')\" onkeydown=\"if(event.key==='Enter')this.parentElement.parentElement.querySelector('.mc-save-btn').click()\" /></td>";
-    // v349+: default visual 'C' cuando no hay cliTipo guardado. El campo
-    // NO se auto-persiste - el user tiene que apretar Guardar para que quede
-    // en Firestore. Asi las tiendas existentes sin cliTipo se ven en 'C' pero
-    // sabemos cuales fueron confirmadas explicitamente.
-    const curTipoRender = curTipo || 'C';
-    html +=
-      '<td data-vendor="' +
-      escapeAttr(e.vendor) +
-      '" data-prov="' +
-      escapeAttr(e.provincia) +
-      '" data-loc="' +
-      escapeAttr(e.localidad) +
-      '" data-name="' +
-      escapeAttr(e.nombre) +
-      '">' +
-      _selHtml('cliTipo', curTipoRender, TIPO_OPTS, id) +
-      '</td>';
+    // v1265 (2026-10-14): <td> con <select cliTipo> REMOVIDO. Dato se edita
+    // desde el modal Ficha Cliente (nuevo campo "Tipo de cliente" al tope).
     // v1055 (2026-09-24) + v1264 (2026-10-14): columna "Credito ARS" REMOVIDA
     // de la tabla del Master de Clientes. El dato sigue viviendo en
     // client_master.creditoCheque y se edita desde el modal Ficha Cliente

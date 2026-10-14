@@ -4717,6 +4717,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1265 (2026-10-14) — Mover "Tipo de cliente" (cliTipo) a Ficha Cliente
+
+**Archivos**:
+- `src/domains/master-clientes.js:2258` (removido `<th>Tipo</th>` del header)
+- `src/domains/master-clientes.js:2596-2612` (removido `<td>` con select cliTipo + `curTipoRender`)
+- `index.html:5157-5178` (removido bloque "Categorizacion comercial" del `#client-modal`)
+- `index.html:5247-5257` (nuevo campo "Tipo de cliente" al tope del body `#ficha-cliente-modal`, antes de Fidelidad)
+- `index.html:11089-11097` (populate del `cm-cli-tipo` agregado al map de `openFichaClienteFromClientModal`)
+- `app.bundle.js` regenerado
+- `index.html:6260` + `sw.js:20` (bump v1264 → v1265)
+
+**Antes (v1264)**:
+Master de Clientes tenia una columna "Tipo" (editable P/A/B/C via select, 8% ancho) + el `#client-modal` tenia bloque "Categorizacion comercial" con el mismo select. Dos UIs editando el mismo campo. Ficha Cliente no incluia este campo.
+
+**Problema**:
+Pedido Mariano (2026-10-14): unificar todo el perfilado comercial en Ficha Cliente. cliTipo (Premium/A/B/C) determina descuento fijo + bonus pago anticipado — es perfilado 100%.
+
+**Cambio**:
+- Removida columna Tipo de la tabla Master Clientes + comment explicando donde vive ahora.
+- Removido bloque "Categorizacion comercial" del `#client-modal`. Comment preservado explicando el move.
+- Agregado campo "Tipo de cliente" al tope del `#ficha-cliente-modal` (antes de Fidelidad) con los mismos 4 options (P/A/B/C) + "(sin clasificar)". ID `cm-cli-tipo` preservado para no romper `saveClientCategoriaFromModal`.
+- `onchange` ahora pasa `'fc-status'` como 3er arg para que el feedback aparezca en el modal Ficha (soporte agregado en v1258 saveClientCategoriaFromModal).
+- `openFichaClienteFromClientModal` populatea `cm-cli-tipo` desde `cmData.cliTipo` igual que los otros 5 selects.
+
+**Por que**:
+- Fuente unica de edicion: Ficha Cliente es ahora el UNICO lugar donde se edita todo el perfilado comercial (cliTipo, fidelidad, prefContacto, tamano, especializacion, tipoLocal, creditoCheque). Master Clientes queda SOLO para datos operativos (direccion, tienda, localidad).
+- Elimina 2-UIs-editan-mismo-campo: no mas riesgo de desincronizacion entre Master y modal cliente.
+- Alineacion con v1260 (credito movido) + v1258 (5 selects movidos) + v1264 (columna credito removida).
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass.
+- `node build.js` -> OK (2.48 MB).
+- Smoke manual pendiente post-deploy: abrir cliente -> Ficha Cliente -> ver "Tipo de cliente" como primer campo con value populado. Cambiar a otro valor -> status "Guardando..." -> "Guardado". Volver a abrir -> value persistido.
+
+**Rollback**:
+`git revert <commit>`. Columna Tipo vuelve al Master, bloque "Categorizacion comercial" vuelve al modal cliente, campo cliTipo desaparece de la Ficha. Dato en Firestore (`client_master.cliTipo`) intacto.
+
 ### v1264 (2026-10-14) — Remover columna "Credito ARS" del Master Clientes
 
 **Archivos**:
