@@ -7,13 +7,28 @@ import type { Database } from '@/lib/supabase/types';
 
 type Profile = Pick<Database['public']['Tables']['profiles']['Row'], 'id' | 'email' | 'display_name'>;
 
+// v1255-reclamos (2026-10-14): gate del boton "Responsables" por whitelist
+// de emails. Solo Diego/Santiago/Mariano configuran defaults; el resto no ve
+// el boton. La RLS en Supabase ya bloquea el write (requires is_admin), pero
+// Mariano pidio esconderlo tambien de la UI para evitar ruido visual.
+const RESPONSABLES_EMAIL_WHITELIST = new Set<string>([
+  'diego.valsi@shimano.uy',
+  'santiago.beron@shimano.uy',
+  'mariano.erbino@shimano.com.ar',
+]);
+
 export function ColumnDefaultsDialog({
   profiles,
   currentDefaults,
+  currentUserEmail,
 }: {
   profiles: Profile[];
   currentDefaults: Record<ClaimColumn, string | null>;
+  currentUserEmail: string | null;
 }) {
+  const canSeeButton =
+    !!currentUserEmail &&
+    RESPONSABLES_EMAIL_WHITELIST.has(currentUserEmail.toLowerCase());
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState<Record<ClaimColumn, string>>(() =>
     Object.fromEntries(
@@ -40,6 +55,8 @@ export function ColumnDefaultsDialog({
       }
     });
   }
+
+  if (!canSeeButton) return null;
 
   return (
     <>

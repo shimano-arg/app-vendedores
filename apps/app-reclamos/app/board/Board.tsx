@@ -11,7 +11,6 @@ import {
 } from '@dnd-kit/core';
 import { useRouter } from 'next/navigation';
 import { useMemo, useRef } from 'react';
-import type { ClaimType } from '@/lib/claim-types';
 import { CLAIM_COLUMNS, type ClaimColumn, COLUMN_KEYS } from '@/lib/columns';
 import { createClient as createBrowserClient } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/types';
@@ -49,6 +48,7 @@ export function Board({
   profiles,
   columnDefaults,
   currentUserName,
+  currentUserEmail,
   cardDurations,
   stuckClaimIds,
   isAdmin,
@@ -57,6 +57,7 @@ export function Board({
   profiles: Profile[];
   columnDefaults: Record<ClaimColumn, string | null>;
   currentUserName: string;
+  currentUserEmail: string | null;
   cardDurations: Record<number, DurationBadge>;
   stuckClaimIds: number[];
   isAdmin: boolean;
@@ -67,8 +68,6 @@ export function Board({
   const [activeClaimId, setActiveClaimId] = useState<number | null>(null);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTypes, setSelectedTypes] = useState<ClaimType[]>([]);
-  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const newClaimTriggerRef = useRef<HTMLButtonElement>(null);
   const [, startTransition] = useTransition();
 
@@ -98,37 +97,31 @@ export function Board({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   // v1261: filtrado client-side. Con <500 cards no hace falta debounce ni server-side.
+  // v1255-reclamos (2026-10-14): chips de tipo/assignee removidos; solo filtra la search bar.
   const filteredGrouped = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const hasQuery = q.length > 0;
-    const hasTypes = selectedTypes.length > 0;
-    const hasAssignees = selectedAssignees.length > 0;
-    if (!hasQuery && !hasTypes && !hasAssignees) return grouped;
+    if (!q) return grouped;
 
     const result: Record<ClaimColumn, Claim[]> = Object.fromEntries(
       COLUMN_KEYS.map((k) => [k, [] as Claim[]]),
     ) as unknown as Record<ClaimColumn, Claim[]>;
     for (const col of COLUMN_KEYS) {
       for (const claim of grouped[col]) {
-        if (hasTypes && !selectedTypes.includes(claim.claim_type as ClaimType)) continue;
-        if (hasAssignees && !selectedAssignees.includes(claim.assignee_id)) continue;
-        if (hasQuery) {
-          const bag = [
-            claim.remito_number,
-            claim.invoice_number ?? '',
-            claim.client_name ?? '',
-            claim.fantasy_name ?? '',
-            claim.observations ?? '',
-          ]
-            .join(' ')
-            .toLowerCase();
-          if (!bag.includes(q)) continue;
-        }
+        const bag = [
+          claim.remito_number,
+          claim.invoice_number ?? '',
+          claim.client_name ?? '',
+          claim.fantasy_name ?? '',
+          claim.observations ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!bag.includes(q)) continue;
         result[col].push(claim);
       }
     }
     return result;
-  }, [grouped, searchQuery, selectedTypes, selectedAssignees]);
+  }, [grouped, searchQuery]);
 
   const totalClaims = useMemo(
     () => COLUMN_KEYS.reduce((sum, k) => sum + grouped[k].length, 0),
@@ -138,15 +131,6 @@ export function Board({
     () => COLUMN_KEYS.reduce((sum, k) => sum + filteredGrouped[k].length, 0),
     [filteredGrouped],
   );
-
-  function toggleType(t: ClaimType) {
-    setSelectedTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
-  }
-  function toggleAssignee(id: string) {
-    setSelectedAssignees((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
 
   const activeClaim =
     activeClaimId != null
@@ -284,18 +268,17 @@ export function Board({
           </div>
           <div className="flex items-center gap-2">
             <ExportButton isAdmin={isAdmin} />
-            <ColumnDefaultsDialog profiles={profiles} currentDefaults={columnDefaults} />
+            <ColumnDefaultsDialog
+              profiles={profiles}
+              currentDefaults={columnDefaults}
+              currentUserEmail={currentUserEmail}
+            />
             <NewClaimDialog triggerRef={newClaimTriggerRef} />
           </div>
         </div>
         <BoardFilters
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          selectedTypes={selectedTypes}
-          onToggleType={toggleType}
-          selectedAssignees={selectedAssignees}
-          onToggleAssignee={toggleAssignee}
-          profiles={profiles}
           totalMatches={totalMatches}
           totalClaims={totalClaims}
         />
