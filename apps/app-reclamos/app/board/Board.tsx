@@ -280,7 +280,7 @@ export function Board({
             }}
           >
             <p className="eyebrow mb-1 text-[color:var(--text-primary)]">Reclamos abiertos</p>
-            <h1 className="display text-2xl">{greetingByHour(currentUserName)}</h1>
+            <h1 className="display display-lg text-2xl">{greetingByHour(currentUserName)}</h1>
           </div>
           <div className="flex items-center gap-2">
             <ExportButton isAdmin={isAdmin} />

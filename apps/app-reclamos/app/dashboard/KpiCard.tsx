@@ -15,7 +15,7 @@ export function KpiCard({
     <div className="card-elevated p-4">
       <p className="eyebrow mb-1.5">{label}</p>
       <div className="flex items-baseline gap-1">
-        <span className="display text-3xl tabular-nums">{value}</span>
+        <span className="display display-lg text-3xl tabular-nums">{value}</span>
         {suffix && (
           <span className="text-sm font-medium text-[color:var(--text-secondary)]">
             {suffix}
