@@ -6333,7 +6333,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1296';
+const APP_VERSION = 'v1297';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6980,6 +6980,55 @@ function getStockDisponibleVenta(sku){
   return Number(whs['11'] || 0);
 }
 window.getStockDisponibleVenta = getStockDisponibleVenta;
+
+// v1297 (2026-10-14): detector de BO duplicado para evitar que el vendedor
+// infle backorder al cargar nuevamente un SKU que el cliente ya tenia pedido.
+// Pedido Mariano: "MARTIN tenia 20 unidades en backorder de FX4000FC pero
+// despues su vendedor carga otro pedido y vuelve a cargar 20 unidades, y
+// ahora MARTIN figura con 40 unidades que son mentira". Match por SKU + mismo
+// cliente (sapCardCode si existe; sino nombre + locName + province) sobre
+// globalPedidos stage=confirmed. Devuelve {totalBo, pedidos:[{orden,qty}]}.
+window.getBoDupeForCurrentOrder = function(skuCode){
+  const out = { totalBo: 0, pedidos: [] };
+  if (!skuCode) return out;
+  if (typeof currentOrderClient === 'undefined' || !currentOrderClient) return out;
+  if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return out;
+  const skuUp = String(skuCode).toUpperCase();
+  const cliName = String(currentOrderClient.name || '').trim().toUpperCase();
+  const cliLoc = String(currentOrderClient.locName || '').trim().toUpperCase();
+  const cliProv = String(currentOrderClient.province || '').trim().toUpperCase();
+  // Resolver cardCode del cliente (si existe en SAP master).
+  let cardCode = '';
+  try {
+    if (typeof sapGetClienteCode === 'function') {
+      cardCode = String(sapGetClienteCode(currentOrderClient.name) || '').trim();
+    }
+  } catch (_e) {}
+  for (const p of globalPedidos) {
+    if (!p || p.closedAt) continue;
+    if (p.stage !== 'confirmed') continue;
+    // Match cliente: cardCode primero, fallback nombre+loc+prov.
+    const pCard = String(p.clientCardCode || '').trim();
+    const pName = String(p.clientName || '').trim().toUpperCase();
+    const pLoc = String(p.locName || p.clientLocality || '').trim().toUpperCase();
+    const pProv = String(p.province || p.clientProvince || '').trim().toUpperCase();
+    const sameClient = cardCode
+      ? pCard === cardCode
+      : (pName === cliName && pLoc === cliLoc && pProv === cliProv);
+    if (!sameClient) continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    for (const l of lines) {
+      if (!l || !l.code) continue;
+      if (String(l.code).toUpperCase() !== skuUp) continue;
+      if (l.state !== 'BO') continue;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) continue;
+      out.totalBo += qo;
+      out.pedidos.push({ orden: p.orderNumber || p._fsId || '(sin orden)', qty: qo });
+    }
+  }
+  return out;
+};
 
 // v621 (2026-08-25): version NETA del disponible — descuenta backorder SAP
 // (SQs open que ya prometieron unidades a otros clientes). Usar en splitPedidoLine

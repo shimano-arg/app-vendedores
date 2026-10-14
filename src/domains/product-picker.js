@@ -680,13 +680,49 @@ function renderOrderLines() {
   }
   let totalU = 0;
   let html = '';
+  // v1297 (2026-10-14): resolver detector de BO duplicado para este cliente.
+  const boDupeFn =
+    typeof window !== 'undefined' && typeof window.getBoDupeForCurrentOrder === 'function'
+      ? window.getBoDupeForCurrentOrder
+      : null;
   ord.forEach((l) => {
     const q = parseFloat(l.qty) || 0;
     const pr = parseFloat(l.precio) || 0;
     totalU += q;
     html += '<div class="ped-line">';
     html += '<div class="pcode">' + escapeHtml(l.code) + '</div>';
-    html += '<div class="pname">' + escapeHtml(l.desc) + '</div>';
+    // v1297: badge rojo "YA TIENE N u EN BO" si el cliente ya tiene BO abierto
+    // del mismo SKU en otro pedido. Se renderiza inline con el nombre del
+    // producto para que el vendedor lo vea sin desplazar la UI.
+    let boWarning = '';
+    if (boDupeFn) {
+      try {
+        const dupe = boDupeFn(l.code) || { totalBo: 0, pedidos: [] };
+        if (dupe.totalBo > 0) {
+          const pedidosTxt = (dupe.pedidos || [])
+            .slice(0, 3)
+            .map((pd) => 'ORDEN ' + pd.orden + ' (' + pd.qty + 'u)')
+            .join(', ');
+          const extra = (dupe.pedidos || []).length > 3 ? '...' : '';
+          const titleTxt =
+            'Este cliente YA tiene ' +
+            dupe.totalBo +
+            ' u en backorder: ' +
+            pedidosTxt +
+            extra +
+            '. Verifica si realmente quiere mas unidades o es un duplicado.';
+          boWarning =
+            '<span class="bo-dupe-warn" title="' +
+            escapeAttr(titleTxt) +
+            '" style="background:#dc2626;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:9px;margin-left:6px;letter-spacing:.3px;white-space:nowrap">YA TIENE ' +
+            dupe.totalBo +
+            'u EN BO</span>';
+        }
+      } catch (_e) {
+        /* silent — no romper render del pedido */
+      }
+    }
+    html += '<div class="pname">' + escapeHtml(l.desc) + boWarning + '</div>';
     html +=
       '<input type="number" class="qty" min="0" step="any" value="' +
       pr +
