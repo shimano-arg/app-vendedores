@@ -236,10 +236,11 @@ describe('validateRepartoPayload', () => {
     expect(r.errors.some((e) => e.includes('sobre-reparto'))).toBe(true);
   });
 
-  it('rechaza qtyAsignada > qtyBackorder del cliente', () => {
-    const r = validateRepartoPayload(ingreso, [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 70 }]);
-    expect(r.valid).toBe(false);
-    expect(r.errors.some((e) => e.includes('qtyBackorder'))).toBe(true);
+  it('v1292: acepta qtyAsignada > qtyBackorder del cliente (sobre-asignacion)', () => {
+    // p2 tiene qtyBackorder=40; qtyIngresada del ingreso es 50.
+    // Asignar 50 > 40 (BO del cliente) pero <= 50 (ingreso) debe ser VALIDO.
+    const r = validateRepartoPayload(ingreso, [{ pedidoId: 'p2', lineIndex: 1, qtyAsignada: 50 }]);
+    expect(r.valid).toBe(true);
   });
 
   it('rechaza assignment que no matchea con ningun cliente BO', () => {
