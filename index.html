@@ -6289,7 +6289,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1267';
+const APP_VERSION = 'v1268';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14938,6 +14938,27 @@ window.renderBackordersTab = function(){
         );
         const _titMinus = _isAsigMode ? 'Quitarle 1 unidad al cliente (va a BO)' : 'Quitarle 1 unidad al backorder del cliente';
         const _titPlus = _isAsigMode ? 'Sumarle 1 unidad al cliente (de BO propio o stock libre)' : 'Sumarle 1 unidad al backorder del cliente';
+        // v1268 (2026-10-14): checkbox "Reserva stock" solo en modo asignacion.
+        // Tildado = reserva stock fisico (default). Destildado = la linea ASIG
+        // existe pero NO bloquea stock -> otros clientes pueden recibir el
+        // SKU via BO. Equivale a asigReserva=false (ya existente). Operacion
+        // destructiva (libera reserva) -> confirm al destildar.
+        if (_isAsigMode) {
+          const _reserva = (c.asigReserva !== false);
+          const _reservaTit = _reserva
+            ? 'Tildado = reserva stock fisico para este cliente. Destildar libera las ' + Math.round(_qtyShow) + ' unidades al pool (otros clientes en BO las reciben).'
+            : 'Destildado = NO reserva stock. Las ' + Math.round(_qtyShow) + ' unidades estan disponibles para otros clientes en BO. Tildar vuelve a reservarlas para este cliente.';
+          const _argsReserva = escapeAttr(
+            JSON.stringify(g.sku) + ',' +
+            JSON.stringify(_pid) + ',' +
+            JSON.stringify(String(c.nombre || '')) + ',' +
+            Math.round(_qtyShow)
+          );
+          html += '<label style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;cursor:pointer;margin-right:6px" title="' + escapeAttr(_reservaTit) + '">'
+            + '<input type="checkbox" ' + (_reserva ? 'checked' : '') + ' onchange="window._toggleAsigReserva(' + _argsReserva + ', this.checked)" '
+            + 'style="width:16px;height:16px;accent-color:#0891b2;cursor:pointer" />'
+            + '</label>';
+        }
         html += '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
           + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', -1)" title="' + escapeAttr(_titMinus) + '" '
             + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">−</button>'
@@ -15543,6 +15564,69 @@ window._cpstVolver = function(){
   _cpstSelected = null;
   document.getElementById('cpst-step-clientes').style.display = '';
   document.getElementById('cpst-step-preview').style.display = 'none';
+};
+
+/**
+ * v1268 (2026-10-14): toggle `asigReserva` de las lineas ASIG de un pedido
+ * para un SKU especifico. Checkbox tildado=true (reserva), destildado=false
+ * (no reserva, libera stock al pool BO). Pide confirmacion al destildar.
+ * Zero cambios en SAP (lineReservesStock se mantiene). Solo flag app-side.
+ * @param {string} sku
+ * @param {string} pedidoId
+ * @param {string} clienteNombre
+ * @param {number} qtyAfectadas - para mensaje de confirmacion
+ * @param {boolean} newValue - nuevo valor del checkbox
+ */
+window._toggleAsigReserva = async function(sku, pedidoId, clienteNombre, qtyAfectadas, newValue){
+  // Confirm al destildar (operacion destructiva: libera reserva).
+  if (newValue === false) {
+    const _msg = 'Vas a liberar ' + Math.round(qtyAfectadas) + ' unidades de ' + sku + ' reservadas para ' + clienteNombre + '.\n\n'
+      + 'La linea sigue viviendo en el pedido (no se elimina) pero el stock queda disponible '
+      + 'para asignar a otros clientes en Backorder.\n\n¿Confirmar?';
+    if (!confirm(_msg)) {
+      // Revertir el checkbox visualmente: forzar re-render del modal.
+      try { renderBackordersTab(); } catch(_e) { /* silent */ }
+      return;
+    }
+  }
+  try {
+    const docRef = fbDb.collection('pedidos').doc(pedidoId);
+    const snap = await docRef.get();
+    if (!snap.exists) { alert('Pedido no encontrado: ' + pedidoId); return; }
+    const pedido = snap.data() || {};
+    const lines = Array.isArray(pedido.lines) ? pedido.lines.slice() : [];
+    const skuU = String(sku || '').trim().toUpperCase();
+    let changed = 0;
+    const nowIso = new Date().toISOString();
+    const byUser = (currentUser && (currentUser.email || currentUser.uid)) || '';
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (!l || l.state !== 'ASIG') continue;
+      const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
+      if (lSku !== skuU) continue;
+      lines[i] = Object.assign({}, l, {
+        asigReserva: !!newValue,
+        asigReservaChangedAt: nowIso,
+        asigReservaChangedBy: byUser,
+      });
+      changed++;
+    }
+    if (!changed) {
+      alert('No se encontraron lineas ASIG matching para ' + sku + ' en el pedido.');
+      return;
+    }
+    await docRef.update({ lines: lines, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (typeof showSyncTag === 'function') {
+      showSyncTag(newValue ? 'Reserva activada: ' + Math.round(qtyAfectadas) + 'u ' + sku : 'Reserva liberada: ' + Math.round(qtyAfectadas) + 'u ' + sku);
+    }
+    // Re-render para reflejar el estado nuevo. El listener Firestore tambien
+    // dispara render, pero esto da feedback inmediato.
+    try { renderBackordersTab(); } catch(_e) { /* silent */ }
+  } catch (e) {
+    console.error('_toggleAsigReserva error', e);
+    alert('Error al actualizar reserva: ' + (e.message || String(e)));
+    try { renderBackordersTab(); } catch(_e) { /* silent */ }
+  }
 };
 
 // v1155 (2026-10-06): refactor atomic batch.
