@@ -6332,7 +6332,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1291';
+const APP_VERSION = 'v1292';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18966,7 +18966,7 @@ function _repartoBuildCard(ing){
       + '<td style="padding:8px 10px;text-align:right;color:#059669;font-weight:600">' + _repartoFmtQty(ing.qtyIngresada) + '</td>'
       + '<td style="padding:8px 10px;text-align:right">'
       + '<div style="display:inline-flex;align-items:center;gap:4px">'
-      + '<input type="number" min="0" max="' + (Number(c.qtyBackorder) || 0) + '" step="1" value="0" '
+      + '<input type="number" min="0" max="' + (Number(ing.qtyIngresada) || 0) + '" step="1" value="0" '
       + 'data-reparto-input="' + _escAttr(ing._id) + '" '
       + 'data-pedido-id="' + _escAttr(c.pedidoId) + '" '
       + 'data-line-index="' + Number(c.lineIndex) + '" '
@@ -18974,7 +18974,7 @@ function _repartoBuildCard(ing){
       + 'oninput="_repartoRecalc(this)" '
       + 'style="width:70px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;font-weight:700" />'
       + '<button type="button" onclick="_repartoSetMax(this.previousElementSibling)" '
-      + 'title="Asignar al maximo posible (min entre backorder del cliente y lo libre del ingreso)" '
+      + 'title="Asignar lo que pueda al cliente (hasta las unidades libres del ingreso)" '
       + 'style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">MAX</button>'
       + '</div>'
       + '</td>';
@@ -19014,17 +19014,18 @@ window._repartoRecalc = function(input){
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   const qtyIng = (ing && Number(ing.qtyIngresada)) || 0;
   // v1287: clamp dinamico por "libre del ingreso".
-  // v1290 (2026-10-14): REVERTIDO el clamp dinamico por libre. Reporte Mariano:
-  // "quiero asignar las 3 al cliente X y no me deja" — cuando otros inputs
-  // tenian valores > 0, el clamp cortaba el input a maxLibre (lo que quedaba
-  // libre), impidiendo escribir el valor deseado aunque el cliente lo
-  // hubiera pedido. Ahora el clamp solo es por maxBO del cliente; si total
-  // > qtyIng el apply queda disabled + feedback rojo. Pablo ajusta los otros
-  // a mano, pero puede escribir su intencion sin pelearse con el UI.
+  // v1290 (2026-10-14): REVERTIDO el clamp dinamico por libre.
+  // v1292 (2026-10-14): REMOVIDO el clamp por maxBO del cliente. Reporte Mariano:
+  // "toco 3 y me tipea 1" en cliente con BO=1 y qtyIng=3. Pablo quiere poder
+  // sobre-asignar al cliente (darle mas de lo que pidio). Clamp solo por
+  // qtyIng (nunca mas que lo ingresado). El backend applyRepartoManualCore
+  // tambien debe aceptar qty > qtyBackorder — expande la linea del cliente.
   const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
   let sumOtros = 0;
   inputs.forEach((inp) => { if (inp !== input) sumOtros += Number(inp.value) || 0; });
-  const val = Math.max(0, Math.min(maxBO, Math.round(Number(input.value) || 0)));
+  // Mantener referencia a maxBO para feedback visual pero NO clampear.
+  void maxBO;
+  const val = Math.max(0, Math.min(qtyIng, Math.round(Number(input.value) || 0)));
   if (Number(input.value) !== val) input.value = val;
   const total = sumOtros + val;
   const libre = Math.max(0, qtyIng - total);
@@ -19051,20 +19052,19 @@ window._repartoRecalc = function(input){
 
 // v1287 (2026-10-14): asigna el max posible al input.
 // v1290 (2026-10-14): el MAX ahora PRIMERO resetea los OTROS inputs del
-// mismo ingreso a 0 y DESPUES setea este input a min(maxBO, qtyIng). Flow
-// pedido Mariano: "quiero darle las 3 a UN cliente". MAX = "este cliente
-// se lleva todo lo que pueda, el resto queda en 0".
+// mismo ingreso a 0 y DESPUES setea este input a min(maxBO, qtyIng).
+// v1292 (2026-10-14): MAX ahora da qtyIng COMPLETO al cliente (no limita
+// por maxBO). Pablo puede sobre-asignar via MAX con 1 clic.
 window._repartoSetMax = function(input){
   if (!input) return;
   const ingresoId = input.getAttribute('data-reparto-input');
-  const maxBO = Number(input.getAttribute('data-max-bo')) || 0;
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   if (!ing) return;
   const qtyIng = Number(ing.qtyIngresada) || 0;
   // Reset los OTROS inputs a 0.
   const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
   inputs.forEach((inp) => { if (inp !== input) inp.value = 0; });
-  input.value = Math.min(maxBO, qtyIng);
+  input.value = qtyIng;
   _repartoRecalc(input);
 };
 
