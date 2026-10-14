@@ -21,6 +21,7 @@ import { BoardFilters } from './BoardFilters';
 import { ClaimCardOverlay } from './ClaimCard';
 import { Column } from './Column';
 import { ColumnDefaultsDialog } from './ColumnDefaultsDialog';
+import { ExportButton } from './ExportButton';
 import { NewClaimDialog } from './NewClaimDialog';
 import { StuckPanel } from './StuckPanel';
 import { moveClaim } from './actions';
@@ -50,6 +51,7 @@ export function Board({
   currentUserName,
   cardDurations,
   stuckClaimIds,
+  isAdmin,
 }: {
   initialGrouped: Record<ClaimColumn, Claim[]>;
   profiles: Profile[];
@@ -57,6 +59,7 @@ export function Board({
   currentUserName: string;
   cardDurations: Record<number, DurationBadge>;
   stuckClaimIds: number[];
+  isAdmin: boolean;
 }) {
   const stuckSet = useMemo(() => new Set(stuckClaimIds), [stuckClaimIds]);
   const router = useRouter();
@@ -263,6 +266,7 @@ export function Board({
             <h1 className="display text-2xl">{greetingByHour(currentUserName)}</h1>
           </div>
           <div className="flex items-center gap-2">
+            <ExportButton isAdmin={isAdmin} />
             <ColumnDefaultsDialog profiles={profiles} currentDefaults={columnDefaults} />
             <NewClaimDialog triggerRef={newClaimTriggerRef} />
           </div>

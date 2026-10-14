@@ -76,8 +76,9 @@ export default async function BoardPage({
     const lastActivity = Math.max(updatedTime, ...(evTimes.length ? evTimes : [0]));
     if (now.getTime() - lastActivity > stuckThresholdMs) stuckClaimIds.push(cl.id);
   });
-  const currentUserName =
-    (profiles ?? []).find((p) => p.id === user?.id)?.display_name?.split(' ')[0] ?? '';
+  const currentProfile = (profiles ?? []).find((p) => p.id === user?.id);
+  const currentUserName = currentProfile?.display_name?.split(' ')[0] ?? '';
+  const isAdmin = currentProfile?.role === 'admin';
   const columnDefaults = Object.fromEntries(
     CLAIM_COLUMNS.map((c) => [c.key, null as string | null]),
   ) as Record<ClaimColumn, string | null>;
@@ -155,6 +156,7 @@ export default async function BoardPage({
         currentUserName={currentUserName}
         cardDurations={cardDurations}
         stuckClaimIds={stuckClaimIds}
+        isAdmin={isAdmin}
       />
       {detail}
     </>
