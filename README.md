@@ -4717,6 +4717,53 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1278 (2026-10-14) — Reparto manual Fase 2: FIFO viejo deshabilitado + modal UI + migración ASIG→BO + Pablo en gate
+
+**Archivos**:
+- `functions/core/reparto-migration-core.js` (nuevo)
+- `functions/index.js`: `onStockChangeFIFOAssign` → no-op early return + `migrateAsigToBOCF` callable + email Pablo en gate `applyRepartoManualCF`
+- `firestore.rules`: `asig_migration_log_v1278` collection
+- `index.html`: modal `#reparto-modal` + rename botón "Estado" → "Reparto" + JS listener/render/apply
+- `tests/functions/reparto-migration.test.js` (nuevo — 5 tests)
+- `index.html:6260` + `sw.js:20` (bump v1277 → v1278)
+
+**Antes (v1277)**:
+Fase 1 backend deployado dual con FIFO viejo. Pablo todavía no tenía UI para ver los `ingresos_reparto`.
+
+**Cambio**:
+- **Deshabilitar FIFO viejo**: `onStockChangeFIFOAssign` handler ahora retorna temprano con log "disabled (reparto manual activo)". Código viejo queda comentado para rollback fácil.
+- **Email Pablo al gate**: `applyRepartoManualCF` ahora acepta `pablo.gonzalez@shimano.com.ar` además de admin/gerente.
+- **CF nueva `migrateAsigToBOCF`** (one-shot, solo admin):
+  1. Revierte todas las líneas `state='ASIG'` + `qtyOpen>0` a `state='BO'` (preservando audit trail con `revertedFromAsigAt + revertedFromAsigReason='migration-v1278'`).
+  2. Para cada SKU con dep11 > 0 + clientes BO post-revert: crea doc en `ingresos_reparto/` con `source='migration-v1278'` + `dedupeKey='<sku>|migration-v1278'`.
+  3. Audit log en `asig_migration_log_v1278/{iso}`.
+- **Modal "Reparto"** (`#reparto-modal`):
+  - Botón "Estado" en navbar admin reemplazado por "Reparto".
+  - Lista cards de `ingresos_reparto` con status in `['pending', 'in_progress']` ordenados por `detectedAt desc`.
+  - Cada card: SKU + chips (INGRESO qty, DEMANDA qty + clientes count, STATUS, MIGRACION si aplica) + tabla matriz CODIGO | CLIENTE | BACKORDER | INGRESO | ASIGNADO (input).
+  - Validación live: total asignado vs qtyIngresada, color rojo si sobre-reparto, botón "Aplicar" deshabilitado si total=0 o >qtyIngresada.
+  - Submit → `firebase.functions().httpsCallable('applyRepartoManualCF')` con assignments.
+  - Al éxito, el listener `onSnapshot` quita el ingreso de la lista automáticamente (status pasa a done).
+  - Gate silencioso: user no autorizado ve "Acceso restringido".
+
+**Switchover (que ejecutar al desplegar)**:
+1. Deploy: funcs + rules + indexes.
+2. Verificar en Firebase Console que `onStockChangeFIFOAssign` loguea "disabled".
+3. Ejecutar `migrateAsigToBOCF` desde la consola o un script (callable auth required). Esto revierte TODAS las ASIG existentes a BO + crea `ingresos_reparto` para los SKUs con stock disponible.
+4. Pablo abre el modal → ve los cards de migración (chip morado "MIGRACION") → reparte.
+5. Siguientes sync SAP (cada 30min): si sube dep 11 de un SKU con clientes BO, aparece card nuevo (sin chip migración).
+
+**Fase 3 (próxima, cleanup)**: eliminar `fifo-assign-core.js` + import + CF + rules de `stock_assignment_log*`. v1278 queda como estado estable con el reparto manual activo.
+
+**Verificacion**:
+- `vitest run tests/functions/reparto-migration.test.js` → 5/5 pass.
+- `vitest run tests/functions/reparto.test.js` → 22/22 pass.
+- `npm run test:unit` → 706/706 pass.
+- `npm run typecheck` → clean.
+
+**Rollback Fase 2**:
+`git revert` + redeploy funcs. FIFO viejo se vuelve a habilitar (quitar early return). Modal queda inaccesible. Si migración ya corrió: las lineas revertidas quedan state='BO' y el FIFO viejo las promueve a ASIG en el próximo sync (dep 11 ≥ 0 ya es suficiente).
+
 ### v1277 (2026-10-14) — Reparto manual Fase 1: backend + CF trigger + callable (dual mode con FIFO viejo)
 
 **Archivos**:

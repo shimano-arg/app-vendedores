@@ -57,6 +57,9 @@ import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 // v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
 // FIFO automatico (que queda en paralelo durante Fase 1 para safety net).
 import { applyRepartoManualCore, createIngresosRepartoFromDelta } from './core/reparto-core.js';
+// v1278 (2026-10-14): migracion ASIG → BO + create ingresos_reparto para
+// SKUs con stock libre. Switchover al reparto manual.
+import { migrateAsigToBOAndCreateReparto } from './core/reparto-migration-core.js';
 // v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos (incident
 // cowork — ~1570 lineas sin cliente_code en v_pedidos_lines).
 import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core.js';
@@ -870,6 +873,11 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
  *   - 'shadow' (default): loguea a stock_assignment_log_shadow, NO modifica pedidos
  *   - 'active' (E5): modifica pedidos.lines[i].state='ASIG' + asigAt=now
  */
+// v1278 (2026-10-14): FIFO viejo DESHABILITADO. Ahora el reparto es 100%
+// manual via `onDep11IncreaseCreateReparto` + modal "Reparto" de Pablo.
+// La CF queda exportada por si Mariano quiere re-habilitar rollback, pero
+// el early-return en el handler la neutraliza — zero promociones automaticas
+// post-deploy v1278.
 export const onStockChangeFIFOAssign = onDocumentWritten(
   {
     region: REGION,
@@ -879,6 +887,10 @@ export const onStockChangeFIFOAssign = onDocumentWritten(
     timeoutSeconds: 300,
   },
   async (event) => {
+    // v1278: no-op. Para re-habilitar: borrar el early return.
+    console.log('onStockChangeFIFOAssign v1278 disabled (reparto manual activo)');
+    return;
+    /* v1277 behavior (disabled v1278):
     const before = event.data?.before?.data() ?? null;
     const after = event.data?.after?.data() ?? null;
     if (!after) return; // delete, no-op
@@ -894,6 +906,7 @@ export const onStockChangeFIFOAssign = onDocumentWritten(
       promotions: r.promotions.length,
       errors: r.errors.length,
     });
+    */
   }
 );
 
@@ -977,13 +990,18 @@ export const applyRepartoManualCF = onCall(
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
     const db = getFirestore();
-    // Role gate: admin/gerente puede aplicar. Fase 2 agregara email de Pablo
-    // al whitelist si corresponde.
+    // Role gate: admin/gerente OR pablo.gonzalez@shimano.com.ar puede aplicar.
+    // v1278 (2026-10-14): Mariano agrego el email de Pablo al whitelist.
+    const PABLO_EMAIL = 'pablo.gonzalez@shimano.com.ar';
     try {
       const userDoc = await db.collection('users').doc(auth.uid).get();
       const role = String((userDoc.data() || {}).role || '').toLowerCase();
-      if (role !== 'admin' && role !== 'gerente') {
-        throw new HttpsError('permission-denied', 'solo admin/gerente puede aplicar reparto');
+      const isAllowed = role === 'admin' || role === 'gerente' || email === PABLO_EMAIL;
+      if (!isAllowed) {
+        throw new HttpsError(
+          'permission-denied',
+          'solo admin, gerente o Pablo puede aplicar reparto'
+        );
       }
     } catch (e) {
       if (e instanceof HttpsError) throw e;
@@ -1013,6 +1031,80 @@ export const applyRepartoManualCF = onCall(
     } catch (e) {
       if (e instanceof HttpsError) throw e;
       throw new HttpsError('internal', 'reparto fallo: ' + (e?.message || String(e)));
+    }
+  }
+);
+
+/**
+ * v1278 (2026-10-14): migrateAsigToBOCF — callable one-shot ejecutada por
+ * Mariano/admin durante el switchover del motor FIFO al reparto manual.
+ *
+ * Que hace:
+ *   1. Revierte TODAS las lineas state='ASIG' + qtyOpen>0 a state='BO'.
+ *      Marca revertedFromAsigAt + revertedFromAsigReason='migration-v1278'.
+ *   2. Para cada SKU con dep11 > 0 + clientes BO post-revert, crea doc en
+ *      ingresos_reparto/ con source='migration-v1278' para que Pablo reparta.
+ *   3. Audit log en asig_migration_log_v1278/{iso}.
+ *
+ * Idempotente: segunda corrida tendria 0 ASIG revertibles + dedupe skippea
+ * la creacion de ingresos.
+ *
+ * Gate: admin only (operacion sensible, no debe ejecutarla Pablo).
+ */
+export const migrateAsigToBOCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '512MiB',
+    timeoutSeconds: 540,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const db = getFirestore();
+    // Gate: solo admin (Mariano). Operacion sensible one-shot.
+    try {
+      const userDoc = await db.collection('users').doc(auth.uid).get();
+      const role = String((userDoc.data() || {}).role || '').toLowerCase();
+      if (role !== 'admin') {
+        throw new HttpsError('permission-denied', 'solo admin puede ejecutar migracion');
+      }
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('internal', 'no se pudo validar rol: ' + (e?.message || String(e)));
+    }
+    try {
+      const r = await migrateAsigToBOAndCreateReparto({
+        fbDb: db,
+        log: (msg, extra) => console.log(msg, extra || {}),
+      });
+      console.log('migrateAsigToBOCF done', {
+        pedidosScanned: r.pedidosScanned,
+        reverted: r.revertedLines.length,
+        skus: r.skusAffected.length,
+        ingresosCreated: r.ingresosCreated.length,
+        errors: r.errors.length,
+      });
+      return {
+        ok: r.errors.length === 0,
+        pedidosScanned: r.pedidosScanned,
+        revertedLinesCount: r.revertedLines.length,
+        skusAffectedCount: r.skusAffected.length,
+        ingresosCreated: r.ingresosCreated,
+        ingresosSkipped: r.ingresosSkipped,
+        errors: r.errors,
+      };
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('internal', 'migracion fallo: ' + (e?.message || String(e)));
     }
   }
 );

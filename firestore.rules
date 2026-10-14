@@ -689,6 +689,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v1278 (2026-10-14): audit log one-shot de la migracion ASIG→BO +
+    // creacion de ingresos_reparto. Escrito por CF migrateAsigToBOCF.
+    match /asig_migration_log_v1278/{logId} {
+      allow read: if isAdminOrGerente();
+      allow write: if false;
+    }
+
     // v964 (2026-09-17): audit logs de sqCancelExpiredCF.
     // sq_cancel_log_shadow: Fase B (deploy sin riesgo, solo loguea).
     // sq_cancel_log:        Fase C (cancela SQs reales).
