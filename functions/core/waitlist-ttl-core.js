@@ -110,8 +110,18 @@ export async function expireStockAsignadoWaitlists(deps) {
     const data = d.data() || {};
     // No tocar los ya consumed (ya se crearon pedidos reales).
     if (data.stage === 'consumed') return;
-    const expMs = _toMs(data.expiresAt);
-    if (expMs <= 0) return; // Sin expiresAt (legacy pre-v1280) → no expirar.
+    // v1289 (2026-10-14): fallback para waitlists pre-v1280 — si no tienen
+    // expiresAt, inferir createdAt + 7d. El frontend hace el mismo fallback
+    // para mostrar el badge timer, por lo que esto los mantiene consistentes.
+    let expMs = _toMs(data.expiresAt);
+    if (expMs <= 0 && data.createdAt && typeof data.createdAt.toDate === 'function') {
+      try {
+        expMs = data.createdAt.toDate().getTime() + 7 * 24 * 60 * 60 * 1000;
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    if (expMs <= 0) return; // Sin expiresAt NI createdAt usable → no expirar.
     if (expMs > nowMs) return; // Aun vigente.
     toDelete.push({ id: d.id, data });
   });
