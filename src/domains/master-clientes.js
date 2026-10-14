@@ -1402,6 +1402,12 @@ function renderMcProvisoriosTable() {
             '</option>';
         });
       }
+      // v1303 (2026-10-14): opcion EMPLEADO (compras internas Shimano).
+      vendSel += '</optgroup><optgroup label="EMP (Empleados)">';
+      vendSel +=
+        '<option value="EMPLEADO"' +
+        (vendKey === 'EMPLEADO' ? ' selected' : '') +
+        '>Empleado</option>';
       vendSel +=
         '</optgroup></select>' +
         (owner
@@ -2406,16 +2412,28 @@ window.renderMasterClientesTable = function () {
     if (_provMissing) _missingList.push('Provincia');
     if (_vendMissing) _missingList.push('Vendedor');
     const _hasMissing = _missingList.length > 0;
-    const rowStyleV = dupSapV
-      ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)"'
-      : _hasMissing
-        ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)" title="Faltan datos: ' +
-          escapeAttr(_missingList.join(', ')) +
-          '"'
-        : '';
+    // v1303 (2026-10-14): cardCode SAP empezando con EMPL => cliente es un
+    // EMPLEADO Shimano (compras internas). Deshabilitar edicion y mostrar
+    // badge amarillo distintivo. Mariano: "me aparecen como si fueran
+    // clientes, que tengan todas las opciones inhabilitadas".
+    const isEmpleadoSAP = /^EMPL/i.test(String(e.sapCardCode || ''));
+    const rowStyleV = isEmpleadoSAP
+      ? ' class="mc-empl-row" style="background:#fef9c3;border-left:4px solid #ca8a04;pointer-events:none;opacity:.75" title="Cliente EMPLEADO (compras internas). Fila bloqueada."'
+      : dupSapV
+        ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)"'
+        : _hasMissing
+          ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)" title="Faltan datos: ' +
+            escapeAttr(_missingList.join(', ')) +
+            '"'
+          : '';
     let tagHtml;
     if (isSap) {
-      if (e.sapCardCode) {
+      if (isEmpleadoSAP) {
+        tagHtml =
+          '<span class="mc-tag" style="background:#fde68a;color:#78350f;border:1px solid #ca8a04;font-weight:800">EMPLEADO ' +
+          escapeHtml(e.sapCardCode) +
+          '</span>';
+      } else if (e.sapCardCode) {
         tagHtml =
           '<span class="mc-tag" style="background:#dbeafe;color:#1e3a8a;border:1px solid #93c5fd">SAP ' +
           escapeHtml(e.sapCardCode) +
@@ -2580,6 +2598,12 @@ window.renderMasterClientesTable = function () {
             '</option>';
         });
       }
+      // v1303 (2026-10-14): opcion EMPLEADO (compras internas Shimano).
+      vSel += '</optgroup><optgroup label="EMP (Empleados)">';
+      vSel +=
+        '<option value="EMPLEADO"' +
+        (e.vendor === 'EMPLEADO' ? ' selected' : '') +
+        '>Empleado</option>';
       vSel += '</optgroup></select></td>';
       html += vSel;
     } else {
