@@ -4717,6 +4717,55 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1273 (2026-10-14) — Fix filter "Crear Pedido Desde SA": 0 clientes porque motor FIFO pone asigReserva=false
+
+**Archivos**:
+- `index.html:15386+` (`_cpstBuildCache` rediseñado — itera globalPedidos directo, usa `asigReservaChangedAt` como marcador de "admin destildo manualmente")
+- `index.html:5614+` (tooltip boton + subtitle modal + summary + empty state actualizados)
+- `index.html:6260` + `sw.js:20` (bump v1272 → v1273)
+
+**Antes (v1272)**:
+Mariano abrio "Crear Pedido Desde Stock Asignado" y vio "0 clientes". Pero en producción hay cientos de clientes con lineas ASIG abiertas.
+
+**Problema**:
+El filter v1271/v1272 era `asigReserva !== false && asigReserva !== 0`. Pero en produccion la CF `functions/core/fifo-assign-core.js` promueve BO → ASIG con `asigReserva: tier === 'P' || tier === 'A'`. Como **0 clientes tienen cliTipo P/A activo en el padron** (hoy todos son C), **100% de las lineas ASIG promovidas por el motor FIFO tienen `asigReserva=false` por default** — mi filter las omitia todas.
+
+Precedente: v1202 doc `index.html:14886-14889` ya documentaba este fenomeno:
+> "en produccion 100% de las lineas ASIG salen SIN RESERVA (0 clientes con cliTipo P/A activo), ruido visual sin valor"
+
+Mi fix v1271 asumio semantica "tildado = admin lo marco como con reserva" pero no diferencio entre:
+1. `asigReserva=false` por default del motor (nunca tocado por admin).
+2. `asigReserva=false` porque admin destildo manualmente desde el checkbox del modal.
+
+Solo el caso 2 debe omitirse del flow.
+
+**Cambio**:
+- **Marcador de destildado manual**: usar `asigReservaChangedAt` (seteado SOLO por el toggle UI `window._toggleAsigReserva` v1268/v1269). Si esta definido Y `asigReserva===false/0` → admin destildo. Si no esta definido → nunca tocado por admin (incluye default del motor FIFO) → se incluye.
+- **Rediseño del `_cpstBuildCache`**: en vez de depender del pure fn `computeBackorderSkuMap` (que en strict mode descarta rows con qtyAsignada=0), iterar directo sobre `globalPedidos` buscando lineas `state='ASIG' + qtyOpen > 0 + no destildada manualmente`. Esto cubre tambien el caso donde el SKU no tiene stock libre hoy pero la ASIG sigue abierta — el flow debe listarla igual.
+- **Pre-pass**: pares `(clienteUP|skuUP)` con alguna linea destildada manual del mismo SKU se omiten (comportamiento preservado de v1271).
+- **Labels actualizados**:
+  - Boton tooltip: "Omite los que admin destildo manualmente desde el checkbox del modal."
+  - Modal subtitle: "Se omiten los SKUs destildados manualmente."
+  - Summary: "clientes con Stock Asignado" (sin "CON RESERVA" ambiguo).
+  - Empty state: "No hay clientes con Stock Asignado en este momento (o fueron todos destildados manualmente)."
+
+**Por que**:
+- La semantica correcta es "incluir todo lo normal, omitir solo lo que admin explícitamente dijo 'no procesar'".
+- `asigReservaChangedAt` es el marcador perfecto porque solo lo setea el toggle UI — grep del repo confirma zero otros writers.
+- Rediseño de iterar `globalPedidos` directo es mas robusto que depender del `computeBackorderSkuMap` strict que puede descartar rows por su propia logica.
+
+**Verificacion**:
+- `npm run test:unit` → 706/706 pass (no se agregaron tests — flow UI con dependencias globales).
+- `npm run typecheck` → clean.
+- Smoke manual pendiente post-deploy:
+  1. Abrir "Crear Pedido Desde Stock Asignado" → debe listar los clientes con ASIG abiertas (ejemplo esperado: ~67 clientes como pre-v1271).
+  2. Elegir cliente, verificar que preview muestra sus SKUs ASIG.
+  3. Si Mariano destilda manualmente un SKU en el modal Stock Asignado (toggle v1268/v1269), ese SKU debe desaparecer de la lista cuando reabre "Crear Pedido Desde SA".
+  4. Confirmar: pedido-waitlist se crea + split parcial v1272 se aplica correctamente.
+
+**Rollback**:
+`git revert <commit>`. Vuelve filtro v1271 (asigReserva !== false) → modal muestra 0 clientes nuevamente.
+
 ### v1272 (2026-10-14) — Crear Pedido Desde SA: split parcial segun stock disponible
 
 **Archivos**:
