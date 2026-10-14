@@ -277,13 +277,15 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       if (!l || !l.code) continue;
       // v962: confirmed también entra (SQ enviada a SAP, prioridad = ASIG).
       if (l.state !== 'BO' && l.state !== 'ASIG' && l.state !== 'confirmed') continue;
-      // v1286 (2026-10-14): en modo asignacion, confirmed NO se incluye. Son
-      // pedidos ya enviados a SAP esperando entrega — reservan stock en el
-      // motor via lineReservesStock pero no aparecen en el modal Stock
-      // Asignado (que post-reparto manual solo muestra lo que Pablo asigno
-      // via modal "Reparto"). v1285 solo las habia sacado de prioritarios
-      // en FIFO; seguian apareciendo en competidores con qtyAsignada > 0.
-      if (isAsig && l.state === 'confirmed') continue;
+      // v1286 (2026-10-14): en modo asignacion, confirmed NO se incluye.
+      // v1288 (2026-10-14): en modo asignacion, BO TAMPOCO. El modal Stock
+      // Asignado post-rediseño muestra SOLO state='ASIG' reales (lo que
+      // Pablo asigno via modal "Reparto"). Los BO viven en el modal Backorder
+      // + aparecen en el modal "Reparto" como clientes a asignar.
+      // Debug Mariano: snapshot report asig=670 pero mi script debug
+      // encontro 0 ASIG open. El modal mostraba 48 SKUs con BO virtuales
+      // que recibian qtyAsignada por el FIFO cap cuando hay stock fisico.
+      if (isAsig && (l.state === 'confirmed' || l.state === 'BO')) continue;
       const qtyOpen = Number(l.qtyOpen || 0);
       if (qtyOpen <= 0) continue;
       // v978/v979: filtro vencidas.
