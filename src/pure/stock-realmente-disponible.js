@@ -127,6 +127,7 @@ function toMillisSafe(value) {
  * Reglas:
  * - state='BO' con pedido.createdAt > 15d atras: no reserva (expirada)
  * - state='BO' con createdAt <= 15d o sin createdAt: reserva
+ * - state='confirmed' con asigReserva===false: no reserva (v1269: toggle admin desde modal Stock Asignado)
  * - state='confirmed' con confirmedAt > 15d atras: no reserva (expirada)
  * - state='confirmed' con confirmedAt <= 15d o sin confirmedAt: reserva
  * - state='ASIG' con asigReserva===false: no reserva (cliente B/C)
@@ -160,6 +161,12 @@ export function lineReservesStock(line, nowMs, pedido) {
     return true;
   }
   if (state === 'confirmed') {
+    // v1269 (2026-10-14): asigReserva=false libera reserva tambien para
+    // confirmed. El toggle del modal Stock Asignado permite al admin liberar
+    // una row ya enviada a SAP sin esperar facturacion ni cancelar el pedido.
+    // Explicito con 0/false (SAP serializa booleanos como 0/1; `0===false` es
+    // false en JS). undefined/null mantienen "default true" historicamente.
+    if (line.asigReserva === false || line.asigReserva === 0) return false;
     // v963: expiracion 15d desde confirmedAt del pedido (no de la linea).
     // Si el caller no pasa pedido, mantener comportamiento pre-v963 (siempre reserva).
     if (pedido && pedido.confirmedAt) {

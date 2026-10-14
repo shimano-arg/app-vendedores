@@ -6289,7 +6289,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1268';
+const APP_VERSION = 'v1269';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15571,6 +15571,11 @@ window._cpstVolver = function(){
  * para un SKU especifico. Checkbox tildado=true (reserva), destildado=false
  * (no reserva, libera stock al pool BO). Pide confirmacion al destildar.
  * Zero cambios en SAP (lineReservesStock se mantiene). Solo flag app-side.
+ * v1269 (2026-10-14): aceptar tambien state='confirmed'. El modal Stock
+ * Asignado muestra lineas ASIG + confirmed (v1190 isAsigLike). Si solo
+ * matcheabamos ASIG, destildar una row confirmed devolvia changed=0 → alert
+ * "No se encontraron lineas" → flag jamas se escribia → refresh devolvia
+ * tildado. Reporte Mariano 2026-10-14 (SVPAC270XH / MONICA VIRGONE ORDEN 251).
  * @param {string} sku
  * @param {string} pedidoId
  * @param {string} clienteNombre
@@ -15601,7 +15606,12 @@ window._toggleAsigReserva = async function(sku, pedidoId, clienteNombre, qtyAfec
     const byUser = (currentUser && (currentUser.email || currentUser.uid)) || '';
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      if (!l || l.state !== 'ASIG') continue;
+      // v1269 (2026-10-14): aceptar ASIG + confirmed. Ambos aparecen en modal
+      // Stock Asignado (v1190 isAsigLike). Un pedido ya enviado a SAP tiene
+      // sus lineas en state='confirmed' pero sigue reservando stock hasta
+      // facturar — el admin tiene que poder liberar la reserva igual que una
+      // ASIG. Pre-v1269 solo matcheaba ASIG y la row confirmed quedaba muda.
+      if (!l || (l.state !== 'ASIG' && l.state !== 'confirmed')) continue;
       const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
       if (lSku !== skuU) continue;
       lines[i] = Object.assign({}, l, {
@@ -15612,7 +15622,7 @@ window._toggleAsigReserva = async function(sku, pedidoId, clienteNombre, qtyAfec
       changed++;
     }
     if (!changed) {
-      alert('No se encontraron lineas ASIG matching para ' + sku + ' en el pedido.');
+      alert('No se encontraron lineas ASIG/confirmed matching para ' + sku + ' en el pedido.');
       return;
     }
     await docRef.update({ lines: lines, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });

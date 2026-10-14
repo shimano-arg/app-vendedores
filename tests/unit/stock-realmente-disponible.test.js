@@ -615,4 +615,33 @@ describe('lineReservesStock — fix auditor 2026-10-02 Timestamp + asigReserva=0
     expect(lineReservesStock(line2, now, pedido2)).toBe(false);
     expect(lineReservesStock(line3, now, pedido3)).toBe(false);
   });
+
+  it('v1269: confirmed con asigReserva=false (toggle admin) -> no reserva', () => {
+    // Mariano destildo el checkbox "Reserva stock" en modal Stock Asignado
+    // para una linea confirmed. Pre-v1269 el flag se ignoraba en confirmed →
+    // las unidades seguian reservadas. Ahora libera igual que en ASIG.
+    const fresh = now - 3 * DAY_MS;
+    const line = { state: 'confirmed', qtyOpen: 2, asigReserva: false };
+    const pedido = { confirmedAt: fresh };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('v1269: confirmed con asigReserva=0 (entero SAP) -> no reserva', () => {
+    // SAP serializa booleanos como 0/1 enteros. Mirror del guard de ASIG.
+    const fresh = now - 3 * DAY_MS;
+    const line = { state: 'confirmed', qtyOpen: 2, asigReserva: 0 };
+    const pedido = { confirmedAt: fresh };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('v1269: confirmed con asigReserva=true (default) -> si reserva', () => {
+    // Backwards-compat: lineas confirmed pre-v1269 (asigReserva=undefined) y
+    // post-v1269 con flag=true siguen reservando normalmente.
+    const fresh = now - 3 * DAY_MS;
+    const lineUndef = { state: 'confirmed', qtyOpen: 2 };
+    const lineTrue = { state: 'confirmed', qtyOpen: 2, asigReserva: true };
+    const pedido = { confirmedAt: fresh };
+    expect(lineReservesStock(lineUndef, now, pedido)).toBe(true);
+    expect(lineReservesStock(lineTrue, now, pedido)).toBe(true);
+  });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   aggregateForSku,
   extractAffectedSkus,
+  lineReservesStock,
   readSyncMode,
   recalcSnapshotForSkus,
 } from '../../functions/core/pedido-snapshot-core.js';
@@ -530,5 +531,34 @@ describe('recalcSnapshotForSkus — shadow', () => {
     const updateWrite = fbDb._writes.find((w) => w.type === 'update');
     expect(updateWrite.data['backorderBySkuApp.A']).toBe(2);
     expect(updateWrite.data['asigBySkuApp.B']).toBe(3);
+  });
+});
+
+describe('lineReservesStock — v1269 asigReserva en confirmed', () => {
+  const now = new Date('2026-10-14T12:00:00Z').getTime();
+  const isoDaysAgo = (d) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+
+  it('confirmed con asigReserva=false (toggle admin) -> no reserva', () => {
+    const line = { state: 'confirmed', qtyOpen: 2, asigReserva: false };
+    const pedido = { confirmedAt: isoDaysAgo(3) };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('confirmed con asigReserva=0 (entero SAP) -> no reserva', () => {
+    const line = { state: 'confirmed', qtyOpen: 2, asigReserva: 0 };
+    const pedido = { confirmedAt: isoDaysAgo(3) };
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
+  });
+
+  it('confirmed con asigReserva=undefined (default pre-v1269) -> si reserva', () => {
+    const line = { state: 'confirmed', qtyOpen: 2 };
+    const pedido = { confirmedAt: isoDaysAgo(3) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('confirmed con asigReserva=true (explicito) -> si reserva', () => {
+    const line = { state: 'confirmed', qtyOpen: 2, asigReserva: true };
+    const pedido = { confirmedAt: isoDaysAgo(3) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
   });
 });
