@@ -237,40 +237,31 @@ describe('validateRepartoPayload', () => {
   });
 
   it('rechaza qtyAsignada > qtyBackorder del cliente', () => {
-    const r = validateRepartoPayload(ingreso, [
-      { pedidoId: 'p1', lineIndex: 0, qtyAsignada: 70 },
-    ]);
+    const r = validateRepartoPayload(ingreso, [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 70 }]);
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.includes('qtyBackorder'))).toBe(true);
   });
 
   it('rechaza assignment que no matchea con ningun cliente BO', () => {
-    const r = validateRepartoPayload(ingreso, [
-      { pedidoId: 'pZ', lineIndex: 9, qtyAsignada: 5 },
-    ]);
+    const r = validateRepartoPayload(ingreso, [{ pedidoId: 'pZ', lineIndex: 9, qtyAsignada: 5 }]);
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.includes('no coincide'))).toBe(true);
   });
 
   it('rechaza qtyAsignada <= 0', () => {
-    const r = validateRepartoPayload(ingreso, [
-      { pedidoId: 'p1', lineIndex: 0, qtyAsignada: 0 },
-    ]);
+    const r = validateRepartoPayload(ingreso, [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 0 }]);
     expect(r.valid).toBe(false);
   });
 
   it('rechaza status != pending', () => {
-    const r = validateRepartoPayload(
-      Object.assign({}, ingreso, { status: 'done' }),
-      [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 10 }],
-    );
+    const r = validateRepartoPayload(Object.assign({}, ingreso, { status: 'done' }), [
+      { pedidoId: 'p1', lineIndex: 0, qtyAsignada: 10 },
+    ]);
     expect(r.valid).toBe(false);
   });
 
   it('acepta sub-reparto (sum < qtyIngresada: sobra queda libre)', () => {
-    const r = validateRepartoPayload(ingreso, [
-      { pedidoId: 'p1', lineIndex: 0, qtyAsignada: 10 },
-    ]);
+    const r = validateRepartoPayload(ingreso, [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 10 }]);
     expect(r.valid).toBe(true);
   });
 });
@@ -292,7 +283,7 @@ describe('createIngresosRepartoFromDelta', () => {
     const r = await createIngresosRepartoFromDelta(
       { fbDb, log: vi.fn(), now: () => NOW },
       before,
-      after,
+      after
     );
     expect(r.created).toHaveLength(1);
     expect(r.errors).toEqual([]);
@@ -313,7 +304,7 @@ describe('createIngresosRepartoFromDelta', () => {
     const r = await createIngresosRepartoFromDelta(
       { fbDb, log: vi.fn(), now: () => NOW },
       before,
-      after,
+      after
     );
     expect(r.created).toEqual([]);
     expect(r.skipped).toHaveLength(1);
@@ -328,7 +319,7 @@ describe('createIngresosRepartoFromDelta', () => {
     const r = await createIngresosRepartoFromDelta(
       { fbDb, log: vi.fn(), now: () => NOW },
       before,
-      after,
+      after
     );
     expect(r.created).toEqual([]);
     expect(r.skipped).toEqual([]);
@@ -379,7 +370,7 @@ describe('applyRepartoManualCore', () => {
           { pedidoId: 'p2', lineIndex: 0, qtyAsignada: 20 }, // entera (de 20)
         ],
         appliedByEmail: 'pablo@shimano.com.ar',
-      },
+      }
     );
     expect(r.ok).toBe(true);
     expect(r.errors).toEqual([]);
@@ -413,7 +404,7 @@ describe('applyRepartoManualCore', () => {
           { pedidoId: 'p2', lineIndex: 0, qtyAsignada: 20 }, // sum=50 > 40
         ],
         appliedByEmail: 'pablo@shimano.com.ar',
-      },
+      }
     );
     expect(r.ok).toBe(false);
     expect(r.applied).toEqual([]);
@@ -434,7 +425,7 @@ describe('applyRepartoManualCore', () => {
         ingresoId: 'ing1',
         assignments: [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 10 }],
         appliedByEmail: 'pablo@shimano.com.ar',
-      },
+      }
     );
     expect(r.ok).toBe(false);
     expect(r.errors.some((e) => e.includes('ya aplicado'))).toBe(true);
@@ -448,7 +439,7 @@ describe('applyRepartoManualCore', () => {
         ingresoId: 'noexiste',
         assignments: [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 10 }],
         appliedByEmail: 'pablo@shimano.com.ar',
-      },
+      }
     );
     expect(r.ok).toBe(false);
     expect(r.errors[0]).toContain('no encontrado');

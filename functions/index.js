@@ -42,12 +42,6 @@ import { runDailyBackup } from './core/backup-core.js';
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
 import { runFifoAssign } from './core/fifo-assign-core.js';
-// v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
-// FIFO automatico (que queda en paralelo durante Fase 1 para safety net).
-import {
-  applyRepartoManualCore,
-  createIngresosRepartoFromDelta,
-} from './core/reparto-core.js';
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
@@ -60,6 +54,9 @@ import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
+// v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
+// FIFO automatico (que queda en paralelo durante Fase 1 para safety net).
+import { applyRepartoManualCore, createIngresosRepartoFromDelta } from './core/reparto-core.js';
 // v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos (incident
 // cowork — ~1570 lineas sin cliente_code en v_pedidos_lines).
 import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core.js';
@@ -932,14 +929,14 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
     const r = await createIngresosRepartoFromDelta(
       { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
       before,
-      after,
+      after
     );
     console.log('onDep11IncreaseCreateReparto done', {
       created: r.created.length,
       skipped: r.skipped.length,
       errors: r.errors.length,
     });
-  },
+  }
 );
 
 /**
@@ -1010,14 +1007,14 @@ export const applyRepartoManualCF = onCall(
             qtyAsignada: Number(a.qtyAsignada) || 0,
           })),
           appliedByEmail: email,
-        },
+        }
       );
       return r;
     } catch (e) {
       if (e instanceof HttpsError) throw e;
       throw new HttpsError('internal', 'reparto fallo: ' + (e?.message || String(e)));
     }
-  },
+  }
 );
 
 /**

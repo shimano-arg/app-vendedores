@@ -341,7 +341,7 @@ export function validateRepartoPayload(ingresoDoc, assignments) {
     }
     if (qty > bo.qtyBackorder) {
       errors.push(
-        'assignment qtyAsignada=' + qty + ' > qtyBackorder=' + bo.qtyBackorder + ' (' + key + ')',
+        'assignment qtyAsignada=' + qty + ' > qtyBackorder=' + bo.qtyBackorder + ' (' + key + ')'
       );
     }
     sumAsignada += qty;
@@ -352,7 +352,7 @@ export function validateRepartoPayload(ingresoDoc, assignments) {
         sumAsignada +
         ' > qtyIngresada=' +
         ingresoDoc.qtyIngresada +
-        ' (sobre-reparto)',
+        ' (sobre-reparto)'
     );
   }
   return { valid: errors.length === 0, errors };
@@ -426,7 +426,7 @@ export async function applyRepartoManualCore(deps, opts) {
         if (line.state !== 'BO') {
           // Race: otra operacion ya la movio (recycle, cancel, otro reparto).
           throw new Error(
-            'linea ya no esta BO (state=' + line.state + ') @ ' + a.pedidoId + ':' + a.lineIndex,
+            'linea ya no esta BO (state=' + line.state + ') @ ' + a.pedidoId + ':' + a.lineIndex
           );
         }
         const qo = Number(line.qtyOpen) || 0;
@@ -443,7 +443,7 @@ export async function applyRepartoManualCore(deps, opts) {
               ') @ ' +
               a.pedidoId +
               ':' +
-              a.lineIndex,
+              a.lineIndex
           );
         }
         if (qty === qo) {
@@ -476,8 +476,7 @@ export async function applyRepartoManualCore(deps, opts) {
             qtyRecycled: 0,
             recycledIntoPedidoId: null,
             precio: Number(line.precio) || 0,
-            priceAtCreation:
-              Number(line.priceAtCreation) || Number(line.precio) || 0,
+            priceAtCreation: Number(line.priceAtCreation) || Number(line.precio) || 0,
             needsReview: false,
             targetMonth: line.targetMonth || null,
             targetMonthIdx:
