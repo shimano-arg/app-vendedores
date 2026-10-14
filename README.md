@@ -4717,6 +4717,46 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1263 (2026-10-14) — Rediseno Apple modal Ficha Cliente + Credito full-width
+
+**Archivos**:
+- `styles/apple-design.css:6858` (nuevo bloque CSS `#ficha-cliente-modal` rediseno completo)
+- `index.html:5183-5188` (boton Ficha Cliente en client-modal: quitado emoji + Apple polish)
+- `index.html:9270-9275` (boton Ficha Cliente en sap-alta-info-modal: idem)
+- `index.html:6260` + `sw.js:20` (bump v1262 -> v1263)
+
+**Antes (v1262)**:
+Mariano screenshot: modal Ficha Cliente tenia header con fondo oscuro + texto blanco (eyebrow #007aff sobre azul oscuro ilegible, nombre invisible). Campo "Credito cheque (ARS)" ocupaba media columna porque `.modal-body` default es `display:grid;grid-template-columns:1fr 1fr`. Botones con emoji 📋.
+
+**Problema**:
+- Textos ilegibles en el header (azul sobre azul oscuro).
+- Credito en media columna rompe la jerarquia visual (deberia destacar porque es sensitive admin-only).
+- Diseno agresivo gradient dark no alineado con el pattern Apple de los otros modales (campaigns, targets, master-cli).
+- Emoji 📋 innecesario en el boton pill.
+
+**Cambio**:
+- CSS nuevo en `apple-design.css` (bloque v1263) overridea TODO el modal `#ficha-cliente-modal`:
+  - `.modal-overlay`: backdrop blur + saturate (consistente con el resto de modales Apple).
+  - `.modal-box`: fondo blanco, border-radius 16, shadow suave, max-width 440px, SF Pro font.
+  - `.modal-head`: fondo BLANCO, texto #1d1d1f oscuro, eyebrow #007aff legible, subt gris #86868b.
+  - `.modal-body`: `flex column` + gap 14px -> todos los campos single-stack full-width (incluye Credito que antes quedaba apretado).
+  - Labels Apple (12px, weight 600, letter-spacing -.005).
+  - Selects/inputs Apple (border #d2d2d7, radio 10, padding 10x12, focus ring celeste #007aff).
+  - Credito block: separador superior sutil `border-top:1px solid #e5e5ea`.
+- Botones Ficha Cliente (2 lugares): emoji 📋 removido, padding +1, box-shadow con tint celeste del color del boton, transition Apple cubic-bezier.
+
+**Por que**:
+- Legibilidad: header blanco + texto oscuro = contraste WCAG AA sin esfuerzo.
+- Full-width Credito: single-stack elimina la grid 2-cols y respeta el pedido de Mariano. Beneficio colateral: todos los campos iguales de ancho, mas Apple (consistencia visual).
+- Apple-ificar el modal lo alinea con `#campaigns-modal` + `#master-cli-modal` + `#targets-modal` ya rediseñados en v653-v656.
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass.
+- Smoke manual pendiente post-deploy: abrir Ficha Cliente -> header blanco con FICHA CLIENTE / nombre / meta todos legibles. Credito ocupa ancho completo. Botones sin emoji.
+
+**Rollback**:
+`git revert <commit>`. CSS del bloque v1263 desaparece y el modal vuelve al look dark + grid 2-cols default. Emoji vuelve a los botones.
+
 ### v1262 (2026-10-14) — Boton "Ficha Cliente" tambien en modal alta SAP
 
 **Archivos**:
