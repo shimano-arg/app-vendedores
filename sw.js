@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v1295';
+const CACHE_VERSION = 'v1296';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
