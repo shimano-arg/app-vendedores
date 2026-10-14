@@ -998,7 +998,10 @@ export const applyRepartoManualCF = onCall(
       const role = String((userDoc.data() || {}).role || '').toLowerCase();
       const isAllowed = role === 'admin' || role === 'gerente' || email === PABLO_EMAIL;
       if (!isAllowed) {
-        throw new HttpsError('permission-denied', 'solo admin, gerente o Pablo puede aplicar reparto');
+        throw new HttpsError(
+          'permission-denied',
+          'solo admin, gerente o Pablo puede aplicar reparto'
+        );
       }
     } catch (e) {
       if (e instanceof HttpsError) throw e;
@@ -1103,7 +1106,7 @@ export const migrateAsigToBOCF = onCall(
       if (e instanceof HttpsError) throw e;
       throw new HttpsError('internal', 'migracion fallo: ' + (e?.message || String(e)));
     }
-  },
+  }
 );
 
 /**

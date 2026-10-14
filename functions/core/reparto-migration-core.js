@@ -222,7 +222,10 @@ export async function migrateAsigToBOAndCreateReparto(deps) {
         if (mutated) {
           tx.update(ref, { lines: freshLines, updatedAt: nowIso });
           // Guardar snapshot post-mutacion para la Fase 2 (ingresos_reparto).
-          pedidosMutated.push({ id: doc.id, data: Object.assign({}, freshData, { lines: freshLines }) });
+          pedidosMutated.push({
+            id: doc.id,
+            data: Object.assign({}, freshData, { lines: freshLines }),
+          });
         } else {
           // Preservar pedido no mutado para que extractClientesBOForSkuFromMutated
           // pueda incluir BO pre-existentes del mismo SKU en el ingreso.
@@ -311,7 +314,9 @@ export async function migrateAsigToBOAndCreateReparto(deps) {
       errors: errors.slice(0, 50),
     });
   } catch (logErr) {
-    errors.push('audit migration log failed: ' + (logErr && logErr.message ? logErr.message : String(logErr)));
+    errors.push(
+      'audit migration log failed: ' + (logErr && logErr.message ? logErr.message : String(logErr))
+    );
   }
 
   return {

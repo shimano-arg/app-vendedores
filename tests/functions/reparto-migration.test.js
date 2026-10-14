@@ -123,9 +123,7 @@ describe('migrateAsigToBOAndCreateReparto', () => {
           clientName: 'A',
           clientCardCode: 'C-A',
           createdAt: '2026-09-01T10:00:00Z',
-          lines: [
-            { code: 'FXC', state: 'ASIG', qtyOpen: 10, asigAt: nowIso, asigReserva: false },
-          ],
+          lines: [{ code: 'FXC', state: 'ASIG', qtyOpen: 10, asigAt: nowIso, asigReserva: false }],
         }),
         _pedidoDoc('p2', {
           clientName: 'B',
@@ -173,7 +171,10 @@ describe('migrateAsigToBOAndCreateReparto', () => {
     expect(r.revertedLines).toHaveLength(1);
     expect(r.ingresosCreated).toHaveLength(0);
     expect(r.ingresosSkipped).toHaveLength(1);
-    expect(r.ingresosSkipped[0]).toMatchObject({ sku: 'FXC', reason: 'dep11=0 (sin stock fisico)' });
+    expect(r.ingresosSkipped[0]).toMatchObject({
+      sku: 'FXC',
+      reason: 'dep11=0 (sin stock fisico)',
+    });
   });
 
   it('NO toca lineas confirmed/cancelled/invoiced', async () => {
