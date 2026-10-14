@@ -4717,6 +4717,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1267 (2026-10-14) — Fix scroll vertical en modal "Crear Pedido - Stock Asignado"
+
+**Archivos**:
+- `index.html:5640-5660` (agregado `min-height:0` a los 3 flex columns + `flex:1 1 0` a las listas scrolleables)
+- `index.html:6260` + `sw.js:20` (bump v1266 → v1267)
+
+**Antes (v1266)**:
+Modal `#crear-pedido-st-modal` tenia 3 flex columns anidados (`.modal-box` → contenedor padding → `#cpst-step-clientes` → `#cpst-clientes-list`). La lista final tenia `flex:1;overflow-y:auto` pero no scrolleaba completo: se cortaba antes de llegar al final (Mariano reporto 68 clientes pero solo veia ~13).
+
+**Problema**:
+Flexbox gotcha: en flex children con contenido mas alto que su parent, el `min-height` default es `auto` (basado en contenido). Esto hace que el flex child se expanda MAS alla del parent en lugar de respetar `flex:1` + overflow. El browser no computa el scroll correctamente porque el child "crece" hacia abajo invisible.
+
+**Cambio**:
+- Agregado `min-height:0` a los 3 flex columns anidados (contenedor padding, `#cpst-step-clientes`, `#cpst-step-preview`).
+- Cambiado `flex:1` → `flex:1 1 0` en `#cpst-clientes-list` + `#cpst-preview-list` (forza flex-basis 0 explicito, independiente del contenido).
+- Bump v1266 → v1267.
+
+**Por que**:
+- Fix clasico de flexbox: `min-height:0` libera al child del tamano minimo basado en contenido, permitiendo que el overflow:auto funcione.
+- `flex:1 1 0` es mas explicito que `flex:1` (que es shorthand para `1 1 0%` — el % puede comportarse distinto en algunos browsers vs el 0 absoluto).
+
+**Verificacion**:
+- Smoke manual pendiente post-deploy: abrir modal "Crear Pedido - Stock Asignado" con >20 clientes -> scrollear la lista hasta ver el ultimo cliente.
+
+**Rollback**:
+`git revert <commit>`. Vuelve el bug del scroll cortado.
+
 ### v1266 (2026-10-14) — Remover badge "Estado del LEAD" de las cards
 
 **Archivos**:
