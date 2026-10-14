@@ -1,6 +1,7 @@
 'use client';
+import { Check, Link2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { CLAIM_TYPE_LABEL, type ClaimType } from '@/lib/claim-types';
 import { COLUMN_LABEL, type ClaimColumn } from '@/lib/columns';
 import type { Database } from '@/lib/supabase/types';
@@ -21,8 +22,30 @@ export function ClaimDetailDialog({
 }) {
   const router = useRouter();
   const assignee = profiles.find((p) => p.id === claim.assignee_id);
+  const [copied, setCopied] = useState(false);
   function close() {
     router.push('/board');
+  }
+  // v1262: Esc cierra el modal.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') close();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: close es estable (router.push)
+  }, []);
+  // v1262: copiar deep-link al reclamo. El modal ya se abre con ?claim=X,
+  // así que window.location.href es el link canónico. Fallback silent si
+  // navigator.clipboard no está disponible (ej. http sin tls).
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Fallback: nada. En desktop sobre https siempre funciona.
+    }
   }
   return (
     <div
@@ -46,13 +69,35 @@ export function ClaimDetailDialog({
               <span>{assignee?.display_name ?? 'Sin asignar'}</span>
             </div>
           </div>
-          <button
-            onClick={close}
-            className="p-1.5 rounded-full text-[color:var(--text-tertiary)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
-            aria-label="Cerrar"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={copyLink}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium transition-all ${copied ? 'bg-[color:var(--color-success-bg,#e8f5e9)] text-[color:var(--color-success,#1a7f37)]' : 'text-[color:var(--text-secondary)] hover:bg-[rgba(0,0,0,0.04)]'}`}
+              aria-label="Copiar link del reclamo"
+              title="Copiar link del reclamo"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  <span>Copiado</span>
+                </>
+              ) : (
+                <>
+                  <Link2 className="h-3.5 w-3.5" />
+                  <span>Copiar link</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={close}
+              className="p-1.5 rounded-full text-[color:var(--text-tertiary)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
+              aria-label="Cerrar (Esc)"
+              title="Cerrar (Esc)"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </header>
         <div className="px-7 py-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
           <div className="space-y-6 min-w-0">

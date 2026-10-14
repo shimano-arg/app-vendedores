@@ -10,7 +10,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { useRouter } from 'next/navigation';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type { ClaimType } from '@/lib/claim-types';
 import { CLAIM_COLUMNS, type ClaimColumn, COLUMN_KEYS } from '@/lib/columns';
 import { createClient as createBrowserClient } from '@/lib/supabase/client';
@@ -62,7 +62,32 @@ export function Board({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTypes, setSelectedTypes] = useState<ClaimType[]>([]);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const newClaimTriggerRef = useRef<HTMLButtonElement>(null);
   const [, startTransition] = useTransition();
+
+  // v1262: keyboard shortcuts globales. 'N' abre nuevo reclamo (si no estás
+  // escribiendo). '/' focusa la búsqueda. Esc es manejado por cada modal.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      const isTyping =
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        t instanceof HTMLSelectElement ||
+        (t?.isContentEditable ?? false);
+      if (isTyping) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        newClaimTriggerRef.current?.click();
+      } else if (e.key === '/') {
+        e.preventDefault();
+        document.getElementById('board-search')?.focus();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   // v1261: filtrado client-side. Con <500 cards no hace falta debounce ni server-side.
@@ -235,7 +260,7 @@ export function Board({
           </div>
           <div className="flex items-center gap-2">
             <ColumnDefaultsDialog profiles={profiles} currentDefaults={columnDefaults} />
-            <NewClaimDialog />
+            <NewClaimDialog triggerRef={newClaimTriggerRef} />
           </div>
         </div>
         <BoardFilters
