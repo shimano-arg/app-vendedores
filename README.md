@@ -4717,6 +4717,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1262 (2026-10-14) — Boton "Ficha Cliente" tambien en modal alta SAP
+
+**Archivos**:
+- `index.html:9264-9273` (nuevo bloque con boton pill en `openSapAltaInfoModal`)
+- `index.html:11132-11177` (nueva funcion `openFichaClienteFromSapModal(fsId)`)
+- `index.html:6260` + `sw.js:20` (bump v1261 → v1262)
+
+**Antes (v1261)**:
+Mariano reporto que no aparecia el boton Ficha Cliente al abrir cards del sidebar CLIENTES. Investigando: las cards de alta SAP (con badge `SAP CXXXX`) usan `onclick="openSapAltaCard(fsId)"` que llama `openSapAltaInfoModal` → abre el modal `#sap-alta-info-modal`. Ese modal NO tenia el boton Ficha Cliente — solo el `#client-modal` (que abre por `ondblclick` en cards POINT regulares, SIN cardCodeSap). Las cards SAP representaban ~90% de los clientes en el sidebar, por eso Mariano no lo encontraba.
+
+**Cambio**:
+- Boton pill azul "Ficha Cliente (perfil para segmentar)" agregado al markup de `openSapAltaInfoModal`, encima de los botones Guardar/Editar direccion/Cerrar, con border-top dashed para separarlo visualmente.
+- Nueva funcion `openFichaClienteFromSapModal(fsId)` que:
+  1. Busca el alta en `approvedAltasList` por fsId.
+  2. Calcula `docId = clientLocId(provincia, localidadFinal, comercio)` — mismo ID compuesto que usan POINTS regulares.
+  3. Setea `#client-modal.dataset` como "virtual open" (sin mostrar el modal visualmente) para que `saveClientCreditoChequeFromModal` + `saveClientCategoriaFromModal` escriban al client_master correcto.
+  4. Cierra `#sap-alta-info-modal` para que no quede detras.
+  5. Delega en `openFichaClienteFromClientModal()` que hace populate + abre `#ficha-cliente-modal`.
+
+**Por que**:
+- Cobertura total: ahora cualquier card del sidebar CLIENTES (POINT o alta SAP) tiene acceso al perfilado comercial.
+- Zero duplicacion: la funcion nueva es solo un wrapper de 30 LOC que delega en la existente. El modal Ficha Cliente y su logica de guardado se reutilizan 100%.
+- Zero cambio Firestore: usa el mismo `client_master/{docId}` que los POINTS. Si el alta SAP tenia Fidelidad=ALTA desde antes (puesta via Master de Clientes export/import), el populate lo levanta.
+
+**Verificacion**:
+- Smoke manual (post-deploy): abrir card de alta SAP ("Hook pesca y camping") → modal SAP alta info → scroll hasta la fila del boton Guardar → clickear "Ficha Cliente (perfil para segmentar)" → modal Ficha abre con los 6 campos + crédito cheque (admin only).
+
+**Rollback**:
+`git revert <commit>`. El boton desaparece del modal SAP, Ficha Cliente queda accesible solo desde `#client-modal` como en v1261.
+
 ### v1261 (2026-10-14) — Unificar tamano Apple pill en Clientes + Pedidos
 
 **Archivos**:
