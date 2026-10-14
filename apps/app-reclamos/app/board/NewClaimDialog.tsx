@@ -1,11 +1,16 @@
 'use client';
-import { useState, useTransition } from 'react';
 import { Paperclip, X } from 'lucide-react';
+import { type RefObject, useEffect, useState, useTransition } from 'react';
 import { CLAIM_TYPES } from '@/lib/claim-types';
 import { createClient } from '@/lib/supabase/client';
 import { createClaim, uploadAttachmentMetadata } from './actions';
 
-export function NewClaimDialog() {
+// v1262: triggerRef opcional para enganchar shortcut global 'N' desde Board.
+export function NewClaimDialog({
+  triggerRef,
+}: {
+  triggerRef?: RefObject<HTMLButtonElement | null>;
+}) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +35,19 @@ export function NewClaimDialog() {
     setVideoArmado(false);
     setVideoCliente(false);
   }
+
+  // v1262: Esc cierra el modal + reset. Solo cuando open.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        reset();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
 
   function onSubmit(fd: FormData) {
     setError(null);
@@ -75,7 +93,12 @@ export function NewClaimDialog() {
 
   return (
     <>
-      <button onClick={() => setOpen(true)} className="pill-primary">
+      <button
+        ref={triggerRef}
+        onClick={() => setOpen(true)}
+        className="pill-primary"
+        title="Nuevo reclamo (N)"
+      >
         <span className="text-base leading-none">+</span>
         <span>Nuevo reclamo</span>
       </button>
