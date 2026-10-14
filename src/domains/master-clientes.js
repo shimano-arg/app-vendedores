@@ -2420,12 +2420,12 @@ window.renderMasterClientesTable = function () {
     const rowStyleV = isEmpleadoSAP
       ? ' class="mc-empl-row" style="background:#fef9c3;border-left:4px solid #ca8a04;pointer-events:none;opacity:.75" title="Cliente EMPLEADO (compras internas). Fila bloqueada."'
       : dupSapV
-      ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)"'
-      : _hasMissing
-        ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)" title="Faltan datos: ' +
-          escapeAttr(_missingList.join(', ')) +
-          '"'
-        : '';
+        ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)"'
+        : _hasMissing
+          ? ' style="background:var(--color-danger-bg);border-left:4px solid var(--color-danger)" title="Faltan datos: ' +
+            escapeAttr(_missingList.join(', ')) +
+            '"'
+          : '';
     let tagHtml;
     if (isSap) {
       if (isEmpleadoSAP) {
