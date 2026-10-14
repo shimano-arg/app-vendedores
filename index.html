@@ -6284,7 +6284,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1265';
+const APP_VERSION = 'v1266';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10662,12 +10662,10 @@ function renderClients(pts){
       html += '<div class="client-meta">';
       html += '<span class="cli-state-badge" style="background:' + sapLeft + ';color:#fff">' + sapLabel + '</span>';
       html += sapOrigenInline;
-      // v396: badge de estado del LEAD (contactado con doc / sin doc / eliminar).
-      if (!a.cardCodeSap && a.leadEstado && window.LEAD_ESTADO_LABELS && window.LEAD_ESTADO_LABELS[a.leadEstado]) {
-        const _leColor = window.LEAD_ESTADO_COLORS[a.leadEstado] || '#64748b';
-        const _leLabel = window.LEAD_ESTADO_LABELS[a.leadEstado].toUpperCase();
-        html += '<span class="cli-origen-inline" style="background:' + _leColor + ';color:#fff;border:1px solid ' + _leColor + '" title="' + escapeAttr(_leLabel) + '">' + escapeHtml(_leLabel) + '</span>';
-      }
+      // v396 + v1266 (2026-10-14): badge "Estado del LEAD" REMOVIDO de la
+      // card por pedido de Mariano ("ya no es necesario"). El estado sigue
+      // viviendo en client_applications.leadEstado y se puede ver/editar
+      // desde el modal Alta SAP (bloque "Estado del LEAD" en sap-alta-info-modal).
       html += '</div>';
       html += '<div class="client-meta" style="margin-top:3px">';
       html += '<span>' + escapeHtml(it.point.name) + '</span>';
