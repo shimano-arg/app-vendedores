@@ -10,11 +10,14 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { useRouter } from 'next/navigation';
+import { useMemo } from 'react';
+import type { ClaimType } from '@/lib/claim-types';
 import { CLAIM_COLUMNS, type ClaimColumn, COLUMN_KEYS } from '@/lib/columns';
-import type { DurationBadge } from '@/lib/timeInColumn';
-import type { Database } from '@/lib/supabase/types';
 import { createClient as createBrowserClient } from '@/lib/supabase/client';
+import type { Database } from '@/lib/supabase/types';
+import type { DurationBadge } from '@/lib/timeInColumn';
 import { AssigneePopover } from './AssigneePopover';
+import { BoardFilters } from './BoardFilters';
 import { ClaimCardOverlay } from './ClaimCard';
 import { Column } from './Column';
 import { ColumnDefaultsDialog } from './ColumnDefaultsDialog';
@@ -56,8 +59,62 @@ export function Board({
   const [grouped, setGrouped] = useState(initialGrouped);
   const [activeClaimId, setActiveClaimId] = useState<number | null>(null);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTypes, setSelectedTypes] = useState<ClaimType[]>([]);
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [, startTransition] = useTransition();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // v1261: filtrado client-side. Con <500 cards no hace falta debounce ni server-side.
+  const filteredGrouped = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const hasQuery = q.length > 0;
+    const hasTypes = selectedTypes.length > 0;
+    const hasAssignees = selectedAssignees.length > 0;
+    if (!hasQuery && !hasTypes && !hasAssignees) return grouped;
+
+    const result: Record<ClaimColumn, Claim[]> = Object.fromEntries(
+      COLUMN_KEYS.map((k) => [k, [] as Claim[]]),
+    ) as unknown as Record<ClaimColumn, Claim[]>;
+    for (const col of COLUMN_KEYS) {
+      for (const claim of grouped[col]) {
+        if (hasTypes && !selectedTypes.includes(claim.claim_type as ClaimType)) continue;
+        if (hasAssignees && !selectedAssignees.includes(claim.assignee_id)) continue;
+        if (hasQuery) {
+          const bag = [
+            claim.remito_number,
+            claim.invoice_number ?? '',
+            claim.client_name ?? '',
+            claim.fantasy_name ?? '',
+            claim.observations ?? '',
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!bag.includes(q)) continue;
+        }
+        result[col].push(claim);
+      }
+    }
+    return result;
+  }, [grouped, searchQuery, selectedTypes, selectedAssignees]);
+
+  const totalClaims = useMemo(
+    () => COLUMN_KEYS.reduce((sum, k) => sum + grouped[k].length, 0),
+    [grouped],
+  );
+  const totalMatches = useMemo(
+    () => COLUMN_KEYS.reduce((sum, k) => sum + filteredGrouped[k].length, 0),
+    [filteredGrouped],
+  );
+
+  function toggleType(t: ClaimType) {
+    setSelectedTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+  }
+  function toggleAssignee(id: string) {
+    setSelectedAssignees((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
 
   const activeClaim =
     activeClaimId != null
@@ -181,12 +238,23 @@ export function Board({
             <NewClaimDialog />
           </div>
         </div>
+        <BoardFilters
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          selectedTypes={selectedTypes}
+          onToggleType={toggleType}
+          selectedAssignees={selectedAssignees}
+          onToggleAssignee={toggleAssignee}
+          profiles={profiles}
+          totalMatches={totalMatches}
+          totalClaims={totalClaims}
+        />
         <div className="flex gap-4 overflow-x-auto -mx-6 px-6 pb-4 lg:grid lg:grid-cols-6 lg:overflow-x-visible lg:mx-0 lg:px-0">
           {CLAIM_COLUMNS.map((col) => (
             <Column
               key={col.key}
               column={col}
-              claims={grouped[col.key]}
+              claims={filteredGrouped[col.key]}
               profiles={profiles}
               cardDurations={cardDurations}
             />
