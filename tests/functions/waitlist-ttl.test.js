@@ -9,6 +9,7 @@ const isoDaysFromNow = (n) => new Date(NOW.getTime() + n * DAY_MS).toISOString()
 function makeFakeFbDb(initial = {}) {
   const store = {
     waitlists: initial.waitlists || [], // [{id, data}]
+    pedidos: initial.pedidos || [], // [{id, data}]
     logs: [],
     deletes: [],
   };
@@ -41,6 +42,20 @@ function makeFakeFbDb(initial = {}) {
         },
         doc(id) {
           return {
+            async get() {
+              if (name === 'pedidos') {
+                const p = store.pedidos.find((pp) => pp.id === id);
+                return { exists: !!p, data: () => (p ? p.data : {}) };
+              }
+              return { exists: false, data: () => ({}) };
+            },
+            async update(patch) {
+              writes.push({ type: 'update', name, id, patch });
+              if (name === 'pedidos') {
+                const p = store.pedidos.find((pp) => pp.id === id);
+                if (p) p.data = Object.assign({}, p.data, patch);
+              }
+            },
             async delete() {
               writes.push({ type: 'delete', name, id });
               store.deletes.push({ name, id });
@@ -181,5 +196,110 @@ describe('expireStockAsignadoWaitlists', () => {
     const r = await expireStockAsignadoWaitlists({ fbDb, log: vi.fn(), now: () => NOW });
     expect(r.expired).toEqual([]);
     expect(r.scanned).toBe(1);
+  });
+
+  it('v1281: cancela ASIG originales por pedidosOrigenes[] antes de delete waitlist (qty entera)', async () => {
+    const fbDb = makeFakeFbDb({
+      waitlists: [
+        {
+          id: 'w1',
+          data: {
+            source: 'stock-asignado-batch',
+            expiresAt: isoDaysAgo(1),
+            pedidosOrigenes: [{ pedidoId: 'p1', lineIndex: 0, sku: 'FXC', qtyAsignada: 10 }],
+          },
+        },
+      ],
+      pedidos: [
+        {
+          id: 'p1',
+          data: {
+            lines: [{ code: 'FXC', state: 'ASIG', qtyOpen: 10, qty: 10, asigReserva: true }],
+          },
+        },
+      ],
+    });
+    const r = await expireStockAsignadoWaitlists({ fbDb, log: vi.fn(), now: () => NOW });
+    expect(r.expired).toHaveLength(1);
+    const p1 = fbDb._store.pedidos.find((p) => p.id === 'p1').data;
+    expect(p1.lines[0].state).toBe('cancelled');
+    expect(p1.lines[0].qtyOpen).toBe(0);
+    expect(p1.lines[0].qtyCancelled).toBe(10);
+    expect(p1.lines[0].cancelledFrom).toBe('waitlist-expired');
+    expect(p1.lines[0].expiredWaitlistId).toBe('w1');
+    expect(fbDb._store.waitlists.find((w) => w.id === 'w1')).toBeUndefined();
+  });
+
+  it('v1281: split parcial si qtyAsignada < qtyOpen (resto queda ASIG)', async () => {
+    const fbDb = makeFakeFbDb({
+      waitlists: [
+        {
+          id: 'w1',
+          data: {
+            source: 'stock-asignado-batch',
+            expiresAt: isoDaysAgo(1),
+            pedidosOrigenes: [{ pedidoId: 'p1', lineIndex: 0, sku: 'FXC', qtyAsignada: 7 }],
+          },
+        },
+      ],
+      pedidos: [
+        {
+          id: 'p1',
+          data: { lines: [{ code: 'FXC', state: 'ASIG', qtyOpen: 10, qty: 10 }] },
+        },
+      ],
+    });
+    const r = await expireStockAsignadoWaitlists({ fbDb, log: vi.fn(), now: () => NOW });
+    expect(r.errors).toEqual([]);
+    const p1 = fbDb._store.pedidos.find((p) => p.id === 'p1').data;
+    expect(p1.lines[0].state).toBe('ASIG'); // sigue ASIG
+    expect(p1.lines[0].qtyOpen).toBe(3); // 10 - 7
+    expect(p1.lines[0].qtyCancelled).toBe(7);
+    expect(p1.lines[0].partialCancelFrom).toBe('waitlist-expired');
+    expect(p1.lines[0].expiredWaitlistId).toBe('w1');
+  });
+
+  it('v1281: no pisa linea si ya cambio state (recycled/cancelled por otro flow)', async () => {
+    const fbDb = makeFakeFbDb({
+      waitlists: [
+        {
+          id: 'w1',
+          data: {
+            source: 'stock-asignado-batch',
+            expiresAt: isoDaysAgo(1),
+            pedidosOrigenes: [{ pedidoId: 'p1', lineIndex: 0, sku: 'FXC', qtyAsignada: 10 }],
+          },
+        },
+      ],
+      pedidos: [
+        {
+          id: 'p1',
+          data: { lines: [{ code: 'FXC', state: 'recycled', qtyOpen: 0 }] },
+        },
+      ],
+    });
+    const r = await expireStockAsignadoWaitlists({ fbDb, log: vi.fn(), now: () => NOW });
+    expect(r.expired).toHaveLength(1); // waitlist igual se borra
+    expect(r.errors.some((e) => e.includes('skip'))).toBe(true);
+    const p1 = fbDb._store.pedidos.find((p) => p.id === 'p1').data;
+    expect(p1.lines[0].state).toBe('recycled'); // intacto
+  });
+
+  it('v1281: waitlist sin pedidosOrigenes (legacy pre-v1280 ya con expiresAt) solo se borra', async () => {
+    const fbDb = makeFakeFbDb({
+      waitlists: [
+        {
+          id: 'w1',
+          data: {
+            source: 'stock-asignado-batch',
+            expiresAt: isoDaysAgo(1),
+            // sin pedidosOrigenes
+          },
+        },
+      ],
+    });
+    const r = await expireStockAsignadoWaitlists({ fbDb, log: vi.fn(), now: () => NOW });
+    expect(r.expired).toHaveLength(1);
+    expect(r.errors).toEqual([]);
   });
 });
