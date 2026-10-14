@@ -6284,7 +6284,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1261';
+const APP_VERSION = 'v1262';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -9261,6 +9261,17 @@ function openSapAltaInfoModal(fsId){
             '</div>' +
           '</div>'
           : '') +
+        // v1262 (2026-10-14): boton Ficha Cliente dentro del modal SAP alta
+        // info. Antes el boton solo existia en el modal cliente POINT (que
+        // solo abre con doble click en cards sin cardCodeSap). Las cards de
+        // alta SAP (con badge "SAP CXXXX") abren ESTE modal y no tenian
+        // acceso al perfilado comercial.
+        '<div style="border-top:1px dashed var(--border-default);margin:8px -2px 10px;padding-top:10px;display:flex;justify-content:center">' +
+          '<button type="button" onclick="openFichaClienteFromSapModal(\'' + safeFsId + '\')" title="Perfil comercial para segmentar: fidelidad, tamano, especializacion, etc."' +
+            ' style="padding:8px 16px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,0,0,0.08);font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif">' +
+            '<span style="font-size:14px">&#128203;</span> Ficha Cliente (perfil para segmentar)' +
+          '</button>' +
+        '</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
           // v342+: boton Guardar visible a todos (antes admin/gerente only).
           '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' +
@@ -11117,6 +11128,51 @@ function openFichaClienteFromClientModal(){
   document.getElementById('ficha-cliente-modal').classList.add('open');
 }
 window.openFichaClienteFromClientModal = openFichaClienteFromClientModal;
+
+// v1262 (2026-10-14): abrir Ficha Cliente desde el modal #sap-alta-info-modal
+// (cards con cardCodeSap que llaman openSapAltaCard -> openSapAltaInfoModal).
+// Antes el boton Ficha Cliente solo existia en el #client-modal (que abre
+// con doble click en cards POINT regulares, SIN SAP). Ahora las altas SAP
+// tambien pueden editar perfilado comercial.
+// Mecanica: calcula docId con clientLocId(provincia, localidad, comercio),
+// setea #client-modal.dataset como si estuviera abierto (sin mostrarlo), y
+// delega en openFichaClienteFromClientModal() que ya hace el populate +
+// abre el modal Ficha. saveClientCreditoChequeFromModal + saveClientCategoria
+// funcionan igual porque leen docId del #client-modal.dataset.
+function openFichaClienteFromSapModal(fsId){
+  if (!fsId) { alert('Falta ID del alta'); return; }
+  var a = (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList))
+    ? approvedAltasList.find(function(x){ return x._fsId === fsId; })
+    : null;
+  if (!a) { alert('Alta no encontrada'); return; }
+  if (typeof window.clientLocId !== 'function') {
+    alert('clientLocId no disponible (bundle)'); return;
+  }
+  var provincia = a.provincia || '';
+  var localidad = a.localidadFinal || a.localidad || '';
+  var clientName = a.comercio || '';
+  if (!provincia || !localidad || !clientName) {
+    alert('Alta sin provincia/localidad/comercio — Ficha Cliente requiere los 3.');
+    return;
+  }
+  var docId = window.clientLocId(provincia, localidad, clientName);
+  var cmEl = document.getElementById('client-modal');
+  if (cmEl) {
+    // Setea dataset como "virtual open" para que saveClientCreditoChequeFromModal
+    // + saveClientCategoriaFromModal escriban en el client_master correcto.
+    cmEl.dataset.docId = docId;
+    cmEl.dataset.vendor = a.assignedVendor || '';
+    cmEl.dataset.provincia = provincia;
+    cmEl.dataset.localidad = localidad;
+    cmEl.dataset.clientName = clientName;
+  }
+  // Cerrar el modal SAP info para que no quede detras.
+  var sapInfoEl = document.getElementById('sap-alta-info-modal');
+  if (sapInfoEl) sapInfoEl.classList.remove('open');
+  // Reutilizar el populate + apertura del modal Ficha.
+  openFichaClienteFromClientModal();
+}
+window.openFichaClienteFromSapModal = openFichaClienteFromSapModal;
 
 function closeFichaCliente(){
   document.getElementById('ficha-cliente-modal').classList.remove('open');
