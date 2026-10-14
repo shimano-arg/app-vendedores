@@ -383,19 +383,15 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       // SAP legacy source se trata como 'BO' (v_backorder_lineas_v2 default).
       g.clientes.forEach((c) => {
         const isBoLike = c.state === 'BO' || c.source === 'sap';
-        // v1190 (incident 2026-10-08 RINALDI LORUSSO 127082):
-        // isAsigLike ahora incluye TODAS las confirmed (con y sin sqDocNum).
-        // Precedente v1185 incluyo solo confirmed SIN sqDocNum (huerfanos app).
-        // Fix: tambien confirmed CON sqDocNum deben aparecer en Stock Asignado
-        // porque UNIDADES RESERVADAS del modal "Pedido en Espera" las cuenta
-        // (via getStockDesglose). Sin esto, VDE veia "RESERVADAS=6" en un
-        // modal y "0 clientes" en Stock Asignado para el mismo SKU — pedia
-        // coherencia.
-        // Trade-off: diverge del tablero PBI (v_stock_asignado filtra solo
-        // state='ASIG'). Las lineas confirmed+sqDocNum aparecen en el reporte
-        // SAP SQs del PBI separadamente. Mariano prefiere coherencia modal↔
-        // modal sobre modal↔PBI.
-        const isAsigLike = c.state === 'ASIG' || c.state === 'confirmed';
+        // v1285 (2026-10-14): REVERT v1190/v1185 — isAsigLike vuelve a ser
+        // solo state='ASIG'. Post-reparto manual (v1278+), el modal Stock
+        // Asignado solo debe mostrar lo que Pablo asigno manualmente desde
+        // el modal "Reparto". Las confirmed son pedidos ya en SAP esperando
+        // entrega — reservan stock internamente pero no deben aparecer en
+        // este modal (quedan en el tablero PBI y en el modal "Pedido en
+        // Espera" como UNIDADES RESERVADAS). Rationale Mariano: "stock
+        // asignado deberia quedar vacio tras la migracion".
+        const isAsigLike = c.state === 'ASIG';
         if (isAsig && isAsigLike && dispSap > 0) {
           c.qtyAsignada = c.pendiente;
           c.qtyBackorder = 0;
@@ -425,11 +421,11 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
         return c.state !== 'BO' && (flag === false || flag === 0);
       };
       let restante = dispSap;
-      // Paso 1: prioritarios (ASIG + confirmed) FIFO por fecha ascendente,
-      // EXCLUYENDO destildadas (asigReserva=false).
+      // Paso 1: prioritarios (solo ASIG — v1285 revert v1190: confirmed
+      // ya no cuenta aca). FIFO por fecha ascendente, EXCLUYENDO destildadas
+      // (asigReserva=false).
       const prioritarios = g.clientes.filter(
-        (c) =>
-          c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed') && !isSinReserva(c)
+        (c) => c.source === 'app' && c.state === 'ASIG' && !isSinReserva(c)
       );
       prioritarios.sort((a, b) => (a.sqDocDate || '').localeCompare(b.sqDocDate || ''));
       for (const c of prioritarios) {
@@ -439,12 +435,11 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
         restante -= asignable;
       }
       if (restante < 0) restante = 0;
-      // Paso 2: competidores (SAP + APP-BO). SAP gana primero (transición SAP→APP),
-      // luego fecha ascendente.
+      // Paso 2: competidores (SAP + APP-BO + confirmed). SAP gana primero
+      // (transición SAP→APP), luego fecha ascendente. v1285 (revert v1190):
+      // confirmed vuelven a competidores (ya no son prioritarios).
       const competidores = g.clientes.filter(
-        (c) =>
-          !(c.source === 'app' && (c.state === 'ASIG' || c.state === 'confirmed')) &&
-          !isSinReserva(c)
+        (c) => !(c.source === 'app' && c.state === 'ASIG') && !isSinReserva(c)
       );
       competidores.sort((a, b) => {
         if (a.source !== b.source) return a.source === 'sap' ? -1 : 1;
