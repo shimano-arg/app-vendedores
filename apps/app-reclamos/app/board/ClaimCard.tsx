@@ -1,6 +1,7 @@
 'use client';
 import { useDraggable } from '@dnd-kit/core';
 import { AlertCircle } from 'lucide-react';
+import { useState } from 'react';
 import type { Database } from '@/lib/supabase/types';
 import type { DurationBadge } from '@/lib/timeInColumn';
 
@@ -88,12 +89,35 @@ export function ClaimCard({
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: String(claim.id),
   });
+  // v1267: pressing state para feedback físico instantáneo en pointerdown.
+  // Apple HIG §1: no esperar al click — el feedback va en el touch down.
+  // Haptic sutil con Vibration API en pointerdown (si está soportado).
+  const [pressing, setPressing] = useState(false);
+  function onPressStart() {
+    setPressing(true);
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      // 8ms = tap muy sutil; nav.vibrate es no-op en desktop/iOS Safari.
+      try {
+        navigator.vibrate(8);
+      } catch {
+        /* silent */
+      }
+    }
+  }
+  function onPressEnd() {
+    setPressing(false);
+  }
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
       suppressHydrationWarning
+      data-pressing={pressing && !isDragging ? 'true' : undefined}
+      onPointerDown={onPressStart}
+      onPointerUp={onPressEnd}
+      onPointerCancel={onPressEnd}
+      onPointerLeave={onPressEnd}
       className={`card-elevated p-3.5 cursor-grab w-full min-w-0 ${isDragging ? 'opacity-40' : ''} ${stuck ? 'ring-1 ring-[#F4C7C7]' : ''}`}
     >
       <a

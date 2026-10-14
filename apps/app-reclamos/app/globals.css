@@ -199,12 +199,17 @@
       0 1px 2px rgba(0, 0, 0, 0.04),
       0 4px 10px rgba(0, 0, 0, 0.04);
     transition: box-shadow var(--dur-fast) var(--ease-out-apple),
-                transform var(--dur-fast) var(--ease-out-apple);
+                transform 100ms var(--ease-out-apple);
   }
   .card-elevated:hover {
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.05),
       0 8px 24px rgba(0, 0, 0, 0.08);
+  }
+  /* v1267: pressing feedback — scale 0.98 instantáneo en pointerdown.
+     Apple HIG §1: el feedback va en pointerdown, no en click. */
+  .card-elevated[data-pressing="true"] {
+    transform: scale(0.98);
   }
   /* Card while dragging: physical weight (scale + tilt + deeper shadow) */
   .card-dragging {
@@ -262,6 +267,13 @@
   }
   .pill-outline:active {
     transform: scale(0.97);
+  }
+  /* v1267: focus-visible Apple-style ring — accesible por teclado sin
+     ensuciar el click con mouse. Mismo ring que .field:focus para consistencia. */
+  .pill-primary:focus-visible,
+  .pill-outline:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
   }
   /* Apple sheet: modal that "rises" with backdrop blur */
   .sheet-backdrop {
@@ -371,5 +383,18 @@
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  /* v1267: .card-dragging usa transform como ESTADO (no transition), por lo
+     que la regla general de arriba no la neutraliza. Reemplazamos el scale +
+     rotate por un outline accesible para dar feedback de drag no-motion. */
+  .card-dragging {
+    transform: none !important;
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
+  }
+  /* v1267: .card-elevated[data-pressing] también usa transform como estado. */
+  .card-elevated[data-pressing="true"] {
+    transform: none !important;
+    background-color: rgba(0, 113, 227, 0.04);
   }
 }
