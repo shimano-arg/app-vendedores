@@ -6332,7 +6332,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1286';
+const APP_VERSION = 'v1287';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18898,6 +18898,26 @@ function _repartoBuildCard(ing){
     chipMig.textContent = 'MIGRACION';
     head.appendChild(chipMig);
   }
+  // v1287 (2026-10-14): botones "FIFO" + "RESET" en el header para
+  // automatizar la asignacion. FIFO reparte por fecha de pedido (viejos
+  // primero) hasta agotar el ingreso. RESET pone todo en 0.
+  const spacer = document.createElement('div');
+  spacer.style.cssText = 'flex:1';
+  head.appendChild(spacer);
+  const btnFifo = document.createElement('button');
+  btnFifo.type = 'button';
+  btnFifo.style.cssText = 'background:#0891b2;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px';
+  btnFifo.textContent = 'FIFO AUTO';
+  btnFifo.title = 'Reparte automatico por fecha de pedido (viejos primero) hasta agotar el ingreso. Podes modificar manual despues.';
+  btnFifo.onclick = () => _repartoFifoAuto(ing._id);
+  head.appendChild(btnFifo);
+  const btnReset = document.createElement('button');
+  btnReset.type = 'button';
+  btnReset.style.cssText = 'background:#64748b;color:#fff;border:none;padding:4px 10px;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px';
+  btnReset.textContent = 'RESET';
+  btnReset.title = 'Pone todo en 0';
+  btnReset.onclick = () => _repartoReset(ing._id);
+  head.appendChild(btnReset);
   card.appendChild(head);
   // Tabla clientes.
   const tableWrap = document.createElement('div');
@@ -18937,13 +18957,18 @@ function _repartoBuildCard(ing){
       + '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#b45309">' + _repartoFmtQty(c.qtyBackorder) + '</td>'
       + '<td style="padding:8px 10px;text-align:right;color:#059669;font-weight:600">' + _repartoFmtQty(ing.qtyIngresada) + '</td>'
       + '<td style="padding:8px 10px;text-align:right">'
+      + '<div style="display:inline-flex;align-items:center;gap:4px">'
       + '<input type="number" min="0" max="' + (Number(c.qtyBackorder) || 0) + '" step="1" value="0" '
       + 'data-reparto-input="' + _escAttr(ing._id) + '" '
       + 'data-pedido-id="' + _escAttr(c.pedidoId) + '" '
       + 'data-line-index="' + Number(c.lineIndex) + '" '
       + 'data-max-bo="' + (Number(c.qtyBackorder) || 0) + '" '
       + 'oninput="_repartoRecalc(this)" '
-      + 'style="width:80px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;font-weight:700" />'
+      + 'style="width:70px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;font-weight:700" />'
+      + '<button type="button" onclick="_repartoSetMax(this.previousElementSibling)" '
+      + 'title="Asignar al maximo posible (min entre backorder del cliente y lo libre del ingreso)" '
+      + 'style="background:#059669;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer">MAX</button>'
+      + '</div>'
       + '</td>';
     tbody.appendChild(tr);
   });
@@ -18978,14 +19003,20 @@ function _escAttr(s){
 window._repartoRecalc = function(input){
   const ingresoId = input.getAttribute('data-reparto-input');
   const maxBO = Number(input.getAttribute('data-max-bo')) || 0;
-  const val = Math.max(0, Math.min(maxBO, Math.round(Number(input.value) || 0)));
-  if (Number(input.value) !== val) input.value = val;
-  // Recomputar total asignado del card.
-  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
-  let total = 0;
-  inputs.forEach((inp) => { total += Number(inp.value) || 0; });
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   const qtyIng = (ing && Number(ing.qtyIngresada)) || 0;
+  // v1287: clamp dinamico por "libre del ingreso". Antes solo clampeaba por
+  // maxBO (del cliente) → Pablo podia escribir valores que hacian sum >
+  // qtyIngresada y el apply bloqueaba despues. Ahora autoajusta al menor
+  // posible: min(maxBO, maxLibre). maxLibre = qtyIng - sum_de_OTROS_inputs.
+  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
+  let sumOtros = 0;
+  inputs.forEach((inp) => { if (inp !== input) sumOtros += Number(inp.value) || 0; });
+  const maxLibre = Math.max(0, qtyIng - sumOtros);
+  const maxPermitido = Math.min(maxBO, maxLibre);
+  const val = Math.max(0, Math.min(maxPermitido, Math.round(Number(input.value) || 0)));
+  if (Number(input.value) !== val) input.value = val;
+  const total = sumOtros + val;
   const libre = Math.max(0, qtyIng - total);
   const totalEl = document.querySelector('b[data-reparto-total="' + ingresoId + '"]');
   const libreEl = document.querySelector('b[data-reparto-libre="' + ingresoId + '"]');
@@ -19006,6 +19037,57 @@ window._repartoRecalc = function(input){
   }
   // Colorear total si sobre-reparto.
   if (totalEl) totalEl.style.color = total > qtyIng ? '#dc2626' : '#1e40af';
+};
+
+// v1287 (2026-10-14): asigna el max posible al input (min entre maxBO del
+// cliente y el libre del ingreso). Util cuando Pablo quiere darle "todo lo
+// que necesita o pueda" a un cliente especifico.
+window._repartoSetMax = function(input){
+  if (!input) return;
+  const ingresoId = input.getAttribute('data-reparto-input');
+  const maxBO = Number(input.getAttribute('data-max-bo')) || 0;
+  const ing = _repartoIngresos.find((i) => i._id === ingresoId);
+  if (!ing) return;
+  const qtyIng = Number(ing.qtyIngresada) || 0;
+  // Calcular sum de los OTROS inputs del mismo ingreso.
+  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
+  let sumOtros = 0;
+  inputs.forEach((inp) => { if (inp !== input) sumOtros += Number(inp.value) || 0; });
+  const libre = Math.max(0, qtyIng - sumOtros);
+  input.value = Math.min(maxBO, libre);
+  _repartoRecalc(input);
+};
+
+// v1287: Repartir automatico FIFO. Reparte el ingreso entre los clientes
+// en orden FIFO (viejos primero) hasta agotar. Pablo puede modificar
+// manual despues. Si no hay BO suficiente, deja el resto como libre.
+window._repartoFifoAuto = function(ingresoId){
+  const ing = _repartoIngresos.find((i) => i._id === ingresoId);
+  if (!ing) return;
+  const qtyIng = Number(ing.qtyIngresada) || 0;
+  // Inputs en orden del DOM = orden FIFO (clientesBO viene ordenado por createdAt).
+  const inputs = Array.from(document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]'));
+  // Reset primero + asignar FIFO.
+  let restante = qtyIng;
+  inputs.forEach((inp) => {
+    const maxBO = Number(inp.getAttribute('data-max-bo')) || 0;
+    if (restante <= 0 || maxBO <= 0) {
+      inp.value = 0;
+      return;
+    }
+    const toAssign = Math.min(maxBO, restante);
+    inp.value = toAssign;
+    restante -= toAssign;
+  });
+  // Trigger recalc en el ultimo input para actualizar totals.
+  if (inputs.length > 0) _repartoRecalc(inputs[inputs.length - 1]);
+};
+
+// v1287: Resetea todos los inputs del ingreso a 0.
+window._repartoReset = function(ingresoId){
+  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
+  inputs.forEach((inp) => { inp.value = 0; });
+  if (inputs.length > 0) _repartoRecalc(inputs[0]);
 };
 
 window._repartoApply = async function(ingresoId){
