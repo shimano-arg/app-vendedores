@@ -4717,6 +4717,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1260 (2026-10-14) — Credito cheque (ARS) movido a Ficha Cliente
+
+**Archivos**:
+- `index.html:5162-5167` (bloque `#cm-credito-cheque-block` removido del `#client-modal`)
+- `index.html:5278-5287` (bloque `#cm-credito-cheque-block` reinsertado dentro del `#ficha-cliente-modal`, antes de `fc-status`)
+- `index.html:10906-10911` (populate credito eliminado de `openClientModal`)
+- `index.html:11089-11098` (populate credito + gate admin agregado a `openFichaClienteFromClientModal`)
+- `index.html:6260` + `sw.js:20` (bump v1259 → v1260)
+
+**Antes (v1259)**:
+"Credito cheque (ARS)" vivia inline en el `#client-modal`, bajo el bloque "Categorizacion comercial", gate admin/gerente via `display:none`. Los otros 5 campos de perfilado comercial (fidelidad, prefContacto, tamano, especializacion, tipoLocal) ya habian sido movidos al modal `#ficha-cliente-modal` en v1258.
+
+**Problema**:
+Mariano pidio (2026-10-14) unificar todo el perfilado comercial en la Ficha Cliente — Credito ARS era el ultimo dato de segmentacion que quedaba fuera. Separacion operativo vs. perfilado era inconsistente.
+
+**Cambio**:
+- Markup: bloque movido tal cual al final del modal Ficha Cliente, con un border-top dashed para separarlo visualmente de los 5 selects de arriba (es un campo de otro tipo: numeric vs. select).
+- IDs preservados (`cm-credito-cheque` + `cm-credito-cheque-status`) para no tocar `saveClientCreditoChequeFromModal` (vive en `src/domains/master-clientes.js` + `app.bundle.js`). La funcion sigue leyendo docId desde `#client-modal.dataset`, que queda abierto detras del modal Ficha (z-index 1000 vs 1200).
+- Gate admin/gerente se recalcula en `openFichaClienteFromClientModal` con `userRole`. VDE no ve el bloque.
+- `openClientModal` ya no popula credito (comment nuevo linea 10906 explica donde vive).
+
+**Por que**:
+- Unificacion: todo el perfilado comercial (fidelidad / preferencia / tamano / especializacion / tipo local / credito cheque) vive en un solo modal, enfocado para admin/gerente.
+- `#client-modal` queda limpio: solo datos operativos (direccion, categorizacion con cliTipo, acciones de estado del cliente).
+- Zero cambio Firestore: campo sigue siendo `client_master.creditoCheque` (number). Zero cambio en `exports-core.js` que lee ese campo para los exports.
+- Zero cambio en `saveClientCreditoChequeFromModal`: los IDs del DOM son los mismos.
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass.
+- Smoke manual pendiente: abrir cliente -> abrir Ficha Cliente como admin -> ver bloque Credito cheque abajo + poder editar y guardar. Abrir como VDE -> NO ver el bloque.
+
+**Rollback**:
+`git revert <commit>`. El markup del credito vuelve al `#client-modal`, el populate vuelve a `openClientModal`, el modal Ficha Cliente pierde el credito. Zero migracion Firestore.
+
 ### v1259 (2026-10-14) — Badge CAT + boton "Vincular SAP" estilo Apple pill
 
 **Archivos**:

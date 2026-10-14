@@ -5159,11 +5159,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                 <option value="C">C - sin descuento</option>
               </select>
             </div>
-            <div id="cm-credito-cheque-block" style="margin-top:10px;display:none">
-              <label for="cm-credito-cheque" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Cr&eacute;dito cheque (ARS) <span style="font-weight:400;color:var(--text-muted)">(monto de cr&eacute;dito autorizado en cheques)</span></label>
-              <input id="cm-credito-cheque" type="number" min="0" step="1000" placeholder="Ej: 500000" onblur="saveClientCreditoChequeFromModal(this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)"/>
-              <div id="cm-credito-cheque-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
-            </div>
+            <!-- v1260 (2026-10-14): bloque "Credito cheque (ARS)" movido al
+                 modal #ficha-cliente-modal para unificar perfilado comercial
+                 (fidelidad / tamano / especializacion / tipo local / credito).
+                 Mantenemos los IDs cm-credito-cheque + cm-credito-cheque-status
+                 (ahora dentro de #ficha-cliente-modal) para que
+                 saveClientCreditoChequeFromModal no requiera cambios.
+                 El docId lo sigue leyendo desde #client-modal.dataset, que
+                 queda abierto detras del modal Ficha. -->
             <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
           </div>
           <!-- v1258 (2026-10-13): Perfil comercial movido a modal propio
@@ -5280,6 +5283,16 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <option value="FISICO">F&iacute;sico</option>
             <option value="ECOMMERCE">E-commerce</option>
           </select>
+        </div>
+        <!-- v1260 (2026-10-14): "Credito cheque (ARS)" dentro de la Ficha
+             Cliente (antes vivia en #client-modal). Gate admin/gerente
+             aplicado en openFichaClienteFromClientModal via display:none.
+             IDs preservados (cm-credito-cheque + cm-credito-cheque-status)
+             para no romper saveClientCreditoChequeFromModal. -->
+        <div id="cm-credito-cheque-block" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border-default);display:none">
+          <label for="cm-credito-cheque" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Cr&eacute;dito cheque (ARS) <span style="font-weight:400;color:var(--text-muted)">(monto autorizado en cheques)</span></label>
+          <input id="cm-credito-cheque" type="number" min="0" step="1000" placeholder="Ej: 500000" onblur="saveClientCreditoChequeFromModal(this)" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)"/>
+          <div id="cm-credito-cheque-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
         </div>
         <div id="fc-status" style="font-size:11px;color:var(--text-muted);margin-top:12px;min-height:16px"></div>
       </div>
@@ -6264,7 +6277,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1259';
+const APP_VERSION = 'v1260';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10905,15 +10918,10 @@ function openClientModal(clientName, tipo, province, localityName){
   if (selTipo) selTipo.value = cmData.cliTipo || '';
   // v1258 (2026-10-13): los 5 selects de perfil (fidelidad / prefContacto /
   // tamano / especializacion / tipoLocal) se moveron al modal #ficha-cliente-modal.
-  // El populate se hace al abrir ese modal via openFichaClienteFromClientModal.
-  // v1056: Credito cheque (ARS) - solo admin/gerente. Number > 0 permitido, guarda
-  // en client_master.creditoCheque (+ updatedAt/By) via saveClientCreditoChequeFromModal.
-  const credBlockEl = document.getElementById('cm-credito-cheque-block');
-  if (credBlockEl) credBlockEl.style.display = isAdminLike ? '' : 'none';
-  const credInput = document.getElementById('cm-credito-cheque');
-  if (credInput) credInput.value = (cmData.creditoCheque != null) ? String(cmData.creditoCheque) : '';
-  const credStatus = document.getElementById('cm-credito-cheque-status');
-  if (credStatus) credStatus.textContent = '';
+  // v1260 (2026-10-14): "Credito cheque (ARS)" tambien se movio ahi. El
+  // populate + gate admin de ambos vive en openFichaClienteFromClientModal.
+  // isAdminLike se usa mas abajo para otras acciones del cliente — no se
+  // lee aca para el credito.
   // Guardo en el dataset del modal los meta necesarios para escribir a
   // client_master al cambiar un dropdown (vendor / prov / loc / name).
   const modalEl = document.getElementById('client-modal');
@@ -11087,6 +11095,16 @@ function openFichaClienteFromClientModal(){
     var el = document.getElementById(id);
     if (el) el.value = map[id];
   });
+  // v1260 (2026-10-14): Credito cheque (ARS) movido aca desde #client-modal.
+  // Gate: solo admin/gerente ve el bloque. El guardado sigue vivendo en
+  // saveClientCreditoChequeFromModal (bundle) que lee docId del #client-modal.
+  var isAdminLikeFc = (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'gerente'));
+  var credBlockFc = document.getElementById('cm-credito-cheque-block');
+  if (credBlockFc) credBlockFc.style.display = isAdminLikeFc ? '' : 'none';
+  var credInputFc = document.getElementById('cm-credito-cheque');
+  if (credInputFc) credInputFc.value = (cmData.creditoCheque != null) ? String(cmData.creditoCheque) : '';
+  var credStatusFc = document.getElementById('cm-credito-cheque-status');
+  if (credStatusFc) credStatusFc.textContent = '';
   var status = document.getElementById('fc-status');
   if (status) status.textContent = '';
   document.getElementById('ficha-cliente-modal').classList.add('open');
