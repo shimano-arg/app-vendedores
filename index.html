@@ -5154,28 +5154,15 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <label for="cm-locality" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Localidad <span style="color:var(--color-danger)">*</span></label>
             <input id="cm-locality" type="text" autocomplete="address-level2" placeholder="Ej: Palermo, San Isidro, La Plata..." oninput="onClientMetaInput()" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none"/>
           </div>
-          <div style="border-top:1px dashed var(--border-default);margin:14px -2px 10px;padding-top:10px">
-            <div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Categorizacion comercial <span style="font-weight:500;color:var(--text-muted);text-transform:none;letter-spacing:0">(determina el descuento fijo + el bonus de pago anticipado)</span></div>
-            <div>
-              <label for="cm-cli-tipo" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tipo de cliente</label>
-              <select id="cm-cli-tipo" onchange="saveClientCategoriaFromModal('cliTipo', this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
-                <option value="">(sin clasificar)</option>
-                <option value="P">P (Premium) - fijo 6% / anticipado 5%</option>
-                <option value="A">A - fijo 3% / anticipado 3%</option>
-                <option value="B">B - sin descuento</option>
-                <option value="C">C - sin descuento</option>
-              </select>
-            </div>
-            <!-- v1260 (2026-10-14): bloque "Credito cheque (ARS)" movido al
-                 modal #ficha-cliente-modal para unificar perfilado comercial
-                 (fidelidad / tamano / especializacion / tipo local / credito).
-                 Mantenemos los IDs cm-credito-cheque + cm-credito-cheque-status
-                 (ahora dentro de #ficha-cliente-modal) para que
-                 saveClientCreditoChequeFromModal no requiera cambios.
-                 El docId lo sigue leyendo desde #client-modal.dataset, que
-                 queda abierto detras del modal Ficha. -->
-            <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
-          </div>
+          <!-- v1265 (2026-10-14): bloque "Categorizacion comercial" con el
+               select "Tipo de cliente" (cliTipo) movido al modal
+               #ficha-cliente-modal. Perfilado comercial unificado ahi.
+               v1260: bloque "Credito cheque (ARS)" tambien movido ahi.
+               IDs preservados (cm-cli-tipo + cm-cli-status + cm-credito-cheque)
+               dentro del modal Ficha para no romper saveClientCategoriaFromModal
+               ni saveClientCreditoChequeFromModal. Dataset docId se sigue
+               leyendo desde #client-modal.dataset. -->
+          <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px;display:none"></div>
           <!-- v1258 (2026-10-13): Perfil comercial movido a modal propio
                "Ficha Cliente" (abre con el boton). Rework de v1256 que lo
                tenia inline aqui. Dato de Firestore es el mismo (client_master)
@@ -5242,6 +5229,19 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       </div>
       <div class="modal-body">
         <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.4">Perfil comercial para segmentar campa&ntilde;as y acciones. Los campos son opcionales y se guardan autom&aacute;ticamente al cambiar.</div>
+        <!-- v1265 (2026-10-14): "Tipo de cliente" (cliTipo) movido aca desde
+             #client-modal. Determina el descuento fijo + el bonus de pago
+             anticipado. ID cm-cli-tipo preservado para no romper el bundle. -->
+        <div style="margin-bottom:10px">
+          <label for="cm-cli-tipo" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Tipo de cliente <span style="font-weight:400;color:var(--text-muted)">(descuento fijo + bonus pago anticipado)</span></label>
+          <select id="cm-cli-tipo" onchange="saveClientCategoriaFromModal('cliTipo', this, 'fc-status')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
+            <option value="">(sin clasificar)</option>
+            <option value="P">P (Premium) - fijo 6% / anticipado 5%</option>
+            <option value="A">A - fijo 3% / anticipado 3%</option>
+            <option value="B">B - sin descuento</option>
+            <option value="C">C - sin descuento</option>
+          </select>
+        </div>
         <div style="margin-bottom:10px">
           <label for="fc-fidelidad" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Fidelidad</label>
           <select id="fc-fidelidad" onchange="saveClientCategoriaFromModal('fidelidad', this, 'fc-status')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)">
@@ -6284,7 +6284,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1264';
+const APP_VERSION = 'v1265';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11101,8 +11101,11 @@ function openFichaClienteFromClientModal(){
     parts.push('SAP ' + docId);
     fcMeta.textContent = parts.join(' - ');
   }
-  // Populate 5 selects desde client_master cache.
+  // Populate 6 selects desde client_master cache.
+  // v1265 (2026-10-14): agregado 'cm-cli-tipo' (cliTipo) que vino del
+  // #client-modal al mover el bloque "Categorizacion comercial" aca.
   var map = {
+    'cm-cli-tipo': cmData.cliTipo || '',
     'fc-fidelidad': cmData.fidelidad || '',
     'fc-pref-contacto': cmData.prefContacto || '',
     'fc-tamano': cmData.tamano || '',
