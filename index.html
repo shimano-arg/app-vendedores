@@ -6332,7 +6332,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1289';
+const APP_VERSION = 'v1290';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19013,16 +19013,18 @@ window._repartoRecalc = function(input){
   const maxBO = Number(input.getAttribute('data-max-bo')) || 0;
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   const qtyIng = (ing && Number(ing.qtyIngresada)) || 0;
-  // v1287: clamp dinamico por "libre del ingreso". Antes solo clampeaba por
-  // maxBO (del cliente) → Pablo podia escribir valores que hacian sum >
-  // qtyIngresada y el apply bloqueaba despues. Ahora autoajusta al menor
-  // posible: min(maxBO, maxLibre). maxLibre = qtyIng - sum_de_OTROS_inputs.
+  // v1287: clamp dinamico por "libre del ingreso".
+  // v1290 (2026-10-14): REVERTIDO el clamp dinamico por libre. Reporte Mariano:
+  // "quiero asignar las 3 al cliente X y no me deja" — cuando otros inputs
+  // tenian valores > 0, el clamp cortaba el input a maxLibre (lo que quedaba
+  // libre), impidiendo escribir el valor deseado aunque el cliente lo
+  // hubiera pedido. Ahora el clamp solo es por maxBO del cliente; si total
+  // > qtyIng el apply queda disabled + feedback rojo. Pablo ajusta los otros
+  // a mano, pero puede escribir su intencion sin pelearse con el UI.
   const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
   let sumOtros = 0;
   inputs.forEach((inp) => { if (inp !== input) sumOtros += Number(inp.value) || 0; });
-  const maxLibre = Math.max(0, qtyIng - sumOtros);
-  const maxPermitido = Math.min(maxBO, maxLibre);
-  const val = Math.max(0, Math.min(maxPermitido, Math.round(Number(input.value) || 0)));
+  const val = Math.max(0, Math.min(maxBO, Math.round(Number(input.value) || 0)));
   if (Number(input.value) !== val) input.value = val;
   const total = sumOtros + val;
   const libre = Math.max(0, qtyIng - total);
@@ -19047,9 +19049,11 @@ window._repartoRecalc = function(input){
   if (totalEl) totalEl.style.color = total > qtyIng ? '#dc2626' : '#1e40af';
 };
 
-// v1287 (2026-10-14): asigna el max posible al input (min entre maxBO del
-// cliente y el libre del ingreso). Util cuando Pablo quiere darle "todo lo
-// que necesita o pueda" a un cliente especifico.
+// v1287 (2026-10-14): asigna el max posible al input.
+// v1290 (2026-10-14): el MAX ahora PRIMERO resetea los OTROS inputs del
+// mismo ingreso a 0 y DESPUES setea este input a min(maxBO, qtyIng). Flow
+// pedido Mariano: "quiero darle las 3 a UN cliente". MAX = "este cliente
+// se lleva todo lo que pueda, el resto queda en 0".
 window._repartoSetMax = function(input){
   if (!input) return;
   const ingresoId = input.getAttribute('data-reparto-input');
@@ -19057,12 +19061,10 @@ window._repartoSetMax = function(input){
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   if (!ing) return;
   const qtyIng = Number(ing.qtyIngresada) || 0;
-  // Calcular sum de los OTROS inputs del mismo ingreso.
+  // Reset los OTROS inputs a 0.
   const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
-  let sumOtros = 0;
-  inputs.forEach((inp) => { if (inp !== input) sumOtros += Number(inp.value) || 0; });
-  const libre = Math.max(0, qtyIng - sumOtros);
-  input.value = Math.min(maxBO, libre);
+  inputs.forEach((inp) => { if (inp !== input) inp.value = 0; });
+  input.value = Math.min(maxBO, qtyIng);
   _repartoRecalc(input);
 };
 
