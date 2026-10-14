@@ -1046,7 +1046,9 @@ export const geminiOcrProxy = onCall(
 
 /**
  * expireAsigLinesTTL — cron diario 03:00 America/Argentina/Buenos_Aires (E7).
- * Libera lineas state='ASIG' con asigAt > 30 dias. Mueve a state='expired',
+ * v1274 (2026-10-14): TTL 60d (antes 15d). Rationale Mariano: "si no se
+ * confirmo en 60 dias es basura".
+ * Libera lineas state='ASIG' con asigAt > 60 dias. Mueve a state='expired',
  * qtyExpired += qty, qtyOpen = 0. Cierra pedido si quedan todas las lineas
  * en 0. Escribe audit doc en `asig_ttl_log/{isoTimestamp}`.
  *
