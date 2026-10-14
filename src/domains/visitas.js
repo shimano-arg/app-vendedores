@@ -188,15 +188,15 @@ function getClientCategoryBadgeHtml(province, locName, name, opts) {
         '</span>'
       );
     }
-    // v1259 (2026-10-14): badge inline estilo Apple pill. Mismo color de
-    // fondo por tipo (s.bg), pero radio 999 + font-weight 600 + sin
-    // uppercase, mas inset border sutil para profundidad.
+    // v1259 (2026-10-14): badge inline estilo Apple pill.
+    // v1261 (2026-10-14): padding 2x9 -> 4x11 para igualar altura con los
+    // botones de la card (Ver en mapa / Vincular SAP / Envio gratis).
     return (
       ' <span title="' +
       escapeAttr(s.title) +
       '" style="display:inline-block;font-size:10px;color:#fff;font-weight:600;margin-left:6px;background:' +
       s.bg +
-      ";padding:2px 9px;border-radius:999px;letter-spacing:-.005em;line-height:1.4;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif\">Cat " +
+      ";padding:4px 11px;border-radius:999px;letter-spacing:-.005em;line-height:1.3;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif\">Cat " +
       tipo +
       '</span>'
     );

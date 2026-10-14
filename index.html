@@ -2300,11 +2300,14 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .cli-state-badge.pendiente{background:var(--color-warning-bg);color:var(--color-warning)}
 /* v442: boton "Ver en mapa" dentro de la card, esquina inferior derecha.
    Absoluto para no romper el layout del content de la card. */
-.client-card .cli-map-btn{position:absolute;bottom:6px;right:6px;padding:4px 9px;background:#00A9E0;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(0,169,224,.35);transition:.12s;z-index:2}
-.client-card .cli-map-btn:hover{background:#0087b3;transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,169,224,.5)}
-.client-card .cli-map-btn:active{transform:translateY(0)}
-.client-card .cli-map-btn[disabled]{background:#cbd5e1;color:var(--text-muted);cursor:not-allowed;box-shadow:none}
-.client-card .cli-map-btn[disabled]:hover{background:#cbd5e1;transform:none}
+/* v1261 (2026-10-14): "Ver en mapa" Apple pill. Mismo tamano/radio/weight
+   que .cli-delete-btn + .cli-cat-corner para que convivan uniformes en la
+   card. Celeste Shimano con alpha, inset border sutil, transition Apple. */
+.client-card .cli-map-btn{position:absolute;bottom:8px;right:8px;padding:4px 11px;background:rgba(0,169,224,.95);color:#fff;border:none;border-radius:999px;font-size:10px;font-weight:600;cursor:pointer;letter-spacing:-.005em;line-height:1.3;display:inline-flex;align-items:center;gap:4px;box-shadow:0 1px 2px rgba(0,169,224,.22),inset 0 0 0 .5px rgba(255,255,255,.22);transition:transform .18s cubic-bezier(.32,.72,0,1),box-shadow .18s cubic-bezier(.32,.72,0,1),background-color .18s cubic-bezier(.32,.72,0,1);z-index:2;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif}
+.client-card .cli-map-btn:hover{background:rgba(0,135,179,.98);transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,169,224,.32),inset 0 0 0 .5px rgba(255,255,255,.26)}
+.client-card .cli-map-btn:active{transform:scale(.97);box-shadow:0 1px 2px rgba(0,169,224,.18)}
+.client-card .cli-map-btn[disabled]{background:rgba(203,213,225,.95);color:var(--text-muted);cursor:not-allowed;box-shadow:none}
+.client-card .cli-map-btn[disabled]:hover{background:rgba(203,213,225,.95);transform:none;box-shadow:none}
 /* v803 (2026-09-04): boton "Vincular SAP" para LEADs (provisorios sin
    cardCodeSap) en el sidebar CLIENTES. Antes era "Eliminar" (v782) — se
    cambio para evitar perdida de visitas al borrar un LEAD que en realidad
@@ -2321,7 +2324,8 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
    SOLO visible para Ioannis (body.is-ioannis, seteado en applyRolePermissions).
    Default azul marino oscuro; toggle verde cuando el cliente lo tiene marcado.
    Ancho fijo mismo que cli-map-btn para alinear visualmente. */
-.client-card .cli-envio-btn{display:none;position:absolute;bottom:32px;right:6px;padding:4px 9px;background:#1F3864;color:#fff;border:none;border-radius:4px;font-size:10px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(31,56,100,.35);transition:.12s;z-index:2}
+/* v1261 (2026-10-14): "Envio gratis" Apple pill matching cli-map-btn + cli-delete-btn. */
+.client-card .cli-envio-btn{display:none;position:absolute;bottom:38px;right:8px;padding:4px 11px;background:rgba(31,56,100,.95);color:#fff;border:none;border-radius:999px;font-size:10px;font-weight:600;cursor:pointer;letter-spacing:-.005em;line-height:1.3;align-items:center;gap:4px;box-shadow:0 1px 2px rgba(31,56,100,.22),inset 0 0 0 .5px rgba(255,255,255,.22);transition:transform .18s cubic-bezier(.32,.72,0,1),box-shadow .18s cubic-bezier(.32,.72,0,1),background-color .18s cubic-bezier(.32,.72,0,1);z-index:2;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif}
 body.is-ioannis .client-card .cli-envio-btn{display:inline-flex}
 body.is-ioannis .client-card{padding-bottom:60px}
 /* v988 removido en v1086: "Rutas recomendadas" eliminadas por completo,
@@ -2414,10 +2418,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .waitlist-item .wl-meta{font-size:10px;color:var(--text-muted);margin-top:2px}
 .waitlist-item .wl-badge{background:var(--color-accent-violet);color:#fff;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:800}
 .waitlist-item .wl-badge.exceed{background:var(--color-danger)}
-.client-card .cli-envio-btn:hover{background:#152744;transform:translateY(-1px);box-shadow:0 2px 6px rgba(31,56,100,.5)}
-.client-card .cli-envio-btn.active{background:#10b981;box-shadow:0 1px 3px rgba(16,185,129,.4)}
-.client-card .cli-envio-btn.active:hover{background:#059669;box-shadow:0 2px 6px rgba(16,185,129,.55)}
-.client-card .cli-envio-btn:active{transform:translateY(0)}
+.client-card .cli-envio-btn:hover{background:rgba(21,39,68,.98);transform:translateY(-1px);box-shadow:0 2px 6px rgba(31,56,100,.32),inset 0 0 0 .5px rgba(255,255,255,.26)}
+.client-card .cli-envio-btn.active{background:rgba(16,185,129,.95);box-shadow:0 1px 2px rgba(16,185,129,.26),inset 0 0 0 .5px rgba(255,255,255,.22)}
+.client-card .cli-envio-btn.active:hover{background:rgba(5,150,105,.98);box-shadow:0 2px 6px rgba(16,185,129,.35),inset 0 0 0 .5px rgba(255,255,255,.26)}
+.client-card .cli-envio-btn:active{transform:scale(.97);box-shadow:0 1px 2px rgba(31,56,100,.18)}
 /* Bloque de acciones en modal del cliente */
 .client-data-block{background:var(--bg-secondary);border:1.5px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:12px}
 .client-data-block input:focus{border-color:var(--brand-shimano-blue);box-shadow:0 0 0 3px rgba(0,169,224,.15)}
@@ -2801,7 +2805,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    neutro, radio 999 (pill), font-weight 600, inset border sutil para dar
    depth, box-shadow mas suave. Mantiene el color de fondo inline (lo setea
    getClientCategoryBadgeHtml en src/domains/visitas.js segun cliTipo). */
-.cli-cat-corner{position:absolute;top:8px;right:10px;font-size:10px;font-weight:600;color:#fff;padding:2px 9px;border-radius:999px;letter-spacing:-.005em;line-height:1.4;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif}
+/* v1261 (2026-10-14): subido padding vertical de 2 a 4 para igualar altura
+   total con .cli-delete-btn + .cli-map-btn (los 3 ahora comparten padding
+   4px 11px + font-size 10px + line-height 1.3). */
+.cli-cat-corner{position:absolute;top:8px;right:10px;font-size:10px;font-weight:600;color:#fff;padding:4px 11px;border-radius:999px;letter-spacing:-.005em;line-height:1.3;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif}
 .pedido-client-card .cli-cat-corner{top:9px;right:11px}
 /* v318+: badge de origen (SAP CXXXXXX o PROVISORIO). Antes iba absolute
    arriba a la derecha pero apretaba el nombre. Ahora inline en la
@@ -6277,7 +6284,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1260';
+const APP_VERSION = 'v1261';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17593,7 +17600,8 @@ function renderCrearList(){
     html += '<div class="pedido-client-card"' + cardStyle + ' ' + evtAttr + '="askCreatePedido(\'' + escapeAttr(it.name) + '\',\'' + it.tipo + '\',\'' + escapeAttr(it.point.province) + '\',\'' + escapeAttr(it.point.name) + '\')" title="' + tipText + '">';
     html += '<div style="flex:1;min-width:0"><div class="ped-name">' + escapeHtml(bigNamePed);
     if (prec.flag) {
-      html += ' <span title="' + escapeAttr(prec.reason || 'Cliente con precaucion') + '" style="font-size:9px;color:#fff;font-weight:800;margin-left:4px;background:#d97706;padding:2px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px">Precauci&oacute;n</span>';
+      // v1261 (2026-10-14): badge Precaucion a Apple pill matching CAT + Habilitado.
+      html += ' <span title="' + escapeAttr(prec.reason || 'Cliente con precaucion') + '" style="display:inline-block;font-size:10px;color:#fff;font-weight:600;margin-left:4px;background:rgba(217,119,6,.95);padding:4px 11px;border-radius:999px;letter-spacing:-.005em;line-height:1.3;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif">Precauci&oacute;n</span>';
     }
     html += '</div>';
     if (hasFantPed) {
@@ -17606,10 +17614,13 @@ function renderCrearList(){
     // porque chocaria con el badge de estado que ya vive ahi.
     html += getClientCategoryBadgeHtml(it.point.province, it.point.name, it.name);
     if (isProvisorio) {
-      html += '<div style="background:var(--color-warning);color:#fff;font-size:9px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px">Provisorio</div>';
-      html += '<div style="font-size:9px;color:var(--color-warning);font-weight:700">Esperando carga SAP</div>';
+      // v1261 (2026-10-14): badges Provisorio + Habilitado a Apple pill
+      // matching CAT (padding 4x11, radio 999, weight 600, sin uppercase,
+      // inset border + shadow suave, font-family SF Pro).
+      html += '<div style="display:inline-block;background:rgba(217,119,6,.95);color:#fff;font-size:10px;font-weight:600;padding:4px 11px;border-radius:999px;letter-spacing:-.005em;line-height:1.3;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif">Provisorio</div>';
+      html += '<div style="font-size:9px;color:var(--color-warning);font-weight:700;font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif">Esperando carga SAP</div>';
     } else {
-      html += '<div style="background:#10b981;color:#fff;font-size:9px;font-weight:800;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.4px">Habilitado</div>';
+      html += '<div style="display:inline-block;background:rgba(16,185,129,.95);color:#fff;font-size:10px;font-weight:600;padding:4px 11px;border-radius:999px;letter-spacing:-.005em;line-height:1.3;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif">Habilitado</div>';
     }
     // v862: badge "En curso" removido (ver comentario en items.forEach).
     html += '</div></div>';

@@ -4717,6 +4717,49 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1261 (2026-10-14) — Unificar tamano Apple pill en Clientes + Pedidos
+
+**Archivos**:
+- `index.html:2300-2310` (`.cli-map-btn` Apple pill)
+- `index.html:2316-2321` + `2418-2424` (`.cli-envio-btn` Apple pill)
+- `index.html:2803-2808` (`.cli-cat-corner` padding vertical subido)
+- `index.html:17596` (badge "Precaucion" inline en pedido-card -> Apple pill)
+- `index.html:17609-17613` (badges "Provisorio" + "Habilitado" + "Esperando carga SAP" en pedido-card -> Apple pill)
+- `src/domains/visitas.js:195-204` (`getClientCategoryBadgeHtml` version inline padding subido)
+- `app.bundle.js` regenerado
+- `index.html:6260` + `sw.js:20` (bump v1260 -> v1261)
+
+**Antes (v1260)**:
+Despues del v1259 restyle, el badge `Cat C` tenia padding vertical 2px mientras `Ver en mapa` + `Vincular SAP` tenian padding 4px. Alturas visualmente desiguales (18px vs 24px). Ademas `Ver en mapa` + `Envio gratis` seguian con border-radius:4 + weight 800 + uppercase (estilo retail). Los badges inline de la card de pedido (Precaucion / Provisorio / Habilitado) tambien seguian cuadrados y agresivos.
+
+**Problema**:
+Pedido Mariano (2026-10-14 screenshot adjunto): "Cat C" y "Ver en mapa" tenian que tener el mismo tamano. Y que el estilo Apple se aplicara en ambos panes (Clientes **y** Pedidos).
+
+**Cambio**:
+Formato pill unificado para TODOS los elementos (badge CAT, Ver en mapa, Vincular SAP, Envio gratis, Precaucion, Provisorio, Habilitado):
+- padding: `4px 11px`
+- font-size: `10px`, font-weight: `600`, line-height: `1.3`
+- border-radius: `999px` (pill)
+- letter-spacing: `-.005em` (neutro, nunca uppercase)
+- font-family stack SF Pro
+- inset border `.5px rgba(255,255,255,.22)` para depth
+- box-shadow `0 1px 2px rgba(X,.08-.22)` (suave)
+- transition `cubic-bezier(.32,.72,0,1)` + press `scale(.97)` para los que son botones
+- backgrounds con `rgba(X,.95)` para desaturar sin cambiar el color-code
+Resultado: todos los chips de la card tienen la misma altura total (~24px). Convive el pill celeste de "Ver en mapa" con pill gris de "Cat C" y pill verde de "Vincular SAP" / "Habilitado" visualmente uniformes.
+
+**Por que**:
+- Consistencia visual (apple-design skill §1 feedback + §15 typography moderada): la card de cliente/pedido es la unidad mas repetida de la app; tener 3-4 chips con alturas y weights distintos genera ruido visual que distrae del contenido.
+- Reutilizacion del pattern pill: el header del Planner (v1012), Panel de Control (v611-v614), FichaCliente button (v1258) ya usan el mismo lenguaje. Esta extraction completa la coherencia en el pane principal.
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass (31 archivos).
+- `node build.js` -> OK, bundle 2.48 MB.
+- Smoke manual pendiente post-deploy: comparar card de Clientes con card de Pedidos — Cat / Ver en mapa / Vincular SAP / Precaucion / Habilitado deben tener misma altura y estilo pill en ambos panes.
+
+**Rollback**:
+`git revert <commit>`. Selectores CSS iguales (.cli-cat-corner, .cli-map-btn, .cli-envio-btn, .cli-delete-btn), markup Pedidos revierte a inline uppercase retail.
+
 ### v1260 (2026-10-14) — Credito cheque (ARS) movido a Ficha Cliente
 
 **Archivos**:
