@@ -5565,9 +5565,17 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              Modo 'urgente' -> naranja + "Backorders" + copy urgente-importar.
              Modo 'asignacion' -> verde + "Asignacion Backorder" + copy llegada-mercaderia. -->
         <div class="modal-head" id="backorders-modal-head" style="background:linear-gradient(135deg,#7c2d12,#c2410c)">
-          <div>
+          <div style="flex:1;min-width:0">
             <h2 id="backorders-modal-title">Backorders</h2>
             <div class="subt" id="backorders-modal-subt">SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.</div>
+          </div>
+          <!-- v1275 (2026-10-14): slot con el total $ representado por los
+               SKUs filtrados actualmente. Se popula desde renderBackordersTab.
+               En modo urgente = $ pendiente de facturar; en modo asignacion
+               = $ listo para asignar/facturar. -->
+          <div id="backorders-modal-total" style="flex-shrink:0;text-align:right;margin-right:12px;color:#fff;align-self:center">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.85" id="backorders-modal-total-lbl">Total</div>
+            <div style="font-size:17px;font-weight:800;letter-spacing:-0.3px" id="backorders-modal-total-val">—</div>
           </div>
           <button class="modal-close" onclick="closeBackordersModal()">&times;</button>
         </div>
@@ -5619,7 +5627,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                  el VDE lo revise y envie a SAP. -->
             <button id="btn-crear-pedido-st" class="bo-btn" onclick="openCrearPedidoSTModal()" title="Crear un pedido en lista de espera con los SKUs que un cliente tiene en Stock Asignado. Omite los que admin destildo manualmente desde el checkbox del modal." style="background:#1e40af;color:#fff;border-color:#1e3a8a">Crear Pedido Desde Stock Asignado</button>
           </div>
-          <div id="backorders-summary" style="padding:10px 12px;background:var(--color-warning-bg);border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
+          <div id="backorders-summary" style="padding:10px 12px;background:var(--color-warning-bg);border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0;text-align:center"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
         </div>
       </div>
@@ -6298,7 +6306,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1274';
+const APP_VERSION = 'v1275';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14767,6 +14775,30 @@ window.renderBackordersTab = function(){
   sum.appendChild(_mk(_sumUnidLabel, false));
   sum.appendChild(_mk(String(totalClientes), true));
   sum.appendChild(_mk(_sumClientLabel, false));
+  // v1275 (2026-10-14): total $ en el header del modal. Suma qty * precio por
+  // cliente/SKU segun modo (qtyAsignada en asignacion, qtyBackorder en urgente).
+  // Si falta precio en la row (precio=0 por desync con PRODUCTS), caen a 0 — el
+  // total es best-effort y refleja lo que la UI ya mostraba por row.
+  (() => {
+    let totalPesos = 0;
+    for (const g of skus) {
+      for (const c of (g.clientes || [])) {
+        const _qty = _sumIsAsig ? (Number(c.qtyAsignada) || 0) : (Number(c.qtyBackorder) || 0);
+        if (_qty <= 0) continue;
+        const _precio = Number(c.precio) || 0;
+        totalPesos += _qty * _precio;
+      }
+    }
+    const _lblEl = document.getElementById('backorders-modal-total-lbl');
+    const _valEl = document.getElementById('backorders-modal-total-val');
+    if (_lblEl) _lblEl.textContent = _sumIsAsig ? 'Total asignado' : 'Total backorder';
+    if (_valEl) {
+      const _fmtMoney = (typeof fmtMoney === 'function')
+        ? fmtMoney
+        : (n) => '$ ' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+      _valEl.textContent = _fmtMoney(totalPesos);
+    }
+  })();
   // v1136 (2026-10-05): breakdown por estado agregado PBI (SIN REPOSICIÓN /
   // EN TRÁNSITO / PARCIAL). Solo tiene sentido en modo backorder (en ASIG
   // todos van a EN DEPÓSITO por strict mode). DOM via createElement para
@@ -14786,7 +14818,8 @@ window.renderBackordersTab = function(){
     });
     const wrap = document.createElement('div');
     wrap.id = 'bk-estado-breakdown';
-    wrap.style.cssText = 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap';
+    // v1275: centrar los chips para alinear con el summary (ya centrado).
+    wrap.style.cssText = 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center';
     const mkChip = (emoji, label, nSkus, nU, bg) => {
       const sp = document.createElement('span');
       sp.style.cssText = 'background:' + bg + ';color:var(--text-primary);padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700';

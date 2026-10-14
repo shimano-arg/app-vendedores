@@ -4717,6 +4717,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1275 (2026-10-14) — Total $ en header modal Backorder + Stock Asignado + summary centrado
+
+**Archivos**:
+- `index.html:5567-5582` (header del modal con slot `#backorders-modal-total` para el valor en pesos)
+- `index.html:5622` (summary bar con `text-align:center`)
+- `index.html:14764-14802` (compute del total $ en `renderBackordersTab` + centrar chip breakdown)
+- `index.html:6260` + `sw.js:20` (bump v1274 → v1275)
+
+**Antes (v1274)**:
+Mariano pidio: "centrar el summary del modal Stock Asignado + agregar el valor en dinero en el header de ambos modales (Backorder y Stock Asignado)".
+
+**Cambio**:
+- **Centrado**: summary bar amarillo ahora `text-align:center`. Chips de breakdown (SIN REPOSICIÓN / EN TRÁNSITO / PARCIAL) con `justify-content:center`.
+- **Total $**: slot nuevo en el header-right (al lado del boton de cerrar) con 2 filas:
+  - Label "Total asignado" (modo asignacion) o "Total backorder" (modo urgente).
+  - Valor en pesos formateado (`fmtMoney` si disponible, fallback a `$ N`).
+- **Compute**: suma de `qty * precio` por SKU-cliente, segun modo (`qtyAsignada` en asignacion, `qtyBackorder` en urgente). Si falta `precio` en una row (desync con PRODUCTS), cae a 0 — best-effort, refleja lo que la UI ya mostraba por row.
+
+**Por que**:
+- Mariano necesita ver el ARS representado por el modal rapido, sin tener que exportar o abrir detalle por SKU.
+- Visualmente alineado con el header (slot a la derecha, label discreto + valor grande).
+
+**Verificacion**:
+- `npm run test:unit` → 706/706 pass.
+- `npm run typecheck` → clean.
+- Smoke manual post-deploy: abrir ambos modales, verificar que el total $ coincide con la suma esperada (comparar con export Excel).
+
+**Rollback**:
+`git revert <commit>`. Summary vuelve a left-align. Header pierde el slot. Chips breakdown vuelven a flex-start.
+
 ### v1274 (2026-10-14) — TTL ASIG subido de 15 a 60 días
 
 **Archivos**:
