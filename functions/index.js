@@ -1043,7 +1043,7 @@ export const migrateAsigToBOCF = onCall(
       if (role !== 'admin' && role !== 'gerente') {
         throw new HttpsError(
           'permission-denied',
-          'solo admin/gerente puede ejecutar migracion (role actual: ' + role + ')',
+          'solo admin/gerente puede ejecutar migracion (role actual: ' + role + ')'
         );
       }
     } catch (e) {
