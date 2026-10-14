@@ -4717,6 +4717,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1279 (2026-10-14) — Reparto manual Fase 3: eliminar FIFO automático (cleanup)
+
+**Archivos eliminados**:
+- `functions/core/fifo-assign-core.js`
+- `tests/functions/fifo-assign.test.js`
+- CF `onStockChangeFIFOAssign` del `functions/index.js`
+- Reglas `/stock_assignment_log/` y `/stock_assignment_log_shadow/` de firestore.rules
+- Import `runFifoAssign` de `functions/index.js`
+
+**Archivos actualizados**:
+- `functions/core/reparto-core.js`: comentarios actualizados (ya no referencian fifo-assign-core)
+- `index.html:27695`: comentario del modal de desglose stock actualizado (menciona modal "Reparto")
+- `index.html:6260` + `sw.js:20` (bump v1278 → v1279)
+
+**Antes (v1278)**:
+Fase 2 shippeada. `onStockChangeFIFOAssign` tenía early return pero el export seguía vivo + `fifo-assign-core.js` + tests + rules de audit log quedaban como código zombie.
+
+**Cambio (Fase 3 — cleanup)**:
+- CF `onStockChangeFIFOAssign` eliminada del codebase. Deploy la va a borrar del backend Firebase (no más instance corriendo).
+- `fifo-assign-core.js` + sus 20+ tests eliminados.
+- Rules de `stock_assignment_log*` eliminadas (los docs históricos quedan en Firestore, inaccesibles via API para zero-trust pero visibles en Firebase Console para audit).
+- `reparto-core.js` + comentarios en `index.html` actualizados para no referenciar código muerto.
+
+**Por que**:
+- Fase 2 estaba estable (confirmaste "SI TODO OK"). Cerramos la deuda técnica.
+- Zero riesgo: el CF ya era no-op; eliminarlo no cambia comportamiento.
+
+**Verificacion**:
+- `vitest run tests/unit/` → 706/706 pass.
+- `vitest run tests/functions/` → 473/473 pass (27 tests FIFO eliminados — reparto + migración los reemplazan).
+- `npm run typecheck` → clean.
+
+**Deploy**: `firebase deploy --only functions,firestore:rules`. Al deployar, Firebase va a BORRAR `onStockChangeFIFOAssign` del backend. Para re-habilitar: git revert este commit + redeploy.
+
+**Rollback**:
+`git revert` + `firebase deploy`. Restaura `fifo-assign-core.js` + CF + rules + tests. Pero cuidado: si el motor viejo corre, va a competir con el flow nuevo (ambos escuchan el mismo evento) → race conditions al promover BO → ASIG. Si hay que rollback, deshabilitar manualmente el nuevo primero.
+
 ### v1278 (2026-10-14) — Reparto manual Fase 2: FIFO viejo deshabilitado + modal UI + migración ASIG→BO + Pablo en gate
 
 **Archivos**:

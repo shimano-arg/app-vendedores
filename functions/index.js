@@ -41,7 +41,9 @@ import { runDailyBackup } from './core/backup-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
-import { runFifoAssign } from './core/fifo-assign-core.js';
+// v1279 (2026-10-14): FIFO automatico eliminado — reemplazado por reparto
+// manual (reparto-core.js + reparto-migration-core.js). Historia:
+// v1277 dual mode → v1278 FIFO disabled → v1279 FIFO deleted.
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
@@ -863,52 +865,11 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
   }
 );
 
-/**
- * onStockChangeFIFOAssign — trigger on-write app_config/stock_snapshot (E4.5).
- * Cuando el sync_sap_to_firestore.py actualiza warehouseBreakdown (cada 30 min),
- * detecta SKUs con delta positivo en dep 11 y corre FIFO estricto para
- * promover lineas de pedidos-app de state='BO' a state='ASIG'.
- *
- * Modo controlado por app_config/sap_sync_state.mode (mismo flag que E2/E3):
- *   - 'shadow' (default): loguea a stock_assignment_log_shadow, NO modifica pedidos
- *   - 'active' (E5): modifica pedidos.lines[i].state='ASIG' + asigAt=now
- */
-// v1278 (2026-10-14): FIFO viejo DESHABILITADO. Ahora el reparto es 100%
-// manual via `onDep11IncreaseCreateReparto` + modal "Reparto" de Pablo.
-// La CF queda exportada por si Mariano quiere re-habilitar rollback, pero
-// el early-return en el handler la neutraliza — zero promociones automaticas
-// post-deploy v1278.
-export const onStockChangeFIFOAssign = onDocumentWritten(
-  {
-    region: REGION,
-    document: 'app_config/stock_snapshot',
-    retry: false,
-    memory: '512MiB',
-    timeoutSeconds: 300,
-  },
-  async (event) => {
-    // v1278: no-op. Para re-habilitar: borrar el early return.
-    console.log('onStockChangeFIFOAssign v1278 disabled (reparto manual activo)');
-    return;
-    /* v1277 behavior (disabled v1278):
-    const before = event.data?.before?.data() ?? null;
-    const after = event.data?.after?.data() ?? null;
-    if (!after) return; // delete, no-op
-    const db = getFirestore();
-    const r = await runFifoAssign(
-      { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
-      before,
-      after
-    );
-    console.log('onStockChangeFIFOAssign done', {
-      mode: r.mode,
-      skusChecked: r.skusChecked,
-      promotions: r.promotions.length,
-      errors: r.errors.length,
-    });
-    */
-  }
-);
+// v1279 (2026-10-14): onStockChangeFIFOAssign ELIMINADO.
+// Historia: v1277 Fase 1 dual mode → v1278 Fase 2 early return → v1279
+// Fase 3 cleanup. El reparto es 100% manual via onDep11IncreaseCreateReparto
+// + modal "Reparto" de Pablo. Al deployar este cambio, Firebase borra la CF
+// del backend. Para re-habilitar en el futuro: ver git log antes de este commit.
 
 /**
  * v1277 (2026-10-14): onDep11IncreaseCreateReparto — reparto manual Fase 1.
