@@ -62,8 +62,6 @@ import { applyRepartoManualCore, createIngresosRepartoFromDelta } from './core/r
 // v1278 (2026-10-14): migracion ASIG → BO + create ingresos_reparto para
 // SKUs con stock libre. Switchover al reparto manual.
 import { migrateAsigToBOAndCreateReparto } from './core/reparto-migration-core.js';
-// v1280 (2026-10-14): TTL 7d waitlists stock-asignado-batch.
-import { expireStockAsignadoWaitlists } from './core/waitlist-ttl-core.js';
 // v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos (incident
 // cowork — ~1570 lineas sin cliente_code en v_pedidos_lines).
 import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core.js';
@@ -78,6 +76,8 @@ import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 // v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
 import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
 import { handleTriggerRendicionesEmailManual } from './core/trigger-rendiciones-email-core.js';
+// v1280 (2026-10-14): TTL 7d waitlists stock-asignado-batch.
+import { expireStockAsignadoWaitlists } from './core/waitlist-ttl-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -1289,7 +1289,7 @@ export const expireStockAsignadoWaitlistsCF = onSchedule(
       expiredCount: r.expired.length,
       errors: r.errors.length,
     });
-  },
+  }
 );
 
 /**
