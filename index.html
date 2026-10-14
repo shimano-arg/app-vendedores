@@ -6332,7 +6332,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1292';
+const APP_VERSION = 'v1293';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13870,7 +13870,14 @@ var backordersMode = 'urgente'; // v420: 'urgente' (Backorders) | 'asignacion' (
 // v941 (2026-09-15): eliminada opcion 'todos' del dropdown por pedido Mariano
 // — el modal Backorder debe mostrar solo lo "para importar" por default. Los
 // parciales tienen stock repartido y aparecen en STOCK ASIG. desde ahi.
-var backordersUrgencyFilter = 'urgente';
+// v1293 (2026-10-14): REVERTIDO a '' (todos). Rationale: post-v1288 el modal
+// STOCK ASIG solo muestra state='ASIG' reales (lo que Pablo repartio manualmente).
+// Los SKUs con stock parcial que todavia no fueron repartidos quedaron
+// INVISIBLES tanto en Backorder (filtrados por urgency=urgente) como en Stock
+// Asignado (filtrados por state=ASIG). Reporte Mariano: EXGTVC66M4AR con 22u
+// fisicas + 15 clientes BO no aparecia en NINGUN modal. Ahora Backorder
+// muestra urgentes + parciales por default.
+var backordersUrgencyFilter = '';
 // v402 (2026-08-05): abrir/cerrar Backorders como modal fullscreen (pedido
 // de Mariano - antes era una tab dentro del sidebar). Al abrir, garantiza
 // listener + trigger render.
