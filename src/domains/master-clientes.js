@@ -2256,14 +2256,10 @@ window.renderMasterClientesTable = function () {
   html += '<th style="width:11%">Vendedor</th>';
   html += '<th style="width:18%">Direcci&oacute;n exacta</th>';
   html += '<th style="width:8%" title="Categoria comercial del cliente">Tipo</th>';
-  // v1055 (2026-09-24): nueva columna "Credito" — limite de credito editable
-  // en ARS que tiene el cliente para pagar con cheque. Admin+gerente pueden
-  // editar; se guarda en client_master.creditoCheque (POINTS) o
-  // client_applications.creditoCheque (SAP altas).
-  // v1057 (2026-09-24): ensancho 10%→17% + font 11→13px porque valores tipo
-  // 750.000 quedaban cortados en el input (reportado por Mariano con screenshot).
-  html +=
-    '<th style="width:17%" title="Limite de credito en ARS para pagar con cheque (editable admin/gerente)">Credito ARS</th>';
+  // v1055 (2026-09-24) + v1264 (2026-10-14): columna "Credito ARS" REMOVIDA
+  // del Master de Clientes. El dato vive en client_master.creditoCheque y se
+  // edita desde el modal Ficha Cliente (admin/gerente only). Dejar aqui era
+  // duplicacion visual.
   html += '<th style="width:8%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
@@ -2275,7 +2271,9 @@ window.renderMasterClientesTable = function () {
     // approvedAltasList (savedAddr es la calle/address actual guardada).
     let savedAddr = '';
     let curTipo = '';
-    let curCredito = null; // v1055: limite de credito ARS para cheque
+    // v1264 (2026-10-14): curCredito removido (columna "Credito ARS" ya no
+    // se renderiza; dato se edita desde el modal Ficha Cliente). El export
+    // CSV lee cmData.creditoCheque directo del cache, no necesita esto.
     let defaultDelivery = null;
     if (isSap) {
       const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
@@ -2283,12 +2281,10 @@ window.renderMasterClientesTable = function () {
       );
       savedAddr = alta ? alta.calle || alta.address || '' : '';
       curTipo = (alta && alta.cliTipo) || '';
-      curCredito = alta && alta.creditoCheque != null ? Number(alta.creditoCheque) : null;
     } else {
       const saved = clientMasterCache.get(id);
       savedAddr = saved && saved.address ? saved.address : '';
       curTipo = (saved && saved.cliTipo) || '';
-      curCredito = saved && saved.creditoCheque != null ? Number(saved.creditoCheque) : null;
       // v630: defaultDelivery vive en client_master (solo POINTS por ahora;
       // SAP altas se agregan cuando el vendedor confirma un pedido para ese
       // cliente y clientLocId matchea con el nombre real).
@@ -2614,49 +2610,10 @@ window.renderMasterClientesTable = function () {
       '">' +
       _selHtml('cliTipo', curTipoRender, TIPO_OPTS, id) +
       '</td>';
-    // v1055 (2026-09-24): input numeric editable para creditoCheque. Autosave
-    // onchange via saveMcClientNumField (parse a Number, guarda a Firestore).
-    // v1057 (2026-09-24): font 11→13px, padding lateral, min-width 100px + hint
-    // "$X.XXX.XXX" al lado (formato ARS legible mientras el input muestra el
-    // numero crudo editable). Reportado por Mariano: "no se leen bien los
-    // valores queda chico el cuadrado".
-    const creditoCanEdit = userRole === 'admin' || userRole === 'gerente';
-    const creditoDisplay =
-      curCredito != null && Number.isFinite(curCredito) ? String(curCredito) : '';
-    const creditoFmt =
-      curCredito != null && Number.isFinite(curCredito)
-        ? '$' + curCredito.toLocaleString('es-AR')
-        : '';
-    if (creditoCanEdit) {
-      html +=
-        '<td data-vendor="' +
-        escapeAttr(e.vendor) +
-        '" data-prov="' +
-        escapeAttr(e.provincia) +
-        '" data-loc="' +
-        escapeAttr(e.localidad) +
-        '" data-name="' +
-        escapeAttr(e.nombre) +
-        '"><input type="number" min="0" step="1000" class="mc-addr-input js-mc-credito-input' +
-        (creditoDisplay ? ' has-value' : '') +
-        '" style="font-size:13px;text-align:right;padding:4px 8px;min-width:100px;font-variant-numeric:tabular-nums" value="' +
-        escapeAttr(creditoDisplay) +
-        '" placeholder="0" title="Limite ARS para cheque" onchange="saveMcClientNumField(\'' +
-        escapeAttr(id) +
-        "', 'creditoCheque', this)\" />" +
-        (creditoFmt
-          ? '<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:2px;font-variant-numeric:tabular-nums" title="Formato legible">' +
-            escapeHtml(creditoFmt) +
-            '</div>'
-          : '') +
-        '</td>';
-    } else {
-      const creditoRO = creditoFmt || '-';
-      html +=
-        '<td style="text-align:right;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums;padding-right:8px">' +
-        escapeHtml(creditoRO) +
-        '</td>';
-    }
+    // v1055 (2026-09-24) + v1264 (2026-10-14): columna "Credito ARS" REMOVIDA
+    // de la tabla del Master de Clientes. El dato sigue viviendo en
+    // client_master.creditoCheque y se edita desde el modal Ficha Cliente
+    // (admin/gerente only). Dejar aqui era duplicacion visual.
     html +=
       '<td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="' +
       btnCls +
