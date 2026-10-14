@@ -6298,7 +6298,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1271';
+const APP_VERSION = 'v1272';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15928,13 +15928,30 @@ window._cpstConfirmar = async function(){
   if (!c) return;
   const r = c._cliResolved || {};
   const btn = document.getElementById('cpst-confirm-btn');
+  // v1272 (2026-10-14): mostrar cuanto va a waitlist vs cuanto queda en SA.
+  // qtyAjustada = min(sk.qty, stock_libre_hoy). Si qtyAjustada < sk.qty hay
+  // recorte — las unidades recortadas quedan ASIG tildadas en el pedido original.
+  const totalAjustado = c.skus.reduce((s, sk) => s + (Number(sk.qtyAjustada) || 0), 0);
+  const totalRecorte = c.skus.reduce((s, sk) => s + (Number(sk.qtyRecorte) || 0), 0);
+  const skusVanWaitlist = c.skus.filter(sk => (Number(sk.qtyAjustada) || 0) > 0).length;
+  const skusOmitidos = c.skus.filter(sk => (Number(sk.qtyAjustada) || 0) <= 0).length;
+  const detalleRecorte = totalRecorte > 0
+    ? '\n\nRECORTE por stock insuficiente HOY:\n' +
+      '  ' + totalAjustado + 'u van a Lista de Espera.\n' +
+      '  ' + totalRecorte + 'u quedan ASIG tildadas en el pedido original (reservadas para cuando haya mas stock).'
+    : '';
+  const detalleOmitidos = skusOmitidos > 0
+    ? '\n\n' + skusOmitidos + ' SKU(s) sin stock HOY: se omiten de la Lista de Espera y quedan ASIG tildados en los pedidos originales.'
+    : '';
   const confirmMsg =
     'Confirmar la creacion del pedido en LISTA DE ESPERA para:\n\n' +
     c.nombre + '\n' +
-    c.skus.length + ' SKU(s), ' + c.totalU + ' unidad(es)\n\n' +
+    skusVanWaitlist + ' SKU(s), ' + totalAjustado + ' unidad(es) van a Lista de Espera' +
+    detalleRecorte +
+    detalleOmitidos + '\n\n' +
     'Esto va a (atomico - todo o nada):\n' +
-    '1) Cancelar las lineas ASIG viejas del cliente en los pedidos originales.\n' +
-    '2) Crear un pedido NUEVO en LISTA DE ESPERA con esos SKUs.\n' +
+    '1) Cancelar parcialmente (o completamente) las lineas ASIG tildadas en los pedidos originales.\n' +
+    '2) Crear un pedido NUEVO en LISTA DE ESPERA con las unidades disponibles.\n' +
     '3) Si alguna cancellation falla, NADA se escribe (rollback automatico).\n\n' +
     'Despues el VDE revisa el pedido + completa la forma de entrega + lo envia a SAP.';
   if (!confirm(confirmMsg)) return;
@@ -15953,10 +15970,26 @@ window._cpstConfirmar = async function(){
     // PASO 2: construir las modificaciones por pedidoId. Agrupamos porque
     // Firestore requiere escribir el array `lines` completo (no field-level).
     // pedidoId -> { newLines, origLines (para auto-close check), originalPedido }
+    //
+    // v1272 (2026-10-14): split parcial. Solo cancelar qtyAjustada (lo que
+    // efectivamente va a waitlist). Si qtyAjustada < qtyOpen total del SKU
+    // para el cliente, las unidades sobrantes quedan ASIG tildadas en el
+    // pedido original. Si qtyAjustada=0, NO tocar la linea (sigue completa).
+    // Pedido Mariano: "si asignado 24u pero stock=20, waitlist 20u y queden
+    // 4u ASIG tildadas".
+    //
+    // Distribucion entre entries (si cliente tiene multiples pedidos del
+    // mismo SKU): FIFO por el orden del compute (entries vienen en orden
+    // sqDocDate ASC). Primeros entries se cancelan completos, el ultimo
+    // puede ser parcial si queda remanente de qtyAjustada.
     const updates = new Map();
     const errors = [];
     for (const sk of c.skus) {
+      const qtyAjustadaTotal = Number(sk.qtyAjustada) || 0;
+      if (qtyAjustadaTotal <= 0) continue; // Nada va a waitlist → no tocar lineas.
+      let restanteACancelar = qtyAjustadaTotal;
       for (const entry of (sk.entries || [])) {
+        if (restanteACancelar <= 0) break;
         const pid = entry.pedidoId;
         if (!pid) {
           errors.push(sk.sku + ': pedidoId vacio');
@@ -15994,17 +16027,51 @@ window._cpstConfirmar = async function(){
           l && String(l.code).toUpperCase() === String(sk.sku).toUpperCase() && l.state === st
         );
         if (idx < 0) {
+          // v1272: break (no continue) para evitar que subsiguientes entries
+          // consuman restanteACancelar parcialmente y despues tiremos un
+          // "faltaron Xu desync" confuso. El error primario se preserva.
           errors.push(sk.sku + ' (pedido ' + pid + '): linea no encontrada state=' + st);
-          continue;
+          break;
         }
         const qo = Number(u.newLines[idx].qtyOpen) || 0;
-        u.newLines[idx] = Object.assign({}, u.newLines[idx], {
-          qtyOpen: 0,
-          qtyCancelled: (Number(u.newLines[idx].qtyCancelled) || 0) + qo,
-          state: 'cancelled',
-          cancelledAt: nowIso,
-          cancelledFrom: 'crear-pedido-st',
-        });
+        if (qo <= 0) {
+          // v1272: no silent. Si entry viene con pedidoId cuya linea tiene
+          // qtyOpen=0, registrar para debug (puede ser cache stale vs
+          // Firestore o linea ya cancelada por otro flow concurrente).
+          errors.push(sk.sku + ' (pedido ' + pid + '): linea con qtyOpen=0, state=' + st + ' (ya cerrada o cancelada por otro flow)');
+          break;
+        }
+        // v1272: cancelar solo lo que necesitamos (toCancel). El resto queda ASIG.
+        const toCancel = Math.min(qo, restanteACancelar);
+        const newQtyOpen = qo - toCancel;
+        if (newQtyOpen > 0) {
+          // Split parcial: mantener state=ASIG + asigReserva, bajar qtyOpen,
+          // subir qtyCancelled. La linea sigue reservando stock para las qty
+          // sobrantes (admin eligio tildarla).
+          u.newLines[idx] = Object.assign({}, u.newLines[idx], {
+            qtyOpen: newQtyOpen,
+            qtyCancelled: (Number(u.newLines[idx].qtyCancelled) || 0) + toCancel,
+            partialCancelAt: nowIso,
+            partialCancelFrom: 'crear-pedido-st',
+            partialCancelQty: (Number(u.newLines[idx].partialCancelQty) || 0) + toCancel,
+          });
+        } else {
+          // Cancelacion completa (qtyOpen=0 post-cancel).
+          u.newLines[idx] = Object.assign({}, u.newLines[idx], {
+            qtyOpen: 0,
+            qtyCancelled: (Number(u.newLines[idx].qtyCancelled) || 0) + toCancel,
+            state: 'cancelled',
+            cancelledAt: nowIso,
+            cancelledFrom: 'crear-pedido-st',
+          });
+        }
+        restanteACancelar -= toCancel;
+      }
+      if (restanteACancelar > 0) {
+        // Edge case: qtyAjustada > sum(entries.qtyOpen). No deberia pasar porque
+        // qtyAjustada = min(sk.qty, libreParaCliente) y sk.qty = sum(entries).
+        // Si pasa, es desync entre cache y Firestore — mejor fallar que mentir.
+        errors.push(sk.sku + ': faltaron ' + restanteACancelar + 'u para completar qtyAjustada (desync cache/Firestore)');
       }
     }
     // Si HUBO errores, abortar todo (atomic). Antes de commitear nada.
@@ -16014,7 +16081,9 @@ window._cpstConfirmar = async function(){
                       (errors.length > 10 ? '\n...y ' + (errors.length - 10) + ' mas' : ''));
     }
     if (updates.size === 0) {
-      throw new Error('No hay lineas para cancelar (updates vacio).');
+      // v1272: lo mas probable es que todos los SKUs tengan qtyAjustada=0
+      // (stock físico libre para el cliente = 0 para todos). Mensaje acorde.
+      throw new Error('No hay unidades disponibles para crear el pedido. El stock físico libre para este cliente es 0 en todos los SKUs tildados. Las lineas ASIG quedan intactas.');
     }
     // PASO 3: construir items[] del waitlist payload.
     // v1198 (2026-10-08): usa qtyAjustada (= min(sk.qty, libreParaCliente_hoy))
@@ -16063,14 +16132,19 @@ window._cpstConfirmar = async function(){
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
-    // Contar lineas efectivamente modificadas para auditoria.
+    // Contar lineas efectivamente modificadas para auditoria. v1272: incluye
+    // tanto cancellaciones completas como splits parciales.
     let totalCancelled = 0;
+    let totalPartialCancel = 0;
     for (const u of updates.values()) {
-      totalCancelled += u.newLines.filter(l =>
-        l && l.cancelledAt === nowIso && l.cancelledFrom === 'crear-pedido-st'
-      ).length;
+      for (const l of u.newLines) {
+        if (!l) continue;
+        if (l.cancelledAt === nowIso && l.cancelledFrom === 'crear-pedido-st') totalCancelled++;
+        else if (l.partialCancelAt === nowIso && l.partialCancelFrom === 'crear-pedido-st') totalPartialCancel++;
+      }
     }
     payload.sourceCancelledLines = totalCancelled;
+    payload.sourcePartialCancelLines = totalPartialCancel;
     // PASO 4: BATCH ATOMIC. Todas las updates de pedidos + crear waitlist en 1 commit.
     // Si falla cualquier operacion, nada se escribe (Firestore batch rollback).
     const batch = fbDb.batch();
