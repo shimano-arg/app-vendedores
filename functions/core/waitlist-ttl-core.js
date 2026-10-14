@@ -117,7 +117,9 @@ export async function expireStockAsignadoWaitlists(deps) {
     if (expMs <= 0 && data.createdAt && typeof data.createdAt.toDate === 'function') {
       try {
         expMs = data.createdAt.toDate().getTime() + 7 * 24 * 60 * 60 * 1000;
-      } catch (_e) { /* ignore */ }
+      } catch (_e) {
+        /* ignore */
+      }
     }
     if (expMs <= 0) return; // Sin expiresAt NI createdAt usable → no expirar.
     if (expMs > nowMs) return; // Aun vigente.
