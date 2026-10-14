@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * v1277 (2026-10-14): reparto manual de stock por Pablo. Reemplaza el motor
- * FIFO automatico (fifo-assign-core.js) por un flow asistido:
+ * FIFO automatico (eliminado v1279) por un flow asistido:
  *
  *  1. Cada write a `app_config/stock_snapshot` dispara detectDep11Increases.
  *     Para cada SKU con delta positivo en dep 11, se crea un doc en la
@@ -72,8 +72,9 @@ const REPARTO_LOG_COLLECTION = 'reparto_log';
  */
 
 /**
- * Portado de fifo-assign-core._parseWarehouseBreakdown. Inline para evitar
- * dependencia que vamos a eliminar en v1278.
+ * Parsea warehouseBreakdown que puede venir como JSON string (sync Python v368+)
+ * o como objeto (tests). v1279: antes importado de fifo-assign-core; ahora
+ * standalone porque ese modulo ya no existe.
  * @param {any} snap
  * @returns {Record<string, Record<string, number>>}
  */
@@ -92,7 +93,7 @@ function _parseWarehouseBreakdown(snap) {
 
 /**
  * Extrae SKUs con delta positivo en dep 11 comparando warehouseBreakdown
- * before vs after. Mismo contrato que fifo-assign-core.extractSkusWithStockIncrease.
+ * before vs after.
  * @param {any} beforeSnap
  * @param {any} afterSnap
  * @returns {Map<string, number>} sku -> delta

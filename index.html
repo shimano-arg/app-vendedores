@@ -6332,7 +6332,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1278';
+const APP_VERSION = 'v1279';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27692,9 +27692,9 @@ window.queryStockLive = function(code, btn){
       // - EN TRANSITO (dep. 12)
       // - UNIDADES RESERVADAS: app-source asignados (state='ASIG')
       // - PENDIENTE SIN STOCK: app-source backorder (state='BO'), solo > 0
-      // si DISPONIBLE = 0. Si llega stock, el CF onStockChangeFIFOAssign
-      // convierte pending -> reservado, asi que si disp > 0 no deberia
-      // haber pending (edge case: race entre sync stock y CF FIFO).
+      // si DISPONIBLE = 0. v1279: desde que el FIFO automatico fue eliminado,
+      // si hay stock disp > 0 + lineas BO abiertas, aparece un card en el
+      // modal "Reparto" para que Pablo las asigne manualmente.
       // - ESPERA APP (Lista de Espera de vendedores)
       // - LIBRE PARA LA VENTA = max(DISPONIBLE - UNIDADES RESERVADAS, 0)
       // Ejemplo Mariano: 25 disp - 10 reservadas = 15 libre.
