@@ -5611,46 +5611,55 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                  stock. Crea pedido APP con stage='confirmed' + lineas state='BO' +
                  transferidoSAP.via='manual-backorder' (NO se envia a SAP). -->
             <button id="btn-generar-backorder" class="bo-btn" onclick="openGenerarBackorderModal()" title="Cargar backorder manual: cliente + SKUs + unidades. NO se envia a SAP, queda como demanda pendiente en la app." style="background:#b45309;color:#fff;border-color:#92400e">Generar Backorder</button>
-            <!-- v1145 (2026-10-06): Crear Pedido - ST. Boton visible solo en modo asignacion.
-                 Abre selector de cliente -> consolida sus SKUs en SA SIN RESERVA -> borra
+            <!-- v1145 (2026-10-06): Crear Pedido Desde Stock Asignado. Boton visible solo en modo asignacion.
+                 v1271 (2026-10-14): inversion semantica. Antes consolidaba SA SIN RESERVA; ahora
+                 consolida SKUs TILDADOS (con reserva). Rename del boton incluido. Abre selector
+                 de cliente -> toma sus SKUs ASIG tildados -> cancela originales -> crea waitlist.
                  las lineas ASIG viejas + crea pedido nuevo en revision_waitlist para que
                  el VDE lo revise y envie a SAP. -->
-            <button id="btn-crear-pedido-st" class="bo-btn" onclick="openCrearPedidoSTModal()" title="Crear un pedido en lista de espera con los SKUs que un cliente tiene en Stock Asignado SIN RESERVA" style="background:#1e40af;color:#fff;border-color:#1e3a8a">Crear Pedido - ST</button>
+            <button id="btn-crear-pedido-st" class="bo-btn" onclick="openCrearPedidoSTModal()" title="Crear un pedido en lista de espera con los SKUs que un cliente tiene tildados en Stock Asignado (con reserva). Omite los destildados." style="background:#1e40af;color:#fff;border-color:#1e3a8a">Crear Pedido Desde Stock Asignado</button>
           </div>
           <div id="backorders-summary" style="padding:10px 12px;background:var(--color-warning-bg);border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#78350f;flex-shrink:0"></div>
           <div id="backorders-list" style="flex:1;overflow-y:auto"></div>
         </div>
       </div>
     </div>
-    <!-- v1145 (2026-10-06): Modal "Crear Pedido - ST". Flow:
-         1) Lista clientes con >=1 SKU en SA SIN RESERVA (asigReserva=false).
+    <!-- v1145 (2026-10-06): Modal "Crear Pedido Desde Stock Asignado". Flow:
+         v1271 (2026-10-14): invertido — ahora consolida SKUs tildados (CON reserva).
+         1) Lista clientes con >=1 SKU ASIG tildado (asigReserva!=false). Omite
+            el SKU si el cliente tiene alguna linea destildada del mismo SKU en
+            otro pedido.
          2) Al elegir cliente, muestra preview: SKUs + qty + precio + subtotal.
-         3) Al confirmar: cancela cada linea ASIG original (state='cancelled') +
-            crea doc en revision_waitlist para que el VDE lo revise y envie a SAP.
+         3) Al confirmar: cancela cada linea ASIG tildada original + crea doc
+            en revision_waitlist para que el VDE lo revise y envie a SAP.
          Simplifica la gestion de stock asignado para los vendedores. -->
     <div class="modal-overlay" id="crear-pedido-st-modal" onclick="if(event.target===this)closeCrearPedidoSTModal()">
-      <div class="modal-box" style="width:min(820px,98vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-box" style="width:min(820px,98vw);height:92vh;max-height:92vh;display:flex;flex-direction:column">
         <div class="modal-head" style="background:linear-gradient(135deg,#1e3a8a,#1e40af)">
           <div>
-            <h2 id="cpst-title">Crear Pedido - Stock Asignado</h2>
-            <div class="subt" id="cpst-subt">Elegí un cliente para consolidar sus SKUs en SA SIN RESERVA en un pedido en lista de espera.</div>
+            <h2 id="cpst-title">Crear Pedido Desde Stock Asignado</h2>
+            <div class="subt" id="cpst-subt">Elegí un cliente para consolidar sus SKUs con reserva (tildados) en un pedido en lista de espera.</div>
           </div>
           <button class="modal-close" onclick="closeCrearPedidoSTModal()">&times;</button>
         </div>
         <!-- v1267 (2026-10-14): min-height:0 agregado a los flex columns.
-             Bug reportado: lista de clientes no scrolleaba verticalmente,
-             se cortaba antes de llegar al final. Root cause: flex children
-             con contenido mas alto que su parent necesitan min-height:0
-             explicito o el default min-height:auto los expande. -->
-        <div style="padding:14px;display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden;min-height:0">
+             v1271 (2026-10-14): height:92vh fija en vez de max-height:92vh.
+             El fix v1267 no alcanzaba porque `.modal-box` global tiene
+             `contain:layout style` (v882 PERF) + `overflow:hidden`, y con
+             `max-height` el parent flex se auto-ajustaba a su contenido
+             (no al cap de viewport). Al forzar height exacta, el flex:1
+             child tiene denominador firme → scroll funciona.
+             box-sizing explicito previene que el padding:14px se sume al
+             100% y provoque overflow invisible. -->
+        <div style="padding:14px;display:flex;flex-direction:column;gap:10px;flex:1 1 0;overflow:hidden;min-height:0;box-sizing:border-box">
           <!-- Paso 1: lista clientes (visible por default) -->
-          <div id="cpst-step-clientes" style="display:flex;flex-direction:column;gap:10px;flex:1;overflow:hidden;min-height:0">
+          <div id="cpst-step-clientes" style="display:flex;flex-direction:column;gap:10px;flex:1 1 0;overflow:hidden;min-height:0">
             <input id="cpst-search" class="bo-ctl" type="text" placeholder="Buscar cliente por nombre..." oninput="_cpstFilterClientes()" style="flex-shrink:0;padding:12px 14px;font-size:14px;height:auto;width:100%;box-sizing:border-box"/>
             <div id="cpst-summary" style="padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;color:#1e3a8a;flex-shrink:0"></div>
-            <div id="cpst-clientes-list" style="flex:1 1 0;min-height:0;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px"></div>
+            <div id="cpst-clientes-list" style="flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;border:1px solid #e5e7eb;border-radius:6px"></div>
           </div>
           <!-- Paso 2: preview SKUs del cliente seleccionado (hidden por default) -->
-          <div id="cpst-step-preview" style="display:none;flex-direction:column;gap:10px;flex:1;overflow:hidden;min-height:0">
+          <div id="cpst-step-preview" style="display:none;flex-direction:column;gap:10px;flex:1 1 0;overflow:hidden;min-height:0">
             <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;justify-content:center">
               <button class="bo-btn" onclick="_cpstVolver()" style="padding:6px 12px">Volver</button>
               <div style="font-weight:600;font-size:15px" id="cpst-preview-cliente"></div>
@@ -6289,7 +6298,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1270';
+const APP_VERSION = 'v1271';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15317,11 +15326,15 @@ window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty
 };
 
 // =============================================================================
-// v1145 (2026-10-06): Crear Pedido - ST (Stock Asignado)
-// Flow bulk: toma SKUs que un cliente tiene en SA SIN RESERVA (c.state='ASIG',
-// c.asigReserva=false) y los consolida en un pedido nuevo en revision_waitlist.
-// Las lineas ASIG viejas se marcan 'cancelled' (mismo pattern que ELIMINAR).
-// VDE revisa en bandeja de lista de espera + completa delivery + envia a SAP.
+// v1145 (2026-10-06): Crear Pedido Desde Stock Asignado
+// v1271 (2026-10-14): INVERSION semantica + rename. Antes consolidaba SA SIN
+// RESERVA (destildadas). Ahora consolida SKUs TILDADOS (CON reserva). Si un
+// cliente tiene alguna linea ASIG destildada del mismo SKU en cualquier otro
+// pedido, el SKU se OMITE para ese cliente (requisito Mariano: "si tiene
+// alguna unidad no tildada omitirla").
+// Flow bulk: toma SKUs ASIG tildados del cliente -> consolida en pedido nuevo
+// en revision_waitlist. Las lineas ASIG viejas se marcan 'cancelled' (mismo
+// pattern que ELIMINAR). VDE revisa en lista de espera + envia a SAP.
 // =============================================================================
 var _cpstClientesCache = null;
 var _cpstSelected = null;
@@ -15352,11 +15365,31 @@ window.closeCrearPedidoSTModal = function(){
 
 // Recompute desde el pure fn (mismo call que renderBackordersTab con mode='asignacion'
 // + aggregationMode='strict'). Agrupa por cliente filtrado a c.source='app',
-// c.state='ASIG', c.asigReserva=false (SIN RESERVA, no retiene stock).
+// c.state='ASIG', c.asigReserva TRUTHY (TILDADO, retiene stock).
+// v1271 (2026-10-14): si el cliente tiene alguna linea ASIG destildada del mismo
+// SKU en cualquier otro pedido, se omite ese SKU del cliente (pedido Mariano).
 function _cpstBuildCache(){
   const _computeFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeBackorderSkuMap);
   if (!_computeFn) { _cpstClientesCache = {}; return; }
   const pedidos = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+  // v1271: pre-pass para detectar pares (clienteNombreUP|skuUP) con AL MENOS
+  // una linea ASIG destildada. Esos pares se omiten aunque haya otras lineas
+  // tildadas del mismo SKU para el mismo cliente.
+  /** @type {Set<string>} */
+  const paresConDestildada = new Set();
+  for (const p of pedidos) {
+    if (!p || p.closedAt || p.stage !== 'confirmed' || !Array.isArray(p.lines)) continue;
+    const nombreUp = String(p.clientName || '').trim().toUpperCase();
+    if (!nombreUp) continue;
+    for (const l of p.lines) {
+      if (!l || l.state !== 'ASIG') continue;
+      if ((Number(l.qtyOpen) || 0) <= 0) continue;
+      if (l.asigReserva === false || l.asigReserva === 0) {
+        const skuUp = String(l.code || '').trim().toUpperCase();
+        if (skuUp) paresConDestildada.add(nombreUp + '|' + skuUp);
+      }
+    }
+  }
   const result = _computeFn(
     pedidos,
     'asignacion',
@@ -15374,11 +15407,15 @@ function _cpstBuildCache(){
     (g.clientes || []).forEach(c => {
       if (c.source !== 'app') return;
       if (c.state !== 'ASIG') return;
-      if (c.asigReserva !== false) return;
+      // v1271: aceptar solo tildadas (true/undefined/1). Omitir false/0.
+      if (c.asigReserva === false || c.asigReserva === 0) return;
       const qty = Number(c.qtyAsignada) || 0;
       if (qty <= 0) return;
       const nombre = c.nombre || '';
       if (!nombre) return;
+      // v1271: omitir SKU si cliente tiene alguna destildada del mismo SKU.
+      const parKey = String(nombre).trim().toUpperCase() + '|' + String(g.sku || '').trim().toUpperCase();
+      if (paresConDestildada.has(parKey)) return;
       if (!map[nombre]) {
         map[nombre] = {
           nombre: nombre,
@@ -15428,15 +15465,22 @@ function _cpstRenderClientes(filterText){
   const totalClientes = all.length;
   const totalU = all.reduce((s,c) => s + (c.totalU || 0), 0);
   if (summary) {
-    summary.textContent = totalClientes + ' clientes con Stock Asignado SIN RESERVA · ' + totalU + ' unidades totales'
+    // v1271: SKUs CON reserva (tildados). Clientes con alguna linea destildada
+    // del mismo SKU se filtran upstream en _cpstBuildCache.
+    summary.textContent = totalClientes + ' clientes con Stock Asignado CON RESERVA · ' + totalU + ' unidades totales'
       + (q ? ' · ' + filtered.length + ' coinciden con el filtro' : '');
   }
   if (filtered.length === 0) {
-    box.innerHTML = '<div style="padding:30px;text-align:center;color:#64748b">' +
-      (totalClientes === 0
-        ? 'No hay clientes con Stock Asignado SIN RESERVA en este momento.'
-        : 'Ningun cliente coincide con el filtro.') +
-      '</div>';
+    // v1271: contenido estatico (sin interpolacion user). Replace innerHTML
+    // con un string constante por branch — zero vector XSS.
+    const _emptyMsg = totalClientes === 0
+      ? 'No hay clientes con Stock Asignado CON RESERVA (tildados) en este momento.'
+      : 'Ningun cliente coincide con el filtro.';
+    while (box.firstChild) box.removeChild(box.firstChild);
+    const _emptyDiv = document.createElement('div');
+    _emptyDiv.style.cssText = 'padding:30px;text-align:center;color:#64748b';
+    _emptyDiv.textContent = _emptyMsg;
+    box.appendChild(_emptyDiv);
     return;
   }
   box.innerHTML = filtered.map((c, idx) => {
