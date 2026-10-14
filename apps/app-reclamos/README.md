@@ -28,7 +28,8 @@ Kanban tipo Trello para gestionar reclamos entre Shimano y el depósito.
 - Drag & drop entre columnas con `@dnd-kit/core` + `<DragOverlay>` (portal para no quedar tapado por columnas hermanas con backdrop-blur).
 - Badge de tiempo por card (compact + color por threshold; verde congelado en Cerrado).
 - Grid `grid-cols-6` en desktop (sin scroll horizontal), `flex overflow-x-auto` en mobile.
-- Botón **Responsables**: setear default assignee por columna (tabla `column_defaults`, RLS admin-only).
+- Botón **Responsables**: setear default assignee por columna (tabla `column_defaults`, RLS admin-only). UI gateada por whitelist de emails (Diego/Santiago/Mariano); el resto no ve el botón.
+- **Buscador** en el header (remito, cliente, factura, fantasía, observaciones). Sin chips de tipo/asignee (quitados 2026-10-14 por ruido visual; el search cubre esos casos).
 - Botón **Nuevo reclamo**: modal sheet con Nº factura / Cliente / Nombre fantasía + checklist videos + file picker múltiple.
 
 **Detalle del reclamo (modal 2 columnas):**

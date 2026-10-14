@@ -4717,6 +4717,74 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1260 (2026-10-14) — Credito cheque (ARS) movido a Ficha Cliente
+
+**Archivos**:
+- `index.html:5162-5167` (bloque `#cm-credito-cheque-block` removido del `#client-modal`)
+- `index.html:5278-5287` (bloque `#cm-credito-cheque-block` reinsertado dentro del `#ficha-cliente-modal`, antes de `fc-status`)
+- `index.html:10906-10911` (populate credito eliminado de `openClientModal`)
+- `index.html:11089-11098` (populate credito + gate admin agregado a `openFichaClienteFromClientModal`)
+- `index.html:6260` + `sw.js:20` (bump v1259 → v1260)
+
+**Antes (v1259)**:
+"Credito cheque (ARS)" vivia inline en el `#client-modal`, bajo el bloque "Categorizacion comercial", gate admin/gerente via `display:none`. Los otros 5 campos de perfilado comercial (fidelidad, prefContacto, tamano, especializacion, tipoLocal) ya habian sido movidos al modal `#ficha-cliente-modal` en v1258.
+
+**Problema**:
+Mariano pidio (2026-10-14) unificar todo el perfilado comercial en la Ficha Cliente — Credito ARS era el ultimo dato de segmentacion que quedaba fuera. Separacion operativo vs. perfilado era inconsistente.
+
+**Cambio**:
+- Markup: bloque movido tal cual al final del modal Ficha Cliente, con un border-top dashed para separarlo visualmente de los 5 selects de arriba (es un campo de otro tipo: numeric vs. select).
+- IDs preservados (`cm-credito-cheque` + `cm-credito-cheque-status`) para no tocar `saveClientCreditoChequeFromModal` (vive en `src/domains/master-clientes.js` + `app.bundle.js`). La funcion sigue leyendo docId desde `#client-modal.dataset`, que queda abierto detras del modal Ficha (z-index 1000 vs 1200).
+- Gate admin/gerente se recalcula en `openFichaClienteFromClientModal` con `userRole`. VDE no ve el bloque.
+- `openClientModal` ya no popula credito (comment nuevo linea 10906 explica donde vive).
+
+**Por que**:
+- Unificacion: todo el perfilado comercial (fidelidad / preferencia / tamano / especializacion / tipo local / credito cheque) vive en un solo modal, enfocado para admin/gerente.
+- `#client-modal` queda limpio: solo datos operativos (direccion, categorizacion con cliTipo, acciones de estado del cliente).
+- Zero cambio Firestore: campo sigue siendo `client_master.creditoCheque` (number). Zero cambio en `exports-core.js` que lee ese campo para los exports.
+- Zero cambio en `saveClientCreditoChequeFromModal`: los IDs del DOM son los mismos.
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass.
+- Smoke manual pendiente: abrir cliente -> abrir Ficha Cliente como admin -> ver bloque Credito cheque abajo + poder editar y guardar. Abrir como VDE -> NO ver el bloque.
+
+**Rollback**:
+`git revert <commit>`. El markup del credito vuelve al `#client-modal`, el populate vuelve a `openClientModal`, el modal Ficha Cliente pierde el credito. Zero migracion Firestore.
+
+### v1259 (2026-10-14) — Badge CAT + boton "Vincular SAP" estilo Apple pill
+
+**Archivos**:
+- `index.html:2314-2320` (`.cli-delete-btn` restyle Apple pill)
+- `index.html:2800-2805` (`.cli-cat-corner` restyle Apple pill)
+- `src/domains/visitas.js:191-203` (`getClientCategoryBadgeHtml` version no-corner: inline style a pill)
+- `app.bundle.js` regenerado
+- `index.html:6260` + `sw.js:20` (bump v1258 → v1259)
+
+**Antes (v1258)**:
+Las dos piezas visuales del sidebar CLIENTES tenian estilo "retail Shimano" loud: fuente 800, uppercase, letter-spacing +.4-.5, border-radius 4px cuadrado, box-shadow saturado. Era inconsistente con el pattern Apple del resto de la app (apple-design.css, Planner, Panel de Control).
+
+**Problema**:
+Pedido Mariano (2026-10-14) de alinear etiqueta CAT (CAT A/B/C/P) y boton "Vincular SAP" al look Apple del resto de la UI (pills redondos, pesos tipograficos moderados, shadows sutiles).
+
+**Cambio**:
+- Ambos elementos ahora usan border-radius 999 (pill), font-weight 600 (no 800), sin uppercase, letter-spacing -.005em (neutro Apple), font-family stack SF Pro.
+- Inset border 0.5px rgba(255,255,255,.22) para depth.
+- Box-shadow mas suave (0 1px 2px).
+- Transiciones con cubic-bezier(.32,.72,0,1) (ease-out Apple) y press feedback `scale(.97)`.
+- Mantenidos los colores de fondo semanticos (verde Vincular, violeta Premium, verde CAT A, celeste CAT B, gris CAT C). Solo se bajo la saturacion con rgba al .95.
+
+**Por que**:
+- Consistencia visual con apple-design skill (§1 feedback pointerdown, §12 translucencia sutil, §15 typography size-specific tracking).
+- Menos ruido visual: 800 weight + uppercase + letter-spacing agresivo competian con la info del cliente dentro de la card. Pill limpio da jerarquia correcta.
+
+**Verificacion**:
+- `npm run test:unit` -> 699/699 pass (31 archivos).
+- `node build.js` -> OK (bundle 2.48 MB).
+- Smoke manual pendiente: abrir /clientes en prod y confirmar que badge CAT + boton Vincular SAP se ven pill style.
+
+**Rollback**:
+`git revert <commit>`. Los selectores CSS siguen siendo los mismos (.cli-cat-corner, .cli-delete-btn), no hay cambios en el HTML renderizado por el bundle salvo el inline style del badge no-corner que vuelve a `border-radius:3px` + `text-transform:uppercase`.
+
 ### v1258 (2026-10-13) — Modal "FICHA CLIENTE" especifico (rework v1256)
 
 **Archivos**:

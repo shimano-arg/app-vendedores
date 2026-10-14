@@ -78,6 +78,7 @@ export default async function BoardPage({
   });
   const currentProfile = (profiles ?? []).find((p) => p.id === user?.id);
   const currentUserName = currentProfile?.display_name?.split(' ')[0] ?? '';
+  const currentUserEmail = currentProfile?.email ?? user?.email ?? null;
   const isAdmin = currentProfile?.role === 'admin';
   const columnDefaults = Object.fromEntries(
     CLAIM_COLUMNS.map((c) => [c.key, null as string | null]),
@@ -154,6 +155,7 @@ export default async function BoardPage({
         profiles={profiles ?? []}
         columnDefaults={columnDefaults}
         currentUserName={currentUserName}
+        currentUserEmail={currentUserEmail}
         cardDurations={cardDurations}
         stuckClaimIds={stuckClaimIds}
         isAdmin={isAdmin}

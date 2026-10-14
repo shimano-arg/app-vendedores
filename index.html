@@ -2310,10 +2310,13 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
    cambio para evitar perdida de visitas al borrar un LEAD que en realidad
    ya tenia su alta SAP creada. Ahora abre el modal Vincular LEAD ↔ Alta SAP
    con el LEAD pre-seleccionado. Verde por consistencia con el boton
-   "Vincular LEAD-SAP" de Master Clientes (index.html:4049). */
-.client-card .cli-delete-btn{position:absolute;top:6px;right:6px;padding:3px 8px;background:#059669;color:#fff;border:none;border-radius:4px;font-size:9px;font-weight:800;cursor:pointer;letter-spacing:.3px;text-transform:uppercase;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 3px rgba(5,150,105,.35);transition:.12s;z-index:3}
-.client-card .cli-delete-btn:hover{background:#047857;transform:translateY(-1px);box-shadow:0 2px 6px rgba(5,150,105,.5)}
-.client-card .cli-delete-btn:active{transform:translateY(0)}
+   "Vincular LEAD-SAP" de Master Clientes (index.html:4049).
+   v1259 (2026-10-14): restyle Apple pill. Sin uppercase, sin letter-spacing
+   agresivo, radio 999 (pill), font-weight 600, border inset sutil + shadow
+   mas suave. Mismo verde pero menos saturado y mas pequeno visual. */
+.client-card .cli-delete-btn{position:absolute;top:8px;right:8px;padding:4px 11px;background:rgba(5,150,105,.95);color:#fff;border:none;border-radius:999px;font-size:10px;font-weight:600;cursor:pointer;letter-spacing:-.005em;display:inline-flex;align-items:center;gap:4px;line-height:1.3;box-shadow:0 1px 2px rgba(5,150,105,.22),inset 0 0 0 .5px rgba(255,255,255,.22);transition:transform .18s cubic-bezier(.32,.72,0,1),box-shadow .18s cubic-bezier(.32,.72,0,1),background-color .18s cubic-bezier(.32,.72,0,1);z-index:3;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif}
+.client-card .cli-delete-btn:hover{background:rgba(4,120,87,.98);transform:translateY(-1px);box-shadow:0 2px 6px rgba(5,150,105,.32),inset 0 0 0 .5px rgba(255,255,255,.26)}
+.client-card .cli-delete-btn:active{transform:scale(.97);box-shadow:0 1px 2px rgba(5,150,105,.18)}
 /* v444 (2026-08-11): boton "Envio gratis" arriba del "Ver en mapa".
    SOLO visible para Ioannis (body.is-ioannis, seteado en applyRolePermissions).
    Default azul marino oscuro; toggle verde cuando el cliente lo tiene marcado.
@@ -2794,8 +2797,12 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .ped-line .rm-btn{background:transparent;border:none;color:var(--color-danger);cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;font-weight:800}
 .ped-line .rm-btn:hover{color:var(--color-danger-strong)}
 .pedido-client-card{position:relative;margin-bottom:6px;padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-left:3px solid var(--color-success);border-radius:6px;cursor:pointer;transition:.15s;display:flex;justify-content:space-between;align-items:center;gap:8px}
-.cli-cat-corner{position:absolute;top:6px;right:8px;font-size:10px;font-weight:800;color:#fff;padding:3px 9px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px;line-height:1;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.12);pointer-events:none}
-.pedido-client-card .cli-cat-corner{top:8px;right:10px}
+/* v1259 (2026-10-14): restyle Apple pill. Sin uppercase, letter-spacing
+   neutro, radio 999 (pill), font-weight 600, inset border sutil para dar
+   depth, box-shadow mas suave. Mantiene el color de fondo inline (lo setea
+   getClientCategoryBadgeHtml en src/domains/visitas.js segun cliTipo). */
+.cli-cat-corner{position:absolute;top:8px;right:10px;font-size:10px;font-weight:600;color:#fff;padding:2px 9px;border-radius:999px;letter-spacing:-.005em;line-height:1.4;z-index:2;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 0 0 .5px rgba(255,255,255,.22);pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif}
+.pedido-client-card .cli-cat-corner{top:9px;right:11px}
 /* v318+: badge de origen (SAP CXXXXXX o PROVISORIO). Antes iba absolute
    arriba a la derecha pero apretaba el nombre. Ahora inline en la
    linea meta abajo (al lado de SAP EN MAPA + localidad). */
@@ -5152,11 +5159,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                 <option value="C">C - sin descuento</option>
               </select>
             </div>
-            <div id="cm-credito-cheque-block" style="margin-top:10px;display:none">
-              <label for="cm-credito-cheque" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Cr&eacute;dito cheque (ARS) <span style="font-weight:400;color:var(--text-muted)">(monto de cr&eacute;dito autorizado en cheques)</span></label>
-              <input id="cm-credito-cheque" type="number" min="0" step="1000" placeholder="Ej: 500000" onblur="saveClientCreditoChequeFromModal(this)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)"/>
-              <div id="cm-credito-cheque-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
-            </div>
+            <!-- v1260 (2026-10-14): bloque "Credito cheque (ARS)" movido al
+                 modal #ficha-cliente-modal para unificar perfilado comercial
+                 (fidelidad / tamano / especializacion / tipo local / credito).
+                 Mantenemos los IDs cm-credito-cheque + cm-credito-cheque-status
+                 (ahora dentro de #ficha-cliente-modal) para que
+                 saveClientCreditoChequeFromModal no requiera cambios.
+                 El docId lo sigue leyendo desde #client-modal.dataset, que
+                 queda abierto detras del modal Ficha. -->
             <div id="cm-cli-status" style="font-size:10px;color:var(--text-muted);margin-top:6px;min-height:14px"></div>
           </div>
           <!-- v1258 (2026-10-13): Perfil comercial movido a modal propio
@@ -5273,6 +5283,16 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             <option value="FISICO">F&iacute;sico</option>
             <option value="ECOMMERCE">E-commerce</option>
           </select>
+        </div>
+        <!-- v1260 (2026-10-14): "Credito cheque (ARS)" dentro de la Ficha
+             Cliente (antes vivia en #client-modal). Gate admin/gerente
+             aplicado en openFichaClienteFromClientModal via display:none.
+             IDs preservados (cm-credito-cheque + cm-credito-cheque-status)
+             para no romper saveClientCreditoChequeFromModal. -->
+        <div id="cm-credito-cheque-block" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border-default);display:none">
+          <label for="cm-credito-cheque" style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px">Cr&eacute;dito cheque (ARS) <span style="font-weight:400;color:var(--text-muted)">(monto autorizado en cheques)</span></label>
+          <input id="cm-credito-cheque" type="number" min="0" step="1000" placeholder="Ej: 500000" onblur="saveClientCreditoChequeFromModal(this)" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;background:var(--bg-elevated)"/>
+          <div id="cm-credito-cheque-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
         </div>
         <div id="fc-status" style="font-size:11px;color:var(--text-muted);margin-top:12px;min-height:16px"></div>
       </div>
@@ -6257,7 +6277,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1258';
+const APP_VERSION = 'v1260';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10898,15 +10918,10 @@ function openClientModal(clientName, tipo, province, localityName){
   if (selTipo) selTipo.value = cmData.cliTipo || '';
   // v1258 (2026-10-13): los 5 selects de perfil (fidelidad / prefContacto /
   // tamano / especializacion / tipoLocal) se moveron al modal #ficha-cliente-modal.
-  // El populate se hace al abrir ese modal via openFichaClienteFromClientModal.
-  // v1056: Credito cheque (ARS) - solo admin/gerente. Number > 0 permitido, guarda
-  // en client_master.creditoCheque (+ updatedAt/By) via saveClientCreditoChequeFromModal.
-  const credBlockEl = document.getElementById('cm-credito-cheque-block');
-  if (credBlockEl) credBlockEl.style.display = isAdminLike ? '' : 'none';
-  const credInput = document.getElementById('cm-credito-cheque');
-  if (credInput) credInput.value = (cmData.creditoCheque != null) ? String(cmData.creditoCheque) : '';
-  const credStatus = document.getElementById('cm-credito-cheque-status');
-  if (credStatus) credStatus.textContent = '';
+  // v1260 (2026-10-14): "Credito cheque (ARS)" tambien se movio ahi. El
+  // populate + gate admin de ambos vive en openFichaClienteFromClientModal.
+  // isAdminLike se usa mas abajo para otras acciones del cliente — no se
+  // lee aca para el credito.
   // Guardo en el dataset del modal los meta necesarios para escribir a
   // client_master al cambiar un dropdown (vendor / prov / loc / name).
   const modalEl = document.getElementById('client-modal');
@@ -11080,6 +11095,16 @@ function openFichaClienteFromClientModal(){
     var el = document.getElementById(id);
     if (el) el.value = map[id];
   });
+  // v1260 (2026-10-14): Credito cheque (ARS) movido aca desde #client-modal.
+  // Gate: solo admin/gerente ve el bloque. El guardado sigue vivendo en
+  // saveClientCreditoChequeFromModal (bundle) que lee docId del #client-modal.
+  var isAdminLikeFc = (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'gerente'));
+  var credBlockFc = document.getElementById('cm-credito-cheque-block');
+  if (credBlockFc) credBlockFc.style.display = isAdminLikeFc ? '' : 'none';
+  var credInputFc = document.getElementById('cm-credito-cheque');
+  if (credInputFc) credInputFc.value = (cmData.creditoCheque != null) ? String(cmData.creditoCheque) : '';
+  var credStatusFc = document.getElementById('cm-credito-cheque-status');
+  if (credStatusFc) credStatusFc.textContent = '';
   var status = document.getElementById('fc-status');
   if (status) status.textContent = '';
   document.getElementById('ficha-cliente-modal').classList.add('open');
