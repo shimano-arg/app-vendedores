@@ -756,13 +756,13 @@ describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TT
   });
 });
 
-describe('computeBackorderSkuMap — v1185: strict incluye pedidos pending con lineas que reservan', () => {
-  // Incident 2026-10-07 pedido PESCAR.INFO SHOP SRL ANT101XGB:
-  // modal Pedido en Espera decia RESERVADAS=1 (via getStockDesglose que itera
-  // TODAS las lineas sin filtrar por stage) pero Stock Asignado decia "0 clientes"
-  // porque computeBackorderSkuMap filtraba p.stage !== 'confirmed'.
-  // Fix: strict mode acepta cualquier stage; filtro de linea decide.
-  it('strict + pedido stage=pending + line state=confirmed → SE INCLUYE', () => {
+describe('computeBackorderSkuMap — v1185 (REVERT v1285): strict + confirmed ya NO cuenta', () => {
+  // v1285 (2026-10-14): revert v1190/v1185. Modal Stock Asignado solo muestra
+  // state='ASIG' (lo que Pablo asigno manualmente desde el modal Reparto).
+  // confirmed son pedidos en SAP esperando entrega — reservan stock pero no
+  // deben aparecer aca. Rationale Mariano post-migracion v1278: stock
+  // asignado deberia quedar vacio tras revertir ASIG → BO.
+  it('strict + pedido stage=pending + line state=confirmed → v1285: YA NO SE INCLUYE', () => {
     const pedidos = [
       pedido({
         stage: 'pending',
@@ -776,8 +776,8 @@ describe('computeBackorderSkuMap — v1185: strict incluye pedidos pending con l
       { aggregationMode: 'strict' },
       baseDeps({ getStockDisponibleVenta: () => 1 })
     );
-    expect(r.totalUnidades).toBe(1);
-    expect(r.skus[0].clientes[0].nombre).toBe('PESCAR.INFO SHOP SRL');
+    expect(r.totalUnidades).toBe(0);
+    expect(r.skus).toHaveLength(0);
   });
 
   it('strict + pedido stage=pending + line state=ASIG → SE INCLUYE', () => {
