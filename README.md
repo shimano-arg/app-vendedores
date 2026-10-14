@@ -4717,6 +4717,54 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1272 (2026-10-14) — Crear Pedido Desde SA: split parcial segun stock disponible
+
+**Archivos**:
+- `index.html:15926+` (`_cpstConfirmar`: confirm message con detalle recorte + split logic + totalPartialCancel audit)
+- `index.html:6260` + `sw.js:20` (bump v1271 → v1272)
+
+**Antes (v1271)**:
+Pedido Mariano: "si el cliente tiene asignado 24 unidades de FX4000FC y estan tildadas pero solo tenemos en stock 20, que se envien a la lista de espera 20 unidades y queden en stock asignado aun 4 unidades."
+
+El flow previo `_cpstConfirmar` cancelaba la linea ASIG original ENTERA (`qtyOpen=0, qtyCancelled+=qo, state='cancelled'`) aunque la waitlist solo tomaba `sk.qtyAjustada = min(sk.qty, libreParaCliente_hoy)`. Las unidades sobrantes (recorte) se PERDÍAN de la demanda del cliente.
+
+Ejemplo pre-fix: asignada 24u + stock 20u → waitlist 20u + 24u cancelled en pedido original → 4u desaparecen.
+
+**Problema**:
+Las ASIG se eliminan cada 60 días para evitar basura (regla negocio). Pero las unidades recortadas por falta de stock HOY deberían quedar en el pedido original ASIG tildadas, "a la espera de más stock". El flow pre-v1272 asumía 1:1 entre waitlist y cancelación, lo que no es correcto cuando hay recorte.
+
+**Cambio**:
+- **Split parcial**: en `_cpstConfirmar` PASO 2, para cada SKU del cliente:
+  1. Si `qtyAjustada ≤ 0` → NO tocar la linea (continue). La linea sigue intacta en el pedido original (sigue ASIG tildada esperando stock).
+  2. Si `qtyAjustada > 0`: distribuir `qtyAjustada` entre las entries (pedidos origen) en el orden que vienen del cache:
+     - Primeras entries se cancelan completas (`qtyOpen=0, qtyCancelled+=qo, state='cancelled'`).
+     - La ultima entry puede ser parcial: `qtyOpen -= toCancel, qtyCancelled += toCancel`, mantener `state='ASIG'` + `asigReserva` + marcar `partialCancelAt/From/Qty`.
+- **Pre-flight check**: si al final del loop `restanteACancelar > 0` (edge case de desync cache/Firestore donde `qtyAjustada > sum(entries.qtyOpen)`), tirar error — mejor fallar que mentir.
+- **Confirm message explicito**: muestra `totalAjustado` + `totalRecorte` + lista "4u quedan ASIG tildadas en el pedido original (reservadas para cuando haya mas stock)".
+- **Audit field**: nuevo `payload.sourcePartialCancelLines` cuenta lineas con cancellacion parcial (separado del `sourceCancelledLines` que ahora solo cuenta completas). **Breaking semantico menor**: pre-v1272 `sourceCancelledLines` representaba "todas las modificaciones". Post-v1272 solo cuenta completas. Para total modificaciones sumar `sourceCancelledLines + sourcePartialCancelLines`. Grep del repo confirma zero consumidores downstream — pero cualquier reporte futuro debe considerar ambos campos.
+- **Error message mejorado**: "No hay unidades disponibles para crear el pedido. El stock físico libre para este cliente es 0 en todos los SKUs tildados. Las lineas ASIG quedan intactas." (reemplaza el genérico "No hay lineas para cancelar").
+
+**Por que**:
+- La regla de 60 días es un garbage collector, no un trigger de descarte proactivo. Si una linea ASIG tiene demanda activa, debe quedar hasta la próxima oportunidad.
+- El split preserva la demanda del cliente sin crear basura: la linea sigue en el mismo pedido, mismo estado, solo con qtyOpen reducido.
+- `partialCancelAt/From/Qty` dan trazabilidad para auditoría: ¿cuándo se recortó? ¿cuántas unidades? ¿por qué flow? Mariano puede investigar un caso en 1 query.
+
+**Verificacion**:
+- `npm run test:unit` → 706/706 pass (no se agregaron tests nuevos — flow Firestore write-heavy, cubierto por smoke).
+- `npm run typecheck` → clean.
+- Code review via agente `pr-review-toolkit:silent-failure-hunter` sobre el diff.
+- Smoke manual pendiente post-deploy:
+  1. Cliente con SKU ASIG tildado donde `qtyAsignada > stock_libre_hoy`.
+  2. Abrir "Crear Pedido Desde Stock Asignado", elegir cliente.
+  3. Verificar preview muestra qtyAjustada < qty_original con línea rayada roja.
+  4. Confirmar: popup detalla `Xu van a Lista de Espera + Yu quedan ASIG tildadas`.
+  5. Post-confirm: refrescar modal Stock Asignado → el SKU debe seguir apareciendo con qty = recorte original (ej. 4u de 24 iniciales).
+  6. Pedido original en Firestore: línea sigue state='ASIG', qtyOpen=4, qtyCancelled=20, partialCancelAt=iso, partialCancelFrom='crear-pedido-st'.
+  7. Caso edge: SKU con stock libre=0 → NO debe cancelarse nada (línea queda intacta 24u ASIG).
+
+**Rollback**:
+`git revert <commit>`. Flow vuelve a cancelar entero. Las 4u de recorte volverían a perderse hasta el próximo deploy con split.
+
 ### v1271 (2026-10-14) — Fix scroll modal "Crear Pedido - ST" + rename + inversion semantica
 
 **Archivos**:
