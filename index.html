@@ -6206,44 +6206,54 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <input id="wcard-add-input" type="text" placeholder="Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none"/>
         <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
       </div>
-      <!-- v1327 (2026-10-15): wrapper SCROLL CONTAINER con isolation:isolate
-           para crear stacking context limpio + explicitamente position:relative
-           para que el sticky anclado a top:0 funcione. También sticky duplicado
-           en thead + th para max robustez. -->
-      <div style="border:1px solid var(--border-subtle);border-radius:6px;flex:1;min-height:0;overflow-y:auto;position:relative;isolation:isolate">
-        <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px">
-          <thead style="position:sticky;top:0;z-index:20;background:#0f172a">
-            <tr style="background:#0f172a;color:#fff;position:sticky;top:0">
-              <!-- v702 (2026-08-28): reestructura de columnas por pedido de Mariano.
-                   Sacadas: Backorder General, Backorder Cliente, Disponible app.
-                   Renombradas: Stock total -> Stock completo (dep 11).
-                                Disponible -> Libre para la venta.
-                   Nueva: Unidades reservadas (breakdown confirmed+BO+ASIG). -->
-              <th style="text-align:center;padding:6px 8px">SKU</th>
-              <th style="text-align:left;padding:6px 8px">Producto</th>
-              <th style="text-align:center;padding:6px 8px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
-              <th style="text-align:center;padding:6px 8px" title="Unidades reservadas = confirmed (ya en SAP) + ASIG (asignado FIFO). No incluye BO porque son unidades sin stock. Hover: breakdown por state.">Unidades reservadas</th>
-              <!-- v1332: backgrounds especiales removidos del thead (Mariano:
-                   negro uniforme + letras blancas). Las celdas tbody mantienen
-                   su color de fondo (verde/azul claro) via CSS .disp-sap-col, etc. -->
-              <th style="text-align:center;padding:6px 8px" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
-              <!-- v726 (2026-08-28): rename Pedido -> Pedido Original para diferenciarla claramente de Pedido Final. -->
-              <th style="text-align:center;padding:6px 8px" title="Cantidad ORIGINAL que pidio el cliente (antes del split contra stock disponible)">Pedido Original</th>
-              <!-- v716 (2026-08-28): nueva columna Pedido Final = min(Pedido, Libre). -->
-              <th style="text-align:center;padding:6px 8px" title="Pedido Final = min(Pedido Original, Libre para la venta). Es lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido Final</th>
-              <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
-              <!-- v1193 (2026-10-08): columna "Subtotal (Pendiente)" removida por
-                   pedido Mariano — post-v1189 daba identico al Subtotal Final
-                   siempre (misma formula stk.disponible). Confundia a los VDE. -->
-              <th style="text-align:center;padding:6px 8px" title="Subtotal = Pedido Final x Precio. Es lo que efectivamente se va a facturar (lo que va a SAP como confirmed).">Subtotal</th>
-              <th style="text-align:center;padding:6px 8px" title="Lo que queda como backorder = max(Pedido - Libre, 0) x Precio">Backorder</th>
-              <th style="text-align:center;padding:6px 8px" title="Pedido - Libre (unidades que quedan como backorder)">Backorder Unidades</th>
-              <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Libre al momento de crear el pedido">Cambio</th>
-              <th style="text-align:center;padding:6px 8px" title="Quitar producto de la lista">Quitar</th>
-            </tr>
-          </thead>
-          <tbody id="wcard-rows"></tbody>
-        </table>
+      <!-- v1334 (2026-10-15) DOUBLE TABLE: header en table separada, body en
+           otra con scroll. Garantiza header SIEMPRE visible sin depender de
+           position:sticky (que fallaba por razones varias despues de 6 intentos).
+           Ambas tables usan table-layout:fixed + colgroup con widths identicos
+           para que las columnas se alineen perfectamente. -->
+      <div style="border:1px solid var(--border-subtle);border-radius:6px;flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+        <!-- HEADER TABLE: no scrollea, siempre visible -->
+        <div style="flex-shrink:0;background:#0f172a">
+          <table id="wcard-header-table" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px;color:#fff">
+            <colgroup>
+              <col style="width:7%"><col style="width:19%"><col style="width:8%">
+              <col style="width:8%"><col style="width:8%"><col style="width:7%">
+              <col style="width:7%"><col style="width:6%"><col style="width:7%">
+              <col style="width:6%"><col style="width:8%"><col style="width:5%">
+              <col style="width:4%">
+            </colgroup>
+            <thead>
+              <tr>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px">SKU</th>
+                <th style="text-align:left;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px">Producto</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Unidades reservadas = confirmed (ya en SAP) + ASIG (asignado FIFO)">Unidades reservadas</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Stock realmente disponible = Stock completo - Unidades reservadas">Libre para la venta</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Cantidad ORIGINAL que pidio el cliente">Pedido Original</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Pedido Final = min(Pedido Original, Libre para la venta)">Pedido Final</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Precio unitario del catalogo/SAP">Precio</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Subtotal = Pedido Final x Precio">Subtotal</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Lo que queda como backorder">Backorder</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Pedido - Libre (unidades que quedan como backorder)">Backorder Unidades</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Diferencia respecto al Libre al momento de crear el pedido">Cambio</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Quitar producto de la lista">Quitar</th>
+              </tr>
+            </thead>
+          </table>
+        </div>
+        <!-- BODY TABLE: scrollea verticalmente -->
+        <div style="flex:1;min-height:0;overflow-y:auto">
+          <table id="wcard-body-table" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px">
+            <colgroup>
+              <col style="width:7%"><col style="width:19%"><col style="width:8%">
+              <col style="width:8%"><col style="width:8%"><col style="width:7%">
+              <col style="width:7%"><col style="width:6%"><col style="width:7%">
+              <col style="width:6%"><col style="width:8%"><col style="width:5%">
+              <col style="width:4%">
+            </colgroup>
+            <tbody id="wcard-rows"></tbody>
+          </table>
+        </div>
       </div>
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap;flex-shrink:0">
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
@@ -6483,7 +6493,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1333';
+const APP_VERSION = 'v1334';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
