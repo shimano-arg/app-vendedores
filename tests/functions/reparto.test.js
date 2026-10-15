@@ -246,11 +246,10 @@ describe('validateRepartoPayload', () => {
     expect(r.sumAsignada).toBe(80);
   });
 
-  it('v1312: RECHAZA qtyAsignada > qtyBackorder del cliente (sobre-asignacion eliminada)', () => {
-    // p2 tiene qtyBackorder=40. Asignar 50 > 40 ahora es INVALIDO.
+  it('v1338: ACEPTA qtyAsignada > qtyBackorder del cliente (sobre-asignacion permitida de nuevo)', () => {
+    // p2 tiene qtyBackorder=40. Asignar 50 > 40 ahora es VALIDO (v1338 revierte v1312).
     const r = validateRepartoPayload(ingreso, [{ pedidoId: 'p2', lineIndex: 1, qtyAsignada: 50 }]);
-    expect(r.valid).toBe(false);
-    expect(r.errors.some((e) => e.includes('qtyBackorder'))).toBe(true);
+    expect(r.valid).toBe(true);
   });
 
   it('v1312: acepta eliminations ademas de assignments', () => {
@@ -280,15 +279,14 @@ describe('validateRepartoPayload', () => {
     expect(r.errors.some((e) => e.includes('vacio'))).toBe(true);
   });
 
-  it('v1312: rechaza asig+elim > qtyBackorder del cliente', () => {
-    // p1 qtyBackorder=60. Asignar 50 + eliminar 20 = 70 > 60 → invalido.
+  it('v1338: ACEPTA asig+elim > qtyBackorder del cliente (sobre-asignacion permitida)', () => {
+    // p1 qtyBackorder=60. Asignar 50 + eliminar 20 = 70 > 60 ahora es VALIDO.
     const r = validateRepartoPayload(
       ingreso,
       [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 50 }],
       [{ pedidoId: 'p1', lineIndex: 0, qtyEliminar: 20 }]
     );
-    expect(r.valid).toBe(false);
-    expect(r.errors.some((e) => e.includes('qtyBackorder'))).toBe(true);
+    expect(r.valid).toBe(true);
   });
 
   it('rechaza assignment que no matchea con ningun cliente BO', () => {

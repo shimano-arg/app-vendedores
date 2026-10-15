@@ -6493,7 +6493,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1337';
+const APP_VERSION = 'v1338';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19509,7 +19509,7 @@ function _repartoBuildCard(ing){
       + '<td style="text-align:center;color:#248a3d;font-weight:600">' + _repartoFmtQty(stockFisico) + '</td>'
       // Asignado (input)
       + '<td style="text-align:center">'
-      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
+      + '<input type="number" min="0" max="' + Math.max(_maxBo, stockFisico) + '" step="1" value="0" '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="asig" '
       + 'data-pedido-id="' + _pid + '" '
@@ -19523,7 +19523,7 @@ function _repartoBuildCard(ing){
       + 'data-reparto-bo-display="' + _esc + '|' + _pid + '|' + _lidx + '">' + _repartoFmtQty(_maxBo) + '</td>'
       // Eliminar (input)
       + '<td style="text-align:center">'
-      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
+      + '<input type="number" min="0" max="' + Math.max(_maxBo, stockFisico) + '" step="1" value="0" '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="elim" '
       + 'data-pedido-id="' + _pid + '" '
@@ -19657,8 +19657,11 @@ window._repartoRecalc = function(input){
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   const stockFisico = _repartoStockFisico(ing);
 
-  // 1. Clamp del propio input a [0, maxBO] del cliente.
-  const val = Math.max(0, Math.min(maxBO, Math.round(Number(input.value) || 0)));
+  // v1338 (2026-10-15): quitado el cap maxBO (sobre-asignacion permitida).
+  // Pedido Mariano: "tengo 2 en backorder y stock 6, dejame asignar 2 aunque
+  // tenga 1 en eliminar". Max input = stockFisico (sum global sigue capado
+  // en stockFisico desde v1309). Backend v1336 ya aceptaba qty > qo.
+  const val = Math.max(0, Math.min(stockFisico, Math.round(Number(input.value) || 0)));
   if (Number(input.value) !== val) input.value = val;
 
   // 2. Leer sibling input del MISMO cliente (asig vs elim) para calcular BO display.
@@ -19674,17 +19677,10 @@ window._repartoRecalc = function(input){
     else if (field === 'elim') elimVal = v;
   });
 
-  // 3. Si suma asig+elim > maxBO, truncar el input que acaba de cambiar.
-  if (asigVal + elimVal > maxBO) {
-    const field = input.getAttribute('data-reparto-field');
-    const otherVal = field === 'asig' ? elimVal : asigVal;
-    const trimmed = Math.max(0, maxBO - otherVal);
-    input.value = trimmed;
-    if (field === 'asig') asigVal = trimmed;
-    else elimVal = trimmed;
-  }
+  // v1338: cap asig+elim > maxBO ELIMINADO. Mariano acepta sobre-asignacion.
 
-  // 4. "Vuelve a backorder" display = maxBO - asig - elim.
+  // 4. "Vuelve a backorder" display = maxBO - asig - elim (puede ser negativo
+  // si hubo sobre-asignacion; mostramos 0 en ese caso).
   const bo = Math.max(0, maxBO - asigVal - elimVal);
   const boCell = document.querySelector(
     'td[data-reparto-bo-display="' + ingresoId + '|' + pedidoId + '|' + lineIdx + '"]'
