@@ -3798,6 +3798,12 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       <input type="search" id="ta-search" placeholder="Buscar cliente por nombre o cardCode..." oninput="_taRender()" style="padding:11px 16px;border:0.5px solid rgba(0,0,0,.1);border-radius:10px;font-size:14px;font-family:inherit;outline:none;flex-shrink:0;box-sizing:border-box;background:#fff;color:#1d1d1f;letter-spacing:-0.1px" />
       <div id="ta-stats" style="padding:9px 14px;background:rgba(0,122,255,.06);border:0.5px solid rgba(0,122,255,.14);border-radius:10px;font-size:12px;color:#007aff;flex-shrink:0;font-family:inherit;letter-spacing:-0.08px">0 marcados</div>
       <div id="ta-list" style="flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;border:0.5px solid rgba(0,0,0,.08);border-radius:10px;background:#fff"></div>
+      <!-- v1339 (2026-10-15): boton Guardar mes explicito. Reemplaza autoguardado
+           con debounce. Mariano quiere control manual. -->
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;flex-shrink:0">
+        <div id="ta-dirty-info" style="font-size:12px;color:#86868b;letter-spacing:-0.05px"></div>
+        <button type="button" id="ta-save-btn" onclick="_taSave()" style="padding:9px 20px;border:none;border-radius:999px;background:#007aff;color:#fff;font-size:13px;font-weight:600;letter-spacing:-0.01em;cursor:pointer;transition:transform .12s ease,background .15s ease,opacity .15s ease;opacity:0.5" disabled>Guardar mes</button>
+      </div>
     </div>
   </div>
 </div>
@@ -6493,7 +6499,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1338';
+const APP_VERSION = 'v1339';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13650,9 +13656,15 @@ window.openTargetAltasModal = function() {
 };
 
 window.closeTargetAltasModal = function() {
+  // v1339: warning si hay cambios sin guardar.
+  if (_taDirty) {
+    if (!confirm('Tenes cambios sin guardar. ¿Cerrar igual?')) return;
+  }
   var modal = document.getElementById('target-altas-modal');
   if (modal) modal.classList.remove('open');
   if (typeof _taUnsub === 'function') { try { _taUnsub(); } catch(e) {} _taUnsub = null; }
+  _taDirty = false;
+  _taSavedIds = new Set();
 };
 
 window._taOnChange = function() {
@@ -13679,6 +13691,9 @@ function _taSubscribe() {
       var d = snap.data() || {};
       (d.altaFsIds || []).forEach(function(id) { _taSelectedIds.add(String(id)); });
     }
+    // v1339: sincronizar snapshot "guardado" para detectar dirty.
+    _taSavedIds = new Set(_taSelectedIds);
+    _taUpdateDirty();
     _taRender();
   }, function(err) {
     console.error('[target-altas] listener err', err);
@@ -13744,20 +13759,45 @@ window._taRender = function() {
   });
 };
 
+// v1339 (2026-10-15): guardado manual con boton "Guardar mes" (pedido Mariano).
+// _taDirty flag indica si hay cambios sin guardar.
+var _taDirty = false;
+var _taSavedIds = new Set(); // snapshot de IDs al cargar/guardar — para detectar dirty.
+
 function _taToggle(fsId, checked) {
   if (!fsId) return;
   var sid = String(fsId);
   if (checked) _taSelectedIds.add(sid);
   else _taSelectedIds.delete(sid);
-  // Debounce save 300ms para batching si el user hace clicks rapidos.
-  if (_taSaveTimer) clearTimeout(_taSaveTimer);
-  _taSaveTimer = setTimeout(_taSave, 300);
+  _taUpdateDirty();
   _taRender();
 }
 
-function _taSave() {
+// Actualiza _taDirty + habilita/deshabilita boton Guardar + muestra texto info.
+function _taUpdateDirty() {
+  var a = _taSelectedIds, b = _taSavedIds;
+  var same = a.size === b.size && Array.from(a).every(function(id) { return b.has(id); });
+  _taDirty = !same;
+  var btn = document.getElementById('ta-save-btn');
+  var info = document.getElementById('ta-dirty-info');
+  if (btn) {
+    btn.disabled = !_taDirty;
+    btn.style.opacity = _taDirty ? '1' : '0.5';
+    btn.style.cursor = _taDirty ? 'pointer' : 'not-allowed';
+  }
+  if (info) {
+    info.textContent = _taDirty ? 'Cambios sin guardar' : '';
+    info.style.color = _taDirty ? '#b25000' : '#86868b';
+  }
+}
+
+window._taSave = function() {
   if (!_taCurrentVendor || !_taCurrentMes) return;
   if (typeof fbDb === 'undefined' || !fbDb) return;
+  if (!_taDirty) return;
+  var btn = document.getElementById('ta-save-btn');
+  var info = document.getElementById('ta-dirty-info');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; btn.style.opacity = '0.6'; }
   var ref = fbDb.collection('vdi_target_altas').doc(_taDocId());
   ref.set({
     vendor: _taCurrentVendor,
@@ -13765,11 +13805,20 @@ function _taSave() {
     altaFsIds: Array.from(_taSelectedIds),
     updatedAt: new Date().toISOString(),
     updatedBy: (currentUser && currentUser.email) || '',
-  }, { merge: true }).catch(function(err) {
+  }, { merge: true }).then(function() {
+    _taSavedIds = new Set(_taSelectedIds);
+    _taDirty = false;
+    if (btn) { btn.textContent = 'Guardado ✓'; btn.style.background = '#34c759'; }
+    if (info) info.textContent = '';
+    setTimeout(function() {
+      if (btn) { btn.textContent = 'Guardar mes'; btn.style.background = '#007aff'; btn.style.opacity = '0.5'; btn.disabled = true; btn.style.cursor = 'not-allowed'; }
+    }, 1500);
+  }).catch(function(err) {
     console.error('[target-altas] save err', err);
     alert('Error guardando: ' + (err.message || err));
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar mes'; btn.style.opacity = '1'; }
   });
-}
+};
 
 // Heuristica para derivar vendorKey del email cuando currentUser.vendor no esta
 // seteado directamente.

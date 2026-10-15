@@ -4717,6 +4717,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1339 (2026-10-15) — Target Altas: boton "Guardar mes" explicito (reemplaza autoguardado)
+
+**Archivos**:
+- `index.html` modal Target Altas (líneas ~3800): nuevo footer con `#ta-dirty-info` + boton `#ta-save-btn` "Guardar mes" estilo Apple pill (color `#007aff`).
+- `index.html` `_taToggle`: ya NO dispara save con debounce. Solo updatea Set + llama `_taUpdateDirty()`.
+- `index.html` nueva `_taUpdateDirty()`: compara `_taSelectedIds` vs `_taSavedIds`, habilita/deshabilita boton + muestra "Cambios sin guardar".
+- `index.html` `_taSave()`: solo persiste si `_taDirty==true`; feedback visual "Guardando…" → "Guardado ✓" (verde) → vuelve a disabled 1.5s después.
+- `index.html` `_taSubscribe` onSnapshot: sincroniza `_taSavedIds = new Set(_taSelectedIds)` + `_taUpdateDirty()` tras recibir data Firestore (dirty=false en abrir modal).
+- `index.html` `closeTargetAltasModal`: warning `confirm()` si hay cambios sin guardar.
+- `index.html:6502` + `sw.js:20` (bump v1338 → v1339).
+
+**Antes (v1338)**:
+Target Altas guardaba cada toggle con debounce 300ms. Cada click → write Firestore inmediato. UX: no había "intención explícita de guardar", Santiago/Ioannis podían marcar por accidente y el write ya salió.
+
+**Problema**:
+Mariano pidió explícitamente boton "Guardar mes" — control manual sobre cuándo se escribe.
+
+**Cambio**:
+Toggle solo modifica estado local (`_taSelectedIds`). Boton "Guardar mes" habilitado cuando hay dirty (diferencia vs snapshot servidor). Click guarda en batch con feedback visual. Cerrar modal con dirty → warning.
+
+**Por que**:
+- Control explícito sobre writes (menos ruido Firestore audit log).
+- UX más consistente con "forms" clásicos (dirty + submit).
+- Permite "deshacer" sin network: desmarcar/marcar antes de guardar.
+
+**Verificación**:
+- Visual: abrir modal → boton gris + disabled. Marcar un cliente → boton azul + "Cambios sin guardar". Click → "Guardando…" → verde "Guardado ✓" → vuelve a gris.
+- Cerrar modal con dirty → `confirm()` warning.
+
+**Rollback**:
+- Revertir `_taToggle` al pattern con `setTimeout(_taSave, 300)`.
+- Borrar `_taUpdateDirty` + `_taDirty` + `_taSavedIds`.
+- Borrar footer HTML (`#ta-save-btn` + `#ta-dirty-info`).
+
+---
+
 ### v1313 (2026-10-15) — Modal Reparto filtra clientes con pedido ya en SAP
 
 **Archivos**:
