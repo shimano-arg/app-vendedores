@@ -5347,8 +5347,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
        asi saveClientCategoriaFromModal no necesita duplicacion de logica.
        Pedido Mariano: rework del v1256 que habia metido los 5 selects dentro
        del modal operativo del cliente (direccion / precaucion / cliTipo).
-       Z-index mas alto que #client-modal (que tiene z-index:1000). -->
-  <div class="modal-overlay" id="ficha-cliente-modal" onclick="if(event.target===this)closeFichaCliente()" style="z-index:1200">
+       Z-index mas alto que #client-modal (que tiene z-index:1000).
+       v1345 (2026-10-15): bumpeado 1200 -> 5000. El z-index:1200 original
+       alcanzaba contra #client-modal (1000) pero quedaba DEBAJO del .modal-overlay
+       default (3000), por eso al abrir Ficha desde Master Clientes Direcciones
+       (modal-overlay default) la ficha quedaba atras. 5000 gana contra cualquier
+       modal normal (3000), .sec-modal/#review-modal (3500), .qmodal-overlay (4000).
+       Queda por debajo de confirm-dialog (9999) y splash (100000), que es lo correcto. -->
+  <div class="modal-overlay" id="ficha-cliente-modal" onclick="if(event.target===this)closeFichaCliente()" style="z-index:5000">
     <div class="modal-box" style="max-width:460px">
       <div class="modal-head">
         <div style="flex:1;min-width:0">
@@ -6499,7 +6505,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1344';
+const APP_VERSION = 'v1345';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

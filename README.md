@@ -4717,6 +4717,51 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1345 (2026-10-15) — Ficha Cliente z-index 5000 (visible arriba de Master Clientes Direcciones)
+
+**Archivos**:
+- `index.html` linea 5351 `#ficha-cliente-modal` — inline `style="z-index:1200"` → `style="z-index:5000"`. Comentario ampliado explicando el por que.
+- `index.html:6502` + `sw.js:20` (bump v1344 → v1345).
+
+**Antes**:
+Al tocar "Ficha" en el modal "Master Clientes – Direcciones", el modal "Ficha Cliente" se abria DETRAS del master y no se veia. Reporte Mariano 2026-10-15 ~18:10 ART.
+
+**Problema**:
+`#ficha-cliente-modal` tenia inline `style="z-index:1200"` historico que apuntaba a estar arriba de `#client-modal` (z-index:1000). Pero `.modal-overlay` default es `z-index:3000` (CSS linea 2513), y `#master-cli-modal` usa el default. 1200 < 3000 → ficha abajo.
+
+**Cambio**:
+Subir el z-index inline de la ficha a 5000. Elegido 5000 para quedar arriba de:
+- `.modal-overlay` default (3000)
+- `.sec-modal` + `#review-modal` (3500)
+- `.qmodal-overlay` + `#contacto-estado-modal` (4000)
+
+Y abajo de:
+- `.confirm-dialog` + `.auth-overlay` (9999)
+- Mobile media `.modal-overlay` (10001) — Nota: en mobile, la ficha abierta sobre un modal normal seguira quedando debajo. Si Mariano reporta el bug mobile, bumpear a 10200.
+- `.password-gate-overlay` (99999) + `#splash` (100000)
+
+**Por que no 99999**:
+Para preservar que confirmaciones (confirm-dialog) y gates (auth, password) aparezcan por encima de la ficha abierta — ese es el comportamiento esperado para dialogs modales de bloqueo.
+
+**Verificacion**:
+- Hard refresh.
+- Abrir Master Clientes – Direcciones → "Ficha" en una fila → modal Ficha Cliente queda **arriba**.
+- Confirmar que cerrar la ficha devuelve el foco al master correctamente.
+
+**Rollback**:
+Volver `style="z-index:5000"` a `style="z-index:1200"` en index.html:5351 + bump a version anterior.
+
+**Patron relacionado (no fixeado aqui)**:
+Otros 4 modales usan el mismo z-index:1200 inline historico que QUIZAS tengan el mismo bug segun desde donde se abran:
+- `#panel-control-modal` (3715)
+- `#planner-board-modal` (3729)
+- `#target-altas-modal` (3778)
+- `#meli-modal` (3812)
+
+Si Mariano reporta algun caso similar, aplicar el mismo bump.
+
+---
+
 ### v1344 (2026-10-15) — Stock Asignado muestra pedidos sin stage con asigFromReparto (migrados desde SAP)
 
 **Archivos**:
