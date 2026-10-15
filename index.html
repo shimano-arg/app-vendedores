@@ -6420,7 +6420,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1317';
+const APP_VERSION = 'v1318';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19159,10 +19159,22 @@ function _repartoBuildCard(ing){
   chipIng.className = 'reparto-apple-chip';
   chipIng.style.cssText = 'background:rgba(52,199,89,.14);color:#248a3d';
   chipIng.textContent = 'Stock: ' + _repartoFmtQty(stockFisico) + ' u';
+  // v1318 (2026-10-15): chip Demanda ahora refleja LIVE (clientes actuales
+  // esperando el SKU), no el snapshot stale del doc. Antes el chip mostraba
+  // "Demanda: 1u · 1 clientes" pero la tabla decia "sin clientes esperando" →
+  // contradiccion visual. Ahora ambos coinciden.
+  const _liveClis = _repartoLiveClientesBO(ing.sku);
+  const _liveDemanda = _liveClis.reduce((s, c) => s + (Number(c.qtyBackorder) || 0), 0);
   const chipBO = document.createElement('span');
   chipBO.className = 'reparto-apple-chip';
-  chipBO.style.cssText = 'background:rgba(255,149,0,.14);color:#b25000';
-  chipBO.textContent = 'Demanda: ' + _repartoFmtQty(ing.qtyBackorderTotal) + ' u · ' + (ing.clientesCount || 0) + ' clientes';
+  if (_liveClis.length > 0) {
+    chipBO.style.cssText = 'background:rgba(255,149,0,.14);color:#b25000';
+    chipBO.textContent = 'Demanda: ' + _repartoFmtQty(_liveDemanda) + ' u · ' + _liveClis.length + ' cliente' + (_liveClis.length === 1 ? '' : 's');
+  } else {
+    // Sin clientes activos: chip gris. Mas util como señal visual que naranja.
+    chipBO.style.cssText = 'background:rgba(120,120,128,.14);color:#6e6e73';
+    chipBO.textContent = 'Sin clientes esperando';
+  }
   const chipStatus = document.createElement('span');
   chipStatus.className = 'reparto-apple-chip';
   const _statusColor = ing.status === 'in_progress'
