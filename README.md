@@ -4717,6 +4717,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1344 (2026-10-15) — Stock Asignado muestra pedidos sin stage con asigFromReparto (migrados desde SAP)
+
+**Archivos**:
+- `src/pure/backorder-sku-map.js` linea ~275 — filtro `p.stage !== 'confirmed'` abre excepcion en modo asignacion para pedidos con al menos una linea `state='ASIG'` + `asigFromReparto` + `qtyOpen>0`.
+- `tests/unit/backorder-sku-map.test.js` — 2 tests nuevos: (a) caso BROBRO (ASIG con asigFromReparto en pedido sin stage → aparece); (b) backward compat (pedido sin stage SIN asigFromReparto sigue excluido).
+- `index.html:6502` + `sw.js:20` (bump v1343 → v1344).
+- `app.bundle.js` + chunks regenerados.
+
+**Antes**:
+Pedido BROBRO SA `x347Ul5b9cRtVPjEEN4T` (SKU `21100150150E`, 1 unidad) migrado desde el sync SAP inicial trae `stage=undefined` + `transferidoSAP.docNum=25938`. Pablo aplico el reparto via modal Reparto y el backend aplico OK (linea 11 paso a `state='ASIG'`, `asigReserva=true`, `asigFromReparto` set). Pero el modal Stock Asignado no mostraba el pedido — el filtro `if (p.stage !== 'confirmed' && !strictMode) continue;` lo descartaba.
+
+**Cambio**:
+En modo `asignacion`, abrir el gate para pedidos sin `stage='confirmed'` si tienen al menos una linea ASIG con `asigFromReparto` + `qtyOpen>0`. La excepcion es estricta: solo lineas con marca explicita de reparto manual habilitan al pedido. Un pedido migrado sin stage con ASIG legacy (sin `asigFromReparto`) sigue excluido como antes.
+
+**Por que**:
+v1340 (Reparto Opcion LIGHT) habilito al backend repartir sobre pedidos ya en SAP. El complemento necesario era espejar la habilitacion en el modal Stock Asignado — si no, Pablo aplica el reparto, backend marca ASIG, pero el modal no muestra el resultado. El fix es minimamente invasivo: solo altera el filtro de modo asignacion y solo para pedidos con prueba de reparto manual (`asigFromReparto`).
+
+**Verificacion**:
+- 708/708 tests pass (706 originales + 2 nuevos).
+- `node scripts/debug-x347-estado.cjs` confirma linea[11] ASIG con `asigFromReparto='ILl4Jt249VV66ba4AJVt'`.
+- Mariano: abrir Stock Asignado post-deploy → BROBRO SA 21100150150E qty=1 debe aparecer.
+
+**Rollback**:
+Revertir el bloque `if (p.stage !== 'confirmed' && !strictMode) { ... }` a `if (p.stage !== 'confirmed' && !strictMode) continue;` + rebuild bundle. Los tests nuevos fallaran (son el guard contra regresion).
+
+---
+
 ### v1343 (2026-10-15) — Reparto fix snapshot stale: validacion real contra pedido vivo (no contra snapshot clientesBO)
 
 **Archivos**:
