@@ -6499,7 +6499,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1339';
+const APP_VERSION = 'v1340';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19426,26 +19426,24 @@ function _repartoLiveClientesBO(sku){
   return out;
 }
 
-// v1313 (2026-10-15): filtrar clientes del card de reparto que ya no pueden
-// recibir asignacion. Causas: (1) pedido ya enviado a SAP (transferidoSAP.docNum)
-// — guard v1300 del backend tira error "pedido ya en SAP" (precedente FATECHI
-// $7.3M), ocultamos pre-emptive; (2) pedido cerrado (closedAt); (3) la linea
-// ya no es state='BO' (fue asignada/cancelada por otro reparto o flow). El
-// doc ingresos_reparto NO se re-escribe cuando cambian estos campos — fue
-// snapshotted en el momento del ingreso detectado. Filtrar en render evita
-// que Pablo vea errores "pedido ya en SAP" al aplicar.
+// v1340 (2026-10-15): Opcion LIGHT — Mariano autoriza reparto sobre pedidos
+// ya enviados a SAP (sin importar transferidoSAP.docNum). El guard backend
+// v1300 ya fue removido en v1336. Este filter frontend sigue para esconder
+// clientes CERRADOS o con linea no-BO (consistencia UI). PERO ya NO filtra
+// por transferidoSAP.docNum — ahora Pablo puede repartir aunque el pedido
+// este en SAP.
+// NOTA: v1340 acepta explicitamente el riesgo FATECHI (SQ duplicada si
+// Pablo arma pedido-ASIG y lo envia a SAP mientras la SQ original sigue
+// abierta). Mitigacion depende de proceso humano Pablo+Deposito.
 function _repartoClienteEsReparteable(c){
   if (!c || !c.pedidoId) return false;
   if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return true;
   // v1315 (2026-10-15) FIX critico: globalPedidos guarda cada doc con key
-  // `_fsId` (snapshot projection v623+, index.html:32127). El filter v1313
-  // buscaba por `_id`/`id` → nunca matcheaba → siempre devolvia true
-  // optimista → el error "pedido ya en SAP" seguia apareciendo (reporte
-  // Mariano 2026-10-15 con BROBRO SA / SQ #2000310).
+  // `_fsId` (snapshot projection v623+, index.html:32127).
   const p = globalPedidos.find((pp) => pp && (pp._fsId === c.pedidoId || pp._id === c.pedidoId || pp.id === c.pedidoId));
   if (!p) return true; // sin info -> optimista (backend validara)
   if (p.closedAt) return false;
-  if (p.transferidoSAP && p.transferidoSAP.docNum) return false;
+  // v1340: transferidoSAP.docNum ya NO filtra (precedente removido por Mariano).
   const lines = Array.isArray(p.lines) ? p.lines : [];
   const line = lines[Number(c.lineIndex) || 0];
   if (!line) return false;
