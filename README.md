@@ -4717,6 +4717,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1340 (2026-10-15) — Reparto Opción LIGHT: permite repartir sobre pedidos ya enviados a SAP
+
+**Archivos**:
+- `index.html` función `_repartoClienteEsReparteable` (línea ~19437): elimina la condición `if (p.transferidoSAP && p.transferidoSAP.docNum) return false;`. Ahora clientes con pedido ya en SAP aparecen reparteables.
+- `index.html:6502` + `sw.js:20` (bump v1339 → v1340).
+
+**Antes (v1313 → v1339)**:
+Clientes con pedido ya enviado a SAP (`transferidoSAP.docNum` set) estaban ocultos del modal Reparto. Backend tenía guard v1300 que tiraba error "pedido ya en SAP". Precedente FATECHI 2026-10-06 justificaba el guard.
+
+**Cambio**:
+Mariano autoriza explícitamente permitir reparto aunque el pedido esté en SAP. El guard backend ya había sido removido en v1336 (PR#1053). Este v1340 remueve el espejo frontend v1313 que todavía filtraba.
+
+**Por qué**:
+Pablo necesita poder repartir stock a clientes con BO abierta aunque la SQ original esté viva en SAP. La disciplina para evitar duplicación de SQ queda en manos de Pablo + Depósito.
+
+**Riesgo aceptado (FATECHI)**:
+Si Pablo arma pedido-ASIG desde el stock asignado y lo envía a SAP, puede quedar:
+- SQ original (ej: 2000347) con línea BO abierta en SAP.
+- SQ nueva (ej: 2000380) con misma cliente mismo SKU por mismas unidades.
+- Depósito factura ambas → cliente recibe 2x → facturación doble.
+
+**Mitigación propuesta** (NO implementada en v1340):
+Antes de armar pedido-ASIG en app, Pablo verifica en SAP que la línea BO original esté cancelada o entregada. O: implementar sync automático que cancele BO original en SAP cuando se crea la ASIG (Opción PROTEGIDA, descartada por Mariano a favor de velocidad).
+
+**Verificación**:
+- UI: abrir modal Reparto para SKU donde haya cliente con pedido en SAP → aparece en la lista.
+- Backend: aplicar reparto → ASIG se crea en Firestore sin error.
+
+**Rollback**:
+Reagregar `if (p.transferidoSAP && p.transferidoSAP.docNum) return false;` en `_repartoClienteEsReparteable`. El guard backend está removido desde v1336 y requeriría otro rollback separado.
+
+---
+
 ### v1339 (2026-10-15) — Target Altas: boton "Guardar mes" explicito (reemplaza autoguardado)
 
 **Archivos**:
