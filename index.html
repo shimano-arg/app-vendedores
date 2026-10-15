@@ -6499,7 +6499,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1341';
+const APP_VERSION = 'v1342';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19238,7 +19238,7 @@ window.closeEstadoModal = function(){
 // las unidades que ingresaron a cada cliente con backorder del SKU.
 // Backend: PR #988 (v1277) + migrateAsigToBOCF (v1278).
 // ============================================================
-var _repartoUnsub = null;
+var _unsubReparto = null;
 var _repartoIngresos = []; // cache de docs {id, sku, qtyIngresada, status, clientesBO, ...}
 
 window.openRepartoModal = function(){
@@ -19268,18 +19268,18 @@ window.closeRepartoModal = function(){
   const m = document.getElementById('reparto-modal');
   if (m) m.classList.remove('open');
   // Cleanup listener para no gastar reads mientras no se usa.
-  if (typeof _repartoUnsub === 'function') {
-    try { _repartoUnsub(); } catch(_e) {}
-    _repartoUnsub = null;
+  if (typeof _unsubReparto === 'function') {
+    try { _unsubReparto(); } catch(_e) {}
+    _unsubReparto = null;
   }
 };
 
 function _repartoSubscribe(){
   if (typeof fbDb === 'undefined' || !fbDb) return;
-  if (typeof _repartoUnsub === 'function') return; // ya suscripto
+  if (typeof _unsubReparto === 'function') return; // ya suscripto
   const sum = document.getElementById('reparto-summary');
   if (sum) sum.textContent = 'Cargando ingresos pending…';
-  _repartoUnsub = fbDb.collection('ingresos_reparto')
+  _unsubReparto = fbDb.collection('ingresos_reparto')
     .where('status', 'in', ['pending', 'in_progress'])
     .orderBy('detectedAt', 'desc')
     .onSnapshot((qs) => {
@@ -32458,6 +32458,9 @@ function detachFirebaseListeners(){
   n += off('unsubPlannerPedidos', unsubPlannerPedidos, () => unsubPlannerPedidos = null);
   n += off('unsubPlannerWaitlist', unsubPlannerWaitlist, () => unsubPlannerWaitlist = null);
   n += off('unsubPlannerConfig', unsubPlannerConfig, () => unsubPlannerConfig = null);
+  // v1342 (2026-10-15): cleanup del listener de Reparto para que no quede vivo
+  // despues de logout si admin cerro sesion con modal abierto. CLAUDE.md regla 12.
+  n += off('_unsubReparto', _unsubReparto, () => _unsubReparto = null);
   if (typeof _logT === 'function') _logT('detach: ' + n + ' listeners cerrados');
   return n;
 }

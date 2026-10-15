@@ -957,8 +957,11 @@ export const applyRepartoManualCF = onCall(
     // v1278 (2026-10-14): Mariano agrego el email de Pablo al whitelist.
     const PABLO_EMAIL = 'pablo.gonzalez@shimano.com.ar';
     try {
-      const userDoc = await db.collection('users').doc(auth.uid).get();
-      const role = String((userDoc.data() || {}).role || '').toLowerCase();
+      // v1342 (2026-10-15) FIX: antes leia `users/{uid}` pero la coleccion fuente
+      // de verdad es `roles/{uid}` (firestore.rules linea 23). Admin/gerente sin
+      // doc en `users/*` recibia 'permission-denied' por error.
+      const roleDoc = await db.collection('roles').doc(auth.uid).get();
+      const role = String((roleDoc.data() || {}).role || '').toLowerCase();
       const isAllowed = role === 'admin' || role === 'gerente' || email === PABLO_EMAIL;
       if (!isAllowed) {
         throw new HttpsError(
@@ -1021,77 +1024,24 @@ export const applyRepartoManualCF = onCall(
  *
  * Gate: admin only (operacion sensible, no debe ejecutarla Pablo).
  */
+// v1342 (2026-10-15): migrateAsigToBOCF DESACTIVADA.
+// Historia: v1278 (2026-10-14) creo esta CF one-shot para hacer switchover
+// del FIFO automatico al reparto manual. Ejecucion unica el 2026-10-14 16:30
+// UTC revirtio 446 lineas ASIG -> BO + creo 119 ingresos_reparto. OK, era
+// el proposito.
+// Problema: la CF seguia activa y podia re-ejecutarse por error, revirtiendo
+// ASIG nuevas (incluidas las de Pablo). Mariano confirmo que no hace falta
+// re-correr. La blockeamos con un throw duro.
+// Rollback: si alguna vez hace falta, re-habilitar con guard idempotente
+// (chequear doc migrations/v1278-executed antes de correr).
 export const migrateAsigToBOCF = onCall(
-  {
-    region: REGION,
-    cors: true,
-    enforceAppCheck: false,
-    memory: '512MiB',
-    timeoutSeconds: 540,
-  },
-  async (req) => {
-    const auth = req.auth;
-    if (!auth || !auth.uid) {
-      throw new HttpsError('unauthenticated', 'login requerido');
-    }
-    const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
-    const db = getFirestore();
-    // Gate: admin/gerente/Mariano. v1283 (2026-10-14): agregado whitelist
-    // emails de Mariano porque su user doc en Firestore no tiene campo role
-    // seteado (role: '' vacio). Mismo pattern que planner-resend-email-core
-    // (MARIANO_EMAILS). La operacion es sensible pero Mariano siempre debe
-    // poder ejecutarla.
-    const MARIANO_EMAILS_MIG = new Set([
-      'erbinomariano@gmail.com',
-      'mariano.erbino@shimano.com.ar',
-    ]);
-    try {
-      const userDoc = await db.collection('users').doc(auth.uid).get();
-      const role = String((userDoc.data() || {}).role || '').toLowerCase();
-      const isMariano = MARIANO_EMAILS_MIG.has(email);
-      if (!isMariano && role !== 'admin' && role !== 'gerente') {
-        throw new HttpsError(
-          'permission-denied',
-          'solo admin/gerente/Mariano puede ejecutar migracion (email: ' +
-            email +
-            ', role: ' +
-            role +
-            ')'
-        );
-      }
-    } catch (e) {
-      if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'no se pudo validar rol: ' + (e?.message || String(e)));
-    }
-    try {
-      const r = await migrateAsigToBOAndCreateReparto({
-        fbDb: db,
-        log: (msg, extra) => console.log(msg, extra || {}),
-      });
-      console.log('migrateAsigToBOCF done', {
-        pedidosScanned: r.pedidosScanned,
-        reverted: r.revertedLines.length,
-        skus: r.skusAffected.length,
-        ingresosCreated: r.ingresosCreated.length,
-        errors: r.errors.length,
-      });
-      return {
-        ok: r.errors.length === 0,
-        pedidosScanned: r.pedidosScanned,
-        revertedLinesCount: r.revertedLines.length,
-        skusAffectedCount: r.skusAffected.length,
-        ingresosCreated: r.ingresosCreated,
-        ingresosSkipped: r.ingresosSkipped,
-        errors: r.errors,
-      };
-    } catch (e) {
-      if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'migracion fallo: ' + (e?.message || String(e)));
-    }
+  { region: REGION, cors: true, enforceAppCheck: false, memory: '128MiB', timeoutSeconds: 10 },
+  async () => {
+    throw new HttpsError(
+      'failed-precondition',
+      'migrateAsigToBOCF esta DESACTIVADA (v1342). Es one-shot ejecutada el 2026-10-14. ' +
+        'Re-habilitacion requiere code change con guard idempotente — ver functions/index.js:1017.'
+    );
   }
 );
 

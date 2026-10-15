@@ -4717,6 +4717,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1342 (2026-10-15) — Reparto hardening: desactivar migrateAsigToBOCF + fix role lookup + cleanup listener
+
+**Archivos**:
+- `functions/index.js:1017-1089` — `migrateAsigToBOCF` reemplazada por un `throw` permanente. Era one-shot ya ejecutada el 2026-10-14 (revirtió 446 ASIG→BO). Se queda deshabilitada para evitar re-ejecución.
+- `functions/index.js:960` — role lookup del CF `applyRepartoManualCF` fixeado: `users/{uid}` → `roles/{uid}` (colección fuente de verdad según firestore.rules:23).
+- `index.html:detachFirebaseListeners` — agregado `off('_repartoUnsub', ...)` (CLAUDE.md regla 12).
+- `index.html:6502` + `sw.js:20` (bump v1341 → v1342).
+
+**Antes**:
+1. `migrateAsigToBOCF` seguía activa post-ejecución one-shot. Podía re-correr accidentalmente y revertir ASIG nuevas (incluidas las aplicadas por Pablo). Precedente: 2026-10-14 16:30 UTC revirtió 446 líneas afectando a BROBRO, ARIEL, MARTIN TAMBORENEA, CUASSOLO, MARIA AGUSTINA PRAT, etc.
+2. `applyRepartoManualCF` leía rol de `users/{uid}` pero las rules usan `roles/{uid}`. Admin/gerente SIN doc en `users/*` recibía 'permission-denied' falso. Único workaround era que Pablo cargue (está en whitelist por email).
+3. `_repartoUnsub` tenía cleanup en `closeRepartoModal` pero NO en `detachFirebaseListeners`. Si admin hace logout con modal abierto → listener leak.
+
+**Cambio**:
+1. **migrateAsigToBOCF**: reemplazada por `throw HttpsError('failed-precondition', ...)`. Mensaje claro para que si alguien la llama entienda que está desactivada.
+2. **Role lookup**: lee de `roles` (colección correcta). Admin/gerente ahora pueden aplicar reparto sin depender de un doc espejo en `users/*`.
+3. **Listener cleanup**: una línea más en `detachFirebaseListeners`.
+
+**Por qué**:
+Hardening pre-aviso al equipo. Mariano quiere confirmar que Reparto funciona end-to-end sin trampas antes de notificar que Pablo lo use normal.
+
+**Verificación**:
+- `migrateAsigToBOCF` invocada → devuelve `failed-precondition` con mensaje descriptivo (requiere deploy functions).
+- Admin con doc solo en `roles/*` (no en `users/*`) aplica reparto → OK (requiere deploy functions).
+- Logout con modal Reparto abierto → listener se cierra (verificable en Network tab Firebase).
+
+**Rollback**:
+- Re-habilitar migrate: restaurar código original + agregar guard idempotente (chequear `migrations/v1278-executed` antes de correr).
+- Revertir role lookup: cambiar `roles` → `users` en línea 964.
+- Quitar cleanup listener: borrar la línea nueva en `detachFirebaseListeners`.
+
+**Deploy**:
+- Frontend (index.html + sw.js) auto-deploy via GitHub Pages post-merge.
+- **Backend requiere `firebase deploy --only functions:migrateAsigToBOCF,functions:applyRepartoManualCF`** para que los cambios functions/index.js tomen efecto en runtime.
+
+---
+
 ### v1341 (2026-10-15) — Reparto: sort ascendente por qtyIngresada (SKU con menos unidades primero)
 
 **Archivos**:
