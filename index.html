@@ -6143,22 +6143,18 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div id="wcard-cliente-open-lines-body"></div>
       </details>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera.
-           v1319 (2026-10-15): sticky top:0 para que no se pierda al scrollear.
-           background sólido + z-index alto para quedar arriba del thead sticky. -->
-      <div style="position:sticky;top:0;z-index:30;background:var(--bg-elevated);padding:4px 0 10px">
-        <div style="position:relative">
-          <input id="wcard-add-input" type="text" placeholder="Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none"/>
-          <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
-        </div>
+           v1321 (2026-10-15): sticky REMOVIDO (Mariano preferia que solo el
+           thead quedara fijo, no el buscador). -->
+      <div style="position:relative;margin-bottom:10px">
+        <input id="wcard-add-input" type="text" placeholder="Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none"/>
+        <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
       </div>
-      <!-- v1319 (2026-10-15): fix sticky thead que no funcionaba en v1308.
-           1. border-collapse:separate + border-spacing:0 (collapse rompe sticky
-              en Chrome/Safari — bug conocido de CSS).
-           2. thead top:56px para quedar debajo del buscador sticky encima.
-           3. background sólido en th definido en CSS existente. -->
+      <!-- v1321 (2026-10-15): solo thead sticky al top:0 (sin buscador sticky
+           encima). border-collapse:separate + border-spacing:0 preserve del
+           v1319 porque collapse rompe sticky en Chrome/Safari. -->
       <div style="border:1px solid var(--border-subtle);border-radius:6px">
         <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px">
-          <thead style="position:sticky;top:56px;z-index:20">
+          <thead style="position:sticky;top:0;z-index:20">
             <tr style="background:#0f172a;color:#fff">
               <!-- v702 (2026-08-28): reestructura de columnas por pedido de Mariano.
                    Sacadas: Backorder General, Backorder Cliente, Disponible app.
@@ -6426,7 +6422,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1320';
+const APP_VERSION = 'v1321';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
