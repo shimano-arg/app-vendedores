@@ -4717,6 +4717,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1313 (2026-10-15) — Modal Reparto filtra clientes con pedido ya en SAP
+
+**Archivos**:
+- `index.html` nueva función `_repartoClienteEsReparteable(c)`: valida que `globalPedidos[pedidoId]` tenga `closedAt==null`, `transferidoSAP.docNum==null`, línea `state==='BO'` y `qtyOpen>0`.
+- `index.html` `_repartoBuildCard`: filtra `_clientesRaw` con el helper. Si quedan ocultos, muestra fila-nota "N cliente(s) ocultos (pedidos ya en SAP o cerrados)". Si todos quedan ocultos, mensaje "Todos los clientes BO de este ingreso ya fueron enviados a SAP o cerrados. Nada que repartir."
+- `index.html:6423` + `sw.js:20` (bump v1312 → v1313).
+
+**Antes (v1312)**:
+Al aplicar reparto que incluía clientes cuyo pedido ya tenía SQ en SAP, el backend tiraba N errores "pedido ya en SAP (SQ #N), no se puede repartir" en un `alert()`. El guard existe por precedente FATECHI 2026-10-06 ($7.3M SAP ghost) y NO se puede quitar. UX era mala: Pablo veía los clientes, asignaba, y recién al aplicar le aparecía el error.
+
+**Causa**:
+El doc `ingresos_reparto` snapshotea `clientesBO` en el momento del ingreso detectado. Si entre ese snapshot y el reparto manual el pedido pasa a SAP (vía `sap-auto-send-listener.js` o batch), el `clientesBO` queda stale. Backend valida live y rechaza; frontend mostraba la info stale.
+
+**Cambio**:
+Validación defensiva frontend contra `window.globalPedidos` (listener onSnapshot ya attach-eado). Para cada cliente del snapshot, chequea en vivo cuatro condiciones. Si cualquiera falla → skipeado del render + contado en la fila-nota.
+
+**Por que**:
+- Elimina el `alert()` con N errores "pedido ya en SAP".
+- Preserva guard v1300 del backend (defense in depth).
+- Zero costo adicional en Firestore reads (reuse listener existente).
+
+**Verificación**:
+- `npm run test:unit` → 706/706 pass.
+- Visual: abrir modal con un ingreso cuyo pedido ya fue enviado a SAP → cliente desaparece + nota "N cliente(s) ocultos".
+
+**Rollback**:
+- Borrar `_repartoClienteEsReparteable` + revertir filter a `_clientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : []`.
+
+---
+
 ### v1312 (2026-10-15) — Modal "Reparto de mercadería" rediseñado con 3 columnas (Asignado / Backorder / Eliminar)
 
 **Archivos**:
