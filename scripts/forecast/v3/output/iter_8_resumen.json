@@ -1,0 +1,59 @@
+{
+  "iter": 8,
+  "label": "demand_signals_integrated",
+  "generado": "2026-10-15T01:19:36.260061+00:00",
+  "duracion_s": 15.927667,
+  "features": [
+    "ensemble_stat_models (MA3/Seasonal_Level/Trend/MA3/Naive_YoY)",
+    "sales_plan_blend (alpha grid)",
+    "campaign_boost (target units distributed)",
+    "backorder_signal_m1 (sumado al mes 1)",
+    "stock_dep11_info (informativo, no cap)",
+    "flag_es_nueva_shimano (ratio Shim/Bar < 2% \u2192 fallback seasonal_naive_yoy)",
+    "bridge_SI_only (iter opcB)"
+  ],
+  "nueva_threshold_pct": 2.0,
+  "n_subs": 26,
+  "stock_dep11_total": 23190.0,
+  "backorder_total": 15414.0,
+  "n_campaigns_cells": 4,
+  "campaigns_target_total": 300.0,
+  "summary": {
+    "wape_median": 0.39836136211027895,
+    "wape_mean": 0.5874311901569423,
+    "wape_p25": 0.15073677766342972,
+    "wape_p75": 0.7078657522859518,
+    "wape_std": 0.6384862967117093,
+    "n_series": 26,
+    "n_series_wape_lt_0_3": 12,
+    "n_series_wape_lt_0_5": 14,
+    "n_series_wape_lt_0_7": 19,
+    "n_series_wape_lt_1_0": 20,
+    "mae_median": 21.202343526484533,
+    "bias_median": -0.02776972425289806,
+    "modelos_elegidos": {
+      "MA3": 9,
+      "Seasonal_Trend": 8,
+      "Seasonal_Level": 5,
+      "Seasonal_MA3": 3,
+      "Ensemble_Median": 1
+    },
+    "alphas_elegidos": {
+      "0.0": 16,
+      "0.2": 7,
+      "0.6": 1,
+      "1.0": 2
+    },
+    "n_subs_nuevas": 3
+  },
+  "sanity": {
+    "pct_zero_predictions": 0.038461538461538464,
+    "flag_too_many_zeros": false,
+    "pct_negative_predictions": 0.0,
+    "flag_negatives": false,
+    "pct_series_constant": 0.19230769230769232,
+    "flag_too_many_constant": false,
+    "pct_series_over_10x_max_hist": 0.0,
+    "flag_overshoot": false
+  }
+}
