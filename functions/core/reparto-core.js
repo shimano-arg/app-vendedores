@@ -345,16 +345,10 @@ export function validateRepartoPayload(ingresoDoc, assignments) {
     // (qtyOpen aumenta) en applyRepartoManualCore. Antes rechazaba con error.
     sumAsignada += qty;
   }
-  if (sumAsignada > ingresoDoc.qtyIngresada) {
-    errors.push(
-      'sum assignments=' +
-        sumAsignada +
-        ' > qtyIngresada=' +
-        ingresoDoc.qtyIngresada +
-        ' (sobre-reparto)'
-    );
-  }
-  return { valid: errors.length === 0, errors };
+  // v1309 (2026-10-15): el cap vs stock fisico se valida en applyRepartoManualCore
+  // porque requiere leer app_config/stock_snapshot (async). validateRepartoPayload
+  // queda sync, solo chequea estructura basica.
+  return { valid: errors.length === 0, errors, sumAsignada };
 }
 
 /**
@@ -384,6 +378,36 @@ export async function applyRepartoManualCore(deps, opts) {
   const validation = validateRepartoPayload(ingresoDoc, opts.assignments);
   if (!validation.valid) {
     return { ok: false, errors: validation.errors, applied: [] };
+  }
+  // v1309 (2026-10-15): cap contra STOCK FISICO ACTUAL dep 11, no qtyIngresada
+  // (delta del ingreso). Pedido Mariano: UI muestra stock real (ej. 64u) en vez
+  // del delta (ej. 13u), por lo que el cap tambien debe reflejar stock fisico.
+  let stockFisicoDep11 = 0;
+  try {
+    const stockSnap = await deps.fbDb.collection('app_config').doc('stock_snapshot').get();
+    const stockData = stockSnap.exists ? stockSnap.data() : null;
+    const wbs = _parseWarehouseBreakdown(stockData);
+    const skuKey = String(ingresoDoc.sku || '').toUpperCase().trim();
+    const whs = (wbs && wbs[skuKey]) || null;
+    stockFisicoDep11 = whs ? Number(whs['11'] || 0) : 0;
+  } catch (stockErr) {
+    log('stock_snapshot read fail', { err: stockErr && stockErr.message });
+    return {
+      ok: false,
+      errors: ['no se pudo leer stock_snapshot para validar cap: ' + (stockErr && stockErr.message ? stockErr.message : String(stockErr))],
+      applied: [],
+    };
+  }
+  if (validation.sumAsignada > stockFisicoDep11) {
+    return {
+      ok: false,
+      errors: [
+        'sum assignments=' + validation.sumAsignada +
+          ' > stock fisico dep 11 actual=' + stockFisicoDep11 +
+          ' (sobre-reparto, sin stock real para cubrir)',
+      ],
+      applied: [],
+    };
   }
   // v1277 BLOCKER-1 fix: lock ANTES del loop para que un crash parcial +
   // retry del user no cause doble aplicacion. Si el lock falla no tocamos
@@ -527,7 +551,9 @@ export async function applyRepartoManualCore(deps, opts) {
   // (todo se asigno), los no-asignados MANTIENEN su BO (siguen esperando otro
   // ingreso).
   const sumAsignada = applied.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
-  const libre = Math.max(0, (Number(ingresoDoc.qtyIngresada) || 0) - sumAsignada);
+  // v1309: libre = stock fisico actual - sumAsignada. Preserva la regla v1295:
+  // si queda stock libre y hay clientes BO en 0, se les cancela el BO.
+  const libre = Math.max(0, stockFisicoDep11 - sumAsignada);
   /** @type {Array<{pedidoId: string, lineIndex: number}>} */
   const unassignedCancelled = [];
   if (libre > 0) {

@@ -6420,7 +6420,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1308';
+const APP_VERSION = 'v1309';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19044,10 +19044,21 @@ function _repartoRender(){
   });
 }
 
+// v1309 (2026-10-15): Mariano pidio mostrar el STOCK FISICO actual (dep 11)
+// en vez del DELTA del ultimo ingreso detectado. getStockDisponibleVenta(sku)
+// retorna qty actual dep 11. Backend applyRepartoManualCore tambien usa stock
+// fisico actual como cap (ver functions/core/reparto-core.js).
+function _repartoStockFisico(ing){
+  if (!ing || !ing.sku) return 0;
+  if (typeof getStockDisponibleVenta !== 'function') return Number(ing.qtyIngresada) || 0;
+  return Number(getStockDisponibleVenta(ing.sku)) || 0;
+}
+
 function _repartoBuildCard(ing){
   // v1301 (2026-10-14): rediseno Apple-style. Minimalista, neutro, chips
   // tinted (pastel/transparencia), tipografia SF Pro-like, radios 14px,
   // bordes 0.5px, feedback pointerdown (CSS .reparto-apple-btn:active scale).
+  const stockFisico = _repartoStockFisico(ing);
   const card = document.createElement('div');
   card.className = 'reparto-apple-card reparto-apple';
   card.setAttribute('data-ingreso-id', ing._id);
@@ -19061,7 +19072,7 @@ function _repartoBuildCard(ing){
   const chipIng = document.createElement('span');
   chipIng.className = 'reparto-apple-chip';
   chipIng.style.cssText = 'background:rgba(52,199,89,.14);color:#248a3d';
-  chipIng.textContent = 'Ingreso: ' + _repartoFmtQty(ing.qtyIngresada) + ' u';
+  chipIng.textContent = 'Stock: ' + _repartoFmtQty(stockFisico) + ' u';
   const chipBO = document.createElement('span');
   chipBO.className = 'reparto-apple-chip';
   chipBO.style.cssText = 'background:rgba(255,149,0,.14);color:#b25000';
@@ -19134,10 +19145,10 @@ function _repartoBuildCard(ing){
       + '<td style="text-align:center"><div style="font-weight:600;color:#1d1d1f;letter-spacing:-0.1px">' + _escHtml(c.clientName || '') + '</div>'
       + '<div style="font-size:11px;color:#86868b;margin-top:1px;letter-spacing:-0.05px">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div></td>'
       + '<td style="text-align:center;font-weight:700;color:#b25000">' + _repartoFmtQty(c.qtyBackorder) + '</td>'
-      + '<td style="text-align:center;color:#248a3d;font-weight:600">' + _repartoFmtQty(ing.qtyIngresada) + '</td>'
+      + '<td style="text-align:center;color:#248a3d;font-weight:600">' + _repartoFmtQty(stockFisico) + '</td>'
       + '<td style="text-align:center">'
       + '<div style="display:inline-flex;align-items:center;gap:6px">'
-      + '<input type="number" min="0" max="' + (Number(ing.qtyIngresada) || 0) + '" step="1" value="0" '
+      + '<input type="number" min="0" max="' + stockFisico + '" step="1" value="0" '
       + 'data-reparto-input="' + _escAttr(ing._id) + '" '
       + 'data-pedido-id="' + _escAttr(c.pedidoId) + '" '
       + 'data-line-index="' + Number(c.lineIndex) + '" '
@@ -19159,7 +19170,7 @@ function _repartoBuildCard(ing){
   foot.style.cssText = 'padding:14px 18px;background:#fafafa;border-top:0.5px solid rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
   const totals = document.createElement('div');
   totals.style.cssText = 'font-size:12.5px;color:#6e6e73;letter-spacing:-0.1px';
-  totals.innerHTML = 'Asignado: <b style="color:#1d1d1f;font-weight:600" data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(ing.qtyIngresada) + ' · Libre: <b style="color:#1d1d1f;font-weight:600" data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(ing.qtyIngresada) + '</b>';
+  totals.innerHTML = 'Asignado: <b style="color:#1d1d1f;font-weight:600" data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(stockFisico) + ' · Libre: <b style="color:#1d1d1f;font-weight:600" data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(stockFisico) + '</b>';
   foot.appendChild(totals);
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -19183,7 +19194,8 @@ window._repartoRecalc = function(input){
   const ingresoId = input.getAttribute('data-reparto-input');
   const maxBO = Number(input.getAttribute('data-max-bo')) || 0;
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
-  const qtyIng = (ing && Number(ing.qtyIngresada)) || 0;
+  // v1309: cap por stock fisico actual (dep 11), no por qtyIngresada (delta).
+  const qtyIng = _repartoStockFisico(ing);
   // v1287: clamp dinamico por "libre del ingreso".
   // v1290 (2026-10-14): REVERTIDO el clamp dinamico por libre.
   // v1292 (2026-10-14): REMOVIDO el clamp por maxBO del cliente. Reporte Mariano:
@@ -19231,7 +19243,8 @@ window._repartoSetMax = function(input){
   const ingresoId = input.getAttribute('data-reparto-input');
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   if (!ing) return;
-  const qtyIng = Number(ing.qtyIngresada) || 0;
+  // v1309: MAX da el stock fisico completo al cliente.
+  const qtyIng = _repartoStockFisico(ing);
   // Reset los OTROS inputs a 0.
   const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
   inputs.forEach((inp) => { if (inp !== input) inp.value = 0; });
@@ -19245,7 +19258,8 @@ window._repartoSetMax = function(input){
 window._repartoFifoAuto = function(ingresoId){
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   if (!ing) return;
-  const qtyIng = Number(ing.qtyIngresada) || 0;
+  // v1309: FIFO reparte stock fisico actual, no delta.
+  const qtyIng = _repartoStockFisico(ing);
   // Inputs en orden del DOM = orden FIFO (clientesBO viene ordenado por createdAt).
   const inputs = Array.from(document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]'));
   // Reset primero + asignar FIFO.
@@ -19290,7 +19304,8 @@ window._repartoApply = async function(ingresoId){
     return;
   }
   const total = assignments.reduce((s, a) => s + a.qtyAsignada, 0);
-  const libre = ing.qtyIngresada - total;
+  // v1309: libre = stock fisico - asignado.
+  const libre = _repartoStockFisico(ing) - total;
   // v1295 (2026-10-14): si hay libre, los clientes BO que quedaron en 0 van
   // a ser CANCELADOS. Avisar al user.
   const clientesBOCount = Array.isArray(ing.clientesBO) ? ing.clientesBO.length : 0;
