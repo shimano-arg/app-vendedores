@@ -2131,6 +2131,18 @@ window.renderMasterClientesTable = function () {
       )
     );
 
+  // v1310 (2026-10-15) PERF: pre-indexar approvedAltasList por _fsId. Antes
+  // habia 2 .find() con O(N) en el hot path del render — uno en getCurrent (que
+  // se invoca ~3,500 veces por render entre stats + filter + forEach) y otro
+  // en el forEach render (hasta 500 iter). Con ~2000 altas SAP = 7M+ ops por
+  // render → lag perceptible al tipear en el buscador. Map.get() es O(1).
+  const _altasBySapFsId = new Map();
+  if (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) {
+    for (const _a of approvedAltasList) {
+      if (_a && _a._fsId) _altasBySapFsId.set(_a._fsId, _a);
+    }
+  }
+
   // Aplicar filtro de estado segun cache (combinado con pending)
   // Devuelve la direccion del cliente: 1) pending changes en memoria,
   // 2) client_master (Firestore global, escrito por admin), 3) clientMeta
@@ -2141,9 +2153,7 @@ window.renderMasterClientesTable = function () {
     // Para SAP altas (docId con prefijo sap:) leemos de approvedAltasList.
     if (typeof docId === 'string' && docId.indexOf('sap:') === 0) {
       const fsId = docId.slice(4);
-      const a = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
-        (x) => x._fsId === fsId
-      );
+      const a = _altasBySapFsId.get(fsId);
       return a ? a.calle || a.address || '' : '';
     }
     const d = clientMasterCache.get(docId);
@@ -2284,9 +2294,8 @@ window.renderMasterClientesTable = function () {
     // CSV lee cmData.creditoCheque directo del cache, no necesita esto.
     let defaultDelivery = null;
     if (isSap) {
-      const alta = (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
-        (x) => x._fsId === e.sapFsId
-      );
+      // v1310 PERF: Map.get(O(1)) en vez de .find(O(N)) sobre approvedAltasList.
+      const alta = _altasBySapFsId.get(e.sapFsId);
       savedAddr = alta ? alta.calle || alta.address || '' : '';
       curTipo = (alta && alta.cliTipo) || '';
     } else {
