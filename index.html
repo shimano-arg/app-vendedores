@@ -6493,7 +6493,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1335';
+const APP_VERSION = 'v1336';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19196,12 +19196,9 @@ window.openRepartoModal = function(){
   const m = document.getElementById('reparto-modal');
   if (!m) return;
   m.classList.add('open');
-  // Gate silencioso: si el user no es admin/gerente/Pablo, mostramos un cartel
-  // en vez de un listener que va a fallar por rules.
-  const email = (typeof currentUser !== 'undefined' && currentUser) ? String(currentUser.email || '').toLowerCase() : '';
+  // v1336: solo admin/gerente (Mariano explicito). Pablo gate removido.
   const role = (typeof userRole !== 'undefined') ? String(userRole || '').toLowerCase() : '';
-  const PABLO = 'pablo.gonzalez@shimano.com.ar';
-  const isAllowed = role === 'admin' || role === 'gerente' || email === PABLO;
+  const isAllowed = role === 'admin' || role === 'gerente';
   if (!isAllowed) {
     const list = document.getElementById('reparto-list');
     const sum = document.getElementById('reparto-summary');
@@ -19262,19 +19259,20 @@ function _repartoRender(){
   // v1294 (2026-10-14): filtro por SKU o nombre de cliente del input search.
   const searchEl = document.getElementById('reparto-search');
   const q = (searchEl && searchEl.value || '').trim().toLowerCase();
-  // v1325 (2026-10-15): mostrar TODOS los ingresos pending con sus clientes
-  // del SNAPSHOT original. Pedido Mariano: "quiero verlo igual y decidir uno
-  // por uno todos los casos". Para cada cliente del snapshot, se chequea en
-  // _repartoBuildCard si todavia esta vigente (BO + no en SAP + pedido abierto)
-  // o si ya resolvio. Los resueltos se marcan con badge pero siguen visibles.
+  // v1325 (2026-10-15): mostrar TODOS los ingresos pending con clientes del
+  // SNAPSHOT original. v1336 (2026-10-15): filtrar los que tienen snapshot
+  // VACIO ("este ingreso no tiene clientes cargados" era ruido). Mariano.
+  const _withSnap = (_repartoIngresos || []).filter((i) =>
+    Array.isArray(i.clientesBO) && i.clientesBO.length > 0
+  );
   const matches = q
-    ? _repartoIngresos.filter((i) => {
+    ? _withSnap.filter((i) => {
         const skuHit = String(i.sku || '').toLowerCase().includes(q);
         if (skuHit) return true;
         const snap = Array.isArray(i.clientesBO) ? i.clientesBO : [];
         return snap.some((c) => String(c.clientName || '').toLowerCase().includes(q));
       })
-    : _repartoIngresos;
+    : _withSnap;
   const totalIng = matches.length;
   let totalUnits = 0, totalCli = 0;
   matches.forEach((i) => {
