@@ -6420,7 +6420,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1316';
+const APP_VERSION = 'v1317';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18991,36 +18991,34 @@ function _repartoRender(){
   // v1294 (2026-10-14): filtro por SKU o nombre de cliente del input search.
   const searchEl = document.getElementById('reparto-search');
   const q = (searchEl && searchEl.value || '').trim().toLowerCase();
-  const matchesSearch = q
+  // v1317 (2026-10-15): mostrar TODOS los ingresos pending (no filtrar
+  // obsoletos). Para cada card recomputamos clientesBO LIVE del SKU en
+  // _repartoBuildCard. Si el ingreso no tiene clientes activos AHORA, el
+  // card muestra "sin clientes esperando" + boton Marcar como procesado.
+  const matches = q
     ? _repartoIngresos.filter((i) => {
         const skuHit = String(i.sku || '').toLowerCase().includes(q);
         if (skuHit) return true;
-        const clis = Array.isArray(i.clientesBO) ? i.clientesBO : [];
-        return clis.some((c) => String(c.clientName || '').toLowerCase().includes(q));
+        const liveClis = _repartoLiveClientesBO(i.sku);
+        return liveClis.some((c) => String(c.clientName || '').toLowerCase().includes(q));
       })
     : _repartoIngresos;
-  // v1316 (2026-10-15): ocultar ingresos cuyos clientesBO ya NO tengan al
-  // menos 1 cliente repartible (todos los pedidos pasaron a SAP, se cerraron
-  // o las lineas BO fueron consumidas por otro reparto). Antes el modal
-  // mostraba 156 cards vacios con "Nada que repartir" — ruido inutil.
-  const matches = matchesSearch.filter((i) => {
-    const clis = Array.isArray(i.clientesBO) ? i.clientesBO : [];
-    return clis.some(_repartoClienteEsReparteable);
-  });
   const totalIng = matches.length;
-  const totalIngObsoletos = matchesSearch.length - matches.length;
-  const totalUnits = matches.reduce((s, i) => s + (Number(i.qtyIngresada) || 0), 0);
-  const totalCli = matches.reduce((s, i) => {
-    const clis = Array.isArray(i.clientesBO) ? i.clientesBO : [];
-    return s + clis.filter(_repartoClienteEsReparteable).length;
-  }, 0);
+  // Totales se computan sobre clientesBO LIVE del SKU, no sobre snapshot.
+  let totalUnits = 0, totalCli = 0, totalSinClientes = 0;
+  matches.forEach((i) => {
+    totalUnits += Number(i.qtyIngresada) || 0;
+    const liveClis = _repartoLiveClientesBO(i.sku);
+    totalCli += liveClis.length;
+    if (liveClis.length === 0) totalSinClientes++;
+  });
   if (sum) {
     const prefix = q
       ? (totalIng + ' resultados para "' + q + '" · ')
       : (totalIng + ' ingresos pendientes · ');
-    let suffix = totalUnits + ' unidades por repartir · ' + totalCli + ' lineas cliente/SKU';
-    if (totalIngObsoletos > 0) {
-      suffix += ' · ' + totalIngObsoletos + ' obsoletos ocultos';
+    let suffix = totalUnits + ' unidades · ' + totalCli + ' clientes activos';
+    if (totalSinClientes > 0) {
+      suffix += ' · ' + totalSinClientes + ' sin clientes esperando';
     }
     sum.textContent = prefix + suffix;
   }
@@ -19028,15 +19026,9 @@ function _repartoRender(){
   if (totalIng === 0) {
     const empty = document.createElement('div');
     empty.style.cssText = 'padding:30px;text-align:center;color:#64748b';
-    if (q) {
-      empty.textContent = 'Sin resultados para "' + q + '". Probá otro SKU o nombre.';
-    } else if (totalIngObsoletos > 0) {
-      empty.innerHTML = 'Hay ' + totalIngObsoletos + ' ingresos pendientes <b>pero todos obsoletos</b> '
-        + '(los pedidos ya pasaron a SAP o se cerraron).<br><br>'
-        + '<span style="font-size:12px;color:#86868b">Admin puede marcarlos como \'done\' manualmente en Firestore si molesta el counter.</span>';
-    } else {
-      empty.textContent = 'No hay ingresos pendientes. Cuando llegue mercadería al depósito y haya clientes con backorder del SKU, aparecen aca.';
-    }
+    empty.textContent = q
+      ? ('Sin resultados para "' + q + '". Probá otro SKU o nombre.')
+      : 'No hay ingresos pendientes. Cuando llegue mercadería al depósito, aparecen aca.';
     list.appendChild(empty);
     return;
   }
@@ -19074,6 +19066,50 @@ function _repartoStockFisico(ing){
   if (!ing || !ing.sku) return 0;
   if (typeof getStockDisponibleVenta !== 'function') return Number(ing.qtyIngresada) || 0;
   return Number(getStockDisponibleVenta(ing.sku)) || 0;
+}
+
+// v1317 (2026-10-15): recomputar clientesBO en vivo desde globalPedidos del
+// SKU, no usar el snapshot stale del doc ingresos_reparto. Pedido Mariano:
+// quiere ver los ingresos aunque los clientes del snapshot ya se hayan ido
+// (para asignar a clientes NUEVOS que pidieron el SKU post-snapshot, o
+// marcar el ingreso como procesado si no hay nadie esperando).
+function _repartoLiveClientesBO(sku){
+  if (!sku) return [];
+  if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos)) return [];
+  const skuUp = String(sku).toUpperCase().trim();
+  const out = [];
+  for (const p of globalPedidos) {
+    if (!p || !p._fsId) continue;
+    if (p.closedAt) continue;
+    if (p.transferidoSAP && p.transferidoSAP.docNum) continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (!l) continue;
+      if (String(l.code || '').toUpperCase().trim() !== skuUp) continue;
+      if (l.state !== 'BO') continue;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) continue;
+      out.push({
+        pedidoId: p._fsId,
+        lineIndex: i,
+        clientName: p.clientName || '',
+        clientLocality: p.locName || '',
+        clientProvince: p.province || '',
+        qtyBackorder: qo,
+        pedidoCreatedAt: p.createdAt || null,
+      });
+    }
+  }
+  // FIFO: viejos primero. Es la mejor UX para Pablo (los que esperan hace mas).
+  out.sort((a, b) => {
+    const ta = a.pedidoCreatedAt && a.pedidoCreatedAt.toMillis ? a.pedidoCreatedAt.toMillis()
+             : typeof a.pedidoCreatedAt === 'string' ? new Date(a.pedidoCreatedAt).getTime() : 0;
+    const tb = b.pedidoCreatedAt && b.pedidoCreatedAt.toMillis ? b.pedidoCreatedAt.toMillis()
+             : typeof b.pedidoCreatedAt === 'string' ? new Date(b.pedidoCreatedAt).getTime() : 0;
+    return ta - tb;
+  });
+  return out;
 }
 
 // v1313 (2026-10-15): filtrar clientes del card de reparto que ya no pueden
@@ -19167,31 +19203,19 @@ function _repartoBuildCard(ing){
     + '</tr>';
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
-  // v1313 (2026-10-15): filtrar clientes cuyos pedidos ya se enviaron a SAP /
-  // cerraron / BO fue consumido. Evita el error "pedido ya en SAP" post-apply
-  // (guard v1300 FATECHI). Ver _repartoClienteEsReparteable.
-  const _clientesRaw = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
-  const _clientes = _clientesRaw.filter(_repartoClienteEsReparteable);
-  const _clientesFiltradosCount = _clientesRaw.length - _clientes.length;
+  // v1317 (2026-10-15): computar clientesBO LIVE del SKU (desde globalPedidos),
+  // no usar el snapshot stale del doc ingresos_reparto. Pedido Mariano: ver
+  // ingresos aunque el snapshot este vacio, para asignar a clientes nuevos
+  // que pidieron el SKU post-snapshot o marcar como procesado si no hay.
+  const _clientes = _repartoLiveClientesBO(ing.sku);
   if (_clientes.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.setAttribute('colspan', '7');
-    td.style.cssText = 'padding:20px;text-align:center;color:#c7372f;font-weight:500;background:rgba(255,59,48,.06)';
-    td.textContent = _clientesFiltradosCount > 0
-      ? '⚠ Todos los clientes BO de este ingreso ya fueron enviados a SAP o cerrados. Nada que repartir.'
-      : '⚠ Este ingreso no tiene clientes BO cargados.';
+    td.style.cssText = 'padding:20px;text-align:center;color:#86868b;font-weight:500;background:rgba(120,120,128,.04)';
+    td.textContent = 'Sin clientes esperando este SKU actualmente. El stock entró pero no hay backorders vigentes. Podés marcarlo como procesado →';
     tr.appendChild(td);
     tbody.appendChild(tr);
-  } else if (_clientesFiltradosCount > 0) {
-    // Mini-nota visible: ocultamos N clientes porque ya estan en SAP/cerrados.
-    const trNote = document.createElement('tr');
-    const tdNote = document.createElement('td');
-    tdNote.setAttribute('colspan', '7');
-    tdNote.style.cssText = 'padding:10px 14px;text-align:center;color:#6e6e73;font-size:11.5px;background:rgba(120,120,128,.06);letter-spacing:-0.05px';
-    tdNote.textContent = _clientesFiltradosCount + ' cliente(s) ocultos (pedidos ya en SAP o cerrados)';
-    trNote.appendChild(tdNote);
-    tbody.appendChild(trNote);
   }
   _clientes.forEach((c) => {
     const _maxBo = Number(c.qtyBackorder) || 0;
@@ -19242,16 +19266,49 @@ function _repartoBuildCard(ing){
   totals.style.cssText = 'font-size:12.5px;color:#6e6e73;letter-spacing:-0.1px';
   totals.innerHTML = 'Asignado: <b style="color:#1d1d1f;font-weight:600" data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(stockFisico) + ' · Libre: <b style="color:#1d1d1f;font-weight:600" data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(stockFisico) + '</b>';
   foot.appendChild(totals);
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'reparto-apple-btn reparto-apple-btn-primary';
-  btn.textContent = 'Aplicar reparto';
-  btn.setAttribute('data-reparto-apply', ing._id);
-  btn.onclick = () => _repartoApply(ing._id);
-  foot.appendChild(btn);
+  // v1317: si no hay clientes activos, boton "Marcar como procesado" (cambia
+  // status del doc a 'done' sin aplicar reparto).
+  if (_clientes.length === 0) {
+    const btnDone = document.createElement('button');
+    btnDone.type = 'button';
+    btnDone.className = 'reparto-apple-btn reparto-apple-btn-gray';
+    btnDone.textContent = 'Marcar como procesado';
+    btnDone.title = 'Cierra este ingreso sin reparto (no hay clientes esperando el SKU)';
+    btnDone.onclick = () => _repartoMarcarProcesado(ing._id);
+    foot.appendChild(btnDone);
+  } else {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'reparto-apple-btn reparto-apple-btn-primary';
+    btn.textContent = 'Aplicar reparto';
+    btn.setAttribute('data-reparto-apply', ing._id);
+    btn.onclick = () => _repartoApply(ing._id);
+    foot.appendChild(btn);
+  }
   card.appendChild(foot);
   return card;
 }
+
+// v1317: marcar un ingreso como procesado (status='done') sin aplicar reparto.
+// Util cuando el ingreso quedo huerfano (clientes del snapshot se fueron a SAP
+// por otro flow y no hay nuevos BO del SKU).
+window._repartoMarcarProcesado = async function(ingresoId){
+  if (!ingresoId) return;
+  if (!window.confirm('Marcar este ingreso como procesado?\n\nSe cierra el doc sin repartir (no hay clientes esperando este SKU).')) return;
+  try {
+    const nowIso = new Date().toISOString();
+    await fbDb.collection('ingresos_reparto').doc(ingresoId).update({
+      status: 'done',
+      appliedAt: nowIso,
+      appliedBy: (currentUser && currentUser.email) || '',
+      closureReason: 'no-clientes-activos',
+    });
+    if (typeof showSyncTag === 'function') showSyncTag('Ingreso cerrado sin reparto');
+  } catch (e) {
+    console.error('[reparto] marcar procesado err', e);
+    alert('Error cerrando el ingreso: ' + (e.message || e));
+  }
+};
 
 function _escHtml(s){
   return String(s||'').replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
@@ -19395,6 +19452,26 @@ window._repartoApply = async function(ingresoId){
   const applyBtn = document.querySelector('button[data-reparto-apply="' + ingresoId + '"]');
   if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'Aplicando…'; }
   try {
+    // v1317: pre-apply, actualizar el snapshot de clientesBO del doc Firestore
+    // con los clientes LIVE que vemos en la UI. Backend valida assignments vs
+    // doc.clientesBO; si el snapshot original era stale (clientes del momento
+    // del ingreso ya fueron a SAP), el apply fallaba. Al re-escribir con los
+    // clientes live que acabamos de computar, el backend acepta.
+    const liveClis = _repartoLiveClientesBO(ing.sku).map((c) => ({
+      pedidoId: c.pedidoId,
+      lineIndex: c.lineIndex,
+      clientName: c.clientName,
+      clientLocality: c.clientLocality,
+      clientProvince: c.clientProvince,
+      qtyBackorder: c.qtyBackorder,
+      pedidoCreatedAt: c.pedidoCreatedAt || null,
+    }));
+    await fbDb.collection('ingresos_reparto').doc(ingresoId).update({
+      clientesBO: liveClis,
+      clientesCount: liveClis.length,
+      qtyBackorderTotal: liveClis.reduce((s, c) => s + (Number(c.qtyBackorder) || 0), 0),
+      clientesBOLiveUpdatedAt: new Date().toISOString(),
+    });
     const callable = firebase.app().functions('southamerica-east1').httpsCallable('applyRepartoManualCF');
     const result = await callable({ ingresoId, assignments, eliminations });
     const r = result.data || {};
