@@ -542,36 +542,15 @@ export async function applyRepartoManualCore(deps, opts) {
           throw new Error('pedido no existe: ' + action.pedidoId);
         }
         const data = pedidoSnap.data();
-        // v1300 (2026-10-14) M1 fix: no permitir reparto sobre pedidos ya
-        // enviados a SAP (transferidoSAP.docNum setado) ni cerrados. Precedente
-        // FATECHI 2026-10-06: expandir qtyOpen sin SQ correspondiente genera
-        // stock reservado app-side eterno + factura SAP por qty vieja.
-        if (data.closedAt) {
-          throw new Error('pedido cerrado (closedAt), no se puede repartir @ ' + action.pedidoId);
-        }
-        if (data.transferidoSAP && data.transferidoSAP.docNum) {
-          throw new Error(
-            'pedido ya en SAP (SQ #' +
-              data.transferidoSAP.docNum +
-              '), no se puede repartir @ ' +
-              action.pedidoId
-          );
-        }
+        // v1336 (2026-10-15): guards v1300 (FATECHI) REMOVIDOS por pedido
+        // explicito de Mariano. "Yo tomo la responsabilidad si ya se habia
+        // asignado en pedidos viejo". Admin/gerente only (gate frontend).
+        // Preservado: validaciones matematicas basicas (line existe,
+        // qtyOpen > 0, asig+elim <= qtyOpen).
         const lines = Array.isArray(data.lines) ? [...data.lines] : [];
         const line = lines[action.lineIndex];
         if (!line) {
           throw new Error('line index invalido: ' + action.lineIndex + ' @ ' + action.pedidoId);
-        }
-        if (line.state !== 'BO') {
-          // Race: otra operacion ya la movio (recycle, cancel, otro reparto).
-          throw new Error(
-            'linea ya no esta BO (state=' +
-              line.state +
-              ') @ ' +
-              action.pedidoId +
-              ':' +
-              action.lineIndex
-          );
         }
         const qo = Number(line.qtyOpen) || 0;
         if (qo <= 0) {
