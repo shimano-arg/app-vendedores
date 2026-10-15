@@ -376,11 +376,12 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations) {
     perLine.set(key, entry);
     sumEliminada += qty;
   }
-  // Validar sum por cliente: asig + elim <= qtyBackorder.
+  // v1338 (2026-10-15): validacion "asig+elim <= qtyBackorder" REMOVIDA.
+  // Sobre-asignacion permitida (Mariano explicito).
   for (const [key, entry] of perLine) {
     const bo = boMap.get(key);
     if (!bo) continue;
-    if (entry.asig + entry.elim > (Number(bo.qtyBackorder) || 0)) {
+    if (false) {
       errors.push(
         'cliente ' +
           key +
@@ -558,23 +559,10 @@ export async function applyRepartoManualCore(deps, opts) {
         }
         const asig = Math.max(0, Number(action.asig) || 0);
         const elim = Math.max(0, Number(action.elim) || 0);
-        if (asig + elim > qo) {
-          throw new Error(
-            'asig(' +
-              asig +
-              ')+elim(' +
-              elim +
-              ')=' +
-              (asig + elim) +
-              ' > qtyOpen(' +
-              qo +
-              ') @ ' +
-              action.pedidoId +
-              ':' +
-              action.lineIndex
-          );
-        }
-        const qr = qo - asig - elim; // qtyMantenerBO
+        // v1338 (2026-10-15): cap asig+elim > qo REMOVIDO (sobre-asignacion
+        // permitida). Si asig+elim > qo, qr queda en 0 (no negativo). Mariano
+        // toma la responsabilidad.
+        const qr = Math.max(0, qo - asig - elim); // qtyMantenerBO (>= 0 siempre)
         // Linea original: siempre acumula qtyCancelled si elim>0.
         const newOrig = Object.assign({}, line, {
           qtyCancelled: (Number(line.qtyCancelled) || 0) + elim,
