@@ -6440,7 +6440,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1324';
+const APP_VERSION = 'v1325';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19011,46 +19011,30 @@ function _repartoRender(){
   // v1294 (2026-10-14): filtro por SKU o nombre de cliente del input search.
   const searchEl = document.getElementById('reparto-search');
   const q = (searchEl && searchEl.value || '').trim().toLowerCase();
-  // v1320 (2026-10-15): mostrar SOLO los ingresos con stock + al menos 1
-  // cliente BO vigente del SKU. Los 150 obsoletos (snapshot con clientes ya
-  // en SAP, no hay nuevos clientes BO) se ocultan y pueden procesarse en
-  // bulk desde un link al pie del summary. Pedido Mariano: "deberian aparecer
-  // solo los SKU que tenian backorder pedido y hay stock de esos SKU".
-  const matchesSearch = q
+  // v1325 (2026-10-15): mostrar TODOS los ingresos pending con sus clientes
+  // del SNAPSHOT original. Pedido Mariano: "quiero verlo igual y decidir uno
+  // por uno todos los casos". Para cada cliente del snapshot, se chequea en
+  // _repartoBuildCard si todavia esta vigente (BO + no en SAP + pedido abierto)
+  // o si ya resolvio. Los resueltos se marcan con badge pero siguen visibles.
+  const matches = q
     ? _repartoIngresos.filter((i) => {
         const skuHit = String(i.sku || '').toLowerCase().includes(q);
         if (skuHit) return true;
-        const liveClis = _repartoLiveClientesBO(i.sku);
-        return liveClis.some((c) => String(c.clientName || '').toLowerCase().includes(q));
+        const snap = Array.isArray(i.clientesBO) ? i.clientesBO : [];
+        return snap.some((c) => String(c.clientName || '').toLowerCase().includes(q));
       })
     : _repartoIngresos;
-  // Separar: cards VISIBLES (con clientes BO vigentes) vs OBSOLETOS (sin).
-  const matches = [];
-  const obsoletos = [];
-  matchesSearch.forEach((i) => {
-    const liveClis = _repartoLiveClientesBO(i.sku);
-    if (liveClis.length > 0) matches.push(i);
-    else obsoletos.push(i);
-  });
   const totalIng = matches.length;
   let totalUnits = 0, totalCli = 0;
   matches.forEach((i) => {
     totalUnits += Number(i.qtyIngresada) || 0;
-    totalCli += _repartoLiveClientesBO(i.sku).length;
+    totalCli += Array.isArray(i.clientesBO) ? i.clientesBO.length : 0;
   });
   if (sum) {
     const prefix = q
       ? (totalIng + ' resultados para "' + q + '" · ')
-      : (totalIng + ' ingresos con clientes esperando · ');
-    sum.textContent = prefix + totalUnits + ' unidades · ' + totalCli + ' clientes activos';
-    // Si hay obsoletos, agregar link para procesarlos en bulk.
-    if (obsoletos.length > 0 && !q) {
-      const linkRow = document.createElement('div');
-      linkRow.style.cssText = 'margin-top:6px;font-size:11.5px;color:#86868b';
-      linkRow.innerHTML = '+' + obsoletos.length + ' ingresos obsoletos (sin clientes vigentes) '
-        + '<a href="javascript:void(0)" onclick="_repartoProcesarObsoletos()" style="color:#007aff;text-decoration:none;font-weight:600">— procesar todos</a>';
-      sum.appendChild(linkRow);
-    }
+      : (totalIng + ' ingresos pendientes · ');
+    sum.textContent = prefix + totalUnits + ' unidades · ' + totalCli + ' clientes (snapshot)';
   }
   while (list.firstChild) list.removeChild(list.firstChild);
   if (totalIng === 0) {
@@ -19058,10 +19042,6 @@ function _repartoRender(){
     empty.style.cssText = 'padding:30px;text-align:center;color:#64748b';
     if (q) {
       empty.textContent = 'Sin resultados para "' + q + '". Probá otro SKU o nombre.';
-    } else if (obsoletos.length > 0) {
-      empty.innerHTML = 'No hay ingresos con clientes esperando. '
-        + '(' + obsoletos.length + ' ingresos obsoletos ocultos)<br><br>'
-        + '<a href="javascript:void(0)" onclick="_repartoProcesarObsoletos()" style="color:#007aff;text-decoration:none;font-weight:600">Procesar los ' + obsoletos.length + ' obsoletos ahora</a>';
     } else {
       empty.textContent = 'No hay ingresos pendientes. Cuando llegue mercadería al depósito, aparecen aca.';
     }
@@ -19195,19 +19175,18 @@ function _repartoBuildCard(ing){
   chipIng.className = 'reparto-apple-chip';
   chipIng.style.cssText = 'background:rgba(52,199,89,.14);color:#248a3d';
   chipIng.textContent = 'Stock: ' + _repartoFmtQty(stockFisico) + ' u';
-  // v1318 (2026-10-15): chip Demanda ahora refleja LIVE (clientes actuales
-  // esperando el SKU), no el snapshot stale del doc. Antes el chip mostraba
-  // "Demanda: 1u · 1 clientes" pero la tabla decia "sin clientes esperando" →
-  // contradiccion visual. Ahora ambos coinciden.
-  const _liveClis = _repartoLiveClientesBO(ing.sku);
-  const _liveDemanda = _liveClis.reduce((s, c) => s + (Number(c.qtyBackorder) || 0), 0);
+  // v1325 (2026-10-15): chip Demanda del snapshot original + indicador vigente.
+  // Muestra "N vigentes / M total" para que Mariano vea cuántos del snapshot
+  // siguen esperando vs cuántos ya resolvieron.
+  const _snapClis = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
+  const _snapDemanda = _snapClis.reduce((s, c) => s + (Number(c.qtyBackorder) || 0), 0);
+  const _vigentesCount = _snapClis.filter(_repartoClienteEsReparteable).length;
   const chipBO = document.createElement('span');
   chipBO.className = 'reparto-apple-chip';
-  if (_liveClis.length > 0) {
+  if (_snapClis.length > 0) {
     chipBO.style.cssText = 'background:rgba(255,149,0,.14);color:#b25000';
-    chipBO.textContent = 'Demanda: ' + _repartoFmtQty(_liveDemanda) + ' u · ' + _liveClis.length + ' cliente' + (_liveClis.length === 1 ? '' : 's');
+    chipBO.textContent = 'Demanda: ' + _repartoFmtQty(_snapDemanda) + ' u · ' + _vigentesCount + '/' + _snapClis.length + ' vigentes';
   } else {
-    // Sin clientes activos: chip gris. Mas util como señal visual que naranja.
     chipBO.style.cssText = 'background:rgba(120,120,128,.14);color:#6e6e73';
     chipBO.textContent = 'Sin clientes esperando';
   }
@@ -19251,17 +19230,17 @@ function _repartoBuildCard(ing){
     + '</tr>';
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
-  // v1317 (2026-10-15): computar clientesBO LIVE del SKU (desde globalPedidos),
-  // no usar el snapshot stale del doc ingresos_reparto. Pedido Mariano: ver
-  // ingresos aunque el snapshot este vacio, para asignar a clientes nuevos
-  // que pidieron el SKU post-snapshot o marcar como procesado si no hay.
-  const _clientes = _repartoLiveClientesBO(ing.sku);
+  // v1325 (2026-10-15): mostrar TODOS los clientes del SNAPSHOT original.
+  // Para cada uno, marcar visualmente si todavia esta vigente o si ya resolvio
+  // (pedido en SAP, cerrado, linea no mas BO). Pedido Mariano: "quiero verlo
+  // igual y decidir uno por uno todos los casos".
+  const _clientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
   if (_clientes.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.setAttribute('colspan', '7');
     td.style.cssText = 'padding:20px;text-align:center;color:#86868b;font-weight:500;background:rgba(120,120,128,.04)';
-    td.textContent = 'Sin clientes esperando este SKU actualmente. El stock entró pero no hay backorders vigentes. Podés marcarlo como procesado →';
+    td.textContent = 'Este ingreso no tiene clientes cargados en el snapshot.';
     tr.appendChild(td);
     tbody.appendChild(tr);
   }
@@ -19270,21 +19249,31 @@ function _repartoBuildCard(ing){
     const _esc = _escAttr(ing._id);
     const _pid = _escAttr(c.pedidoId);
     const _lidx = Number(c.lineIndex);
+    const _vigente = _repartoClienteEsReparteable(c);
+    // Si no esta vigente: fila gris + inputs disabled + badge motivo.
+    const _rowStyle = _vigente ? '' : 'opacity:0.55;background:rgba(120,120,128,.05)';
+    const _disabledAttr = _vigente ? '' : 'disabled';
+    const _badge = _vigente
+      ? ''
+      : '<div style="display:inline-block;margin-top:3px;background:rgba(255,59,48,.1);color:#c7372f;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;letter-spacing:.3px;text-transform:uppercase">ya resuelto</div>';
     const tr = document.createElement('tr');
+    tr.setAttribute('style', _rowStyle);
     tr.innerHTML = ''
       + '<td style="text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#1d1d1f">' + _escHtml(ing.sku || '') + '</td>'
       + '<td style="text-align:center"><div style="font-weight:600;color:#1d1d1f;letter-spacing:-0.1px">' + _escHtml(c.clientName || '') + '</div>'
-      + '<div style="font-size:11px;color:#86868b;margin-top:1px;letter-spacing:-0.05px">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div></td>'
+      + '<div style="font-size:11px;color:#86868b;margin-top:1px;letter-spacing:-0.05px">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div>'
+      + _badge + '</td>'
       + '<td style="text-align:center;font-weight:700;color:#b25000">' + _repartoFmtQty(_maxBo) + '</td>'
       + '<td style="text-align:center;color:#248a3d;font-weight:600">' + _repartoFmtQty(stockFisico) + '</td>'
       // Asignado (input)
       + '<td style="text-align:center">'
-      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
+      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" ' + _disabledAttr + ' '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="asig" '
       + 'data-pedido-id="' + _pid + '" '
       + 'data-line-index="' + _lidx + '" '
       + 'data-max-bo="' + _maxBo + '" '
+      + 'data-vigente="' + (_vigente ? '1' : '0') + '" '
       + 'oninput="_repartoRecalc(this)" '
       + 'class="reparto-apple-input" />'
       + '</td>'
@@ -19293,12 +19282,13 @@ function _repartoBuildCard(ing){
       + 'data-reparto-bo-display="' + _esc + '|' + _pid + '|' + _lidx + '">' + _repartoFmtQty(_maxBo) + '</td>'
       // Eliminar (input)
       + '<td style="text-align:center">'
-      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
+      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" ' + _disabledAttr + ' '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="elim" '
       + 'data-pedido-id="' + _pid + '" '
       + 'data-line-index="' + _lidx + '" '
       + 'data-max-bo="' + _maxBo + '" '
+      + 'data-vigente="' + (_vigente ? '1' : '0') + '" '
       + 'oninput="_repartoRecalc(this)" '
       + 'class="reparto-apple-input" />'
       + '</td>';
@@ -19314,14 +19304,16 @@ function _repartoBuildCard(ing){
   totals.style.cssText = 'font-size:12.5px;color:#6e6e73;letter-spacing:-0.1px';
   totals.innerHTML = 'Asignado: <b style="color:#1d1d1f;font-weight:600" data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(stockFisico) + ' · Libre: <b style="color:#1d1d1f;font-weight:600" data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(stockFisico) + '</b>';
   foot.appendChild(totals);
-  // v1317: si no hay clientes activos, boton "Marcar como procesado" (cambia
-  // status del doc a 'done' sin aplicar reparto).
-  if (_clientes.length === 0) {
+  // v1325: si NINGUN cliente del snapshot esta vigente, boton "Marcar como
+  // procesado" (cambia status del doc a 'done' sin aplicar reparto). Si hay
+  // al menos 1 vigente, boton "Aplicar reparto" normal.
+  const _hayVigentes = _clientes.some(_repartoClienteEsReparteable);
+  if (!_hayVigentes) {
     const btnDone = document.createElement('button');
     btnDone.type = 'button';
     btnDone.className = 'reparto-apple-btn reparto-apple-btn-gray';
     btnDone.textContent = 'Marcar como procesado';
-    btnDone.title = 'Cierra este ingreso sin reparto (no hay clientes esperando el SKU)';
+    btnDone.title = 'Cierra este ingreso sin reparto (ninguno de los clientes del snapshot sigue vigente)';
     btnDone.onclick = () => _repartoMarcarProcesado(ing._id);
     foot.appendChild(btnDone);
   } else {
@@ -19509,6 +19501,9 @@ window._repartoApply = async function(ingresoId){
     'input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="asig"]'
   );
   asigInputs.forEach((inp) => {
+    // v1325: skippear inputs de clientes NO vigentes (data-vigente="0"). Esos
+    // estan disabled pero el forEach los iteraria igual.
+    if (inp.getAttribute('data-vigente') === '0') return;
     const pedidoId = inp.getAttribute('data-pedido-id');
     const lineIndex = Number(inp.getAttribute('data-line-index')) || 0;
     const maxBO = Number(inp.getAttribute('data-max-bo')) || 0;
