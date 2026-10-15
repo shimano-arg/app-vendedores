@@ -1,0 +1,55 @@
+{
+  "iter": 1,
+  "label": "demanda_real_venta_mas_BO",
+  "generado": "2026-10-15T00:32:47.129225+00:00",
+  "duracion_s": 19.474843,
+  "backtest_h": 2,
+  "backtest_windows": 3,
+  "level_window": 3,
+  "trend_window": 6,
+  "horizonte": 7,
+  "features": [
+    "baraldo_SI",
+    "shimano_BQ_level",
+    "backorder_abierto"
+  ],
+  "feature_impact": {
+    "venta_total": 22151.0,
+    "bo_total": 14314.0,
+    "pct_bo_sobre_venta": 64.62010744435918
+  },
+  "n_subfamilias": 26,
+  "n_meses_shimano": 7,
+  "summary": {
+    "wape_median": 0.4701259844202473,
+    "wape_mean": 0.51159615062972,
+    "wape_p25": 0.2708191726239306,
+    "wape_p75": 0.746880946401827,
+    "wape_std": 0.2921475204141921,
+    "n_series": 26,
+    "n_series_wape_lt_0_3": 8,
+    "n_series_wape_lt_0_5": 14,
+    "n_series_wape_lt_0_7": 18,
+    "n_series_wape_lt_1_0": 23,
+    "mae_median": 72.51241580272945,
+    "bias_median": -0.35107419808561213,
+    "modelos_elegidos": {
+      "Naive": 10,
+      "Seasonal_Trend": 8,
+      "SeasonalNaive_YoY": 3,
+      "MA3": 2,
+      "Seasonal_Level": 2,
+      "Seasonal_MA3": 1
+    }
+  },
+  "sanity": {
+    "pct_zero_predictions": 0.038461538461538464,
+    "flag_too_many_zeros": false,
+    "pct_negative_predictions": 0.0,
+    "flag_negatives": false,
+    "pct_series_constant": 0.23076923076923078,
+    "flag_too_many_constant": false,
+    "pct_series_over_10x_max_hist": 0.0,
+    "flag_overshoot": false
+  }
+}
