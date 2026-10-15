@@ -305,7 +305,7 @@ export async function createIngresosRepartoFromDelta(deps, beforeSnap, afterSnap
  *
  * @param {IngresoRepartoDoc} ingresoDoc
  * @param {Assignment[]} assignments
- * @returns {{valid: boolean, errors: string[]}}
+ * @returns {{valid: boolean, errors: string[], sumAsignada?: number}}
  */
 export function validateRepartoPayload(ingresoDoc, assignments) {
   /** @type {string[]} */
@@ -403,12 +403,13 @@ export async function applyRepartoManualCore(deps, opts) {
       applied: [],
     };
   }
-  if (validation.sumAsignada > stockFisicoDep11) {
+  const sumAsignadaValidation = Number(validation.sumAsignada) || 0;
+  if (sumAsignadaValidation > stockFisicoDep11) {
     return {
       ok: false,
       errors: [
         'sum assignments=' +
-          validation.sumAsignada +
+          sumAsignadaValidation +
           ' > stock fisico dep 11 actual=' +
           stockFisicoDep11 +
           ' (sobre-reparto, sin stock real para cubrir)',
