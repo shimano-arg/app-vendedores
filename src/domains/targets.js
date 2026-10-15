@@ -80,47 +80,27 @@ window.getMonthlyTargetByFamily = getMonthlyTargetByFamily;
 
 // v1097 (2026-09-29): variantes combinadas para el filtro Santiago Esteban
 // que absorbe Pachi. Ver _combineVendorsForFilter en dashboard.js.
+// v1335 (2026-10-15) FIX: el facturado SI se combina (porque Pachi factura con
+// SlpCode Santiago en SAP), pero el TARGET NO debe combinarse — Pachi tiene
+// su propio target cargado por error que duplica a Santiago. PowerBI muestra
+// solo target Santiago (= $65.1M) → cumplimiento 89%. App sumaba Santiago +
+// Pachi (= $130.2M) → cumplimiento 45%. Discrepancia reportada por Mariano.
 function getMonthlyTargetArsCombined(vendorKey, year, monthIdx) {
-  const combine =
-    typeof window.combineVendorsForFilter === 'function'
-      ? window.combineVendorsForFilter
-      : typeof window._combineVendorsForFilter === 'function'
-        ? window._combineVendorsForFilter
-        : null;
-  const vendors = combine ? combine(vendorKey) : [vendorKey];
-  let sum = 0;
-  let any = false;
-  for (const v of vendors) {
-    const t = getMonthlyTargetArs(v, year, monthIdx);
-    if (t != null) {
-      sum += t;
-      any = true;
-    }
-  }
-  return any ? sum : null;
+  // Para target usamos SOLO el vendor principal (sin absorber proxies como Pachi).
+  // Consistente con PowerBI (TABLERO SAR).
+  return getMonthlyTargetArs(vendorKey, year, monthIdx);
 }
 window.getMonthlyTargetArsCombined = getMonthlyTargetArsCombined;
 
 function getMonthlyTargetByFamilyCombined(vendorKey, year, monthIdx) {
-  const combine =
-    typeof window.combineVendorsForFilter === 'function'
-      ? window.combineVendorsForFilter
-      : typeof window._combineVendorsForFilter === 'function'
-        ? window._combineVendorsForFilter
-        : null;
-  const vendors = combine ? combine(vendorKey) : [vendorKey];
-  /** @type {{REEL:number|null, CANAS:number|null, LINEAS:number|null}} */
-  const result = { REEL: null, CANAS: null, LINEAS: null };
-  for (const v of vendors) {
-    const t = getMonthlyTargetByFamily(v, year, monthIdx);
-    if (!t) continue;
-    for (const fam of ['REEL', 'CANAS', 'LINEAS']) {
-      if (t[fam] != null) {
-        result[fam] = (result[fam] || 0) + t[fam];
-      }
+  // v1335: mismo fix que getMonthlyTargetArsCombined — sin combinar.
+  return (
+    getMonthlyTargetByFamily(vendorKey, year, monthIdx) || {
+      REEL: null,
+      CANAS: null,
+      LINEAS: null,
     }
-  }
-  return result;
+  );
 }
 window.getMonthlyTargetByFamilyCombined = getMonthlyTargetByFamilyCombined;
 function getCumulativeTargetArs(vendorKey, year, throughMonthIdx) {
