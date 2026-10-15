@@ -6102,8 +6102,13 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       </div>
       <button class="modal-close" onclick="closeWaitlistCardModal()">&times;</button>
     </div>
-    <div class="modal-body" style="padding:22px 24px;max-height:99vh;overflow-y:auto;display:block">
-      <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px"></div>
+    <!-- v1324 (2026-10-15): modal-body como flex-column SIN scroll propio.
+         Secciones arriba (stats + info boxes + buscador) con flex-shrink:0.
+         Wrapper de tabla con flex:1 + overflow-y:auto = scroll container
+         explicito para que el thead sticky funcione garantizado. Botones
+         al pie con flex-shrink:0. -->
+    <div class="modal-body" style="padding:22px 24px;max-height:95vh;overflow:hidden;display:flex;flex-direction:column;gap:0">
+      <div id="wcard-stats" style="background:#f0fdfa;border:1.5px solid #5eead4;border-radius:6px;padding:10px 12px;font-size:12px;color:#134e4a;line-height:1.5;margin-bottom:12px;flex-shrink:0"></div>
       <!-- v477 (2026-08-12): SAP Asignado - Con Stock del cliente. SKUs que
            el cliente ya tenia pedidos en Ofertas SAP open y ahora hay stock.
            El vendedor le pregunta al cliente: "tenias esto pedido, llego,
@@ -6155,16 +6160,17 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div id="wcard-cliente-open-lines-body"></div>
       </details>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera.
-           v1321 (2026-10-15): sticky REMOVIDO (Mariano preferia que solo el
-           thead quedara fijo, no el buscador). -->
-      <div style="position:relative;margin-bottom:10px">
+           v1324 (2026-10-15): flex-shrink:0 para que no se comprima dentro
+           del modal-body flex-column. -->
+      <div style="position:relative;margin-bottom:10px;flex-shrink:0">
         <input id="wcard-add-input" type="text" placeholder="Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none"/>
         <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
       </div>
-      <!-- v1322 (2026-10-15): sticky movido al TH individual (CSS global).
-           Preservado: border-collapse:separate + border-spacing:0 porque
-           collapse rompe sticky en algunos browsers. -->
-      <div style="border:1px solid var(--border-subtle);border-radius:6px">
+      <!-- v1324 (2026-10-15): wrapper es el SCROLL CONTAINER explicito
+           (overflow-y:auto + flex:1). El th sticky queda garantizado al top:0
+           de este wrapper. Antes el scroll container era el modal-body +
+           sticky top:0 que a veces no funcionaba por el padding+display block. -->
+      <div style="border:1px solid var(--border-subtle);border-radius:6px;flex:1;min-height:0;overflow-y:auto">
         <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px">
           <thead>
             <tr style="background:#0f172a;color:#fff">
@@ -6196,7 +6202,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           <tbody id="wcard-rows"></tbody>
         </table>
       </div>
-      <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap">
+      <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap;flex-shrink:0">
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
         <button class="stock-action-btn publish" id="wcard-edit-orden-btn" onclick="waitlistEditOrden()" style="background:#0f172a;color:#fff">Editar orden</button>
         <!-- v1159 (2026-10-06): removidos "Exportar pedido original" (#wcard-export-todo-btn)
@@ -6434,7 +6440,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1322';
+const APP_VERSION = 'v1324';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
