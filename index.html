@@ -6443,7 +6443,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1327';
+const APP_VERSION = 'v1328';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19178,17 +19178,15 @@ function _repartoBuildCard(ing){
   chipIng.className = 'reparto-apple-chip';
   chipIng.style.cssText = 'background:rgba(52,199,89,.14);color:#248a3d';
   chipIng.textContent = 'Stock: ' + _repartoFmtQty(stockFisico) + ' u';
-  // v1325 (2026-10-15): chip Demanda del snapshot original + indicador vigente.
-  // Muestra "N vigentes / M total" para que Mariano vea cuántos del snapshot
-  // siguen esperando vs cuántos ya resolvieron.
+  // v1328 (2026-10-15): chip Demanda simple con snapshot original. Mariano
+  // no quiere ver "vigentes" porque resuelve todos uno por uno.
   const _snapClis = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
   const _snapDemanda = _snapClis.reduce((s, c) => s + (Number(c.qtyBackorder) || 0), 0);
-  const _vigentesCount = _snapClis.filter(_repartoClienteEsReparteable).length;
   const chipBO = document.createElement('span');
   chipBO.className = 'reparto-apple-chip';
   if (_snapClis.length > 0) {
     chipBO.style.cssText = 'background:rgba(255,149,0,.14);color:#b25000';
-    chipBO.textContent = 'Demanda: ' + _repartoFmtQty(_snapDemanda) + ' u · ' + _vigentesCount + '/' + _snapClis.length + ' vigentes';
+    chipBO.textContent = 'Demanda: ' + _repartoFmtQty(_snapDemanda) + ' u · ' + _snapClis.length + ' cliente' + (_snapClis.length === 1 ? '' : 's');
   } else {
     chipBO.style.cssText = 'background:rgba(120,120,128,.14);color:#6e6e73';
     chipBO.textContent = 'Sin clientes esperando';
@@ -19252,31 +19250,25 @@ function _repartoBuildCard(ing){
     const _esc = _escAttr(ing._id);
     const _pid = _escAttr(c.pedidoId);
     const _lidx = Number(c.lineIndex);
-    const _vigente = _repartoClienteEsReparteable(c);
-    // Si no esta vigente: fila gris + inputs disabled + badge motivo.
-    const _rowStyle = _vigente ? '' : 'opacity:0.55;background:rgba(120,120,128,.05)';
-    const _disabledAttr = _vigente ? '' : 'disabled';
-    const _badge = _vigente
-      ? ''
-      : '<div style="display:inline-block;margin-top:3px;background:rgba(255,59,48,.1);color:#c7372f;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;letter-spacing:.3px;text-transform:uppercase">ya resuelto</div>';
+    // v1328 (2026-10-15): Mariano quiere resolver uno por uno, SIN badge
+    // "YA RESUELTO" ni gris ni disabled. Todos los clientes se ven iguales,
+    // el user decide. Si asigna a un cliente ya en SAP, backend lo rechaza
+    // y aparece el error en pantalla.
     const tr = document.createElement('tr');
-    tr.setAttribute('style', _rowStyle);
     tr.innerHTML = ''
       + '<td style="text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#1d1d1f">' + _escHtml(ing.sku || '') + '</td>'
       + '<td style="text-align:center"><div style="font-weight:600;color:#1d1d1f;letter-spacing:-0.1px">' + _escHtml(c.clientName || '') + '</div>'
-      + '<div style="font-size:11px;color:#86868b;margin-top:1px;letter-spacing:-0.05px">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div>'
-      + _badge + '</td>'
+      + '<div style="font-size:11px;color:#86868b;margin-top:1px;letter-spacing:-0.05px">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div></td>'
       + '<td style="text-align:center;font-weight:700;color:#b25000">' + _repartoFmtQty(_maxBo) + '</td>'
       + '<td style="text-align:center;color:#248a3d;font-weight:600">' + _repartoFmtQty(stockFisico) + '</td>'
       // Asignado (input)
       + '<td style="text-align:center">'
-      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" ' + _disabledAttr + ' '
+      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="asig" '
       + 'data-pedido-id="' + _pid + '" '
       + 'data-line-index="' + _lidx + '" '
       + 'data-max-bo="' + _maxBo + '" '
-      + 'data-vigente="' + (_vigente ? '1' : '0') + '" '
       + 'oninput="_repartoRecalc(this)" '
       + 'class="reparto-apple-input" />'
       + '</td>'
@@ -19285,13 +19277,12 @@ function _repartoBuildCard(ing){
       + 'data-reparto-bo-display="' + _esc + '|' + _pid + '|' + _lidx + '">' + _repartoFmtQty(_maxBo) + '</td>'
       // Eliminar (input)
       + '<td style="text-align:center">'
-      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" ' + _disabledAttr + ' '
+      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="elim" '
       + 'data-pedido-id="' + _pid + '" '
       + 'data-line-index="' + _lidx + '" '
       + 'data-max-bo="' + _maxBo + '" '
-      + 'data-vigente="' + (_vigente ? '1' : '0') + '" '
       + 'oninput="_repartoRecalc(this)" '
       + 'class="reparto-apple-input" />'
       + '</td>';
@@ -19307,16 +19298,14 @@ function _repartoBuildCard(ing){
   totals.style.cssText = 'font-size:12.5px;color:#6e6e73;letter-spacing:-0.1px';
   totals.innerHTML = 'Asignado: <b style="color:#1d1d1f;font-weight:600" data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(stockFisico) + ' · Libre: <b style="color:#1d1d1f;font-weight:600" data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(stockFisico) + '</b>';
   foot.appendChild(totals);
-  // v1325: si NINGUN cliente del snapshot esta vigente, boton "Marcar como
-  // procesado" (cambia status del doc a 'done' sin aplicar reparto). Si hay
-  // al menos 1 vigente, boton "Aplicar reparto" normal.
-  const _hayVigentes = _clientes.some(_repartoClienteEsReparteable);
-  if (!_hayVigentes) {
+  // v1328: siempre mostrar "Aplicar reparto" (Mariano decide uno por uno).
+  // Si no hay clientes en el snapshot (edge case), mantener "Marcar procesado".
+  if (_clientes.length === 0) {
     const btnDone = document.createElement('button');
     btnDone.type = 'button';
     btnDone.className = 'reparto-apple-btn reparto-apple-btn-gray';
     btnDone.textContent = 'Marcar como procesado';
-    btnDone.title = 'Cierra este ingreso sin reparto (ninguno de los clientes del snapshot sigue vigente)';
+    btnDone.title = 'Cierra este ingreso sin reparto (no hay clientes cargados)';
     btnDone.onclick = () => _repartoMarcarProcesado(ing._id);
     foot.appendChild(btnDone);
   } else {
@@ -19504,9 +19493,8 @@ window._repartoApply = async function(ingresoId){
     'input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="asig"]'
   );
   asigInputs.forEach((inp) => {
-    // v1325: skippear inputs de clientes NO vigentes (data-vigente="0"). Esos
-    // estan disabled pero el forEach los iteraria igual.
-    if (inp.getAttribute('data-vigente') === '0') return;
+    // v1328: Mariano decide uno por uno — enviar TODO lo que escribio. Si
+    // el pedido ya esta en SAP, backend rechaza y aparece el error.
     const pedidoId = inp.getAttribute('data-pedido-id');
     const lineIndex = Number(inp.getAttribute('data-line-index')) || 0;
     const maxBO = Number(inp.getAttribute('data-max-bo')) || 0;
