@@ -272,7 +272,24 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
     // Fix: strict mode no filtra por stage; el filtro de linea (state+qtyOpen)
     // y lineReservesStock siguen decidiendo que aparece. Backward compat para
     // modo fifo default (otros callers no afectados).
-    if (p.stage !== 'confirmed' && !strictMode) continue;
+    //
+    // v1344 (2026-10-15): extension — en modo asignacion, pedidos con al menos
+    // una linea state='ASIG' + asigFromReparto (= Pablo asigno manualmente via
+    // modal Reparto v1278+) tambien entran aunque p.stage no sea 'confirmed'.
+    // Caso real BROBRO SA (pedido x347Ul5b9cRtVPjEEN4T, SKU 21100150150E,
+    // transferidoSAP #25938): pedido migrado via sync SAP viene con stage=undefined;
+    // v1340 habilito el reparto sobre pedidos ya en SAP; faltaba espejar en el
+    // modal Stock Asignado (si no, Pablo aplica el reparto, backend marca ASIG,
+    // pero el modal lo descarta y Pablo no ve el resultado).
+    if (p.stage !== 'confirmed' && !strictMode) {
+      const _hasRepartoAssig =
+        isAsig &&
+        p.lines.some(
+          (/** @type {any} */ l) =>
+            l && l.state === 'ASIG' && l.asigFromReparto && Number(l.qtyOpen) > 0
+        );
+      if (!_hasRepartoAssig) continue;
+    }
     for (const l of p.lines) {
       if (!l || !l.code) continue;
       // v962: confirmed también entra (SQ enviada a SAP, prioridad = ASIG).

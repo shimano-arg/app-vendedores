@@ -212,6 +212,56 @@ describe('computeBackorderSkuMap — mode asignacion (Stock Asignado)', () => {
     expect(r.skus).toHaveLength(0);
   });
 
+  it('v1344: ASIG con asigFromReparto + pedido sin stage (migrado SAP) → APARECE', () => {
+    // Caso real BROBRO SA (2026-10-15): pedido x347Ul5b9cRtVPjEEN4T migrado
+    // via sync SAP inicial trae stage=undefined pero transferidoSAP.docNum.
+    // Pablo asigna via modal Reparto (v1278+) → la linea queda state='ASIG'
+    // con asigFromReparto=<ingresoId>. Pre-v1344 el filtro de la linea 275
+    // (p.stage !== 'confirmed' && !strictMode) descartaba el pedido entero
+    // y Pablo no veia el resultado en Stock Asignado.
+    // v1340 ya habia habilitado el reparto backend sobre pedidos SAP; v1344
+    // espeja la habilitacion en el modal Stock Asignado.
+    const pedidos = [
+      pedido({
+        stage: undefined,
+        transferidoSAP: { docNum: 25938 },
+        lines: [
+          line({
+            code: '21100150150E',
+            state: 'ASIG',
+            qty: 1,
+            qtyOpen: 1,
+            asigAt: daysAgo(0),
+            asigReserva: true,
+            asigFromReparto: 'ILl4Jt249VV66ba4AJVt',
+          }),
+        ],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 1 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    expect(r.skus).toHaveLength(1);
+    expect(r.skus[0].sku).toBe('21100150150E');
+    expect(r.skus[0].clientes).toHaveLength(1);
+    expect(r.skus[0].clientes[0].qtyAsignada).toBe(1);
+  });
+
+  it('v1344: pedido sin stage SIN asigFromReparto → sigue excluido (no se abre al garete)', () => {
+    // Backward compat: la excepcion es ESTRICTA — solo lineas con asigFromReparto
+    // habilitan el pedido. Un pedido migrado sin stage con ASIG "legacy" (sin
+    // marca de reparto manual) sigue descartado como antes.
+    const pedidos = [
+      pedido({
+        stage: undefined,
+        transferidoSAP: { docNum: 99999 },
+        lines: [line({ state: 'ASIG', qtyOpen: 2, asigAt: daysAgo(1), asigReserva: true })],
+      }),
+    ];
+    const deps = baseDeps({ getStockDisponibleVenta: () => 5 });
+    const r = computeBackorderSkuMap(pedidos, 'asignacion', {}, deps);
+    expect(r.skus).toHaveLength(0);
+  });
+
   it('v1288 (revert v1270): BO ya no aparece en modo asignacion', () => {
     // Post rediseño reparto manual (v1278+): BO viven en el modal "Reparto"
     // de Pablo, no en Stock Asignado. El escenario v1270 (DEVOTO/MARIANOPESCA/
