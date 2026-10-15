@@ -1,0 +1,61 @@
+{
+  "etapa": "opcB_etapa3_honest",
+  "label": "serie_extendida_bridge_nested_cv_honest",
+  "generado": "2026-10-15T01:09:19.153516+00:00",
+  "duracion_s": 17.168689,
+  "backtest_h": 2,
+  "backtest_windows_tune": 5,
+  "horizonte": 7,
+  "bridge_renames": {
+    "APPAREL": "INDUMENTARIA",
+    "ACCESORIES": "HERRAMIENTAS",
+    "MONOLINE": "MONOFILAMENTO",
+    "SW TRAVEL": "SW SPINNING",
+    "FW TRAVEL": "FW SPINNING"
+  },
+  "n_subfamilias_evaluadas": 25,
+  "n_subfamilias_totales": 25,
+  "n_meses_rango": "2016-04 \u2192 2026-10",
+  "summary": {
+    "wape_median": 0.7600000000000001,
+    "wape_mean": 1.5498708954149003,
+    "wape_p25": 0.6126066015070302,
+    "wape_p75": 1.6968932393665386,
+    "wape_std": 1.7457954283982853,
+    "n_series": 25,
+    "n_series_wape_lt_0_3": 2,
+    "n_series_wape_lt_0_5": 5,
+    "n_series_wape_lt_0_7": 8,
+    "n_series_wape_lt_1_0": 16,
+    "mae_median": 58.1,
+    "bias_median": -0.42077983351868703,
+    "modelos_elegidos": {
+      "MA3": 10,
+      "Seasonal_MA3": 6,
+      "Seasonal_Level": 5,
+      "Seasonal_Trend": 4
+    },
+    "alphas_elegidos": {
+      "0.0": 17,
+      "0.2": 4,
+      "0.4": 4
+    }
+  },
+  "sanity": {
+    "pct_zero_predictions": 0.08,
+    "flag_too_many_zeros": false,
+    "pct_negative_predictions": 0.0,
+    "flag_negatives": false,
+    "pct_series_constant": 0.28,
+    "flag_too_many_constant": false,
+    "pct_series_over_10x_max_hist": 0.0,
+    "flag_overshoot": false
+  },
+  "diff_eval_tune_mediana": -0.21621737906819372,
+  "comparativa": {
+    "iter_0_baseline_sin_bridge_optimista": 0.422,
+    "iter_2_sales_plan_sin_bridge_optimista": 0.398,
+    "iter_7_prophet_sin_bridge_honest": 0.871,
+    "opcB_honest_con_bridge": 0.7600000000000001
+  }
+}
