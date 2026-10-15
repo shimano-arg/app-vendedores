@@ -86,40 +86,66 @@ function _renderModalShell() {
   const el = document.createElement('div');
   el.id = 'forecast-modal';
   el.className = 'modal-overlay';
+  // v1306 (2026-10-15): Apple-style modal overlay con backdrop blur.
   el.style.cssText =
-    'display:none;position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:2050;';
+    'display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);-webkit-backdrop-filter:saturate(140%) blur(8px);backdrop-filter:saturate(140%) blur(8px);z-index:2050;';
   el.onclick = function (ev) {
     if (ev.target === el) window.closeForecastModal();
   };
-  // Shell + tabs bar + 2 contenedores de tabs (Sales Plans nueva, Legacy 6m).
-  // El contenido de cada tab se pinta con _renderSalesPlansTab() y el legacy
-  // usa el flujo _renderTable() de siempre.
   const shellHtml = _buildShellHtml();
   el.innerHTML = shellHtml;
   document.body.appendChild(el);
+  _ensureForecastAppleCss();
   return el;
 }
 
+function _ensureForecastAppleCss() {
+  // v1306: CSS Apple-style inyectado una sola vez al abrir el modal.
+  // Skill apple-design: feedback pointerdown, backdrop blur, reduced-motion,
+  // typography tracking size-specific.
+  if (document.getElementById('forecast-apple-css')) return;
+  const style = document.createElement('style');
+  style.id = 'forecast-apple-css';
+  const css =
+    '#forecast-modal .fc-apple *{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",sans-serif}' +
+    '#forecast-modal .fc-apple-close{border:none;background:rgba(120,120,128,.14);width:30px;height:30px;border-radius:50%;cursor:pointer;color:#86868b;font-size:16px;display:flex;align-items:center;justify-content:center;transition:transform .12s ease-out,background .15s ease,color .15s ease}' +
+    '#forecast-modal .fc-apple-close:hover{background:rgba(120,120,128,.22);color:#1d1d1f}' +
+    '#forecast-modal .fc-apple-close:active{transform:scale(.9);background:rgba(120,120,128,.3)}' +
+    '#forecast-modal .fc-apple-tab{padding:7px 16px;border-radius:980px;border:none;background:transparent;color:#86868b;font-size:12.5px;font-weight:600;letter-spacing:-0.1px;cursor:pointer;transition:background .15s ease,color .15s ease,transform .1s ease-out}' +
+    '#forecast-modal .fc-apple-tab:hover{background:rgba(120,120,128,.1);color:#1d1d1f}' +
+    '#forecast-modal .fc-apple-tab:active{transform:scale(.97)}' +
+    '#forecast-modal .fc-apple-tab.active{background:#1d1d1f;color:#fff}' +
+    '#forecast-modal .fc-apple-tab.active:hover{background:#000}' +
+    '@media (prefers-reduced-motion:reduce){' +
+    '  #forecast-modal .fc-apple-close,#forecast-modal .fc-apple-tab{transition:none !important}' +
+    '  #forecast-modal .fc-apple-close:active,#forecast-modal .fc-apple-tab:active{transform:none !important}' +
+    '}';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
 function _buildShellHtml() {
-  // Broken-out pure string builder para pasar el hook de innerHTML.
+  // v1306: rediseño Apple-style. Minimalista, neutro, bordes sutiles,
+  // radius grandes, tabs iOS Settings pill.
   const modalOuter =
-    '<div style="position:absolute;inset:1vh 1vw;background:var(--bg-elevated);border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)">';
+    '<div class="fc-apple" style="position:absolute;inset:1vh 1vw;background:#fbfbfd;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22)">';
   const header =
-    '<div style="padding:12px 18px;background:#0f172a;color:#fff;display:flex;align-items:center;gap:12px">' +
-    '<div style="flex:1"><div style="font-size:16px;font-weight:800;letter-spacing:.5px">FORECAST</div>' +
-    '<div id="forecast-subtitle" style="font-size:11px;opacity:.8;margin-top:2px">Sales Plans mensuales + politica de inventario</div></div>' +
-    '<button onclick="closeForecastModal()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700">Cerrar</button>' +
+    '<div style="padding:22px 26px 18px;background:rgba(251,251,253,.92);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:0.5px solid rgba(0,0,0,.08);display:flex;align-items:flex-start;gap:14px">' +
+    '<div style="flex:1;min-width:0">' +
+    '<h2 style="margin:0 0 4px;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#1d1d1f">Forecast</h2>' +
+    '<div id="forecast-subtitle" style="font-size:13px;letter-spacing:-0.1px;color:#86868b">Sales Plans mensuales + política de inventario</div>' +
+    '</div>' +
+    '<button class="fc-apple-close" onclick="closeForecastModal()" aria-label="Cerrar">&times;</button>' +
     '</div>';
-  // v1111: tab "Legacy (6m)" eliminada — el pipeline viejo (SKU + 6 columnas
-  // vs sku_ventas_snapshot + política 3m) fue reemplazado por la tabla
-  // Recomendación de Compra (v1109, F3A) que usa datos más completos.
   const tabsBar =
-    '<div id="forecast-tabs-bar" style="display:flex;gap:0;background:var(--bg-secondary);padding:0 18px;border-bottom:1px solid var(--border-subtle)">' +
-    '<button data-tab="sales-plans" onclick="switchForecastTab(\'sales-plans\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:var(--text-primary);border:none;border-bottom:3px solid #0d9488;cursor:pointer;font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Sales Plans</button>' +
-    '<button data-tab="stat" onclick="switchForecastTab(\'stat\')" class="forecast-tab" style="padding:10px 16px;background:transparent;color:var(--text-muted);border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.4px;text-transform:uppercase">Forecast Estadístico</button>' +
+    '<div id="forecast-tabs-bar" style="display:flex;gap:6px;background:#fbfbfd;padding:12px 26px;border-bottom:0.5px solid rgba(0,0,0,.06)">' +
+    '<button data-tab="sales-plans" onclick="switchForecastTab(\'sales-plans\')" class="forecast-tab fc-apple-tab active">Sales Plans</button>' +
+    '<button data-tab="stat" onclick="switchForecastTab(\'stat\')" class="forecast-tab fc-apple-tab">Forecast estadístico</button>' +
     '</div>';
-  const tabSalesPlans = '<div id="forecast-tab-sales-plans" style="flex:1;overflow:auto"></div>';
-  const tabStat = '<div id="forecast-tab-stat" style="flex:1;overflow:auto;display:none"></div>';
+  const tabSalesPlans =
+    '<div id="forecast-tab-sales-plans" style="flex:1;overflow:auto;padding:0;background:#fbfbfd"></div>';
+  const tabStat =
+    '<div id="forecast-tab-stat" style="flex:1;overflow:auto;display:none;padding:0;background:#fbfbfd"></div>';
   return modalOuter + header + tabsBar + tabSalesPlans + tabStat + '</div>';
 }
 
@@ -134,9 +160,8 @@ window.switchForecastTab = function (tabId) {
   const btns = document.querySelectorAll('#forecast-tabs-bar .forecast-tab');
   btns.forEach((b) => {
     const active = b.getAttribute('data-tab') === tabId;
-    b.style.color = active ? 'var(--text-primary)' : 'var(--text-muted)';
-    b.style.borderBottomColor = active ? '#0d9488' : 'transparent';
-    b.style.fontWeight = active ? '700' : '600';
+    // v1306 Apple-style: toggle class active (los estilos de pill vienen del CSS).
+    b.classList.toggle('active', active);
   });
   // v1105 fix: al activar la tab stat, mostrar placeholder inmediato para
   // que se vea algo mientras carga (o si el load ya termino, re-render).
@@ -149,9 +174,9 @@ window.switchForecastTab = function (tabId) {
       } else {
         // Aún no cargado: placeholder + load.
         cont.innerHTML =
-          '<div style="padding:60px 20px;text-align:center;color:var(--text-muted);font-size:14px">' +
-          '<div style="display:inline-block;width:24px;height:24px;border:3px solid #0d9488;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px"></div>' +
-          '<div>Cargando forecast_output desde Firestore...</div>' +
+          '<div class="fc-apple" style="padding:80px 20px;text-align:center;color:#86868b;font-size:14px;letter-spacing:-0.1px">' +
+          '<div style="display:inline-block;width:28px;height:28px;border:2.5px solid rgba(0,122,255,.2);border-top-color:#007aff;border-radius:50%;animation:spin 0.75s linear infinite;margin-bottom:16px"></div>' +
+          '<div>Cargando forecast desde Firestore</div>' +
           '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>' +
           '</div>';
         _loadForecastOutput()
@@ -161,12 +186,12 @@ window.switchForecastTab = function (tabId) {
             const c = document.getElementById('forecast-tab-stat');
             if (c) {
               c.innerHTML =
-                '<div style="padding:60px 20px;text-align:center;color:#dc2626;line-height:1.6">' +
-                '<div style="font-size:16px;font-weight:700;margin-bottom:12px">Error cargando forecast_output</div>' +
-                '<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">' +
+                '<div class="fc-apple" style="padding:80px 20px;text-align:center;line-height:1.5">' +
+                '<div style="font-size:16px;font-weight:600;margin-bottom:10px;color:#c7372f;letter-spacing:-0.2px">Error cargando forecast</div>' +
+                '<div style="font-size:12.5px;color:#86868b;margin-bottom:18px;letter-spacing:-0.1px">' +
                 escapeHtmlSafe(e.message || String(e)) +
                 '</div>' +
-                '<button onclick="switchForecastTab(\'stat\')" style="padding:8px 14px;background:#0d9488;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer">Reintentar</button>' +
+                '<button onclick="switchForecastTab(\'stat\')" style="padding:9px 18px;background:#007aff;color:#fff;border:none;border-radius:980px;font-weight:600;cursor:pointer;font-size:13px;letter-spacing:-0.1px">Reintentar</button>' +
                 '</div>';
             }
           });
