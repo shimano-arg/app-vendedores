@@ -973,9 +973,11 @@ export const applyRepartoManualCF = onCall(
     const data = req.data || {};
     const ingresoId = String(data.ingresoId || '').trim();
     const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+    // v1312: eliminations[] opcional ({pedidoId, lineIndex, qtyEliminar}).
+    const eliminations = Array.isArray(data.eliminations) ? data.eliminations : [];
     if (!ingresoId) throw new HttpsError('invalid-argument', 'ingresoId requerido');
-    if (assignments.length === 0) {
-      throw new HttpsError('invalid-argument', 'assignments vacio');
+    if (assignments.length === 0 && eliminations.length === 0) {
+      throw new HttpsError('invalid-argument', 'assignments y eliminations vacios');
     }
     try {
       const r = await applyRepartoManualCore(
@@ -986,6 +988,11 @@ export const applyRepartoManualCF = onCall(
             pedidoId: String(a.pedidoId || ''),
             lineIndex: Number(a.lineIndex) || 0,
             qtyAsignada: Number(a.qtyAsignada) || 0,
+          })),
+          eliminations: eliminations.map((/** @type {any} */ e) => ({
+            pedidoId: String(e.pedidoId || ''),
+            lineIndex: Number(e.lineIndex) || 0,
+            qtyEliminar: Number(e.qtyEliminar) || 0,
           })),
           appliedByEmail: email,
         }

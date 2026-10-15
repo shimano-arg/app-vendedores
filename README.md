@@ -4717,6 +4717,61 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1312 (2026-10-15) — Modal "Reparto de mercadería" rediseñado con 3 columnas (Asignado / Backorder / Eliminar)
+
+**Archivos**:
+- `index.html` modal header: título "Reparto de ingresos" → "Reparto de mercadería".
+- `index.html` `_repartoBuildCard`: botones FIFO auto + Reset eliminados. Columnas rediseñadas: Código / Cliente / Pedido / Stock disponible / **Asignado** (input) / **Backorder** (display calc) / **Eliminar** (input). Botón MAX eliminado.
+- `index.html` `_repartoRecalc` reescrita 3-way: cada input tiene `data-reparto-field="asig"|"elim"`. Clamp [0, qtyBackorder] del cliente. Validación live: asig+elim <= qtyBackorder; sum global asig <= stock físico. Backorder display = qtyBackorder - asig - elim.
+- `index.html` `_repartoApply`: envía `assignments[]` + `eliminations[]` al CF. Si asig+elim < qtyBackorder, la diferencia se agrega como `elimTotal` implícito (decidido Mariano).
+- `index.html` funciones `_repartoSetMax`, `_repartoFifoAuto`, `_repartoReset` eliminadas (dead code post-rediseño).
+- `functions/core/reparto-core.js` `validateRepartoPayload`: acepta `eliminations` como 2do array. Valida por cliente que asig+elim <= qtyBackorder (sin sobre-asignación).
+- `functions/core/reparto-core.js` `applyRepartoManualCore`: lógica unificada 3-way. Combina assignments+eliminations en Map por (pedidoId, lineIndex), 1 transacción por línea. Casos: línea original queda BO con `qtyOpen=qr`, pasa a ASIG, o pasa a cancelled; append nueva línea ASIG si asig>0 y la original no es ASIG completa. Regla v1295 ELIMINADA (ya no auto-cancela BO sin asignar — ahora se usa Eliminar explícito).
+- `functions/index.js` wrapper `applyRepartoManualCF`: pasa `eliminations` del request al core.
+- `tests/functions/reparto.test.js`: 4 tests actualizados/nuevos para 3-way (acepta eliminations, rechaza sobre-asignación, rechaza payload vacío, rechaza asig+elim > qtyBackorder).
+- Rebuild `app.bundle.js` + `chunks/*.js`.
+- `index.html:6423` + `sw.js:20` (bump v1309 → v1312).
+
+**Antes (v1309)**:
+Modal "Reparto de ingresos" tenía 1 sola columna input "Asignado" + botones FIFO auto + Reset + MAX por fila. Flow: Pablo asignaba 0..stockFisico a cada cliente. La regla v1295 cancelaba automáticamente los BO de clientes en 0 cuando quedaba stock libre (comportamiento confuso: a veces Pablo no quería cancelar, solo no asignar aún).
+
+**Cambio (pedido Mariano 2026-10-15)**:
+- Rename "Reparto de ingresos" → "Reparto de mercadería".
+- Eliminar botones FIFO auto / Reset / MAX (simplificar UX).
+- Agregar 2 columnas: **Backorder** (lo que queda esperando, display calculated) y **Eliminar** (lo que Pablo decide cancelar del BO). Preservar **Asignado** como input principal.
+- Lógica por cliente: `qtyBackorder = qtyAsignada + qtyMantenerBO + qtyEliminada`. Default = todo en Backorder (no toco nada = cliente sigue esperando).
+- Si Pablo pone valores parciales (asig+elim < qtyBackorder), la diferencia se trata como ELIMINADA (decisión Mariano: "la diferencia también se elimina").
+- Eliminada sobre-asignación (v1292). Max input ASIGNADO = qtyBackorder del cliente, no stock físico.
+- Eliminada regla v1295 (auto-cancel BO si queda stock libre). Ahora cada cliente conserva su BO salvo que Pablo lo elimine explícitamente.
+- Backend `applyRepartoManualCore`: 1 transacción por línea combinando asig+elim. 6 casos resultantes documentados en el JSDoc.
+
+**Ejemplo Mariano**:
+- Stock SKU X: 12u. Clientes BO: Juan (5u), Mariano (3u), Pepe (3u).
+- Pablo: Juan asignado=5, Mariano asignado=1 eliminar=2, Pepe no toca nada.
+- Resultado:
+  - Juan: línea ASIG(5) → reserva stock. BO original consumido.
+  - Mariano: línea ASIG(1), línea original cancelled (qtyCancelled+=2).
+  - Pepe: BO(3) sigue vivo esperando próximo ingreso.
+- Stock sobrante: 12 - 5 - 1 = 6u quedan libres en depósito (no reservados).
+
+**Por que**:
+- Mejor UX para Pablo: ve y controla explícitamente qué pasa con cada cliente.
+- Elimina confusión v1295 (auto-cancel inesperado).
+- Preserve integridad de BO: default "no toco" = cliente mantiene BO (ninguna acción destructiva implícita).
+
+**Verificación**:
+- `npm run test:unit` → 706/706 pass (27/27 en reparto suite, +4 vs v1309).
+- `npx tsc --noEmit` → clean (JSDoc actualizado).
+- `npx biome check` → clean.
+- CF `applyRepartoManualCF` ya desplegada en prod.
+
+**Rollback**:
+- Revertir `validateRepartoPayload` y `applyRepartoManualCore` a v1309 (git diff disponible).
+- Revertir `_repartoBuildCard`, `_repartoRecalc`, `_repartoApply` en `index.html` a v1309.
+- Re-agregar funciones `_repartoFifoAuto`, `_repartoSetMax`, `_repartoReset`.
+
+---
+
 ### v1311 (2026-10-15) — Botón "Ficha" por fila en el Master Clientes
 
 **Archivos**:

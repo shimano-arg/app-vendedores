@@ -246,11 +246,49 @@ describe('validateRepartoPayload', () => {
     expect(r.sumAsignada).toBe(80);
   });
 
-  it('v1292: acepta qtyAsignada > qtyBackorder del cliente (sobre-asignacion)', () => {
-    // p2 tiene qtyBackorder=40; qtyIngresada del ingreso es 50.
-    // Asignar 50 > 40 (BO del cliente) pero <= 50 (ingreso) debe ser VALIDO.
+  it('v1312: RECHAZA qtyAsignada > qtyBackorder del cliente (sobre-asignacion eliminada)', () => {
+    // p2 tiene qtyBackorder=40. Asignar 50 > 40 ahora es INVALIDO.
     const r = validateRepartoPayload(ingreso, [{ pedidoId: 'p2', lineIndex: 1, qtyAsignada: 50 }]);
+    expect(r.valid).toBe(false);
+    expect(r.errors.some((e) => e.includes('qtyBackorder'))).toBe(true);
+  });
+
+  it('v1312: acepta eliminations ademas de assignments', () => {
+    const r = validateRepartoPayload(
+      ingreso,
+      [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 20 }],
+      [{ pedidoId: 'p2', lineIndex: 1, qtyEliminar: 15 }]
+    );
     expect(r.valid).toBe(true);
+    expect(r.sumAsignada).toBe(20);
+    expect(r.sumEliminada).toBe(15);
+  });
+
+  it('v1312: acepta solo eliminations (sin assignments)', () => {
+    const r = validateRepartoPayload(
+      ingreso,
+      [],
+      [{ pedidoId: 'p1', lineIndex: 0, qtyEliminar: 30 }]
+    );
+    expect(r.valid).toBe(true);
+    expect(r.sumEliminada).toBe(30);
+  });
+
+  it('v1312: rechaza payload sin assignments NI eliminations', () => {
+    const r = validateRepartoPayload(ingreso, [], []);
+    expect(r.valid).toBe(false);
+    expect(r.errors.some((e) => e.includes('vacio'))).toBe(true);
+  });
+
+  it('v1312: rechaza asig+elim > qtyBackorder del cliente', () => {
+    // p1 qtyBackorder=60. Asignar 50 + eliminar 20 = 70 > 60 → invalido.
+    const r = validateRepartoPayload(
+      ingreso,
+      [{ pedidoId: 'p1', lineIndex: 0, qtyAsignada: 50 }],
+      [{ pedidoId: 'p1', lineIndex: 0, qtyEliminar: 20 }]
+    );
+    expect(r.valid).toBe(false);
+    expect(r.errors.some((e) => e.includes('qtyBackorder'))).toBe(true);
   });
 
   it('rechaza assignment que no matchea con ningun cliente BO', () => {
