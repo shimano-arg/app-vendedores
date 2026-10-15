@@ -2398,11 +2398,9 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   top:0 !important;
   z-index:20 !important;
 }
-/* Preserve backgrounds especiales de 2 cols destacadas con sticky.
-   Libre para la venta (verde) + Pedido Final (azul) + Subtotal (verde claro). */
-#waitlist-card-modal thead th:nth-child(5){background:var(--color-success-bg) !important;color:#14532d !important}
-#waitlist-card-modal thead th:nth-child(7){background:#dbeafe !important;color:var(--text-primary) !important}
-#waitlist-card-modal thead th:nth-child(9){background:var(--color-success-bg) !important;color:var(--color-success) !important}
+/* v1332 (2026-10-15): encabezado uniforme negro + letras blancas (pedido
+   Mariano). Antes 3 cols especiales con bg verde/azul claro — removidas.
+   Las cols destacadas (verde/azul claro) siguen en las celdas tbody. */
 /* v1299 (2026-10-14): en hover/focus/row seleccionada (fondo azul oscuro),
    las columnas destacadas disp-sap-col y pedido-final-col mantienen su fondo
    claro (verde/azul claro) por el !important previo. Pero el texto heredaba
@@ -6220,16 +6218,19 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
               <th style="text-align:left;padding:6px 8px">Producto</th>
               <th style="text-align:center;padding:6px 8px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
               <th style="text-align:center;padding:6px 8px" title="Unidades reservadas = confirmed (ya en SAP) + ASIG (asignado FIFO). No incluye BO porque son unidades sin stock. Hover: breakdown por state.">Unidades reservadas</th>
-              <th style="text-align:center;padding:6px 8px;background:var(--color-success-bg);color:#14532d" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
+              <!-- v1332: backgrounds especiales removidos del thead (Mariano:
+                   negro uniforme + letras blancas). Las celdas tbody mantienen
+                   su color de fondo (verde/azul claro) via CSS .disp-sap-col, etc. -->
+              <th style="text-align:center;padding:6px 8px" title="Stock realmente disponible = Stock completo - Unidades reservadas. Es lo que podes prometer al cliente HOY.">Libre para la venta</th>
               <!-- v726 (2026-08-28): rename Pedido -> Pedido Original para diferenciarla claramente de Pedido Final. -->
               <th style="text-align:center;padding:6px 8px" title="Cantidad ORIGINAL que pidio el cliente (antes del split contra stock disponible)">Pedido Original</th>
               <!-- v716 (2026-08-28): nueva columna Pedido Final = min(Pedido, Libre). -->
-              <th style="text-align:center;padding:6px 8px;background:#dbeafe;color:var(--text-primary)" title="Pedido Final = min(Pedido Original, Libre para la venta). Es lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido Final</th>
+              <th style="text-align:center;padding:6px 8px" title="Pedido Final = min(Pedido Original, Libre para la venta). Es lo que efectivamente va a SAP como confirmed. El resto cae en Backorder App.">Pedido Final</th>
               <th style="text-align:center;padding:6px 8px" title="Precio unitario del catalogo/SAP">Precio</th>
               <!-- v1193 (2026-10-08): columna "Subtotal (Pendiente)" removida por
                    pedido Mariano — post-v1189 daba identico al Subtotal Final
                    siempre (misma formula stk.disponible). Confundia a los VDE. -->
-              <th style="text-align:center;padding:6px 8px;background:var(--color-success-bg);color:var(--color-success)" title="Subtotal = Pedido Final x Precio. Es lo que efectivamente se va a facturar (lo que va a SAP como confirmed).">Subtotal</th>
+              <th style="text-align:center;padding:6px 8px" title="Subtotal = Pedido Final x Precio. Es lo que efectivamente se va a facturar (lo que va a SAP como confirmed).">Subtotal</th>
               <th style="text-align:center;padding:6px 8px" title="Lo que queda como backorder = max(Pedido - Libre, 0) x Precio">Backorder</th>
               <th style="text-align:center;padding:6px 8px" title="Pedido - Libre (unidades que quedan como backorder)">Backorder Unidades</th>
               <th style="text-align:center;padding:6px 8px" title="Diferencia respecto al Libre al momento de crear el pedido">Cambio</th>
@@ -6477,7 +6478,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1331';
+const APP_VERSION = 'v1332';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
