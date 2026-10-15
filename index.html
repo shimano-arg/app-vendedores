@@ -2387,9 +2387,21 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 }
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
-/* v1308 (2026-10-15): fondo propio en th del wcard para que sticky header
-   no quede transparente al scrollear. Mariano: "al scrollear se pierde". */
-#waitlist-card-modal thead th{background:#0f172a !important;color:#fff}
+/* v1322 (2026-10-15): sticky al nivel de TH individual (más confiable que
+   thead sticky que depende de border-collapse). background + z-index con
+   !important para no ser pisado por otros estilos. */
+#waitlist-card-modal thead th{
+  background:#0f172a !important;
+  color:#fff;
+  position:sticky !important;
+  top:0 !important;
+  z-index:20 !important;
+}
+/* Preserve backgrounds especiales de 2 cols destacadas con sticky.
+   Libre para la venta (verde) + Pedido Final (azul) + Subtotal (verde claro). */
+#waitlist-card-modal thead th:nth-child(5){background:var(--color-success-bg) !important;color:#14532d !important}
+#waitlist-card-modal thead th:nth-child(7){background:#dbeafe !important;color:var(--text-primary) !important}
+#waitlist-card-modal thead th:nth-child(9){background:var(--color-success-bg) !important;color:var(--color-success) !important}
 /* v1299 (2026-10-14): en hover/focus/row seleccionada (fondo azul oscuro),
    las columnas destacadas disp-sap-col y pedido-final-col mantienen su fondo
    claro (verde/azul claro) por el !important previo. Pero el texto heredaba
@@ -6149,12 +6161,12 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <input id="wcard-add-input" type="text" placeholder="Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none"/>
         <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
       </div>
-      <!-- v1321 (2026-10-15): solo thead sticky al top:0 (sin buscador sticky
-           encima). border-collapse:separate + border-spacing:0 preserve del
-           v1319 porque collapse rompe sticky en Chrome/Safari. -->
+      <!-- v1322 (2026-10-15): sticky movido al TH individual (CSS global).
+           Preservado: border-collapse:separate + border-spacing:0 porque
+           collapse rompe sticky en algunos browsers. -->
       <div style="border:1px solid var(--border-subtle);border-radius:6px">
         <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px">
-          <thead style="position:sticky;top:0;z-index:20">
+          <thead>
             <tr style="background:#0f172a;color:#fff">
               <!-- v702 (2026-08-28): reestructura de columnas por pedido de Mariano.
                    Sacadas: Backorder General, Backorder Cliente, Disponible app.
@@ -6422,7 +6434,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1321';
+const APP_VERSION = 'v1322';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
