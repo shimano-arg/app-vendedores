@@ -668,13 +668,25 @@ service cloud.firestore {
 
     // v1277 (2026-10-14): reparto manual por Pablo.
     // ingresos_reparto: creado por CF onDep11IncreaseCreateReparto cuando sube
-    //   stock dep 11 (via Admin SDK). admin/gerente lee para mostrar en modal
-    //   "Reparto"; actualizado por CF applyRepartoManualCF (status, appliedBy,
-    //   assignments). Writes directos del cliente estan bloqueados — todo pasa
-    //   por la CF para que valide (sum assignments vs qtyIngresada, etc).
+    //   stock dep 11 (via Admin SDK). admin/gerente lee para mostrar en modal.
+    //
+    // v1323 (2026-10-15): permitir admin/gerente update de campos especificos
+    // desde el cliente (NO el reparto efectivo — eso sigue via CF):
+    //   - clientesBO + clientesCount + qtyBackorderTotal + clientesBOLiveUpdatedAt:
+    //     snapshot refresh v1317 (actualizar clientes LIVE antes de aplicar).
+    //   - status + appliedAt + appliedBy + closureReason:
+    //     bulk "procesar obsoletos" v1320 (marcar status=done sin reparto).
+    // create/delete siguen bloqueados — los docs solo nacen via CF trigger.
+    // El reparto efectivo (write a pedidos.lines) sigue via CF applyRepartoManualCF.
     match /ingresos_reparto/{ingresoId} {
       allow read: if isAdminOrGerente();
-      allow write: if false;
+      allow update: if isAdminOrGerente()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly([
+               'clientesBO', 'clientesCount', 'qtyBackorderTotal', 'clientesBOLiveUpdatedAt',
+               'status', 'appliedAt', 'appliedBy', 'closureReason'
+             ]);
+      allow create, delete: if false;
     }
 
     // v1277: audit log por aplicacion de reparto. Escrito por CF (Admin SDK).
