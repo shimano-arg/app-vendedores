@@ -3691,6 +3691,9 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
          CSS @media (min-width:769px) — desktop mantiene el pill Apple, mobile
          hereda la forma rectangular estandar de .btn-zonas. -->
     <button class="btn-zonas" id="planner-header-btn" onclick="openPlannerBoardModal()" title="Planner: Kanban de pedidos por depósito (solo Mariano)" style="background:#ff9500;color:#fff;display:none">Planner</button>
+    <!-- v1329 (2026-10-15): Target Altas para VDI (Santiago/Ioannis).
+         Marcan clientes dados de alta en SAP por mes. Admin/gerente read-only. -->
+    <button class="btn-zonas" id="target-altas-header-btn" onclick="openTargetAltasModal()" title="Target Altas: marcar clientes dados de alta en SAP por mes" style="background:#ff9500;color:#fff;display:none">Target Altas</button>
     <!-- v1140 (2026-10-05): boton Mercado Libre reubicado desde el Panel de Control al header.
          Mismo gate que panel-control-btn: solo Mariano admin. Runtime guard en applyRolePermissions. -->
     <button class="btn-zonas" id="meli-header-btn" onclick="openMeliModal()" title="Mercado Libre: datos sincronizados desde mercado-intelligence (solo Mariano)" style="background:#FFE600;color:#a86200;display:none">Mercado Libre</button>
@@ -3761,6 +3764,36 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       <div id="planner-pane-config" class="planner-subpane" style="display:none">
         <div id="planner-config-root"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- v1329 (2026-10-15): modal Target Altas estilo Apple minimalista.
+     VDI selecciona mes + marca qué clientes dieron de alta en SAP ese mes.
+     Admin/gerente ven read-only (seleccionan vendedor + mes para auditoría). -->
+<div class="modal-overlay" id="target-altas-modal" onclick="if(event.target===this)closeTargetAltasModal()" style="z-index:1200">
+  <div class="modal-box" style="width:min(760px,96vw);height:88vh;max-height:88vh;display:flex;flex-direction:column;box-sizing:border-box;border-radius:18px;overflow:hidden;background:#fbfbfd;box-shadow:0 24px 70px rgba(0,0,0,.18)">
+    <div style="padding:22px 26px 18px;background:rgba(251,251,253,.92);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:0.5px solid rgba(0,0,0,.08);display:flex;align-items:flex-start;gap:14px;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <h2 style="margin:0 0 4px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',sans-serif;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#1d1d1f">Target Altas</h2>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;letter-spacing:-0.1px;color:#86868b" id="ta-subt">Marcá los clientes que diste de alta en SAP este mes.</div>
+      </div>
+      <button onclick="closeTargetAltasModal()" aria-label="Cerrar" style="border:none;background:rgba(120,120,128,.12);width:30px;height:30px;border-radius:50%;cursor:pointer;color:#86868b;font-size:16px;display:flex;align-items:center;justify-content:center;transition:transform .12s ease-out,background .15s ease">&times;</button>
+    </div>
+    <div style="padding:16px 26px 20px;display:flex;flex-direction:column;gap:12px;flex:1 1 0;overflow:hidden;min-height:0;box-sizing:border-box">
+      <div style="display:flex;gap:10px;flex-shrink:0;flex-wrap:wrap">
+        <div style="flex:1;min-width:160px">
+          <label style="font-size:11px;color:#86868b;letter-spacing:-0.05px;display:block;margin-bottom:4px;font-weight:600;text-transform:uppercase">Mes</label>
+          <select id="ta-mes" onchange="_taOnChange()" style="width:100%;padding:9px 12px;border:0.5px solid rgba(0,0,0,.12);border-radius:10px;font-size:14px;background:#fff;outline:none;font-family:inherit"></select>
+        </div>
+        <div id="ta-vendor-wrap" style="flex:1;min-width:160px;display:none">
+          <label style="font-size:11px;color:#86868b;letter-spacing:-0.05px;display:block;margin-bottom:4px;font-weight:600;text-transform:uppercase">Vendedor</label>
+          <select id="ta-vendor" onchange="_taOnChange()" style="width:100%;padding:9px 12px;border:0.5px solid rgba(0,0,0,.12);border-radius:10px;font-size:14px;background:#fff;outline:none;font-family:inherit"></select>
+        </div>
+      </div>
+      <input type="search" id="ta-search" placeholder="Buscar cliente por nombre o cardCode..." oninput="_taRender()" style="padding:11px 16px;border:0.5px solid rgba(0,0,0,.1);border-radius:10px;font-size:14px;font-family:inherit;outline:none;flex-shrink:0;box-sizing:border-box;background:#fff;color:#1d1d1f;letter-spacing:-0.1px" />
+      <div id="ta-stats" style="padding:9px 14px;background:rgba(0,122,255,.06);border:0.5px solid rgba(0,122,255,.14);border-radius:10px;font-size:12px;color:#007aff;flex-shrink:0;font-family:inherit;letter-spacing:-0.08px">0 marcados</div>
+      <div id="ta-list" style="flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;border:0.5px solid rgba(0,0,0,.08);border-radius:10px;background:#fff"></div>
     </div>
   </div>
 </div>
@@ -6443,7 +6476,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1328';
+const APP_VERSION = 'v1329';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -13530,6 +13563,204 @@ function closePlannerBoardModal() {
   var modal = document.getElementById('planner-board-modal');
   if (modal) modal.style.display = 'none';
   try { stopPlannerSyncCountdown(); } catch (e) { /* silent */ }
+}
+
+// ============================================================
+// v1329 (2026-10-15): Target Altas — VDI (Santiago/Ioannis) marcan clientes
+// dados de alta en SAP por mes. Admin/gerente ven read-only.
+// Datos: Firestore vdi_target_altas/{vendor_YYYYMM} con array altaFsIds[].
+// ============================================================
+var _taCurrentVendor = '';
+var _taCurrentMes = '';
+var _taSelectedIds = new Set(); // Set de alta._fsId marcados en el doc actual
+var _taUnsub = null;
+var _taSaveTimer = null;
+
+window.openTargetAltasModal = function() {
+  var modal = document.getElementById('target-altas-modal');
+  if (!modal) return;
+  // Determinar rol y defaults.
+  var isAdminLike = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno');
+  var myVendor = String((currentUser && currentUser.vendor) || '').toUpperCase().trim()
+    || _taVendorFromEmail((currentUser && currentUser.email) || '');
+  var isVDI = typeof VDI_VENDOR_KEYS !== 'undefined' && VDI_VENDOR_KEYS.has(myVendor);
+  if (!isAdminLike && !isVDI) {
+    alert('Target Altas: solo VDI (Santiago/Ioannis) y admin/gerente.');
+    return;
+  }
+  // Poblar meses: 12 meses hacia atrás + mes actual.
+  var mesSel = document.getElementById('ta-mes');
+  if (mesSel) {
+    mesSel.innerHTML = '';
+    var now = new Date();
+    for (var i = 0; i < 13; i++) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      var ymKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      var label = d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+      var opt = document.createElement('option');
+      opt.value = ymKey;
+      opt.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+      if (i === 0) opt.selected = true;
+      mesSel.appendChild(opt);
+    }
+  }
+  // Vendor dropdown: solo admin/gerente lo ven. VDI es su propio vendor.
+  var vendorWrap = document.getElementById('ta-vendor-wrap');
+  var vendorSel = document.getElementById('ta-vendor');
+  if (isAdminLike && vendorWrap && vendorSel) {
+    vendorWrap.style.display = 'block';
+    vendorSel.innerHTML = '';
+    ['SANTIAGO ESTEBAN', 'IOANNIS PALKOUDAKIS'].forEach(function(v) {
+      var opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      vendorSel.appendChild(opt);
+    });
+    _taCurrentVendor = 'SANTIAGO ESTEBAN';
+  } else {
+    if (vendorWrap) vendorWrap.style.display = 'none';
+    _taCurrentVendor = myVendor;
+  }
+  var subt = document.getElementById('ta-subt');
+  if (subt) {
+    subt.textContent = isAdminLike
+      ? 'Vista read-only. Elegí el vendedor y el mes para ver qué altas marcó.'
+      : 'Marcá los clientes que diste de alta en SAP este mes.';
+  }
+  _taCurrentMes = (mesSel && mesSel.value) || '';
+  modal.classList.add('open');
+  _taSubscribe();
+};
+
+window.closeTargetAltasModal = function() {
+  var modal = document.getElementById('target-altas-modal');
+  if (modal) modal.classList.remove('open');
+  if (typeof _taUnsub === 'function') { try { _taUnsub(); } catch(e) {} _taUnsub = null; }
+};
+
+window._taOnChange = function() {
+  var mesSel = document.getElementById('ta-mes');
+  var vendorSel = document.getElementById('ta-vendor');
+  _taCurrentMes = (mesSel && mesSel.value) || _taCurrentMes;
+  if (vendorSel && document.getElementById('ta-vendor-wrap').style.display !== 'none') {
+    _taCurrentVendor = vendorSel.value || _taCurrentVendor;
+  }
+  _taSubscribe();
+};
+
+function _taDocId() {
+  return (_taCurrentVendor || 'UNKNOWN').replace(/\s+/g, '_') + '_' + (_taCurrentMes || '0000-00').replace('-', '');
+}
+
+function _taSubscribe() {
+  if (typeof _taUnsub === 'function') { try { _taUnsub(); } catch(e) {} _taUnsub = null; }
+  if (!_taCurrentVendor || !_taCurrentMes) return;
+  if (typeof fbDb === 'undefined' || !fbDb) return;
+  _taUnsub = fbDb.collection('vdi_target_altas').doc(_taDocId()).onSnapshot(function(snap) {
+    _taSelectedIds = new Set();
+    if (snap.exists) {
+      var d = snap.data() || {};
+      (d.altaFsIds || []).forEach(function(id) { _taSelectedIds.add(String(id)); });
+    }
+    _taRender();
+  }, function(err) {
+    console.error('[target-altas] listener err', err);
+  });
+}
+
+window._taRender = function() {
+  var list = document.getElementById('ta-list');
+  var stats = document.getElementById('ta-stats');
+  if (!list) return;
+  var q = ((document.getElementById('ta-search') || {}).value || '').trim().toLowerCase();
+  var altas = (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList)) ? approvedAltasList : [];
+  var withCardCode = altas.filter(function(a) { return a && a.sapCardCode; });
+  var matches = q
+    ? withCardCode.filter(function(a) {
+        var hay = (String(a.comercio || '') + ' ' + String(a.fantasia || '') + ' ' + String(a.sapCardCode || '') + ' ' + String(a.provincia || '') + ' ' + String(a.localidad || '')).toLowerCase();
+        return hay.indexOf(q) >= 0;
+      })
+    : withCardCode;
+  matches.sort(function(a, b) {
+    return String(a.comercio || '').localeCompare(String(b.comercio || ''));
+  });
+  // Stats.
+  if (stats) {
+    stats.textContent = _taSelectedIds.size + ' marcados · ' + matches.length + ' clientes'
+      + (q ? ' (filtrados)' : '');
+  }
+  // Lista.
+  var isAdminLike = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno');
+  var myVendor = String((currentUser && currentUser.vendor) || '').toUpperCase().trim()
+    || _taVendorFromEmail((currentUser && currentUser.email) || '');
+  var canEdit = isAdminLike || (_taCurrentVendor === myVendor);
+  while (list.firstChild) list.removeChild(list.firstChild);
+  if (matches.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'padding:30px;text-align:center;color:#86868b;font-size:13px';
+    empty.textContent = q ? 'Sin resultados para "' + q + '".' : 'No hay clientes con cardCode SAP.';
+    list.appendChild(empty);
+    return;
+  }
+  matches.forEach(function(a) {
+    var row = document.createElement('label');
+    var isSel = _taSelectedIds.has(String(a._fsId));
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:0.5px solid rgba(0,0,0,.06);cursor:' + (canEdit ? 'pointer' : 'default') + ';transition:background .1s ease' + (isSel ? ';background:rgba(52,199,89,.08)' : '');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = isSel;
+    cb.disabled = !canEdit;
+    cb.style.cssText = 'width:18px;height:18px;accent-color:#007aff;cursor:' + (canEdit ? 'pointer' : 'default');
+    cb.addEventListener('change', function() {
+      _taToggle(a._fsId, cb.checked);
+    });
+    row.appendChild(cb);
+    var info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0';
+    info.innerHTML = '<div style="font-size:13.5px;font-weight:600;color:#1d1d1f;letter-spacing:-0.1px">' + _escHtml(a.comercio || a.fantasia || '(sin nombre)') + '</div>'
+      + '<div style="font-size:11.5px;color:#86868b;margin-top:2px;letter-spacing:-0.05px">'
+      + _escHtml(a.localidad || '') + (a.provincia ? ' · ' + _escHtml(a.provincia) : '')
+      + ' · <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500">' + _escHtml(a.sapCardCode || '') + '</span>'
+      + '</div>';
+    row.appendChild(info);
+    list.appendChild(row);
+  });
+};
+
+function _taToggle(fsId, checked) {
+  if (!fsId) return;
+  var sid = String(fsId);
+  if (checked) _taSelectedIds.add(sid);
+  else _taSelectedIds.delete(sid);
+  // Debounce save 300ms para batching si el user hace clicks rapidos.
+  if (_taSaveTimer) clearTimeout(_taSaveTimer);
+  _taSaveTimer = setTimeout(_taSave, 300);
+  _taRender();
+}
+
+function _taSave() {
+  if (!_taCurrentVendor || !_taCurrentMes) return;
+  if (typeof fbDb === 'undefined' || !fbDb) return;
+  var ref = fbDb.collection('vdi_target_altas').doc(_taDocId());
+  ref.set({
+    vendor: _taCurrentVendor,
+    month: _taCurrentMes,
+    altaFsIds: Array.from(_taSelectedIds),
+    updatedAt: new Date().toISOString(),
+    updatedBy: (currentUser && currentUser.email) || '',
+  }, { merge: true }).catch(function(err) {
+    console.error('[target-altas] save err', err);
+    alert('Error guardando: ' + (err.message || err));
+  });
+}
+
+// Heuristica para derivar vendorKey del email cuando currentUser.vendor no esta
+// seteado directamente.
+function _taVendorFromEmail(email) {
+  var e = (email || '').toLowerCase();
+  if (e.indexOf('santiago.esteban') >= 0) return 'SANTIAGO ESTEBAN';
+  if (e.indexOf('ioannis') >= 0 || e.indexOf('plakoudakis') >= 0) return 'IOANNIS PALKOUDAKIS';
+  return '';
 }
 
 // v1032 (2026-09-22): countdown a la proxima sync SAP Orders. El schedule es
@@ -27107,6 +27338,18 @@ function applyRolePermissions(){
         (_isVDIorAdmin && _plannerAllowedEmails.has(_emLower))
         || (_isVDE && !!assignedVendor);
       _plannerHdrBtn.style.display = _canPlanner ? '' : 'none';
+    }
+    // v1329 (2026-10-15): Target Altas visible solo para VDI (Santiago/Ioannis)
+    // + admin/gerente/interno (read-only).
+    const _taBtn = document.getElementById('target-altas-header-btn');
+    if (_taBtn) {
+      const _taIsAdminLike = (userRole === 'admin' || userRole === 'gerente' || userRole === 'interno');
+      const _taMyVendor = String((currentUser && currentUser.vendor) || '').toUpperCase().trim();
+      const _taIsVDI = (typeof VDI_VENDOR_KEYS !== 'undefined') && (
+        VDI_VENDOR_KEYS.has(_taMyVendor)
+        || (currentUser && /santiago\.esteban|ioannis|plakoudakis/i.test(currentUser.email || ''))
+      );
+      _taBtn.style.display = (_taIsAdminLike || _taIsVDI) ? '' : 'none';
     }
     // v984 (2026-09-17) + v1086: botones Dashboard y Depósito ocultos para
     // role='vendedor'. Contexto: Pachi Naba (VDE proxy) no necesita ver KPIs
