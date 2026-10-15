@@ -35,13 +35,40 @@ Cronología de iters con decisiones y métricas. Append-only.
 - Learning: para que LGBM funcione necesitaríamos (a) extender Baraldo histórico mapeado a subfamilia_norm consistente con Shimano, o (b) esperar más meses de data Shimano directa, o (c) usar foundation model zero-shot (Chronos-2).
 - **Decision**: rollback LGBM. **Ganador final: iter 2** (WAPE 0.398).
 
-## Ganador final v3: Iter 2 (sales plan blend)
-- WAPE mediano: **0.398** (16% mejor que prod original 0.476, 5.7% mejor que baseline iter_0 0.422)
-- Mejora driver: 10 de 25 subfamilias eligen blend con sales plan (alpha > 0).
-- Follow-ups futuros:
-  - Iter 3 zonal (xlsx) + iter 4 campañas con más tiempo de data
-  - Iter 5 LGBM cuando tengamos 18+ meses Shimano
-  - Iter 6 hierarchical SKU (necesita iter 5 bueno)
-  - Probar Chronos-2 zero-shot como alternativa (SOTA Oct 2025)
+## Ganador tentativo v3: Iter 2 (sales plan blend)
+- WAPE mediano reportado: **0.398**
+- Publicado a Firestore `forecast_output/*` (26 docs, versionId=v3-iter2-20261015)
+
+## ⚠️ CAVEAT CRÍTICO — validación anti-alucinación
+Silent-failure-hunter detectó **hyperparameter leak** en iter_2:
+- El `winner_alpha` se elegía minimizando WAPE EN los mismos folds que después se reportaban como métrica.
+- **0.398 es optimista** en 0.02-0.05. Verdadero WAPE out-of-sample probable: **0.42-0.45**.
+- Intentamos iter_2b con nested CV honesto: **NO alcanzan los folds** (7 meses Shimano, 1 fold limpio máximo).
+- El baseline iter_0 (0.422) también usa "best per series" → también tiene leak similar.
+- **Conclusión HONESTA: con 7 meses Shimano directo NO podemos medir una mejora significativa iter_2 vs iter_0.**
+
+## Qué sí es verdadero (no leak)
+- El pipeline iter_2 **funciona** (26 subfamilias con forecast forward 7m).
+- Sales plans **son info legítima que no usaba el prod anterior**.
+- Para 10 de 25 subfamilias el blend ganó incluso en el fold limpio → aún con leak reducido sugiere valor.
+- Las decisiones de rollback de iter_1 (BO target) e iter_5 (LGBM) **fueron correctas y bien fundamentadas**.
+
+## Siguientes pasos críticos
+
+1. **Esperar 3-6 meses** para tener 10-13 meses Shimano → nested CV honesto se vuelve posible.
+2. **O**: completar mapping SKU catálogo histórico pre-2025-09 para extender la serie Shimano hacia atrás usando Baraldo (muchas series tendrían 100+ meses).
+3. **Follow-ups diferidos**:
+   - Iter 3 zonal (xlsx) + iter 4 campañas
+   - Iter 5 LGBM retry con 18+ meses
+   - Chronos-2 zero-shot (no requiere entrenamiento, SOTA Oct 2025)
+   - Iter 6 hierarchical SKU
+
+## Validator findings a corregir en próximas iters
+- CRITICAL: hyperparameter leak (⬆️ documentado arriba)
+- HIGH: `publish_iter_2.py` no tiene assert de slug único (chequeé post-mortem: **0 colisiones**, OK)
+- MEDIUM: `validate_iter.py` no detecta hyperparameter leak (sumar check "si grid-search sin nested CV → flag CRITICAL")
+- MEDIUM: `metrics.py` no cubre NaN/Inf en y_hat, series y=0, cardinalidad final del forecast
+- MEDIUM: try/except silenciosos en parsers Firestore (sumar contador n_rows_dropped)
+- MEDIUM: `publish_iter_2.py` sin manejo de error en writes Firestore (sumar batch commits + lista slugs fallidos)
 
 
