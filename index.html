@@ -6426,7 +6426,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1319';
+const APP_VERSION = 'v1320';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18997,11 +18997,12 @@ function _repartoRender(){
   // v1294 (2026-10-14): filtro por SKU o nombre de cliente del input search.
   const searchEl = document.getElementById('reparto-search');
   const q = (searchEl && searchEl.value || '').trim().toLowerCase();
-  // v1317 (2026-10-15): mostrar TODOS los ingresos pending (no filtrar
-  // obsoletos). Para cada card recomputamos clientesBO LIVE del SKU en
-  // _repartoBuildCard. Si el ingreso no tiene clientes activos AHORA, el
-  // card muestra "sin clientes esperando" + boton Marcar como procesado.
-  const matches = q
+  // v1320 (2026-10-15): mostrar SOLO los ingresos con stock + al menos 1
+  // cliente BO vigente del SKU. Los 150 obsoletos (snapshot con clientes ya
+  // en SAP, no hay nuevos clientes BO) se ocultan y pueden procesarse en
+  // bulk desde un link al pie del summary. Pedido Mariano: "deberian aparecer
+  // solo los SKU que tenian backorder pedido y hay stock de esos SKU".
+  const matchesSearch = q
     ? _repartoIngresos.filter((i) => {
         const skuHit = String(i.sku || '').toLowerCase().includes(q);
         if (skuHit) return true;
@@ -19009,32 +19010,47 @@ function _repartoRender(){
         return liveClis.some((c) => String(c.clientName || '').toLowerCase().includes(q));
       })
     : _repartoIngresos;
+  // Separar: cards VISIBLES (con clientes BO vigentes) vs OBSOLETOS (sin).
+  const matches = [];
+  const obsoletos = [];
+  matchesSearch.forEach((i) => {
+    const liveClis = _repartoLiveClientesBO(i.sku);
+    if (liveClis.length > 0) matches.push(i);
+    else obsoletos.push(i);
+  });
   const totalIng = matches.length;
-  // Totales se computan sobre clientesBO LIVE del SKU, no sobre snapshot.
-  let totalUnits = 0, totalCli = 0, totalSinClientes = 0;
+  let totalUnits = 0, totalCli = 0;
   matches.forEach((i) => {
     totalUnits += Number(i.qtyIngresada) || 0;
-    const liveClis = _repartoLiveClientesBO(i.sku);
-    totalCli += liveClis.length;
-    if (liveClis.length === 0) totalSinClientes++;
+    totalCli += _repartoLiveClientesBO(i.sku).length;
   });
   if (sum) {
     const prefix = q
       ? (totalIng + ' resultados para "' + q + '" · ')
-      : (totalIng + ' ingresos pendientes · ');
-    let suffix = totalUnits + ' unidades · ' + totalCli + ' clientes activos';
-    if (totalSinClientes > 0) {
-      suffix += ' · ' + totalSinClientes + ' sin clientes esperando';
+      : (totalIng + ' ingresos con clientes esperando · ');
+    sum.textContent = prefix + totalUnits + ' unidades · ' + totalCli + ' clientes activos';
+    // Si hay obsoletos, agregar link para procesarlos en bulk.
+    if (obsoletos.length > 0 && !q) {
+      const linkRow = document.createElement('div');
+      linkRow.style.cssText = 'margin-top:6px;font-size:11.5px;color:#86868b';
+      linkRow.innerHTML = '+' + obsoletos.length + ' ingresos obsoletos (sin clientes vigentes) '
+        + '<a href="javascript:void(0)" onclick="_repartoProcesarObsoletos()" style="color:#007aff;text-decoration:none;font-weight:600">— procesar todos</a>';
+      sum.appendChild(linkRow);
     }
-    sum.textContent = prefix + suffix;
   }
   while (list.firstChild) list.removeChild(list.firstChild);
   if (totalIng === 0) {
     const empty = document.createElement('div');
     empty.style.cssText = 'padding:30px;text-align:center;color:#64748b';
-    empty.textContent = q
-      ? ('Sin resultados para "' + q + '". Probá otro SKU o nombre.')
-      : 'No hay ingresos pendientes. Cuando llegue mercadería al depósito, aparecen aca.';
+    if (q) {
+      empty.textContent = 'Sin resultados para "' + q + '". Probá otro SKU o nombre.';
+    } else if (obsoletos.length > 0) {
+      empty.innerHTML = 'No hay ingresos con clientes esperando. '
+        + '(' + obsoletos.length + ' ingresos obsoletos ocultos)<br><br>'
+        + '<a href="javascript:void(0)" onclick="_repartoProcesarObsoletos()" style="color:#007aff;text-decoration:none;font-weight:600">Procesar los ' + obsoletos.length + ' obsoletos ahora</a>';
+    } else {
+      empty.textContent = 'No hay ingresos pendientes. Cuando llegue mercadería al depósito, aparecen aca.';
+    }
     list.appendChild(empty);
     return;
   }
@@ -19325,6 +19341,52 @@ window._repartoMarcarProcesado = async function(ingresoId){
   } catch (e) {
     console.error('[reparto] marcar procesado err', e);
     alert('Error cerrando el ingreso: ' + (e.message || e));
+  }
+};
+
+// v1320 (2026-10-15): procesar en bulk todos los ingresos obsoletos (sin
+// clientes BO vigentes del SKU). Marcar status='done' para que desaparezcan
+// del counter y del modal. Usa Firestore batch (hasta 500 writes por lote).
+window._repartoProcesarObsoletos = async function(){
+  const obsoletos = (_repartoIngresos || []).filter((i) => {
+    return _repartoLiveClientesBO(i.sku).length === 0;
+  });
+  if (obsoletos.length === 0) {
+    alert('No hay ingresos obsoletos para procesar.');
+    return;
+  }
+  if (!window.confirm(
+    'Procesar ' + obsoletos.length + ' ingresos obsoletos?\n\n'
+    + 'Se cierran todos (status=done) porque ninguno tiene clientes esperando el SKU vigente.\n\n'
+    + 'Esto reduce el counter de ingresos pending.'
+  )) return;
+  const nowIso = new Date().toISOString();
+  const email = (currentUser && currentUser.email) || '';
+  let ok = 0, errs = 0;
+  // Batches de 400 writes para quedar bajo el limite de 500 de Firestore.
+  const CHUNK = 400;
+  for (let i = 0; i < obsoletos.length; i += CHUNK) {
+    const batch = fbDb.batch();
+    const slice = obsoletos.slice(i, i + CHUNK);
+    slice.forEach((ing) => {
+      const ref = fbDb.collection('ingresos_reparto').doc(ing._id);
+      batch.update(ref, {
+        status: 'done',
+        appliedAt: nowIso,
+        appliedBy: email,
+        closureReason: 'bulk-obsoletos-sin-clientes-activos',
+      });
+    });
+    try {
+      await batch.commit();
+      ok += slice.length;
+    } catch (e) {
+      console.error('[reparto] batch obsoletos err', e);
+      errs += slice.length;
+    }
+  }
+  if (typeof showSyncTag === 'function') {
+    showSyncTag(ok + ' obsoletos procesados' + (errs > 0 ? ' · ' + errs + ' errores' : ''));
   }
 };
 
