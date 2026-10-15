@@ -2363,7 +2363,12 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 /* v882 (2026-09-11) PERF: mismo que .mc-table — skip layout de rows off-screen
    en modal Revision (Excel preview) y modal Pedido en Espera (wcard-rows).
    Ambas tablas pueden tener 50-500 rows con inputs/badges pesados. */
-#revision-rows tr,#wcard-rows tr{content-visibility:auto;contain-intrinsic-size:auto 40px}
+/* v1333 (2026-10-15): content-visibility:auto creaba paint containment en
+   los tr del tbody, generando stacking contexts hermanos que rompian el
+   position:sticky del thead. Mantengo solo en #revision-rows (que no tiene
+   thead sticky). #wcard-rows pierde la optimizacion de render but gana el
+   sticky header funcional. */
+#revision-rows tr{content-visibility:auto;contain-intrinsic-size:auto 40px}
 /* v454: card individual + listado de pedidos en espera. */
 #wcard-rows tr.exceed td{background:#fef2f2;color:var(--color-danger-strong);font-weight:700}
 #wcard-rows tr.exceed td.exc-cell{background:var(--color-danger);color:#fff}
@@ -6478,7 +6483,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1332';
+const APP_VERSION = 'v1333';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
