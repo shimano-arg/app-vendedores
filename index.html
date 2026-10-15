@@ -6499,7 +6499,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1340';
+const APP_VERSION = 'v1341';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19314,14 +19314,24 @@ function _repartoRender(){
   const _withSnap = (_repartoIngresos || []).filter((i) =>
     Array.isArray(i.clientesBO) && i.clientesBO.length > 0
   );
-  const matches = q
+  const _matchesRaw = q
     ? _withSnap.filter((i) => {
         const skuHit = String(i.sku || '').toLowerCase().includes(q);
         if (skuHit) return true;
         const snap = Array.isArray(i.clientesBO) ? i.clientesBO : [];
         return snap.some((c) => String(c.clientName || '').toLowerCase().includes(q));
       })
-    : _withSnap;
+    : _withSnap.slice();
+  // v1341 (2026-10-15): sort ascending por qtyIngresada (SKU con menos unidades
+  // primero). Pedido Mariano: priorizar visualmente los ingresos chicos porque
+  // son los mas rapidos de resolver + fuerzan decidir que cliente lo recibe.
+  // Desempate alfabetico por SKU.
+  const matches = _matchesRaw.sort((a, b) => {
+    const qa = Number(a.qtyIngresada) || 0;
+    const qb = Number(b.qtyIngresada) || 0;
+    if (qa !== qb) return qa - qb;
+    return String(a.sku || '').localeCompare(String(b.sku || ''));
+  });
   const totalIng = matches.length;
   let totalUnits = 0, totalCli = 0;
   matches.forEach((i) => {

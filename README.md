@@ -4717,6 +4717,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1341 (2026-10-15) — Reparto: sort ascendente por qtyIngresada (SKU con menos unidades primero)
+
+**Archivos**:
+- `index.html` función `_repartoRender` (línea ~19317): el array `matches` ahora se ordena ascendente por `qtyIngresada`, desempate alfabético por `sku`.
+- `index.html:6502` + `sw.js:20` (bump v1340 → v1341).
+
+**Antes**:
+Los ingresos se renderizaban en el orden que llegaban del listener Firestore (ordenados por `detectedAt` desc). SKUs con mucho stock quedaban mezclados con los chicos.
+
+**Cambio**:
+Sort ascendente por `qtyIngresada`. SKU con menos unidades aparece primero. Desempate alfabético por SKU.
+
+**Por qué**:
+Pedido Mariano. Los ingresos chicos son más rápidos de resolver (menos clientes compiten) y fuerzan decidir prioridades antes. Mostrarlos primero reduce fatiga de scroll + fuerza a cerrar los casos chicos.
+
+**Verificación**:
+- Visual: abrir modal Reparto → ingresos ordenados de menor a mayor por "N u" en el chip "Stock".
+
+**Rollback**:
+Reemplazar `const matches = _matchesRaw.sort(...)` por `const matches = _matchesRaw`.
+
+---
+
 ### v1340 (2026-10-15) — Reparto Opción LIGHT: permite repartir sobre pedidos ya enviados a SAP
 
 **Archivos**:
