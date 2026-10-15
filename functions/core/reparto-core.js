@@ -387,14 +387,19 @@ export async function applyRepartoManualCore(deps, opts) {
     const stockSnap = await deps.fbDb.collection('app_config').doc('stock_snapshot').get();
     const stockData = stockSnap.exists ? stockSnap.data() : null;
     const wbs = _parseWarehouseBreakdown(stockData);
-    const skuKey = String(ingresoDoc.sku || '').toUpperCase().trim();
+    const skuKey = String(ingresoDoc.sku || '')
+      .toUpperCase()
+      .trim();
     const whs = (wbs && wbs[skuKey]) || null;
     stockFisicoDep11 = whs ? Number(whs['11'] || 0) : 0;
   } catch (stockErr) {
     log('stock_snapshot read fail', { err: stockErr && stockErr.message });
     return {
       ok: false,
-      errors: ['no se pudo leer stock_snapshot para validar cap: ' + (stockErr && stockErr.message ? stockErr.message : String(stockErr))],
+      errors: [
+        'no se pudo leer stock_snapshot para validar cap: ' +
+          (stockErr && stockErr.message ? stockErr.message : String(stockErr)),
+      ],
       applied: [],
     };
   }
@@ -402,8 +407,10 @@ export async function applyRepartoManualCore(deps, opts) {
     return {
       ok: false,
       errors: [
-        'sum assignments=' + validation.sumAsignada +
-          ' > stock fisico dep 11 actual=' + stockFisicoDep11 +
+        'sum assignments=' +
+          validation.sumAsignada +
+          ' > stock fisico dep 11 actual=' +
+          stockFisicoDep11 +
           ' (sobre-reparto, sin stock real para cubrir)',
       ],
       applied: [],
