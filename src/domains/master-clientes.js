@@ -2639,11 +2639,13 @@ window.renderMasterClientesTable = function () {
     // Cliente de ese cliente especifico sin tener que entrar por el flow
     // Panel Zonas / Mapa. Pedido Mariano. Solo visible para altas SAP (fsId
     // disponible); POINTS/no-SAP no tienen entrypoint directo todavia.
+    // v1331 (2026-10-15): estilo pill Apple (border-radius 999px, no uppercase,
+    // letter-spacing negativo). Reemplaza el pill rectangular v1311.
     const _fichaBtn =
       isSap && e.sapFsId && !isEmpleadoSAP
         ? '<button type="button" onclick="openFichaClienteFromSapModal(\'' +
           escapeAttr(e.sapFsId) +
-          '\')" style="background:#00A9E0;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Abrir Ficha Cliente (perfil comercial: tipo, fidelidad, tamano, especializacion, credito cheque, etc.)">Ficha</button>'
+          '\')" style="background:#00A9E0;color:#fff;border:none;border-radius:999px;padding:7px 14px;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:-0.01em;transition:transform .12s ease,background .15s ease" onpointerdown="this.style.transform=\'scale(0.97)\'" onpointerup="this.style.transform=\'\'" onpointerleave="this.style.transform=\'\'" title="Abrir Ficha Cliente (perfil comercial: tipo, fidelidad, tamano, especializacion, credito cheque, etc.)">Ficha</button>'
         : '';
     html +=
       '<td><div style="display:flex;gap:4px;flex-wrap:wrap">' +
