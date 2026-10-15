@@ -4717,6 +4717,44 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1309 (2026-10-15) — Modal Reparto de ingresos muestra stock físico (dep 11), no delta ingresado
+
+**Archivos**:
+- `index.html` `_repartoBuildCard` + `_repartoRecalc` + `_repartoSetMax` + `_repartoFifoAuto` + `_repartoApply`: nuevo helper `_repartoStockFisico(ing)` que lee `getStockDisponibleVenta(sku)`. Reemplaza todos los `ing.qtyIngresada` del display/cap por stock físico actual dep 11.
+- `functions/core/reparto-core.js` `validateRepartoPayload`: deja de rechazar `sumAsignada > qtyIngresada` (ese cap pasa a `applyRepartoManualCore`). Agrega `sumAsignada` al retorno.
+- `functions/core/reparto-core.js` `applyRepartoManualCore`: lee `app_config/stock_snapshot.warehouseBreakdown[sku]['11']` + rechaza si `sumAsignada > stock físico actual`. Cálculo de "libre" también pasa a stock físico (preserva regla v1295 de cancelar BO de clientes en 0 cuando queda libre).
+- `tests/functions/reparto.test.js`: `makeFakeFbDb` ahora soporta `initial.stockWhs` + ruta `app_config/stock_snapshot`. 2 tests actualizados y 1 agregado para cubrir "acepta sum > qtyIngresada si stock físico lo cubre".
+- `index.html:6423` + `sw.js:20` (bump v1308 → v1309).
+
+**Antes (v1308)**:
+Mariano reportó inconsistencia visual: SKU EXGS70HB2AR tiene 64u en depósito 11 (STOCK FISICO del modal Master), pero el modal "Reparto de ingresos" mostraba "Ingreso: 13u" + "STOCK DISPONIBLE: 13" en cada fila. El chip y columna reflejaban el **delta del último ingreso** (13u que entraron en el último sync), no el stock físico total. Los otros 51u estaban en depósito pero no asociados a ningún `ingresos_reparto` pending (porque entraron antes del tracker, o porque un reparto anterior los dejó libres).
+
+**Cambio**:
+- Chip "Ingreso: 13u" → "Stock: 64u" (stock físico actual dep 11).
+- Columna "STOCK DISPONIBLE" por cliente ahora muestra 64 (consistente con el header del modal Master).
+- Input max por cliente = stock físico (permite sobre-asignar hasta el stock real).
+- FIFO reparte hasta el stock físico.
+- Footer "Asignado: X / 64 · Libre: 64-X".
+- Backend `applyRepartoManualCore` lee `stock_snapshot` al apply y valida `sumAsignada <= stock_fisico_dep11_actual`. Si el stock bajó entre que Pablo abrió el modal y aplicó, el backend rechaza con error claro.
+- Cancelación de BO de clientes en 0 (v1295) ahora dispara contra "libre vs stock físico" (si hay stock libre y Pablo decidió no darle, el BO se cancela).
+
+**Por que**:
+- Pedido directo Mariano: "QUITAR 'INGRESO' PONELE DIRECTAMENTE EL STOCK". El flow natural para Pablo es "veo X unidades, decido cuánto le doy a cada cliente".
+- `qtyIngresada` sigue en el doc Firestore para audit (`reparto_log` lo loguea), solo se cambia la semántica de display + cap.
+- El modal Master de productos ya mostraba 64 como "LIBRE PARA LA VENTA"; ahora el modal Reparto queda consistente.
+
+**Verificación**:
+- `npm run test:unit` → 706/706 pass (23/23 en reparto.test.js).
+- Nuevo test `v1309: acepta sum > qtyIngresada si stock físico actual lo cubre` cubre el caso principal del cambio.
+- Test backward-compat `v1309: rechaza sum > stock fisico dep 11 actual` preserva la protección contra sobre-reparto real.
+
+**Rollback**:
+- Revert `_repartoStockFisico` helper + reemplazar llamadas por `ing.qtyIngresada`.
+- Revert `applyRepartoManualCore` + `validateRepartoPayload` al cap vs `ingresoDoc.qtyIngresada`.
+- Revert tests actualizados.
+
+---
+
 ### v1280 (2026-10-14) — Waitlist stock-asignado-batch con TTL 7d + reserva de stock durante waitlist
 
 **Archivos**:

@@ -24,6 +24,10 @@ function makeFakeFbDb(initial = {}) {
     pedidos: initial.pedidos || [], // array de {id, data}
     ingresos_reparto: initial.ingresos_reparto || {}, // {id: data}
     reparto_log: [],
+    // v1309: app_config/stock_snapshot para cap stock fisico en applyRepartoManualCore.
+    // Formato: { sku: { 11: qty, 12: qty, ... }, ... }. Default: cada SKU con stock
+    // 1e9 (sin cap efectivo) para no romper tests existentes.
+    stockWhs: initial.stockWhs || null,
   };
   const writes = [];
   return {
@@ -78,6 +82,12 @@ function makeFakeFbDb(initial = {}) {
               if (name === 'pedidos') {
                 const p = store.pedidos.find((pp) => pp.id === id);
                 return { exists: !!p, data: () => (p ? p.data() : {}) };
+              }
+              if (name === 'app_config' && id === 'stock_snapshot') {
+                // v1309: devolver warehouseBreakdown mockeado. Default: stock
+                // infinito por SKU para no romper tests que no setean stockWhs.
+                const wbs = store.stockWhs || new Proxy({}, { get: () => ({ 11: 1e9 }) });
+                return { exists: true, data: () => ({ warehouseBreakdown: wbs }) };
               }
               return { exists: false, data: () => ({}) };
             },
@@ -227,13 +237,13 @@ describe('validateRepartoPayload', () => {
     expect(r.valid).toBe(true);
   });
 
-  it('rechaza sum assignments > qtyIngresada', () => {
+  it('v1309: validateRepartoPayload YA NO rechaza por qtyIngresada (cap vs stock fisico se valida en apply)', () => {
     const r = validateRepartoPayload(ingreso, [
       { pedidoId: 'p1', lineIndex: 0, qtyAsignada: 40 },
       { pedidoId: 'p2', lineIndex: 1, qtyAsignada: 40 },
     ]);
-    expect(r.valid).toBe(false);
-    expect(r.errors.some((e) => e.includes('sobre-reparto'))).toBe(true);
+    expect(r.valid).toBe(true);
+    expect(r.sumAsignada).toBe(80);
   });
 
   it('v1292: acepta qtyAsignada > qtyBackorder del cliente (sobre-asignacion)', () => {
@@ -394,8 +404,11 @@ describe('applyRepartoManualCore', () => {
     expect(fbDb._store.ingresos_reparto.ing1.appliedBy).toBe('pablo@shimano.com.ar');
   });
 
-  it('rechaza assignment con sum > qtyIngresada antes de tocar pedidos', async () => {
-    const fbDb = makeFakeFbDb(makeIngresoFixture());
+  it('v1309: rechaza sum > stock fisico dep 11 actual antes de tocar pedidos', async () => {
+    const fixture = makeIngresoFixture();
+    // Setear stock fisico FXC dep 11 = 40 (igual al cap viejo qtyIngresada).
+    fixture.stockWhs = { FXC: { 11: 40 } };
+    const fbDb = makeFakeFbDb(fixture);
     const r = await applyRepartoManualCore(
       { fbDb, log: vi.fn(), now: () => NOW },
       {
@@ -414,6 +427,26 @@ describe('applyRepartoManualCore', () => {
     const p1 = fbDb._store.pedidos.find((p) => p.id === 'p1').data();
     expect(p1.lines[0].state).toBe('BO');
     expect(p1.lines[0].qtyOpen).toBe(30);
+  });
+
+  it('v1309: acepta sum > qtyIngresada si stock fisico actual lo cubre', async () => {
+    const fixture = makeIngresoFixture();
+    // qtyIngresada=40 pero stock fisico=100 (hay stock viejo acumulado).
+    fixture.stockWhs = { FXC: { 11: 100 } };
+    const fbDb = makeFakeFbDb(fixture);
+    const r = await applyRepartoManualCore(
+      { fbDb, log: vi.fn(), now: () => NOW },
+      {
+        ingresoId: 'ing1',
+        assignments: [
+          { pedidoId: 'p1', lineIndex: 0, qtyAsignada: 30 },
+          { pedidoId: 'p2', lineIndex: 0, qtyAsignada: 20 }, // sum=50 (> qtyIng=40 pero < stock=100)
+        ],
+        appliedByEmail: 'pablo@shimano.com.ar',
+      }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.applied).toHaveLength(2);
   });
 
   it('rechaza ingreso con status != pending', async () => {
