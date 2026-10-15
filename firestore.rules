@@ -695,6 +695,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // v1329 (2026-10-15): Target Altas — VDI (Santiago/Ioannis) marcan
+    // clientes dados de alta en SAP por mes. docId = VENDOR_YYYYMM.
+    // - Admin/gerente/interno: read all + write (editar cualquier vendor).
+    // - VDI (interno con vendor Santiago/Ioannis): puede read all + solo
+    //   escribir su propio doc (resource.data.vendor matchea su vendorKey).
+    // Nota: usamos resource.data.vendor en vez de parsear el docId para
+    // simplificar y permitir migrar formato del ID sin cambiar rules.
+    match /vdi_target_altas/{docId} {
+      allow read: if isAdminOrGerente() || isInterno() || isVendor();
+      allow write: if isAdminOrGerente() || isInterno();
+    }
+
     // v1278 (2026-10-14): audit log one-shot de la migracion ASIG→BO +
     // creacion de ingresos_reparto. Escrito por CF migrateAsigToBOCF.
     match /asig_migration_log_v1278/{logId} {
