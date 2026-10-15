@@ -6271,7 +6271,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
   <div class="modal-box reparto-apple" style="width:min(1100px,98vw);height:92vh;max-height:92vh;display:flex;flex-direction:column;box-sizing:border-box;border-radius:18px;overflow:hidden;background:#fbfbfd;box-shadow:0 24px 70px rgba(0,0,0,.18)">
     <div class="reparto-apple-head" style="padding:22px 26px 18px;background:rgba(251,251,253,.92);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:0.5px solid rgba(0,0,0,.08);display:flex;align-items:flex-start;gap:14px">
       <div style="flex:1;min-width:0">
-        <h2 style="margin:0 0 4px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',sans-serif;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#1d1d1f">Reparto de ingresos</h2>
+        <h2 style="margin:0 0 4px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',sans-serif;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#1d1d1f">Reparto de mercadería</h2>
         <div style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;letter-spacing:-0.1px;color:#86868b">Repartí manualmente las unidades entre los clientes con backorder.</div>
       </div>
       <button class="reparto-apple-close" onclick="closeRepartoModal()" aria-label="Cerrar" style="border:none;background:rgba(120,120,128,.12);width:30px;height:30px;border-radius:50%;cursor:pointer;color:#86868b;font-size:16px;display:flex;align-items:center;justify-content:center;transition:transform .12s ease-out,background .15s ease">&times;</button>
@@ -6420,7 +6420,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1311';
+const APP_VERSION = 'v1312';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19095,23 +19095,8 @@ function _repartoBuildCard(ing){
     chipMig.textContent = 'Migración';
     head.appendChild(chipMig);
   }
-  const spacer = document.createElement('div');
-  spacer.style.cssText = 'flex:1';
-  head.appendChild(spacer);
-  const btnFifo = document.createElement('button');
-  btnFifo.type = 'button';
-  btnFifo.className = 'reparto-apple-btn reparto-apple-btn-tinted';
-  btnFifo.textContent = 'FIFO auto';
-  btnFifo.title = 'Reparte automático por fecha de pedido (viejos primero) hasta agotar el ingreso. Podés modificar manual después.';
-  btnFifo.onclick = () => _repartoFifoAuto(ing._id);
-  head.appendChild(btnFifo);
-  const btnReset = document.createElement('button');
-  btnReset.type = 'button';
-  btnReset.className = 'reparto-apple-btn reparto-apple-btn-gray';
-  btnReset.textContent = 'Reset';
-  btnReset.title = 'Pone todo en 0';
-  btnReset.onclick = () => _repartoReset(ing._id);
-  head.appendChild(btnReset);
+  // v1312 (2026-10-15): botones FIFO auto + Reset ELIMINADOS. UX simplificada
+  // post-rediseno 3-columnas (Asignado / Backorder / Eliminar).
   card.appendChild(head);
   // Tabla clientes (estilos Apple via class).
   const tableWrap = document.createElement('div');
@@ -19119,12 +19104,17 @@ function _repartoBuildCard(ing){
   const table = document.createElement('table');
   table.style.cssText = 'width:100%;border-collapse:collapse';
   const thead = document.createElement('thead');
+  // v1312: columnas rediseñadas. "Pedido" = demanda original (qtyBackorder).
+  // 3 columnas destino: Asignado (ASIG + reserva stock) / Backorder (queda
+  // esperando) / Eliminar (cancela el BO).
   thead.innerHTML = '<tr>'
     + '<th style="text-align:center">Código</th>'
     + '<th style="text-align:center">Cliente</th>'
-    + '<th style="text-align:center">Backorder</th>'
+    + '<th style="text-align:center">Pedido</th>'
     + '<th style="text-align:center">Stock disponible</th>'
-    + '<th style="text-align:center">Asignado</th>'
+    + '<th style="text-align:center" title="Unidades a reservar al cliente (pasan a Stock Asignado)">Asignado</th>'
+    + '<th style="text-align:center" title="Unidades que quedan en Backorder esperando">Backorder</th>'
+    + '<th style="text-align:center" title="Unidades que se cancelan del Backorder (el cliente ya no las quiere)">Eliminar</th>'
     + '</tr>';
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
@@ -19132,33 +19122,48 @@ function _repartoBuildCard(ing){
   if (_clientes.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.setAttribute('colspan', '5');
+    td.setAttribute('colspan', '7');
     td.style.cssText = 'padding:20px;text-align:center;color:#c7372f;font-weight:500;background:rgba(255,59,48,.06)';
     td.textContent = '⚠ Este ingreso no tiene clientes BO cargados.';
     tr.appendChild(td);
     tbody.appendChild(tr);
   }
   _clientes.forEach((c) => {
+    const _maxBo = Number(c.qtyBackorder) || 0;
+    const _esc = _escAttr(ing._id);
+    const _pid = _escAttr(c.pedidoId);
+    const _lidx = Number(c.lineIndex);
     const tr = document.createElement('tr');
     tr.innerHTML = ''
       + '<td style="text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#1d1d1f">' + _escHtml(ing.sku || '') + '</td>'
       + '<td style="text-align:center"><div style="font-weight:600;color:#1d1d1f;letter-spacing:-0.1px">' + _escHtml(c.clientName || '') + '</div>'
       + '<div style="font-size:11px;color:#86868b;margin-top:1px;letter-spacing:-0.05px">' + _escHtml(c.clientLocality || '') + (c.clientProvince ? ', ' + _escHtml(c.clientProvince) : '') + '</div></td>'
-      + '<td style="text-align:center;font-weight:700;color:#b25000">' + _repartoFmtQty(c.qtyBackorder) + '</td>'
+      + '<td style="text-align:center;font-weight:700;color:#b25000">' + _repartoFmtQty(_maxBo) + '</td>'
       + '<td style="text-align:center;color:#248a3d;font-weight:600">' + _repartoFmtQty(stockFisico) + '</td>'
+      // Asignado (input, max=qtyBackorder cliente — sin sobre-asignacion)
       + '<td style="text-align:center">'
-      + '<div style="display:inline-flex;align-items:center;gap:6px">'
-      + '<input type="number" min="0" max="' + stockFisico + '" step="1" value="0" '
-      + 'data-reparto-input="' + _escAttr(ing._id) + '" '
-      + 'data-pedido-id="' + _escAttr(c.pedidoId) + '" '
-      + 'data-line-index="' + Number(c.lineIndex) + '" '
-      + 'data-max-bo="' + (Number(c.qtyBackorder) || 0) + '" '
+      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
+      + 'data-reparto-ing="' + _esc + '" '
+      + 'data-reparto-field="asig" '
+      + 'data-pedido-id="' + _pid + '" '
+      + 'data-line-index="' + _lidx + '" '
+      + 'data-max-bo="' + _maxBo + '" '
       + 'oninput="_repartoRecalc(this)" '
       + 'class="reparto-apple-input" />'
-      + '<button type="button" onclick="_repartoSetMax(this.previousElementSibling)" '
-      + 'title="Asignar lo que pueda al cliente (hasta las unidades libres del ingreso)" '
-      + 'class="reparto-apple-btn reparto-apple-btn-max">MAX</button>'
-      + '</div>'
+      + '</td>'
+      // Backorder (display calculated = qtyBackorder - asig - elim)
+      + '<td style="text-align:center;font-weight:700;color:#1e40af" '
+      + 'data-reparto-bo-display="' + _esc + '|' + _pid + '|' + _lidx + '">' + _repartoFmtQty(_maxBo) + '</td>'
+      // Eliminar (input, max=qtyBackorder cliente)
+      + '<td style="text-align:center">'
+      + '<input type="number" min="0" max="' + _maxBo + '" step="1" value="0" '
+      + 'data-reparto-ing="' + _esc + '" '
+      + 'data-reparto-field="elim" '
+      + 'data-pedido-id="' + _pid + '" '
+      + 'data-line-index="' + _lidx + '" '
+      + 'data-max-bo="' + _maxBo + '" '
+      + 'oninput="_repartoRecalc(this)" '
+      + 'class="reparto-apple-input" />'
       + '</td>';
     tbody.appendChild(tr);
   });
@@ -19190,36 +19195,81 @@ function _escAttr(s){
   return _escHtml(s);
 }
 
+// v1312 (2026-10-15): rediseno 3-columnas por cliente — Asignado / Backorder /
+// Eliminar. Reglas:
+//   - Por cliente: asig + elim <= qtyBackorder (demanda). Sin sobre-asignacion.
+//   - Sum global de asig <= stock fisico actual.
+//   - Backorder = qtyBackorder - asig - elim (display calculated, no editable).
+//   - Si asig + elim < qtyBackorder: la diferencia se trata como ELIMINADA
+//     implicita al aplicar (decisioned by Mariano 2026-10-15).
+//   - El default (no toco nada) deja al cliente con backorder entero (safe).
 window._repartoRecalc = function(input){
-  const ingresoId = input.getAttribute('data-reparto-input');
+  const ingresoId = input.getAttribute('data-reparto-ing');
+  const pedidoId = input.getAttribute('data-pedido-id');
+  const lineIdx = Number(input.getAttribute('data-line-index')) || 0;
   const maxBO = Number(input.getAttribute('data-max-bo')) || 0;
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
-  // v1309: cap por stock fisico actual (dep 11), no por qtyIngresada (delta).
-  const qtyIng = _repartoStockFisico(ing);
-  // v1287: clamp dinamico por "libre del ingreso".
-  // v1290 (2026-10-14): REVERTIDO el clamp dinamico por libre.
-  // v1292 (2026-10-14): REMOVIDO el clamp por maxBO del cliente. Reporte Mariano:
-  // "toco 3 y me tipea 1" en cliente con BO=1 y qtyIng=3. Pablo quiere poder
-  // sobre-asignar al cliente (darle mas de lo que pidio). Clamp solo por
-  // qtyIng (nunca mas que lo ingresado). El backend applyRepartoManualCore
-  // tambien debe aceptar qty > qtyBackorder — expande la linea del cliente.
-  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
-  let sumOtros = 0;
-  inputs.forEach((inp) => { if (inp !== input) sumOtros += Number(inp.value) || 0; });
-  // Mantener referencia a maxBO para feedback visual pero NO clampear.
-  void maxBO;
-  const val = Math.max(0, Math.min(qtyIng, Math.round(Number(input.value) || 0)));
+  const stockFisico = _repartoStockFisico(ing);
+
+  // 1. Clamp del propio input a [0, maxBO] del cliente.
+  const val = Math.max(0, Math.min(maxBO, Math.round(Number(input.value) || 0)));
   if (Number(input.value) !== val) input.value = val;
-  const total = sumOtros + val;
-  const libre = Math.max(0, qtyIng - total);
-  const totalEl = document.querySelector('b[data-reparto-total="' + ingresoId + '"]');
-  const libreEl = document.querySelector('b[data-reparto-libre="' + ingresoId + '"]');
-  if (totalEl) totalEl.textContent = total.toLocaleString('es-AR');
-  if (libreEl) libreEl.textContent = libre.toLocaleString('es-AR');
-  // Habilitar/deshabilitar boton apply segun overshoot.
+
+  // 2. Leer sibling input del MISMO cliente (asig vs elim) para calcular BO display.
+  const siblingSelector = 'input[data-reparto-ing="' + ingresoId + '"]'
+    + '[data-pedido-id="' + pedidoId + '"]'
+    + '[data-line-index="' + lineIdx + '"]';
+  const siblings = document.querySelectorAll(siblingSelector);
+  let asigVal = 0, elimVal = 0;
+  siblings.forEach((inp) => {
+    const field = inp.getAttribute('data-reparto-field');
+    const v = Number(inp.value) || 0;
+    if (field === 'asig') asigVal = v;
+    else if (field === 'elim') elimVal = v;
+  });
+
+  // 3. Si suma asig+elim > maxBO, truncar el input que acaba de cambiar.
+  if (asigVal + elimVal > maxBO) {
+    const field = input.getAttribute('data-reparto-field');
+    const otherVal = field === 'asig' ? elimVal : asigVal;
+    const trimmed = Math.max(0, maxBO - otherVal);
+    input.value = trimmed;
+    if (field === 'asig') asigVal = trimmed;
+    else elimVal = trimmed;
+  }
+
+  // 4. Backorder display = maxBO - asig - elim.
+  const bo = Math.max(0, maxBO - asigVal - elimVal);
+  const boCell = document.querySelector(
+    'td[data-reparto-bo-display="' + ingresoId + '|' + pedidoId + '|' + lineIdx + '"]'
+  );
+  if (boCell) {
+    boCell.textContent = _repartoFmtQty(bo);
+    boCell.style.color = bo === 0 && asigVal === 0 && elimVal === 0 ? '#86868b' : '#1e40af';
+  }
+
+  // 5. Totales globales del card: sum asig (todos los clientes) vs stock fisico.
+  const asigInputs = document.querySelectorAll(
+    'input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="asig"]'
+  );
+  let sumAsig = 0;
+  asigInputs.forEach((inp) => { sumAsig += Number(inp.value) || 0; });
+  const sumAsigEl = document.querySelector('b[data-reparto-total="' + ingresoId + '"]');
+  const sumAsigLibre = document.querySelector('b[data-reparto-libre="' + ingresoId + '"]');
+  if (sumAsigEl) sumAsigEl.textContent = sumAsig.toLocaleString('es-AR');
+  if (sumAsigLibre) sumAsigLibre.textContent = Math.max(0, stockFisico - sumAsig).toLocaleString('es-AR');
+  if (sumAsigEl) sumAsigEl.style.color = sumAsig > stockFisico ? '#dc2626' : '#1d1d1f';
+
+  // 6. Habilitar Aplicar reparto si: hay al menos una accion (asig>0 o elim>0)
+  //    AND sum asig <= stock fisico.
   const applyBtn = document.querySelector('button[data-reparto-apply="' + ingresoId + '"]');
   if (applyBtn) {
-    if (total === 0 || total > qtyIng) {
+    const anyElim = Array.from(
+      document.querySelectorAll('input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="elim"]')
+    ).some((inp) => (Number(inp.value) || 0) > 0);
+    const hasAction = sumAsig > 0 || anyElim;
+    const overshoot = sumAsig > stockFisico;
+    if (!hasAction || overshoot) {
       applyBtn.disabled = true;
       applyBtn.style.opacity = '0.4';
       applyBtn.style.cursor = 'not-allowed';
@@ -19229,108 +19279,67 @@ window._repartoRecalc = function(input){
       applyBtn.style.cursor = 'pointer';
     }
   }
-  // Colorear total si sobre-reparto.
-  if (totalEl) totalEl.style.color = total > qtyIng ? '#dc2626' : '#1e40af';
-};
-
-// v1287 (2026-10-14): asigna el max posible al input.
-// v1290 (2026-10-14): el MAX ahora PRIMERO resetea los OTROS inputs del
-// mismo ingreso a 0 y DESPUES setea este input a min(maxBO, qtyIng).
-// v1292 (2026-10-14): MAX ahora da qtyIng COMPLETO al cliente (no limita
-// por maxBO). Pablo puede sobre-asignar via MAX con 1 clic.
-window._repartoSetMax = function(input){
-  if (!input) return;
-  const ingresoId = input.getAttribute('data-reparto-input');
-  const ing = _repartoIngresos.find((i) => i._id === ingresoId);
-  if (!ing) return;
-  // v1309: MAX da el stock fisico completo al cliente.
-  const qtyIng = _repartoStockFisico(ing);
-  // Reset los OTROS inputs a 0.
-  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
-  inputs.forEach((inp) => { if (inp !== input) inp.value = 0; });
-  input.value = qtyIng;
-  _repartoRecalc(input);
-};
-
-// v1287: Repartir automatico FIFO. Reparte el ingreso entre los clientes
-// en orden FIFO (viejos primero) hasta agotar. Pablo puede modificar
-// manual despues. Si no hay BO suficiente, deja el resto como libre.
-window._repartoFifoAuto = function(ingresoId){
-  const ing = _repartoIngresos.find((i) => i._id === ingresoId);
-  if (!ing) return;
-  // v1309: FIFO reparte stock fisico actual, no delta.
-  const qtyIng = _repartoStockFisico(ing);
-  // Inputs en orden del DOM = orden FIFO (clientesBO viene ordenado por createdAt).
-  const inputs = Array.from(document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]'));
-  // Reset primero + asignar FIFO.
-  let restante = qtyIng;
-  inputs.forEach((inp) => {
-    const maxBO = Number(inp.getAttribute('data-max-bo')) || 0;
-    if (restante <= 0 || maxBO <= 0) {
-      inp.value = 0;
-      return;
-    }
-    const toAssign = Math.min(maxBO, restante);
-    inp.value = toAssign;
-    restante -= toAssign;
-  });
-  // Trigger recalc en el ultimo input para actualizar totals.
-  if (inputs.length > 0) _repartoRecalc(inputs[inputs.length - 1]);
-};
-
-// v1287: Resetea todos los inputs del ingreso a 0.
-window._repartoReset = function(ingresoId){
-  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
-  inputs.forEach((inp) => { inp.value = 0; });
-  if (inputs.length > 0) _repartoRecalc(inputs[0]);
 };
 
 window._repartoApply = async function(ingresoId){
   const ing = _repartoIngresos.find((i) => i._id === ingresoId);
   if (!ing) return;
-  const inputs = document.querySelectorAll('input[data-reparto-input="' + ingresoId + '"]');
+  // v1312: colectar assignments (asig>0) + eliminations (elim>0). Si suma
+  // asig+elim < qtyBackorder del cliente, la diferencia se agrega a elim
+  // implicito (decisioned Mariano 2026-10-15).
   const assignments = [];
-  inputs.forEach((inp) => {
-    const qty = Number(inp.value) || 0;
-    if (qty <= 0) return;
-    assignments.push({
-      pedidoId: inp.getAttribute('data-pedido-id'),
-      lineIndex: Number(inp.getAttribute('data-line-index')) || 0,
-      qtyAsignada: qty,
-    });
+  const eliminations = [];
+  const asigInputs = document.querySelectorAll(
+    'input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="asig"]'
+  );
+  asigInputs.forEach((inp) => {
+    const pedidoId = inp.getAttribute('data-pedido-id');
+    const lineIndex = Number(inp.getAttribute('data-line-index')) || 0;
+    const maxBO = Number(inp.getAttribute('data-max-bo')) || 0;
+    const asig = Number(inp.value) || 0;
+    // Sibling input de elim para el mismo cliente/linea.
+    const elimInp = document.querySelector(
+      'input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="elim"]'
+        + '[data-pedido-id="' + pedidoId + '"]'
+        + '[data-line-index="' + lineIndex + '"]'
+    );
+    const elimManual = elimInp ? (Number(elimInp.value) || 0) : 0;
+    // Si NO toco nada (asig=0 && elim=0), no envio nada → cliente mantiene BO.
+    if (asig === 0 && elimManual === 0) return;
+    // Diferencia implicita: asig + elim + diffImplicita = maxBO.
+    const diffImplicita = Math.max(0, maxBO - asig - elimManual);
+    const elimTotal = elimManual + diffImplicita;
+    if (asig > 0) {
+      assignments.push({ pedidoId, lineIndex, qtyAsignada: asig });
+    }
+    if (elimTotal > 0) {
+      eliminations.push({ pedidoId, lineIndex, qtyEliminar: elimTotal });
+    }
   });
-  if (assignments.length === 0) {
-    alert('Nada asignado. Completá al menos un cliente.');
+  if (assignments.length === 0 && eliminations.length === 0) {
+    alert('No hay acciones. Completá al menos un cliente con asignado o eliminar.');
     return;
   }
-  const total = assignments.reduce((s, a) => s + a.qtyAsignada, 0);
-  // v1309: libre = stock fisico - asignado.
-  const libre = _repartoStockFisico(ing) - total;
-  // v1295 (2026-10-14): si hay libre, los clientes BO que quedaron en 0 van
-  // a ser CANCELADOS. Avisar al user.
-  const clientesBOCount = Array.isArray(ing.clientesBO) ? ing.clientesBO.length : 0;
-  const noAsignados = Math.max(0, clientesBOCount - assignments.length);
-  let msg = 'Vas a aplicar el reparto de ' + ing.sku + ':\n\n'
-    + total + ' unidades a ' + assignments.length + ' cliente(s)\n';
-  if (libre > 0) {
-    msg += libre + ' unidades quedan libres (sin asignar)\n';
-    if (noAsignados > 0) {
-      msg += '\n⚠ ' + noAsignados + ' cliente(s) BO que quedaron en 0 van a tener su backorder CANCELADO '
-        + '(porque habia stock libre y vos decidiste no darles).\n';
-    }
-  }
-  msg += '\nEsto es irreversible via UI (admin puede deshacer manualmente desde Firestore).\n\n¿Confirmar?';
+  const totalAsig = assignments.reduce((s, a) => s + a.qtyAsignada, 0);
+  const totalElim = eliminations.reduce((s, a) => s + a.qtyEliminar, 0);
+  const stockFisico = _repartoStockFisico(ing);
+  const libre = Math.max(0, stockFisico - totalAsig);
+  let msg = 'Vas a aplicar el reparto de ' + ing.sku + ':\n\n';
+  if (totalAsig > 0) msg += '• ' + totalAsig + ' unidades asignadas a ' + assignments.length + ' cliente(s)\n';
+  if (totalElim > 0) msg += '• ' + totalElim + ' unidades canceladas (eliminadas del backorder)\n';
+  if (libre > 0) msg += '• ' + libre + ' unidades quedan libres en stock\n';
+  msg += '\n¿Confirmar?';
   if (!window.confirm(msg)) return;
   const applyBtn = document.querySelector('button[data-reparto-apply="' + ingresoId + '"]');
   if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'Aplicando…'; }
   try {
     const callable = firebase.app().functions('southamerica-east1').httpsCallable('applyRepartoManualCF');
-    const result = await callable({ ingresoId, assignments });
+    const result = await callable({ ingresoId, assignments, eliminations });
     const r = result.data || {};
     if (r.ok) {
-      const unassigned = (r.unassignedCancelled && r.unassignedCancelled.length) || 0;
       let msg = 'Reparto aplicado: ' + ing.sku;
-      if (unassigned > 0) msg += ' (' + unassigned + ' BO cancelado por sobrante)';
+      if ((r.applied && r.applied.length) || totalAsig > 0) msg += ' · ' + totalAsig + 'u ASIG';
+      if (totalElim > 0) msg += ' · ' + totalElim + 'u canceladas';
       if (typeof showSyncTag === 'function') showSyncTag(msg);
       // Listener onSnapshot ya removera el ingreso de la lista (status != pending).
     } else {

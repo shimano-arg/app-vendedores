@@ -303,11 +303,21 @@ export async function createIngresosRepartoFromDelta(deps, beforeSnap, afterSnap
  * Valida un payload de reparto manual sin aplicar nada. Reusable por
  * applyRepartoManualCore y por tests.
  *
+ * v1312 (2026-10-15): rediseno 3-way. Reglas:
+ *   - assignments[] (asig>0) y eliminations[] (elim>0) como arrays separados.
+ *   - Por cliente (pedidoId|lineIndex): asig + elim <= qtyBackorder (sin
+ *     sobre-asignacion; decidido por Mariano al rediseñar la UI).
+ *   - Sum global asig se valida contra stock fisico en applyRepartoManualCore
+ *     (requiere I/O async).
+ *   - Debe haber AL MENOS una accion (assignment o elimination). Si ambos
+ *     vacios, error.
+ *
  * @param {IngresoRepartoDoc} ingresoDoc
  * @param {Assignment[]} assignments
- * @returns {{valid: boolean, errors: string[], sumAsignada?: number}}
+ * @param {Array<{pedidoId: string, lineIndex: number, qtyEliminar: number}>} [eliminations]
+ * @returns {{valid: boolean, errors: string[], sumAsignada?: number, sumEliminada?: number}}
  */
-export function validateRepartoPayload(ingresoDoc, assignments) {
+export function validateRepartoPayload(ingresoDoc, assignments, eliminations) {
   /** @type {string[]} */
   const errors = [];
   if (!ingresoDoc) {
@@ -317,8 +327,10 @@ export function validateRepartoPayload(ingresoDoc, assignments) {
   if (ingresoDoc.status !== 'pending') {
     errors.push('ingreso ya aplicado o cancelado (status=' + ingresoDoc.status + ')');
   }
-  if (!Array.isArray(assignments) || assignments.length === 0) {
-    errors.push('assignments vacio');
+  const asigArr = Array.isArray(assignments) ? assignments : [];
+  const elimArr = Array.isArray(eliminations) ? eliminations : [];
+  if (asigArr.length === 0 && elimArr.length === 0) {
+    errors.push('assignments y eliminations vacios (nada que aplicar)');
     return { valid: false, errors };
   }
   // Mapa pedidoId|lineIndex -> clienteBO para lookup rapido.
@@ -327,43 +339,90 @@ export function validateRepartoPayload(ingresoDoc, assignments) {
   for (const c of ingresoDoc.clientesBO || []) {
     boMap.set(c.pedidoId + '|' + c.lineIndex, c);
   }
+  // Acumular asig + elim por cliente para validar sum <= qtyBackorder.
+  /** @type {Map<string, {asig: number, elim: number}>} */
+  const perLine = new Map();
   let sumAsignada = 0;
-  for (const a of assignments) {
+  for (const a of asigArr) {
     const qty = Number(a.qtyAsignada) || 0;
     if (qty <= 0) {
       errors.push('assignment con qtyAsignada <= 0 (pedido ' + a.pedidoId + ')');
       continue;
     }
     const key = a.pedidoId + '|' + a.lineIndex;
-    const bo = boMap.get(key);
-    if (!bo) {
+    if (!boMap.has(key)) {
       errors.push('assignment no coincide con ningun cliente BO (' + key + ')');
       continue;
     }
-    // v1292 (2026-10-14): se permite qty > bo.qtyBackorder (sobre-asignacion).
-    // Pablo puede darle mas al cliente de lo que pidio. La linea se expande
-    // (qtyOpen aumenta) en applyRepartoManualCore. Antes rechazaba con error.
+    const entry = perLine.get(key) || { asig: 0, elim: 0 };
+    entry.asig += qty;
+    perLine.set(key, entry);
     sumAsignada += qty;
   }
-  // v1309 (2026-10-15): el cap vs stock fisico se valida en applyRepartoManualCore
-  // porque requiere leer app_config/stock_snapshot (async). validateRepartoPayload
-  // queda sync, solo chequea estructura basica.
-  return { valid: errors.length === 0, errors, sumAsignada };
+  let sumEliminada = 0;
+  for (const e of elimArr) {
+    const qty = Number(e.qtyEliminar) || 0;
+    if (qty <= 0) {
+      errors.push('elimination con qtyEliminar <= 0 (pedido ' + e.pedidoId + ')');
+      continue;
+    }
+    const key = e.pedidoId + '|' + e.lineIndex;
+    if (!boMap.has(key)) {
+      errors.push('elimination no coincide con ningun cliente BO (' + key + ')');
+      continue;
+    }
+    const entry = perLine.get(key) || { asig: 0, elim: 0 };
+    entry.elim += qty;
+    perLine.set(key, entry);
+    sumEliminada += qty;
+  }
+  // Validar sum por cliente: asig + elim <= qtyBackorder.
+  for (const [key, entry] of perLine) {
+    const bo = boMap.get(key);
+    if (!bo) continue;
+    if (entry.asig + entry.elim > (Number(bo.qtyBackorder) || 0)) {
+      errors.push(
+        'cliente ' +
+          key +
+          ': asig(' +
+          entry.asig +
+          ')+elim(' +
+          entry.elim +
+          ')=' +
+          (entry.asig + entry.elim) +
+          ' > qtyBackorder(' +
+          bo.qtyBackorder +
+          ')'
+      );
+    }
+  }
+  return { valid: errors.length === 0, errors, sumAsignada, sumEliminada };
 }
 
 /**
  * Aplica un reparto manual. Transaccional por linea (dentro de runTransaction).
- * Split pattern (v600/v1153 manual-backorder): si qtyAsignada < qtyOpen, se
- * crea una nueva linea state='ASIG' con qtyAsignada + se reduce la linea
- * original BO a qtyOpen - qtyAsignada. Si qtyAsignada === qtyOpen, la linea
- * entera pasa a ASIG.
+ *
+ * v1312 (2026-10-15) rediseno 3-way: por cada clientBO se puede asignar
+ * (asig>0, pasa a ASIG), eliminar (elim>0, se cancela el BO parcial o total)
+ * o ambos. La porcion remanente (qtyOpen - asig - elim) queda en BO
+ * esperando. assignments y eliminations se merge por (pedidoId, lineIndex)
+ * para hacer 1 transaccion por linea.
+ *
+ * Casos resultantes por linea (qo=qtyOpen original, qr=qtyMantenerBO=qo-asig-elim):
+ *   - asig>0, elim=0, qr>0  → split 2-way: BO(qr) + ASIG(asig)
+ *   - asig>0, elim=0, qr=0  → linea entera pasa a ASIG
+ *   - asig=0, elim>0, qr>0  → linea original: qtyOpen=qr, qtyCancelled+=elim
+ *   - asig=0, elim>0, qr=0  → linea entera cancelled
+ *   - asig>0, elim>0, qr>0  → linea original: qtyOpen=qr, qtyCancelled+=elim; append ASIG(asig)
+ *   - asig>0, elim>0, qr=0  → linea original cancelled (qtyCancelled+=elim); append ASIG(asig)
  *
  * @param {RepartoDeps} deps
  * @param {Object} opts
  * @param {string} opts.ingresoId
  * @param {Assignment[]} opts.assignments
+ * @param {Array<{pedidoId: string, lineIndex: number, qtyEliminar: number}>} [opts.eliminations]
  * @param {string} opts.appliedByEmail Email del user que aplica (audit).
- * @returns {Promise<{ok: boolean, errors: string[], applied: Assignment[], unassignedCancelled?: Array<{pedidoId: string, lineIndex: number}>}>}
+ * @returns {Promise<{ok: boolean, errors: string[], applied: Assignment[], eliminated?: Array<{pedidoId: string, lineIndex: number, qtyEliminada: number}>}>}
  */
 export async function applyRepartoManualCore(deps, opts) {
   const log = deps.log || (() => {});
@@ -375,7 +434,7 @@ export async function applyRepartoManualCore(deps, opts) {
     return { ok: false, errors: ['ingreso_reparto no encontrado: ' + opts.ingresoId], applied: [] };
   }
   const ingresoDoc = /** @type {IngresoRepartoDoc} */ (snap.data() || {});
-  const validation = validateRepartoPayload(ingresoDoc, opts.assignments);
+  const validation = validateRepartoPayload(ingresoDoc, opts.assignments, opts.eliminations);
   if (!validation.valid) {
     return { ok: false, errors: validation.errors, applied: [] };
   }
@@ -403,13 +462,14 @@ export async function applyRepartoManualCore(deps, opts) {
       applied: [],
     };
   }
-  const sumAsignadaValidation = Number(validation.sumAsignada) || 0;
-  if (sumAsignadaValidation > stockFisicoDep11) {
+  // v1312: cap global de ASIG (eliminations NO cuentan — no reservan stock).
+  const sumAsigValid = Number(validation.sumAsignada) || 0;
+  if (sumAsigValid > stockFisicoDep11) {
     return {
       ok: false,
       errors: [
         'sum assignments=' +
-          sumAsignadaValidation +
+          sumAsigValid +
           ' > stock fisico dep 11 actual=' +
           stockFisicoDep11 +
           ' (sobre-reparto, sin stock real para cubrir)',
@@ -438,15 +498,48 @@ export async function applyRepartoManualCore(deps, opts) {
   }
   /** @type {Assignment[]} */
   const applied = [];
+  /** @type {Array<{pedidoId: string, lineIndex: number, qtyEliminada: number}>} */
+  const eliminated = [];
   /** @type {string[]} */
   const errors = [];
-  for (const a of opts.assignments) {
-    const pedidoRef = deps.fbDb.collection('pedidos').doc(a.pedidoId);
+
+  // v1312: combinar assignments + eliminations por (pedidoId, lineIndex) para
+  // hacer 1 tx por linea (atomico: la linea original + las nuevas ASIG se
+  // crean/cambian juntas).
+  /** @type {Map<string, {pedidoId: string, lineIndex: number, asig: number, elim: number}>} */
+  const actionsByLine = new Map();
+  const _asigArr = Array.isArray(opts.assignments) ? opts.assignments : [];
+  const _elimArr = Array.isArray(opts.eliminations) ? opts.eliminations : [];
+  for (const a of _asigArr) {
+    const key = a.pedidoId + '|' + a.lineIndex;
+    const entry = actionsByLine.get(key) || {
+      pedidoId: a.pedidoId,
+      lineIndex: a.lineIndex,
+      asig: 0,
+      elim: 0,
+    };
+    entry.asig += Number(a.qtyAsignada) || 0;
+    actionsByLine.set(key, entry);
+  }
+  for (const e of _elimArr) {
+    const key = e.pedidoId + '|' + e.lineIndex;
+    const entry = actionsByLine.get(key) || {
+      pedidoId: e.pedidoId,
+      lineIndex: e.lineIndex,
+      asig: 0,
+      elim: 0,
+    };
+    entry.elim += Number(e.qtyEliminar) || 0;
+    actionsByLine.set(key, entry);
+  }
+
+  for (const [, action] of actionsByLine) {
+    const pedidoRef = deps.fbDb.collection('pedidos').doc(action.pedidoId);
     try {
       await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
         const pedidoSnap = await tx.get(pedidoRef);
         if (!pedidoSnap.exists) {
-          throw new Error('pedido no existe: ' + a.pedidoId);
+          throw new Error('pedido no existe: ' + action.pedidoId);
         }
         const data = pedidoSnap.data();
         // v1300 (2026-10-14) M1 fix: no permitir reparto sobre pedidos ya
@@ -454,174 +547,122 @@ export async function applyRepartoManualCore(deps, opts) {
         // FATECHI 2026-10-06: expandir qtyOpen sin SQ correspondiente genera
         // stock reservado app-side eterno + factura SAP por qty vieja.
         if (data.closedAt) {
-          throw new Error('pedido cerrado (closedAt), no se puede repartir @ ' + a.pedidoId);
+          throw new Error('pedido cerrado (closedAt), no se puede repartir @ ' + action.pedidoId);
         }
         if (data.transferidoSAP && data.transferidoSAP.docNum) {
           throw new Error(
             'pedido ya en SAP (SQ #' +
               data.transferidoSAP.docNum +
               '), no se puede repartir @ ' +
-              a.pedidoId
+              action.pedidoId
           );
         }
         const lines = Array.isArray(data.lines) ? [...data.lines] : [];
-        const line = lines[a.lineIndex];
+        const line = lines[action.lineIndex];
         if (!line) {
-          throw new Error('line index invalido: ' + a.lineIndex + ' @ ' + a.pedidoId);
+          throw new Error('line index invalido: ' + action.lineIndex + ' @ ' + action.pedidoId);
         }
         if (line.state !== 'BO') {
           // Race: otra operacion ya la movio (recycle, cancel, otro reparto).
           throw new Error(
-            'linea ya no esta BO (state=' + line.state + ') @ ' + a.pedidoId + ':' + a.lineIndex
+            'linea ya no esta BO (state=' +
+              line.state +
+              ') @ ' +
+              action.pedidoId +
+              ':' +
+              action.lineIndex
           );
         }
         const qo = Number(line.qtyOpen) || 0;
         if (qo <= 0) {
-          throw new Error('linea con qtyOpen=0 @ ' + a.pedidoId + ':' + a.lineIndex);
+          throw new Error('linea con qtyOpen=0 @ ' + action.pedidoId + ':' + action.lineIndex);
         }
-        const qty = Number(a.qtyAsignada) || 0;
-        if (qty <= 0) {
-          throw new Error('qtyAsignada=' + qty + ' invalido @ ' + a.pedidoId + ':' + a.lineIndex);
+        const asig = Math.max(0, Number(action.asig) || 0);
+        const elim = Math.max(0, Number(action.elim) || 0);
+        if (asig + elim > qo) {
+          throw new Error(
+            'asig(' +
+              asig +
+              ')+elim(' +
+              elim +
+              ')=' +
+              (asig + elim) +
+              ' > qtyOpen(' +
+              qo +
+              ') @ ' +
+              action.pedidoId +
+              ':' +
+              action.lineIndex
+          );
         }
-        if (qty > qo) {
-          // v1292 (2026-10-14): sobre-asignacion. Pablo le da mas al cliente
-          // de lo que pidio. La linea se expande: qty > qo, state=ASIG,
-          // qtyOpen = qty. qty del pedido original tambien se amplia para
-          // mantener consistencia (qty = qtyOpen cuando no hay invoiced).
-          lines[a.lineIndex] = Object.assign({}, line, {
-            qty: qty,
-            qtyOpen: qty,
-            state: 'ASIG',
-            asigAt: nowIso,
-            asigReserva: true,
-            asigFromReparto: opts.ingresoId,
-            overAssigned: true,
-            overAssignedDelta: qty - qo,
-          });
-        } else if (qty === qo) {
+        const qr = qo - asig - elim; // qtyMantenerBO
+        // Linea original: siempre acumula qtyCancelled si elim>0.
+        const newOrig = Object.assign({}, line, {
+          qtyCancelled: (Number(line.qtyCancelled) || 0) + elim,
+          qtyOpen: qr,
+        });
+        if (qr === 0 && asig > 0 && elim === 0) {
           // Linea entera pasa a ASIG.
-          lines[a.lineIndex] = Object.assign({}, line, {
-            state: 'ASIG',
-            asigAt: nowIso,
-            asigReserva: true,
-            asigFromReparto: opts.ingresoId,
-          });
+          newOrig.qtyOpen = asig;
+          newOrig.state = 'ASIG';
+          newOrig.asigAt = nowIso;
+          newOrig.asigReserva = true;
+          newOrig.asigFromReparto = opts.ingresoId;
+          lines[action.lineIndex] = newOrig;
+        } else if (qr === 0 && elim > 0) {
+          // Linea original cancelled (full o parcial depending on asig).
+          newOrig.state = 'cancelled';
+          newOrig.cancelledAt = nowIso;
+          newOrig.cancelledFrom = 'reparto-eliminado';
+          newOrig.cancelledFromIngreso = opts.ingresoId;
+          lines[action.lineIndex] = newOrig;
+          if (asig > 0) {
+            lines.push(_buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex));
+          }
         } else {
-          // Split: linea BO existente baja a qo - qty + se APPEND una nueva
-          // ASIG con qty. v1277 IMPORTANT-4 fix (precedente v600): la nueva
-          // linea usa whitelist de campos safe en vez de Object.assign (que
-          // heredaba qtyInvoiced/qtyCancelled/qtyRecycled/transferidoSAP y
-          // podia duplicar historial en caso de BO con historia parcial).
-          lines[a.lineIndex] = Object.assign({}, line, {
-            qtyOpen: qo - qty,
-          });
-          lines.push({
-            code: line.code,
-            desc: line.desc || '',
-            cat: line.cat || '',
-            fam: line.fam || '',
-            sub: line.sub || '',
-            qty: qty,
-            qtyOpen: qty,
-            qtyInvoiced: 0,
-            qtyCancelled: 0,
-            qtyRecycled: 0,
-            recycledIntoPedidoId: null,
-            precio: Number(line.precio) || 0,
-            priceAtCreation: Number(line.priceAtCreation) || Number(line.precio) || 0,
-            needsReview: false,
-            targetMonth: line.targetMonth || null,
-            targetMonthIdx:
-              line.targetMonthIdx !== null && line.targetMonthIdx !== undefined
-                ? line.targetMonthIdx
-                : null,
-            targetYear: line.targetYear || null,
-            state: 'ASIG',
-            asigAt: nowIso,
-            asigReserva: true,
-            asigFromReparto: opts.ingresoId,
-            splitFromLineIndex: a.lineIndex,
-          });
+          // qr > 0: linea original queda BO con menos qty (+qtyCancelled si elim>0).
+          lines[action.lineIndex] = newOrig;
+          if (asig > 0) {
+            lines.push(_buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex));
+          }
         }
         tx.update(pedidoRef, { lines, updatedAt: nowIso });
       });
-      applied.push(a);
-      log('reparto aplicado', { pedidoId: a.pedidoId, lineIndex: a.lineIndex, qty: a.qtyAsignada });
+      if (asig0(action) > 0) {
+        applied.push({
+          pedidoId: action.pedidoId,
+          lineIndex: action.lineIndex,
+          qtyAsignada: asig0(action),
+        });
+      }
+      if (elim0(action) > 0) {
+        eliminated.push({
+          pedidoId: action.pedidoId,
+          lineIndex: action.lineIndex,
+          qtyEliminada: elim0(action),
+        });
+      }
+      log('reparto aplicado', {
+        pedidoId: action.pedidoId,
+        lineIndex: action.lineIndex,
+        asig: action.asig,
+        elim: action.elim,
+      });
     } catch (e) {
-      const msg = (e && e.message ? e.message : String(e)) + ' (pedido ' + a.pedidoId + ')';
+      const msg = (e && e.message ? e.message : String(e)) + ' (pedido ' + action.pedidoId + ')';
       errors.push(msg);
     }
   }
-  // v1295 (2026-10-14): si quedó stock LIBRE post-apply (Pablo decidió no
-  // asignar todo), cancelar los BO de clientesBO que NO recibieron asignacion.
-  // Rationale Mariano: "si habia stock disponible y lo deje en 0, es que ese
-  // cliente ya no va a esperar — eliminame el backorder". Si no quedo libre
-  // (todo se asigno), los no-asignados MANTIENEN su BO (siguen esperando otro
-  // ingreso).
-  const sumAsignada = applied.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
-  // v1309: libre = stock fisico actual - sumAsignada. Preserva la regla v1295:
-  // si queda stock libre y hay clientes BO en 0, se les cancela el BO.
-  const libre = Math.max(0, stockFisicoDep11 - sumAsignada);
-  /** @type {Array<{pedidoId: string, lineIndex: number}>} */
-  const unassignedCancelled = [];
-  if (libre > 0) {
-    const clientesBO = Array.isArray(ingresoDoc.clientesBO) ? ingresoDoc.clientesBO : [];
-    const assignedKeys = new Set(applied.map((a) => a.pedidoId + '|' + a.lineIndex));
-    const toCancel = clientesBO.filter(
-      (c) => c && c.pedidoId && !assignedKeys.has(c.pedidoId + '|' + c.lineIndex)
-    );
-    // Agrupar por pedidoId: 1 tx por pedido con todas las lineas a cancelar.
-    /** @type {Map<string, number[]>} */
-    const byPedido = new Map();
-    for (const c of toCancel) {
-      const li = Number(c.lineIndex);
-      if (!byPedido.has(c.pedidoId)) byPedido.set(c.pedidoId, []);
-      /** @type {number[]} */ (byPedido.get(c.pedidoId)).push(li);
-    }
-    for (const [pid, lineIdxs] of byPedido) {
-      try {
-        await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
-          const pedidoRef = deps.fbDb.collection('pedidos').doc(pid);
-          const pSnap = await tx.get(pedidoRef);
-          if (!pSnap.exists) throw new Error('pedido no existe: ' + pid);
-          const data = pSnap.data();
-          const lines = Array.isArray(data.lines) ? [...data.lines] : [];
-          for (const li of lineIdxs) {
-            const line = lines[li];
-            if (!line) continue;
-            if (line.state !== 'BO') continue; // Alguien ya la movio (race).
-            const qo = Number(line.qtyOpen) || 0;
-            if (qo <= 0) continue;
-            lines[li] = Object.assign({}, line, {
-              qtyOpen: 0,
-              qtyCancelled: (Number(line.qtyCancelled) || 0) + qo,
-              state: 'cancelled',
-              cancelledAt: nowIso,
-              cancelledFrom: 'reparto-unassigned-with-stock-libre',
-              cancelledFromIngreso: opts.ingresoId,
-            });
-            unassignedCancelled.push({ pedidoId: pid, lineIndex: li });
-          }
-          tx.update(pedidoRef, { lines, updatedAt: nowIso });
-        });
-      } catch (e) {
-        const msg =
-          'cancel unassigned fallo (pedido ' +
-          pid +
-          '): ' +
-          (e && e.message ? e.message : String(e));
-        errors.push(msg);
-      }
-    }
-  }
   // Marcar ingreso como done (parcialmente OK, en progreso, o done segun errors).
-  const nextStatus = errors.length === 0 ? 'done' : applied.length > 0 ? 'in_progress' : 'pending';
+  const touched = applied.length + eliminated.length;
+  const nextStatus = errors.length === 0 ? 'done' : touched > 0 ? 'in_progress' : 'pending';
   try {
     await ingresoRef.update({
       status: nextStatus,
       appliedAt: nowIso,
       appliedBy: opts.appliedByEmail || '',
       assignments: applied,
+      eliminations: eliminated,
       assignmentErrors: errors,
     });
   } catch (e) {
@@ -629,22 +670,19 @@ export async function applyRepartoManualCore(deps, opts) {
   }
   // Audit log. v1277 IMPORTANT-6 fix: no silent swallow — si falla, loguear
   // + agregar al errors[] del response para que caller lo vea.
-  // v1277 IMPORTANT-3 fix: incluir primeros 10 messages de errors[] en el
-  // doc audit para debug sin ir a logs CF.
   try {
     await deps.fbDb.collection(REPARTO_LOG_COLLECTION).add({
       ingresoId: opts.ingresoId,
       sku: ingresoDoc.sku,
       qtyIngresada: ingresoDoc.qtyIngresada,
+      stockFisicoDep11,
       appliedAt: nowIso,
       appliedBy: opts.appliedByEmail || '',
       assignmentsCount: applied.length,
+      eliminationsCount: eliminated.length,
       errorsCount: errors.length,
       errors: errors.slice(0, 10),
       status: nextStatus,
-      // v1295: lineas BO canceladas por no-asignado + stock libre.
-      unassignedCancelledCount: unassignedCancelled.length,
-      unassignedCancelled: unassignedCancelled.slice(0, 20),
     });
   } catch (logErr) {
     const msg =
@@ -653,5 +691,55 @@ export async function applyRepartoManualCore(deps, opts) {
     log('reparto_log write failed', { ingresoId: opts.ingresoId, err: msg });
     errors.push(msg);
   }
-  return { ok: errors.length === 0, errors, applied, unassignedCancelled };
+  return { ok: errors.length === 0, errors, applied, eliminated };
+}
+
+// v1312 helpers.
+/** @param {{asig?: number}} action */
+function asig0(action) {
+  return Math.max(0, Number(action.asig) || 0);
+}
+/** @param {{elim?: number}} action */
+function elim0(action) {
+  return Math.max(0, Number(action.elim) || 0);
+}
+
+/**
+ * Construye una nueva linea state='ASIG' para el reparto (patron v600/v1277).
+ * Whitelist de campos safe (NO hereda qtyInvoiced/qtyCancelled/qtyRecycled/
+ * transferidoSAP del origen).
+ * @param {any} origLine
+ * @param {number} qty
+ * @param {string} nowIso
+ * @param {string} ingresoId
+ * @param {number} splitFromIdx
+ */
+function _buildAsigLine(origLine, qty, nowIso, ingresoId, splitFromIdx) {
+  return {
+    code: origLine.code,
+    desc: origLine.desc || '',
+    cat: origLine.cat || '',
+    fam: origLine.fam || '',
+    sub: origLine.sub || '',
+    qty,
+    qtyOpen: qty,
+    qtyInvoiced: 0,
+    qtyCancelled: 0,
+    qtyRecycled: 0,
+    recycledIntoPedidoId: null,
+    precio: Number(origLine.precio) || 0,
+    priceAtCreation: Number(origLine.priceAtCreation) || Number(origLine.precio) || 0,
+    needsReview: false,
+    targetMonth: origLine.targetMonth || null,
+    targetMonthIdx:
+      origLine.targetMonthIdx !== null && origLine.targetMonthIdx !== undefined
+        ? origLine.targetMonthIdx
+        : null,
+    targetYear: origLine.targetYear || null,
+    state: 'ASIG',
+    asigAt: nowIso,
+    asigReserva: true,
+    asigFromReparto: ingresoId,
+    splitFromLineIndex: splitFromIdx,
+  };
 }
