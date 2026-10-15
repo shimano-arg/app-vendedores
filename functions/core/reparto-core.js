@@ -376,30 +376,10 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations) {
     perLine.set(key, entry);
     sumEliminada += qty;
   }
-  // v1338 (2026-10-15): validacion "asig+elim <= qtyBackorder" REMOVIDA.
-  // Sobre-asignacion permitida (Mariano explicito). Dead branch dejado como
-  // no-op para preservar la estructura del codigo si en el futuro vuelve.
-  // eslint-disable-next-line no-constant-condition
-  for (const [key, entry] of perLine) {
-    const bo = boMap.get(key);
-    if (!bo) continue;
-    // biome-ignore lint/correctness/noConstantCondition: v1338 cap removed intentionally
-    if (false) {
-      errors.push(
-        'cliente ' +
-          key +
-          ': asig(' +
-          entry.asig +
-          ')+elim(' +
-          entry.elim +
-          ')=' +
-          (entry.asig + entry.elim) +
-          ' > qtyBackorder(' +
-          bo.qtyBackorder +
-          ')'
-      );
-    }
-  }
+  // v1338 (2026-10-15): validacion "asig+elim <= qtyBackorder" REMOVIDA
+  // completamente. Sobre-asignacion permitida — Mariano toma la
+  // responsabilidad al autorizar. El backend acepta asig > qo expandiendo
+  // la linea; qr queda en 0 si asig+elim > qo (no se vuelve negativo).
   return { valid: errors.length === 0, errors, sumAsignada, sumEliminada };
 }
 
