@@ -6160,11 +6160,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div id="wcard-cliente-open-lines-body"></div>
       </details>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera.
-           v1324 (2026-10-15): flex-shrink:0 para que no se comprima dentro
-           del modal-body flex-column. -->
-      <div style="position:relative;margin-bottom:10px;flex-shrink:0">
+           v1324: flex-shrink:0 para que no se comprima dentro del flex-column.
+           v1326 (2026-10-15): z-index:100 en el padre para que su stacking
+           context quede arriba del wrapper tabla (que tiene thead sticky con
+           z-index:20). Antes el dropdown se renderizaba por debajo del thead
+           porque el padre no tenia z-index propio. -->
+      <div style="position:relative;margin-bottom:10px;flex-shrink:0;z-index:100">
         <input id="wcard-add-input" type="text" placeholder="Buscar producto por codigo o descripcion para agregar al pedido..." oninput="waitlistOnAddSearch()" onfocus="waitlistOnAddSearch()" onblur="setTimeout(waitlistHideAddDropdown, 200)" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-default);border-radius:6px;font-size:12px;outline:none"/>
-        <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
+        <div id="wcard-add-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg-elevated);border:1.5px solid var(--border-default);border-top:none;border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
       </div>
       <!-- v1324 (2026-10-15): wrapper es el SCROLL CONTAINER explicito
            (overflow-y:auto + flex:1). El th sticky queda garantizado al top:0
@@ -6440,7 +6443,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1325';
+const APP_VERSION = 'v1326';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
