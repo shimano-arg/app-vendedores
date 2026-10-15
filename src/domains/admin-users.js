@@ -676,21 +676,22 @@ window.openAdminPanel = async function () {
           '<select class="rend-approver-sel" title="Quien aprueba las rendiciones de este usuario">' +
           rendApproverOptions +
           '</select>';
-        // Botón Cambiar contraseña
+        // Botón Cambiar contraseña — v1304 (2026-10-14): label corto "Pass" +
+        // width:100% + white-space:nowrap para que entre en columna chica.
         const pwdBtnHtml =
-          '<button class="app-btn-pill app-btn-violet" style="padding:5px 10px;font-size:10px" onclick="changeUserPassword(\'' +
+          '<button class="app-btn-pill app-btn-violet" style="padding:5px 6px;font-size:10px;width:100%;white-space:nowrap;box-sizing:border-box" title="Cambiar contraseña" onclick="changeUserPassword(\'' +
           docId +
           "', " +
           JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
-          ')">Contraseña</button>';
-        // Botón Configurar 2FA
+          ')">Pass</button>';
+        // Botón Configurar 2FA — v1304: mismo tratamiento compacto.
         const totpStatusTag = d.totpEnabled
           ? ' <span style="color:#10b981;font-weight:800">&#10003;</span>'
           : '';
         const totpBtnHtml =
-          '<button class="app-btn-pill app-btn-violet" style="padding:5px 10px;font-size:10px;background:' +
+          '<button class="app-btn-pill app-btn-violet" style="padding:5px 6px;font-size:10px;width:100%;white-space:nowrap;box-sizing:border-box;background:' +
           (d.totpEnabled ? '#10b981' : '#5b21b6') +
-          '" onclick="openTotpSetup(\'' +
+          '" title="Configurar 2FA" onclick="openTotpSetup(\'' +
           docId +
           "', " +
           JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
