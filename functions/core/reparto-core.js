@@ -349,11 +349,14 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations) {
       errors.push('assignment con qtyAsignada <= 0 (pedido ' + a.pedidoId + ')');
       continue;
     }
+    // v1343 (2026-10-15): validacion "esta en boMap" REMOVIDA. El `clientesBO`
+    // es un snapshot al crear el ingreso; puede quedar stale si entre tanto
+    // otro flow modifico el pedido. La validacion real (line.state='BO' +
+    // line.code===ingresoDoc.sku + qtyOpen>0) ocurre DENTRO del runTransaction
+    // en applyRepartoManualCore. Esto evita falsos "no coincide con ningun
+    // cliente BO" cuando Pablo intenta repartir sobre un pedido que fue
+    // sincronizado tras la creacion del ingreso.
     const key = a.pedidoId + '|' + a.lineIndex;
-    if (!boMap.has(key)) {
-      errors.push('assignment no coincide con ningun cliente BO (' + key + ')');
-      continue;
-    }
     const entry = perLine.get(key) || { asig: 0, elim: 0 };
     entry.asig += qty;
     perLine.set(key, entry);
@@ -366,11 +369,8 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations) {
       errors.push('elimination con qtyEliminar <= 0 (pedido ' + e.pedidoId + ')');
       continue;
     }
+    // v1343: idem assignments. Validacion real en runTransaction.
     const key = e.pedidoId + '|' + e.lineIndex;
-    if (!boMap.has(key)) {
-      errors.push('elimination no coincide con ningun cliente BO (' + key + ')');
-      continue;
-    }
     const entry = perLine.get(key) || { asig: 0, elim: 0 };
     entry.elim += qty;
     perLine.set(key, entry);
@@ -536,9 +536,43 @@ export async function applyRepartoManualCore(deps, opts) {
         if (!line) {
           throw new Error('line index invalido: ' + action.lineIndex + ' @ ' + action.pedidoId);
         }
+        // v1343 (2026-10-15): guard de SKU. Reemplaza el check boMap (snapshot)
+        // del validator. Verifica que la linea realmente corresponde al SKU
+        // del ingreso — asi un payload erroneo (frontend stale, abuso) no
+        // asigna stock de otro SKU al cliente.
+        const lineSku = String(line.code || '')
+          .toUpperCase()
+          .trim();
+        const ingresoSku = String(ingresoDoc.sku || '')
+          .toUpperCase()
+          .trim();
+        if (lineSku !== ingresoSku) {
+          throw new Error(
+            'line SKU no coincide con ingreso (line.code=' +
+              line.code +
+              ' vs ingreso.sku=' +
+              ingresoDoc.sku +
+              ') @ ' +
+              action.pedidoId +
+              ':' +
+              action.lineIndex
+          );
+        }
         const qo = Number(line.qtyOpen) || 0;
         if (qo <= 0) {
           throw new Error('linea con qtyOpen=0 @ ' + action.pedidoId + ':' + action.lineIndex);
+        }
+        // v1343: guard de state. Solo se puede repartir sobre lineas BO.
+        // Si la linea esta en invoiced/cancelled/ASIG/recycled, rechazar.
+        if (line.state !== 'BO') {
+          throw new Error(
+            'linea no esta en BO (state=' +
+              line.state +
+              ') @ ' +
+              action.pedidoId +
+              ':' +
+              action.lineIndex
+          );
         }
         const asig = Math.max(0, Number(action.asig) || 0);
         const elim = Math.max(0, Number(action.elim) || 0);

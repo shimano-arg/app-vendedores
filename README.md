@@ -4717,6 +4717,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1343 (2026-10-15) — Reparto fix snapshot stale: validacion real contra pedido vivo (no contra snapshot clientesBO)
+
+**Archivos**:
+- `functions/core/reparto-core.js` `validateRepartoPayload` — eliminada la validacion `boMap.has(key)` contra el snapshot `ingresoDoc.clientesBO`. Mantiene las validaciones matematicas (qty > 0).
+- `functions/core/reparto-core.js` `applyRepartoManualCore` (dentro de runTransaction) — agregados 2 guards nuevos: (1) `line.code === ingresoDoc.sku` + (2) `line.state === 'BO'`. Reemplazan la proteccion del boMap pero contra el estado REAL del pedido.
+- `index.html:6502` + `sw.js:20` (bump v1342 → v1343).
+
+**Antes (v1342)**:
+`validateRepartoPayload` armaba `boMap` desde `ingresoDoc.clientesBO` (snapshot). Si el frontend enviaba un `assignment` cuyo `pedidoId|lineIndex` no estaba en el snapshot, backend tiraba `"assignment no coincide con ningun cliente BO"`. El reparto NO se aplicaba.
+
+**Problema (reportado Mariano 2026-10-15 ~17:25 ART)**:
+El snapshot `clientesBO` se guarda al crear el ingreso. Entre esa creacion y el apply, el pedido puede haber sido modificado por otros flujos (sync SAP, cancelaciones manuales, otras aplicaciones de reparto). El UI muestra el snapshot original pero el backend ya no lo reconoce — bloqueo falso. Pablo no podia aplicar reparto a ARIEL/BROBRO sin que yo forzara via script manual.
+
+**Cambio**:
+1. **Validator sync** (`validateRepartoPayload`): solo valida matematicamente (qty > 0). Deja la validacion de identidad al runTransaction.
+2. **Transaccion** (`applyRepartoManualCore`): verifica que la linea mencionada en el payload (a) tiene `code === ingresoDoc.sku` y (b) tiene `state === 'BO'`. Si no, throw con mensaje descriptivo.
+
+**Por que**:
+- Validacion contra el estado REAL del pedido (en el momento del apply, dentro de la transaccion) es mas confiable que contra un snapshot stale.
+- Protege contra abuso igual que antes: payload malicioso con un pedidoId+lineIndex arbitrario rebota porque el SKU no coincide con el ingreso.
+- Elimina el falso bloqueo cuando el snapshot queda stale.
+
+**Verificación**:
+- `npm run test:unit` → 706/706 pass.
+- Post-deploy backend: Pablo intenta aplicar reparto a cliente cuyo pedido fue sincronizado post-creacion del ingreso → OK (si la linea sigue siendo BO + mismo SKU).
+- Caso malicioso: payload con pedidoId arbitrario → rechazado por SKU mismatch.
+
+**Deploy**:
+- Frontend auto GitHub Pages.
+- **Backend requiere `firebase deploy --only functions:applyRepartoManualCF`**.
+
+**Rollback**:
+- Restaurar check `if (!boMap.has(key))` en validateRepartoPayload.
+- Quitar los dos guards nuevos del runTransaction.
+
+---
+
 ### v1342 (2026-10-15) — Reparto hardening: desactivar migrateAsigToBOCF + fix role lookup + cleanup listener
 
 **Archivos**:
