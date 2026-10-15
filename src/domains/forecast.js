@@ -125,8 +125,11 @@ function _ensureForecastAppleCss() {
 }
 
 function _buildShellHtml() {
-  // v1306: rediseño Apple-style. Minimalista, neutro, bordes sutiles,
-  // radius grandes, tabs iOS Settings pill.
+  // v1306: rediseño Apple-style.
+  // v1307 (2026-10-15): tab "Forecast estadístico" removida (decisión Mariano).
+  // El forecast por subfamilia (forecast_output/) no agrega valor sobre
+  // "Sales Plans" que ya hace recomendación nivel SKU con BO + stock + plan.
+  // Shell queda sin tabs bar — una sola vista.
   const modalOuter =
     '<div class="fc-apple" style="position:absolute;inset:1vh 1vw;background:#fbfbfd;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.22)">';
   const header =
@@ -137,16 +140,14 @@ function _buildShellHtml() {
     '</div>' +
     '<button class="fc-apple-close" onclick="closeForecastModal()" aria-label="Cerrar">&times;</button>' +
     '</div>';
-  const tabsBar =
-    '<div id="forecast-tabs-bar" style="display:flex;gap:6px;background:#fbfbfd;padding:12px 26px;border-bottom:0.5px solid rgba(0,0,0,.06)">' +
-    '<button data-tab="sales-plans" onclick="switchForecastTab(\'sales-plans\')" class="forecast-tab fc-apple-tab active">Sales Plans</button>' +
-    '<button data-tab="stat" onclick="switchForecastTab(\'stat\')" class="forecast-tab fc-apple-tab">Forecast estadístico</button>' +
-    '</div>';
   const tabSalesPlans =
     '<div id="forecast-tab-sales-plans" style="flex:1;overflow:auto;padding:0;background:#fbfbfd"></div>';
+  // v1307: contenedor stat queda oculto para preservar referencias del codigo
+  // (switchForecastTab/_renderForecastStatTab existen pero no se invocan
+  // desde la UI). Si querés limpiar el codigo entero, es safe borrarlos.
   const tabStat =
-    '<div id="forecast-tab-stat" style="flex:1;overflow:auto;display:none;padding:0;background:#fbfbfd"></div>';
-  return modalOuter + header + tabsBar + tabSalesPlans + tabStat + '</div>';
+    '<div id="forecast-tab-stat" style="display:none"></div>';
+  return modalOuter + header + tabSalesPlans + tabStat + '</div>';
 }
 
 // v1098+ Fase 1 + v1103+ Fase 2B + v1105 fix + v1111 clean legacy: switch
