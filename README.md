@@ -4717,6 +4717,44 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1311 (2026-10-15) — Botón "Ficha" por fila en el Master Clientes
+
+**Archivos**:
+- `src/domains/master-clientes.js` `renderMasterClientesTable`:
+  - Línea 2281: ancho de la columna de acciones ampliado 8% → 12%.
+  - Línea 2638: nuevo botón "Ficha" (celeste `#00A9E0`) antes de Guardar/Eliminar, solo visible para altas SAP (`isSap && sapFsId && !isEmpleadoSAP`).
+- Rebuild `app.bundle.js` + `chunks/`.
+- `index.html:6423` + `sw.js:20` (bump v1310 → v1311).
+
+**Antes (v1310)**:
+Para abrir la Ficha Cliente de un cliente específico desde el Master Clientes había que entrar por el flow Mapa / Panel Zonas / modal Lead-SAP. Mariano pidió acceso directo "en la línea de cada cliente".
+
+**Cambio**:
+Botón "Ficha" (3er botón de la columna acciones) que llama `openFichaClienteFromSapModal(fsId)` — flow existente que:
+1. Levanta el alta de `approvedAltasList` por fsId.
+2. Setea `#client-modal.dataset` con prov/loc/nombre/vendor/docId (necesario para que `saveClient*FromModal` escriba al `client_master` correcto).
+3. Delega en `openFichaClienteFromClientModal()` que populatea los 5 selects + abre `#ficha-cliente-modal`.
+
+**Scope**:
+- ✅ Altas SAP (`e.tipo === 'sap_alta' && e.sapFsId`) → botón visible, flow completo.
+- ❌ EMPLEADO SAP (`isEmpleadoSAP`) → botón oculto (fila bloqueada).
+- ❌ POINTS/no-SAP → botón oculto. Si Mariano lo pide después, hay que crear un entrypoint equivalente que sete el dataset del `#client-modal` sin pasar por `approvedAltasList`.
+
+**Por que**:
+- Mejora UX: perfilado comercial accesible en 1 clic desde la tabla.
+- Flow existente reutilizado (zero código nuevo de backend).
+- Solo add-only visual, zero riesgo de regresión en el resto del modal.
+
+**Verificación**:
+- `npm run test:unit` → 706/706 pass.
+- `npx biome check` → clean.
+- Rebuild bundle incluido.
+
+**Rollback**:
+- Revertir los 2 bloques editados en `master-clientes.js` + bump de versión.
+
+---
+
 ### v1310 (2026-10-15) — PERF: Master Clientes 400× más rápido al tipear en el buscador
 
 **Archivos**:

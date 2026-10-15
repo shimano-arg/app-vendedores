@@ -2278,7 +2278,8 @@ window.renderMasterClientesTable = function () {
   // v1055 (2026-09-24) + v1264 (2026-10-14): columna "Credito ARS" REMOVIDA
   // del Master de Clientes. El dato vive en client_master.creditoCheque y se
   // edita desde el modal Ficha Cliente (admin/gerente only).
-  html += '<th style="width:8%"></th>';
+  // v1311: ancho ampliado 8% → 12% para acomodar el 3er boton "Ficha".
+  html += '<th style="width:12%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
   entries.slice(0, MAX).forEach((e) => {
@@ -2634,8 +2635,20 @@ window.renderMasterClientesTable = function () {
     // de la tabla del Master de Clientes. El dato sigue viviendo en
     // client_master.creditoCheque y se edita desde el modal Ficha Cliente
     // (admin/gerente only). Dejar aqui era duplicacion visual.
+    // v1311 (2026-10-15): boton "Ficha" por fila para abrir el modal Ficha
+    // Cliente de ese cliente especifico sin tener que entrar por el flow
+    // Panel Zonas / Mapa. Pedido Mariano. Solo visible para altas SAP (fsId
+    // disponible); POINTS/no-SAP no tienen entrypoint directo todavia.
+    const _fichaBtn =
+      isSap && e.sapFsId && !isEmpleadoSAP
+        ? '<button type="button" onclick="openFichaClienteFromSapModal(\'' +
+          escapeAttr(e.sapFsId) +
+          '\')" style="background:#00A9E0;color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Abrir Ficha Cliente (perfil comercial: tipo, fidelidad, tamano, especializacion, credito cheque, etc.)">Ficha</button>'
+        : '';
     html +=
-      '<td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="' +
+      '<td><div style="display:flex;gap:4px;flex-wrap:wrap">' +
+      _fichaBtn +
+      '<button class="' +
       btnCls +
       '" onclick="saveMcAddr(\'' +
       escapeAttr(id) +
