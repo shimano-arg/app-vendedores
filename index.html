@@ -6420,7 +6420,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1315';
+const APP_VERSION = 'v1316';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18991,7 +18991,7 @@ function _repartoRender(){
   // v1294 (2026-10-14): filtro por SKU o nombre de cliente del input search.
   const searchEl = document.getElementById('reparto-search');
   const q = (searchEl && searchEl.value || '').trim().toLowerCase();
-  const matches = q
+  const matchesSearch = q
     ? _repartoIngresos.filter((i) => {
         const skuHit = String(i.sku || '').toLowerCase().includes(q);
         if (skuHit) return true;
@@ -18999,22 +18999,44 @@ function _repartoRender(){
         return clis.some((c) => String(c.clientName || '').toLowerCase().includes(q));
       })
     : _repartoIngresos;
+  // v1316 (2026-10-15): ocultar ingresos cuyos clientesBO ya NO tengan al
+  // menos 1 cliente repartible (todos los pedidos pasaron a SAP, se cerraron
+  // o las lineas BO fueron consumidas por otro reparto). Antes el modal
+  // mostraba 156 cards vacios con "Nada que repartir" — ruido inutil.
+  const matches = matchesSearch.filter((i) => {
+    const clis = Array.isArray(i.clientesBO) ? i.clientesBO : [];
+    return clis.some(_repartoClienteEsReparteable);
+  });
   const totalIng = matches.length;
+  const totalIngObsoletos = matchesSearch.length - matches.length;
   const totalUnits = matches.reduce((s, i) => s + (Number(i.qtyIngresada) || 0), 0);
-  const totalCli = matches.reduce((s, i) => s + (Number(i.clientesCount) || 0), 0);
+  const totalCli = matches.reduce((s, i) => {
+    const clis = Array.isArray(i.clientesBO) ? i.clientesBO : [];
+    return s + clis.filter(_repartoClienteEsReparteable).length;
+  }, 0);
   if (sum) {
     const prefix = q
       ? (totalIng + ' resultados para "' + q + '" · ')
       : (totalIng + ' ingresos pendientes · ');
-    sum.textContent = prefix + totalUnits + ' unidades por repartir · ' + totalCli + ' lineas cliente/SKU';
+    let suffix = totalUnits + ' unidades por repartir · ' + totalCli + ' lineas cliente/SKU';
+    if (totalIngObsoletos > 0) {
+      suffix += ' · ' + totalIngObsoletos + ' obsoletos ocultos';
+    }
+    sum.textContent = prefix + suffix;
   }
   while (list.firstChild) list.removeChild(list.firstChild);
   if (totalIng === 0) {
     const empty = document.createElement('div');
     empty.style.cssText = 'padding:30px;text-align:center;color:#64748b';
-    empty.textContent = q
-      ? ('Sin resultados para "' + q + '". Probá otro SKU o nombre.')
-      : 'No hay ingresos pendientes. Cuando llegue mercadería al depósito y haya clientes con backorder del SKU, aparecen aca.';
+    if (q) {
+      empty.textContent = 'Sin resultados para "' + q + '". Probá otro SKU o nombre.';
+    } else if (totalIngObsoletos > 0) {
+      empty.innerHTML = 'Hay ' + totalIngObsoletos + ' ingresos pendientes <b>pero todos obsoletos</b> '
+        + '(los pedidos ya pasaron a SAP o se cerraron).<br><br>'
+        + '<span style="font-size:12px;color:#86868b">Admin puede marcarlos como \'done\' manualmente en Firestore si molesta el counter.</span>';
+    } else {
+      empty.textContent = 'No hay ingresos pendientes. Cuando llegue mercadería al depósito y haya clientes con backorder del SKU, aparecen aca.';
+    }
     list.appendChild(empty);
     return;
   }
