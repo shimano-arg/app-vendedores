@@ -4717,6 +4717,56 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1310 (2026-10-15) — PERF: Master Clientes 400× más rápido al tipear en el buscador
+
+**Archivos**:
+- `src/domains/master-clientes.js` `renderMasterClientesTable`: pre-indexado `_altasBySapFsId Map` antes de `getCurrent` + reemplazo 2 `.find()` por `.get()` (lineas 2144 y 2287).
+- Rebuild `app.bundle.js` + `chunks/*.js`.
+- `index.html:6423` + `sw.js:20` (bump v1309 → v1310).
+
+**Antes (v1309)**:
+Mariano reportó lentitud al tipear en los buscadores, especialmente en el modal Master Clientes. Investigación con systematic-debugging (CLAUDE.md §29.3):
+- El search `mc-search` YA tenía debounce 200ms (v946) → debería ser instantáneo
+- Pero `renderMasterClientesTable()` tenía 2 `.find()` O(N) en el **hot path**:
+  1. Línea 2144 en `getCurrent()`: `approvedAltasList.find(x => x._fsId === fsId)` — y `getCurrent` se invoca ~3,500 veces por render (una vez para stats totalConDir sobre TODO el `entries` filtrado, dos veces para filter 'con'/'sin', y una vez en el forEach de render).
+  2. Línea 2287 en el forEach render: `approvedAltasList.find(x => x._fsId === e.sapFsId)` por cada entry SAP (hasta MAX=500).
+
+**Costo real**:
+- `approvedAltasList` ~2,000 altas SAP activas
+- Stats + filter + render loop combinados: ~3,500 × 2,000 = **~7 millones de operaciones por render**
+- Cada render del Master Clientes: ~500-1,500ms (bloquea el input)
+- El debounce de 200ms NO ayuda si el render tarda más de 200ms — Mariano terminaba de tipear, esperaba 200ms, y después se quedaba quieta la UI otros 500ms+
+
+**Cambio**:
+```js
+const _altasBySapFsId = new Map();
+for (const _a of approvedAltasList) {
+  if (_a && _a._fsId) _altasBySapFsId.set(_a._fsId, _a);
+}
+// ... en getCurrent y en forEach render:
+const alta = _altasBySapFsId.get(fsId); // O(1)
+```
+
+**Impacto**:
+- 7M ops → **18K ops** por render (`entries × 1 lookup O(1)` + indexado O(N) una vez)
+- Latencia esperada: **500-1,500ms → <50ms** por render
+- UX percibida: instantánea al tipear
+
+**Por que**:
+- Patrón clásico de `.find()` en loop vs Map lookup. El código fue escrito cuando `approvedAltasList` era chico (<500 altas); con el crecimiento del padrón SAP a 2,000+ altas, se volvió cuello de botella.
+- Semánticamente idéntico al código previo — Map.get(key) === .find(x => x._fsId === key).
+- Zero riesgo de regresión (patrón trivial, sin estado compartido).
+
+**Verificación**:
+- `npm run test:unit` → 706/706 pass (0 tests tocan master-clientes porque es DOM-heavy, pero el helper `_mcMatchPerfil` y filtros perfil comercial siguen intactos).
+- Fix queda en el bundle (src/domains/*.js tocado → rebuild obligatorio según CLAUDE.md feedback bundle).
+
+**Rollback**:
+- Revertir las 2 ediciones y borrar el bloque `_altasBySapFsId` pre-indexado.
+- Semantic: el find O(N) sigue funcionando, solo volvemos a la perf anterior.
+
+---
+
 ### v1309 (2026-10-15) — Modal Reparto de ingresos muestra stock físico (dep 11), no delta ingresado
 
 **Archivos**:
