@@ -6294,6 +6294,8 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
 </div>
 
 <style>
+/* Override del grid global .modal-body — necesitamos lista vertical, no 2 columnas */
+#sugerencias-modal #sug-body { display: block !important; grid-template-columns: none !important; gap: 0 !important; }
 #sugerencias-modal details > summary { list-style: none; }
 #sugerencias-modal details > summary::-webkit-details-marker { display: none; }
 #sugerencias-modal details > summary::marker { display: none; }
@@ -6536,7 +6538,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1348';
+const APP_VERSION = 'v1349';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
