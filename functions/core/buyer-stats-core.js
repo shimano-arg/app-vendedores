@@ -127,10 +127,12 @@ function computeWindowStats(rows, nowDate, windowMonths) {
     frecuenciaDias = Math.abs(spanDays) / (facturasCount - 1);
   }
 
-  // Top 25 SKUs por monto
+  // Top SKUs por monto. v1351: limite 200 (antes 25) para cubrir caso campañas donde
+  // el vendedor busca SKUs específicos aunque no sean top. Firestore batch limit 11MB.
+  // 200 SKUs × 150 bytes = 30KB por ventana × 4 ventanas = 120KB por doc.
   const topSkus = Array.from(bySku.values())
     .sort((a, b) => b.monto - a.monto)
-    .slice(0, 25)
+    .slice(0, 200)
     .map((s) => ({
       sku: s.sku,
       nombre: s.nombre,

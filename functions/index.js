@@ -2864,7 +2864,9 @@ async function _buyerWriteStatsFirestore(db, statsMap, locByCard) {
       computedAt: FieldValue.serverTimestamp(),
     });
   });
-  const BATCH = 400;
+  // v1351: BATCH reducido 400 -> 50 porque topSkus pasó de 25 a 200
+  // y batches de 400 exceden 11MB limit (Firestore batch commit).
+  const BATCH = 50;
   let written = 0;
   for (let i = 0; i < docs.length; i += BATCH) {
     const batch = db.batch();
