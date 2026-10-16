@@ -2235,7 +2235,7 @@ window.renderMasterClientesTable = function () {
   // upgrade a B/A/P. Se aplica en render: si curTipo es '' se muestra 'C'
   // seleccionado (pero NO auto-persiste - el user debe apretar Guardar para
   // que quede en Firestore).
-  const TIPO_OPTS = [
+  const _TIPO_OPTS = [
     { v: 'C', l: 'C' },
     { v: 'B', l: 'B' },
     { v: 'A', l: 'A' },
@@ -2289,7 +2289,7 @@ window.renderMasterClientesTable = function () {
     // Para POINTS usamos clientMasterCache; para SAP altas usamos el doc en
     // approvedAltasList (savedAddr es la calle/address actual guardada).
     let savedAddr = '';
-    let curTipo = '';
+    let _curTipo = '';
     // v1264 (2026-10-14): curCredito removido (columna "Credito ARS" ya no
     // se renderiza; dato se edita desde el modal Ficha Cliente). El export
     // CSV lee cmData.creditoCheque directo del cache, no necesita esto.
@@ -2298,11 +2298,11 @@ window.renderMasterClientesTable = function () {
       // v1310 PERF: Map.get(O(1)) en vez de .find(O(N)) sobre approvedAltasList.
       const alta = _altasBySapFsId.get(e.sapFsId);
       savedAddr = alta ? alta.calle || alta.address || '' : '';
-      curTipo = (alta && alta.cliTipo) || '';
+      _curTipo = (alta && alta.cliTipo) || '';
     } else {
       const saved = clientMasterCache.get(id);
       savedAddr = saved && saved.address ? saved.address : '';
-      curTipo = (saved && saved.cliTipo) || '';
+      _curTipo = (saved && saved.cliTipo) || '';
       // v630: defaultDelivery vive en client_master (solo POINTS por ahora;
       // SAP altas se agregan cuando el vendedor confirma un pedido para ese
       // cliente y clientLocId matchea con el nombre real).

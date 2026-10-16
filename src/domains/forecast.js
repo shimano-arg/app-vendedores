@@ -145,8 +145,7 @@ function _buildShellHtml() {
   // v1307: contenedor stat queda oculto para preservar referencias del codigo
   // (switchForecastTab/_renderForecastStatTab existen pero no se invocan
   // desde la UI). Si querés limpiar el codigo entero, es safe borrarlos.
-  const tabStat =
-    '<div id="forecast-tab-stat" style="display:none"></div>';
+  const tabStat = '<div id="forecast-tab-stat" style="display:none"></div>';
   return modalOuter + header + tabSalesPlans + tabStat + '</div>';
 }
 
