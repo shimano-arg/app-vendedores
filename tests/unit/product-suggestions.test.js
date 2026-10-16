@@ -4,6 +4,8 @@ import {
   computeSoftScore,
   overlapRatio,
   passHard,
+  passHardLinea,
+  passHardReel,
   suggestForSku,
 } from '../../src/pure/product-suggestions.js';
 
@@ -587,5 +589,263 @@ describe('suggestForSku - edge cases', () => {
     const r = suggestForSku(ORIG_SKU, ctx);
     // Cae a fallback_sub (misma sub Clarus) o fallback_fam
     expect(['fallback_sub', 'fallback_fam', 'none']).toContain(r.mode);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// passHardReel (v1347)
+// ---------------------------------------------------------------------------
+describe('passHardReel', () => {
+  const orig = {
+    sku: 'R',
+    familia_motor: 'reels',
+    tipo: 'Spinning',
+    tamano: 4000,
+    velocidad: 'HG',
+  };
+  it('nivel 0 match exacto', () => {
+    const cand = { ...orig, sku: 'R2' };
+    expect(passHardReel(orig, cand, 0)).toBe(true);
+  });
+  it('nivel 0 velocidad distinta falla', () => {
+    expect(passHardReel(orig, { ...orig, velocidad: 'XG' }, 0)).toBe(false);
+  });
+  it('nivel 1 velocidad distinta OK si tipo+tamaño iguales', () => {
+    expect(passHardReel(orig, { ...orig, velocidad: 'XG' }, 1)).toBe(true);
+  });
+  it('nivel 2 tamaño ±30% OK', () => {
+    expect(passHardReel(orig, { ...orig, tamano: 5000, velocidad: 'XG' }, 2)).toBe(true); // 25% diff
+    expect(passHardReel(orig, { ...orig, tamano: 10000, velocidad: 'XG' }, 2)).toBe(false); // 150% diff
+  });
+  it('nivel 3 solo tipo', () => {
+    expect(
+      passHardReel(orig, { ...orig, tipo: 'Spinning', tamano: 1000, velocidad: 'XG' }, 3)
+    ).toBe(true);
+    expect(passHardReel(orig, { ...orig, tipo: 'Baitcasting' }, 3)).toBe(false);
+  });
+  it('tipo nunca se afloja', () => {
+    expect(passHardReel(orig, { ...orig, tipo: 'Baitcasting' }, 3)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// passHardLinea (v1347)
+// ---------------------------------------------------------------------------
+describe('passHardLinea', () => {
+  const orig = { sku: 'L', familia_motor: 'lineas', marca: 'Kairiki', hebras: 4, libraje: 30 };
+  it('nivel 0: libraje ±2 lb pasa', () => {
+    expect(passHardLinea(orig, { ...orig, libraje: 31 }, 0)).toBe(true);
+    expect(passHardLinea(orig, { ...orig, libraje: 28 }, 0)).toBe(true);
+    expect(passHardLinea(orig, { ...orig, libraje: 25 }, 0)).toBe(false); // 5 lb
+  });
+  it('nivel 1: libraje ±5 lb pasa', () => {
+    expect(passHardLinea(orig, { ...orig, libraje: 25 }, 1)).toBe(true);
+    expect(passHardLinea(orig, { ...orig, libraje: 40 }, 1)).toBe(false); // 10 lb
+  });
+  it('nivel 2: libraje distinto cualquiera OK', () => {
+    expect(passHardLinea(orig, { ...orig, libraje: 50 }, 2)).toBe(true);
+  });
+  it('marca distinta nunca pasa', () => {
+    expect(passHardLinea(orig, { ...orig, marca: 'PowerPro' }, 3)).toBe(false);
+  });
+  it('hebras distinto nivel 0 falla', () => {
+    expect(passHardLinea(orig, { ...orig, hebras: 8 }, 0)).toBe(false);
+  });
+  it('nivel 3: hebras distinto OK si marca igual', () => {
+    expect(passHardLinea(orig, { ...orig, hebras: 8, libraje: 50 }, 3)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// suggestForSku - reels (integration)
+// ---------------------------------------------------------------------------
+describe('suggestForSku - reels', () => {
+  const REEL_CATALOG = [
+    { code: 'STLA4000HG', sub: 'Stella', fam: 'SPINNING', cat: 'REEL' },
+    { code: 'STLA4000XG', sub: 'Stella', fam: 'SPINNING', cat: 'REEL' },
+    { code: 'TWP4000HG', sub: 'TwinPower', fam: 'SPINNING', cat: 'REEL' },
+    { code: 'STLA2500HG', sub: 'Stella', fam: 'SPINNING', cat: 'REEL' },
+    { code: 'STLA10000HG', sub: 'Stella', fam: 'SPINNING', cat: 'REEL' },
+    { code: 'CURADO200HG', sub: 'Curado', fam: 'Baitcasting Low Profile', cat: 'REEL' },
+  ];
+  const REEL_ATTRS = {
+    STLA4000HG: {
+      sku: 'STLA4000HG',
+      familia_motor: 'reels',
+      tipo: 'Spinning',
+      tamano: 4000,
+      velocidad: 'HG',
+    },
+    STLA4000XG: {
+      sku: 'STLA4000XG',
+      familia_motor: 'reels',
+      tipo: 'Spinning',
+      tamano: 4000,
+      velocidad: 'XG',
+    },
+    TWP4000HG: {
+      sku: 'TWP4000HG',
+      familia_motor: 'reels',
+      tipo: 'Spinning',
+      tamano: 4000,
+      velocidad: 'HG',
+    },
+    STLA2500HG: {
+      sku: 'STLA2500HG',
+      familia_motor: 'reels',
+      tipo: 'Spinning',
+      tamano: 2500,
+      velocidad: 'HG',
+    },
+    STLA10000HG: {
+      sku: 'STLA10000HG',
+      familia_motor: 'reels',
+      tipo: 'Spinning',
+      tamano: 10000,
+      velocidad: 'HG',
+    },
+    CURADO200HG: {
+      sku: 'CURADO200HG',
+      familia_motor: 'reels',
+      tipo: 'Baitcasting',
+      tamano: 200,
+      velocidad: 'HG',
+    },
+  };
+  const ctx = {
+    catalog: REEL_CATALOG,
+    attrsBySku: REEL_ATTRS,
+    stockBySku: Object.fromEntries(REEL_CATALOG.map((p) => [p.code, 10])),
+    cartSkus: [],
+    priceBySku: Object.fromEntries(REEL_CATALOG.map((p) => [p.code, 100000])),
+    qtyFaltante: 1,
+  };
+
+  it('match exacto reel: 2 candidatos pasan nivel 0', () => {
+    const r = suggestForSku('STLA4000HG', ctx);
+    expect(r.mode).toBe('reels');
+    // STLA4000HG match: TWP4000HG (mismo tipo+tamaño+velocidad)
+    const strictSkus = r.strict.map((s) => s.sku);
+    expect(strictSkus).toContain('TWP4000HG');
+  });
+
+  it('reel velocidad distinta va a aproximadas', () => {
+    const r = suggestForSku('STLA4000HG', ctx);
+    const approxSkus = r.approx.map((s) => s.sku);
+    expect(approxSkus).toContain('STLA4000XG'); // mismo tipo+tamaño, velocidad distinta
+  });
+
+  it('Baitcasting NO matchea con Spinning aunque sean mismo tamaño', () => {
+    const r = suggestForSku('CURADO200HG', ctx);
+    const todos = [...r.strict, ...r.approx].map((s) => s.sku);
+    // Spinning no deberia aparecer en Baitcasting
+    expect(todos.every((s) => s === 'CURADO200HG' || REEL_ATTRS[s].tipo === 'Baitcasting')).toBe(
+      true
+    );
+  });
+
+  it('reel tamaño muy distinto (10000 vs 4000) no pasa niveles 0-2 pero sí nivel 3', () => {
+    const r = suggestForSku('STLA4000HG', ctx);
+    // Nivel 3 = solo tipo (acepta cualquier tamaño), entonces aparece como warn3
+    const strictSkus = r.strict.map((s) => s.sku);
+    expect(strictSkus).not.toContain('STLA10000HG');
+    const warn3 = r.approx.filter((a) => a.badge === 'warn3').map((a) => a.sku);
+    expect(warn3).toContain('STLA10000HG');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// suggestForSku - lineas (integration)
+// ---------------------------------------------------------------------------
+describe('suggestForSku - lineas', () => {
+  const LIN_CATALOG = [
+    { code: 'KAI4-30', sub: 'Kairiki 4', fam: 'KAIRIKI', cat: 'LINEAS' },
+    { code: 'KAI4-32', sub: 'Kairiki 4', fam: 'KAIRIKI', cat: 'LINEAS' },
+    { code: 'KAI4-50', sub: 'Kairiki 4', fam: 'KAIRIKI', cat: 'LINEAS' },
+    { code: 'KAI8-30', sub: 'Kairiki 8', fam: 'KAIRIKI', cat: 'LINEAS' },
+    { code: 'PP4-30', sub: 'Regular PP', fam: 'POWER PRO', cat: 'LINEAS' },
+  ];
+  const LIN_ATTRS = {
+    'KAI4-30': {
+      sku: 'KAI4-30',
+      familia_motor: 'lineas',
+      marca: 'Kairiki',
+      hebras: 4,
+      libraje: 30,
+      largo_m: 150,
+    },
+    'KAI4-32': {
+      sku: 'KAI4-32',
+      familia_motor: 'lineas',
+      marca: 'Kairiki',
+      hebras: 4,
+      libraje: 32,
+      largo_m: 150,
+    },
+    'KAI4-50': {
+      sku: 'KAI4-50',
+      familia_motor: 'lineas',
+      marca: 'Kairiki',
+      hebras: 4,
+      libraje: 50,
+      largo_m: 150,
+    },
+    'KAI8-30': {
+      sku: 'KAI8-30',
+      familia_motor: 'lineas',
+      marca: 'Kairiki',
+      hebras: 8,
+      libraje: 30,
+      largo_m: 150,
+    },
+    'PP4-30': {
+      sku: 'PP4-30',
+      familia_motor: 'lineas',
+      marca: 'PowerPro',
+      hebras: 4,
+      libraje: 30,
+      largo_yd: 300,
+    },
+  };
+  const ctx = {
+    catalog: LIN_CATALOG,
+    attrsBySku: LIN_ATTRS,
+    stockBySku: Object.fromEntries(LIN_CATALOG.map((p) => [p.code, 10])),
+    cartSkus: [],
+    priceBySku: Object.fromEntries(LIN_CATALOG.map((p) => [p.code, 50000])),
+    qtyFaltante: 1,
+  };
+
+  it('linea Kairiki 30lb match exacto (±2 lb)', () => {
+    const r = suggestForSku('KAI4-30', ctx);
+    expect(r.mode).toBe('lineas');
+    const strictSkus = r.strict.map((s) => s.sku);
+    expect(strictSkus).toContain('KAI4-32'); // 32 lb vs 30 lb = 2 diff OK
+  });
+
+  it('linea PowerPro NO matchea con Kairiki', () => {
+    const r = suggestForSku('KAI4-30', ctx);
+    const todos = [...r.strict, ...r.approx].map((s) => s.sku);
+    expect(todos).not.toContain('PP4-30');
+  });
+
+  it('linea hebras distinta nivel 0 falla', () => {
+    const r = suggestForSku('KAI4-30', ctx);
+    expect(r.strict.map((s) => s.sku)).not.toContain('KAI8-30');
+  });
+
+  it('linea hebras distinta nivel 3 pasa (misma marca)', () => {
+    const r = suggestForSku('KAI4-30', ctx);
+    const approxSkus = r.approx.map((s) => s.sku);
+    expect(approxSkus).toContain('KAI8-30'); // misma marca Kairiki, aproximado
+  });
+
+  it('linea libraje 50 lb vs 30 lb no pasa nivel 1 (diff 20)', () => {
+    const r = suggestForSku('KAI4-30', ctx);
+    const strictSkus = r.strict.map((s) => s.sku);
+    expect(strictSkus).not.toContain('KAI4-50');
+    // Pero sí aproximado nivel 2 (misma marca+hebras)
+    const approxSkus = r.approx.map((s) => s.sku);
+    expect(approxSkus).toContain('KAI4-50');
   });
 });

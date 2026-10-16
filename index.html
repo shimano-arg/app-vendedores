@@ -6529,7 +6529,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1346';
+const APP_VERSION = 'v1347';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22324,17 +22324,46 @@ function _sugAppendChipsAttrs(container, attrs, origAttrs) {
   const chip = (txt, warn) => {
     const bg = warn ? '#fef3c7' : '#f1f5f9';
     const fg = warn ? '#92400e' : '#334155';
-    const el = _sugMakeEl('span', 'display:inline-block;background:'+bg+';color:'+fg+';padding:2px 7px;border-radius:4px;font-size:10.5px;margin-right:4px;font-weight:600', (warn ? '⚠ ' : '') + txt);
-    return el;
+    return _sugMakeEl('span', 'display:inline-block;background:'+bg+';color:'+fg+';padding:2px 7px;border-radius:4px;font-size:10.5px;margin-right:4px;font-weight:600', (warn ? '⚠ ' : '') + txt);
   };
-  if (attrs.tipo) container.appendChild(chip(attrs.tipo, !!(origAttrs && attrs.tipo !== origAttrs.tipo)));
-  if (attrs.tramos != null) container.appendChild(chip(attrs.tramos + ' tramos', !!(origAttrs && attrs.tramos !== origAttrs.tramos)));
-  if (attrs.libraje_min != null && attrs.libraje_max != null) {
-    const warnLib = !!(origAttrs && (attrs.libraje_min !== origAttrs.libraje_min || attrs.libraje_max !== origAttrs.libraje_max));
-    container.appendChild(chip(attrs.libraje_min + '-' + attrs.libraje_max + ' lb', warnLib));
+  const fam = attrs.familia_motor;
+  if (fam === 'canas') {
+    if (attrs.tipo) container.appendChild(chip(attrs.tipo, !!(origAttrs && attrs.tipo !== origAttrs.tipo)));
+    if (attrs.tramos != null) container.appendChild(chip(attrs.tramos + ' tramos', !!(origAttrs && attrs.tramos !== origAttrs.tramos)));
+    if (attrs.libraje_min != null && attrs.libraje_max != null) {
+      const warnLib = !!(origAttrs && (attrs.libraje_min !== origAttrs.libraje_min || attrs.libraje_max !== origAttrs.libraje_max));
+      container.appendChild(chip(attrs.libraje_min + '-' + attrs.libraje_max + ' lb', warnLib));
+    }
+    if (attrs.largo_display || attrs.largo_cm != null) {
+      const label = attrs.largo_display
+        ? (attrs.largo_display + ' / ' + attrs.largo_cm + ' cm')
+        : (attrs.largo_cm + ' cm');
+      container.appendChild(chip(label, !!(origAttrs && origAttrs.largo_cm != null && Math.abs(attrs.largo_cm - origAttrs.largo_cm) > 15)));
+    }
+    if (attrs.accion) container.appendChild(chip(String(attrs.accion).replace('_', ' '), !!(origAttrs && attrs.accion !== origAttrs.accion)));
+    return;
   }
-  if (attrs.largo_cm != null) container.appendChild(chip(attrs.largo_cm + ' cm', !!(origAttrs && origAttrs.largo_cm != null && Math.abs(attrs.largo_cm - origAttrs.largo_cm) > 15)));
-  if (attrs.accion) container.appendChild(chip(String(attrs.accion).replace('_', ' '), !!(origAttrs && attrs.accion !== origAttrs.accion)));
+  if (fam === 'reels') {
+    if (attrs.tipo) container.appendChild(chip(attrs.tipo, !!(origAttrs && attrs.tipo !== origAttrs.tipo)));
+    if (attrs.tamano != null) container.appendChild(chip('Tamaño ' + attrs.tamano, !!(origAttrs && attrs.tamano !== origAttrs.tamano)));
+    if (attrs.velocidad) {
+      const label = attrs.velocidad === 'regular' ? 'Vel. regular'
+        : attrs.velocidad === 'HG' ? 'HG (rápido)'
+        : attrs.velocidad === 'XG' ? 'XG (extra rápido)'
+        : attrs.velocidad === 'PG' ? 'PG (torque)'
+        : attrs.velocidad;
+      container.appendChild(chip(label, !!(origAttrs && attrs.velocidad !== origAttrs.velocidad)));
+    }
+    return;
+  }
+  if (fam === 'lineas') {
+    if (attrs.marca) container.appendChild(chip(attrs.marca, !!(origAttrs && attrs.marca !== origAttrs.marca)));
+    if (attrs.hebras != null) container.appendChild(chip(attrs.hebras + ' hebras', !!(origAttrs && attrs.hebras !== origAttrs.hebras)));
+    if (attrs.libraje != null) container.appendChild(chip(attrs.libraje + ' lb', !!(origAttrs && origAttrs.libraje != null && Math.abs(attrs.libraje - origAttrs.libraje) > 2)));
+    if (attrs.largo_m != null) container.appendChild(chip(attrs.largo_m + ' m', !!(origAttrs && origAttrs.largo_m != null && attrs.largo_m !== origAttrs.largo_m)));
+    else if (attrs.largo_yd != null) container.appendChild(chip(attrs.largo_yd + ' yd', !!(origAttrs && origAttrs.largo_yd != null && attrs.largo_yd !== origAttrs.largo_yd)));
+    return;
+  }
 }
 
 function _sugMakeSuggestionRow(suggestion, origSku, faltante, attrsBySku, origAttrs) {
