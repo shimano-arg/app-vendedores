@@ -5354,6 +5354,24 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
        (modal-overlay default) la ficha quedaba atras. 5000 gana contra cualquier
        modal normal (3000), .sec-modal/#review-modal (3500), .qmodal-overlay (4000).
        Queda por debajo de confirm-dialog (9999) y splash (100000), que es lo correcto. -->
+  <style>
+    #ficha-cliente-modal .fc-tabs { display:flex; gap:6px; padding:10px 20px 0; border-bottom:1px solid var(--border-subtle); background:#fff; }
+    #ficha-cliente-modal .fc-tab { padding:8px 14px; border:none; background:transparent; cursor:pointer; font-size:12px; font-weight:700; color:#64748b; border-bottom:2px solid transparent; transition:all .15s; }
+    #ficha-cliente-modal .fc-tab.active { color:#2563eb; border-bottom-color:#2563eb; }
+    #ficha-cliente-modal .fc-tab:hover:not(.active) { color:#1e293b; background:#f8fafc; }
+    #ficha-cliente-modal #fc-buyer-content { display:none; padding:16px 20px; background:#f8fafc; overflow-y:auto; flex:1; min-height:0; }
+    #ficha-cliente-modal #fc-buyer-content.active { display:block; }
+    #ficha-cliente-modal.buyer-mode .modal-box { max-width:min(900px, 95vw) !important; width:min(900px, 95vw); max-height:92vh; display:flex; flex-direction:column; }
+    #ficha-cliente-modal.buyer-mode .modal-body { display:none !important; }
+    #ficha-cliente-modal:not(.buyer-mode) #fc-buyer-content { display:none !important; }
+    .fc-buyer-period-toggle { display:flex; gap:4px; margin-bottom:14px; }
+    .fc-buyer-period-btn { padding:6px 12px; background:#fff; border:1px solid var(--border-default); border-radius:6px; font-size:11.5px; font-weight:600; color:#64748b; cursor:pointer; }
+    .fc-buyer-period-btn.active { background:#2563eb; color:#fff; border-color:#2563eb; }
+    .fc-buyer-kpi { background:#fff; padding:12px 14px; border-radius:8px; border:1px solid var(--border-subtle); }
+    .fc-buyer-kpi-label { font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
+    .fc-buyer-kpi-value { font-size:16px; font-weight:800; color:#1e293b; }
+    .fc-buyer-kpi-sub { font-size:11px; color:#64748b; margin-top:2px; }
+  </style>
   <div class="modal-overlay" id="ficha-cliente-modal" onclick="if(event.target===this)closeFichaCliente()" style="z-index:5000">
     <div class="modal-box" style="max-width:460px">
       <div class="modal-head">
@@ -5364,6 +5382,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         </div>
         <button class="modal-close" onclick="closeFichaCliente()" title="Cerrar">&times;</button>
       </div>
+      <div class="fc-tabs">
+        <button type="button" class="fc-tab active" data-tab="clasif" onclick="switchFichaClienteTab('clasif')">Clasificación</button>
+        <button type="button" class="fc-tab" data-tab="buyer" onclick="switchFichaClienteTab('buyer')">Buyer</button>
+      </div>
+      <div id="fc-buyer-content"></div>
       <div class="modal-body">
         <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.4">Perfil comercial para segmentar campa&ntilde;as y acciones. Los campos son opcionales y se guardan autom&aacute;ticamente al cambiar.</div>
         <!-- v1265 (2026-10-14): "Tipo de cliente" (cliTipo) movido aca desde
@@ -6538,7 +6561,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1349';
+const APP_VERSION = 'v1350';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11481,9 +11504,272 @@ function openFichaClienteFromSapModal(fsId){
 window.openFichaClienteFromSapModal = openFichaClienteFromSapModal;
 
 function closeFichaCliente(){
-  document.getElementById('ficha-cliente-modal').classList.remove('open');
+  const modal = document.getElementById('ficha-cliente-modal');
+  modal.classList.remove('open');
+  modal.classList.remove('buyer-mode');
+  const buyerContent = document.getElementById('fc-buyer-content');
+  if (buyerContent) buyerContent.classList.remove('active');
+  // Reset tab a Clasificacion para proxima apertura.
+  document.querySelectorAll('#ficha-cliente-modal .fc-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === 'clasif'));
 }
 window.closeFichaCliente = closeFichaCliente;
+
+// v1350: tabs del modal Ficha Cliente — Clasificacion (formulario) + Buyer (analytics).
+let _fcBuyerCurrentPeriod = '12m';
+let _fcBuyerCurrentData = null;
+
+window.switchFichaClienteTab = function(tabName) {
+  const modal = document.getElementById('ficha-cliente-modal');
+  const buyerContent = document.getElementById('fc-buyer-content');
+  document.querySelectorAll('#ficha-cliente-modal .fc-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+  if (tabName === 'buyer') {
+    modal.classList.add('buyer-mode');
+    buyerContent.classList.add('active');
+    _loadFichaClienteBuyer();
+  } else {
+    modal.classList.remove('buyer-mode');
+    buyerContent.classList.remove('active');
+  }
+};
+
+function _fcBuyerMakeEl(tag, styleStr, text) {
+  const el = document.createElement(tag);
+  if (styleStr) el.style.cssText = styleStr;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+async function _loadFichaClienteBuyer() {
+  const buyerContent = document.getElementById('fc-buyer-content');
+  const cmEl = document.getElementById('client-modal');
+  const cardCode = cmEl && cmEl.dataset && cmEl.dataset.docId;
+  const clientName = (cmEl && cmEl.dataset && cmEl.dataset.clientName) || '';
+  if (!cardCode) {
+    while (buyerContent.firstChild) buyerContent.removeChild(buyerContent.firstChild);
+    buyerContent.appendChild(_fcBuyerMakeEl('div', 'padding:40px;text-align:center;color:#64748b', 'Cliente sin cardCode SAP — buyer no disponible.'));
+    return;
+  }
+  while (buyerContent.firstChild) buyerContent.removeChild(buyerContent.firstChild);
+  buyerContent.appendChild(_fcBuyerMakeEl('div', 'padding:40px;text-align:center;color:#64748b;font-size:13px', 'Cargando buyer…'));
+
+  try {
+    const [statsSnap, visitSnap, pedidosEnVuelo] = await Promise.all([
+      fbDb.collection('client_buyer_stats').doc(cardCode).get(),
+      _fcBuyerLastVisit(clientName),
+      _fcBuyerPedidosEnVuelo(cardCode),
+    ]);
+
+    if (!statsSnap.exists) {
+      while (buyerContent.firstChild) buyerContent.removeChild(buyerContent.firstChild);
+      buyerContent.appendChild(_fcBuyerMakeEl('div', 'padding:30px;text-align:center;color:#92400e;background:#fef3c7;border-radius:6px', 'Buyer no computado aún para este cliente. Se calcula cada noche 03:00 ART.'));
+      return;
+    }
+    _fcBuyerCurrentData = { stats: statsSnap.data(), visit: visitSnap, pedidosEnVuelo };
+    _renderFichaClienteBuyer();
+  } catch (e) {
+    console.error('_loadFichaClienteBuyer', e);
+    while (buyerContent.firstChild) buyerContent.removeChild(buyerContent.firstChild);
+    buyerContent.appendChild(_fcBuyerMakeEl('div', 'padding:30px;text-align:center;color:#dc2626;background:#fef2f2;border-radius:6px', 'Error cargando buyer: ' + (e.message || e)));
+    try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'buyer' } }); } catch(_){}
+  }
+}
+
+async function _fcBuyerLastVisit(clientName) {
+  if (!clientName) return null;
+  try {
+    const snap = await fbDb.collection('visitas')
+      .where('tienda', '==', clientName)
+      .orderBy('fecha', 'desc')
+      .limit(1)
+      .get();
+    if (snap.empty) return null;
+    const doc = snap.docs[0];
+    const data = doc.data() || {};
+    return {
+      fecha: data.fecha || null,
+      vendedor: data.vendor || data.ownerEmail || '-',
+      tipo: data.interactionType === 'contacto' ? 'Contacto' : 'Visita',
+    };
+  } catch (e) {
+    console.warn('_fcBuyerLastVisit', e);
+    return null;
+  }
+}
+
+async function _fcBuyerPedidosEnVuelo(cardCode) {
+  const thresholdDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const thresholdIso = thresholdDate.toISOString();
+  try {
+    const [pedidosSnap, waitlistSnap] = await Promise.all([
+      fbDb.collection('pedidos')
+        .where('clientCardCode', '==', cardCode)
+        .where('createdAt', '>=', thresholdIso)
+        .get()
+        .catch(() => ({ empty: true, docs: [] })),
+      fbDb.collection('revision_waitlist')
+        .where('clientCardCode', '==', cardCode)
+        .get()
+        .catch(() => ({ empty: true, docs: [] })),
+    ]);
+    let count = 0;
+    let monto = 0;
+    pedidosSnap.docs.forEach(d => {
+      const data = d.data() || {};
+      // Solo contar los no transferidos a SAP (pedidos "en vuelo")
+      if (!data.transferidoSAP || !data.transferidoSAP.docNum) {
+        count++;
+        monto += Number(data.totalMon || data.total || 0) || 0;
+      }
+    });
+    waitlistSnap.docs.forEach(d => {
+      const data = d.data() || {};
+      count++;
+      // Sum items monto si existen
+      const items = data.items || [];
+      items.forEach(i => { monto += (Number(i.qty) || 0) * (Number(i.price) || 0); });
+    });
+    return { count, monto };
+  } catch (e) {
+    console.warn('_fcBuyerPedidosEnVuelo', e);
+    return { count: 0, monto: 0, error: true };
+  }
+}
+
+function _renderFichaClienteBuyer() {
+  const buyerContent = document.getElementById('fc-buyer-content');
+  while (buyerContent.firstChild) buyerContent.removeChild(buyerContent.firstChild);
+  const data = _fcBuyerCurrentData;
+  if (!data) return;
+  const stats = data.stats || {};
+  const window = stats['stats_' + _fcBuyerCurrentPeriod] || {};
+  const visit = data.visit;
+  const vuelo = data.pedidosEnVuelo || { count: 0, monto: 0 };
+
+  // Period toggle
+  const toggleBox = _fcBuyerMakeEl('div', '');
+  toggleBox.className = 'fc-buyer-period-toggle';
+  ['3m', '6m', '12m', '24m'].forEach(p => {
+    const btn = _fcBuyerMakeEl('button', '', p === '3m' ? '3 meses' : p === '6m' ? '6 meses' : p === '12m' ? '12 meses' : '24 meses');
+    btn.type = 'button';
+    btn.className = 'fc-buyer-period-btn' + (p === _fcBuyerCurrentPeriod ? ' active' : '');
+    btn.onclick = () => { _fcBuyerCurrentPeriod = p; _renderFichaClienteBuyer(); };
+    toggleBox.appendChild(btn);
+  });
+  buyerContent.appendChild(toggleBox);
+
+  // KPIs grid
+  const kpiGrid = _fcBuyerMakeEl('div', 'display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px');
+  const addKpi = (label, value, sub) => {
+    const el = _fcBuyerMakeEl('div', '');
+    el.className = 'fc-buyer-kpi';
+    el.appendChild(_fcBuyerMakeEl('div', '', label)).className = 'fc-buyer-kpi-label';
+    el.appendChild(_fcBuyerMakeEl('div', '', value)).className = 'fc-buyer-kpi-value';
+    if (sub) el.appendChild(_fcBuyerMakeEl('div', '', sub)).className = 'fc-buyer-kpi-sub';
+    kpiGrid.appendChild(el);
+  };
+
+  const fmtArs = (n) => '$' + Math.round(n || 0).toLocaleString('es-AR');
+  addKpi('Monto total', fmtArs(window.montoTotal));
+  addKpi('Facturas', String(window.facturasCount || 0));
+  addKpi('Promedio por factura', fmtArs(window.montoPromedio));
+
+  const frecTxt = window.frecuenciaDias != null
+    ? '1 cada ' + Math.round(window.frecuenciaDias) + ' días'
+    : (window.facturasCount < 2 ? 'N/A (1 factura)' : 'N/A');
+  const frecSub = window.facturasPorMes ? Math.round(window.facturasPorMes * 10) / 10 + ' por mes' : '';
+  addKpi('Frecuencia', frecTxt, frecSub);
+
+  const ultTxt = window.ultimaCompra
+    ? 'Hace ' + (window.diasDesdeUltima != null ? window.diasDesdeUltima : '?') + ' días'
+    : 'Sin compras';
+  const ultSub = window.ultimaCompra ? window.ultimaCompra : '';
+  addKpi('Última compra', ultTxt, ultSub);
+
+  if (visit && visit.fecha) {
+    const visitDate = new Date(visit.fecha);
+    const daysSince = Math.round((Date.now() - visitDate.getTime()) / (1000 * 60 * 60 * 24));
+    addKpi('Última visita', 'Hace ' + daysSince + ' días', visit.vendedor + ' · ' + visit.tipo);
+  } else {
+    addKpi('Última visita', 'Sin registro', '');
+  }
+  buyerContent.appendChild(kpiGrid);
+
+  // Location
+  const locParts = [stats.provincia, stats.localidad, stats.direccion].filter(Boolean);
+  if (locParts.length > 0) {
+    const locEl = _fcBuyerMakeEl('div', 'background:#eff6ff;color:#1e40af;padding:10px 14px;border-radius:6px;font-size:12px;font-weight:600;margin-bottom:12px', '📍 ' + locParts.join(' · '));
+    buyerContent.appendChild(locEl);
+  }
+
+  // Indicador live
+  if (vuelo.count > 0) {
+    const vueloEl = _fcBuyerMakeEl('div', 'background:#fefce8;color:#854d0e;padding:10px 14px;border-radius:6px;font-size:12px;font-weight:600;margin-bottom:12px', '⚡ En vuelo: ' + vuelo.count + ' pedido(s) · ' + fmtArs(vuelo.monto) + ' (últimos 30 días, no facturado)');
+    buyerContent.appendChild(vueloEl);
+  }
+
+  // Top 25 SKUs
+  const topSkus = window.topSkus || [];
+  if (topSkus.length > 0) {
+    const skusSection = _fcBuyerMakeEl('div', 'background:#fff;border-radius:8px;border:1px solid var(--border-subtle);margin-bottom:12px;overflow:hidden');
+    const skusHeader = _fcBuyerMakeEl('div', 'padding:10px 14px;background:#0f172a;color:#fff;font-size:11px;font-weight:800;letter-spacing:.5px', 'TOP 25 SKUs');
+    skusSection.appendChild(skusHeader);
+    const table = _fcBuyerMakeEl('table', 'width:100%;border-collapse:collapse;font-size:11.5px');
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    ['#', 'SKU', 'Nombre', 'Cat', 'Qty', 'Monto', '% Monto'].forEach((h, idx) => {
+      const th = _fcBuyerMakeEl('th', 'padding:7px 10px;background:#f1f5f9;color:#334155;font-size:10.5px;font-weight:700;text-align:' + (idx >= 4 ? 'right' : 'left') + ';border-bottom:1px solid #e2e8f0', h);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    topSkus.forEach((s, i) => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid #f1f5f9';
+      const td = (txt, styleExtra) => _fcBuyerMakeEl('td', 'padding:6px 10px;color:#1e293b' + (styleExtra || ''), String(txt));
+      tr.appendChild(td(i + 1, ';color:#64748b;font-weight:700'));
+      tr.appendChild(td(s.sku, ';font-family:monospace;font-weight:700'));
+      const nameTd = td(s.nombre || '', ';max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
+      tr.appendChild(nameTd);
+      tr.appendChild(td(s.categoria || '', ';color:#64748b;font-size:10.5px'));
+      tr.appendChild(td(s.qty, ';text-align:right;font-weight:700'));
+      tr.appendChild(td(fmtArs(s.monto), ';text-align:right;font-weight:700'));
+      tr.appendChild(td((s.pctMonto || 0).toFixed(1) + '%', ';text-align:right;color:#64748b'));
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    skusSection.appendChild(table);
+    buyerContent.appendChild(skusSection);
+  }
+
+  // Mix por categoria
+  const topCats = window.topCategorias || [];
+  if (topCats.length > 0) {
+    const catSection = _fcBuyerMakeEl('div', 'background:#fff;border-radius:8px;border:1px solid var(--border-subtle);padding:12px 14px;margin-bottom:12px');
+    const catTitle = _fcBuyerMakeEl('div', 'font-size:11px;font-weight:800;color:#334155;letter-spacing:.5px;margin-bottom:10px', 'MIX POR CATEGORÍA');
+    catSection.appendChild(catTitle);
+    topCats.forEach(c => {
+      const row = _fcBuyerMakeEl('div', 'margin-bottom:8px');
+      const header = _fcBuyerMakeEl('div', 'display:flex;justify-content:space-between;align-items:center;font-size:11.5px;margin-bottom:3px');
+      header.appendChild(_fcBuyerMakeEl('span', 'font-weight:700;color:#1e293b', c.categoria));
+      header.appendChild(_fcBuyerMakeEl('span', 'color:#64748b', (c.pctMonto || 0).toFixed(1) + '% · ' + fmtArs(c.monto)));
+      row.appendChild(header);
+      const barOuter = _fcBuyerMakeEl('div', 'height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden');
+      const barInner = _fcBuyerMakeEl('div', 'height:100%;background:linear-gradient(90deg,#2563eb,#60a5fa);width:' + (c.pctMonto || 0) + '%;transition:width .3s');
+      barOuter.appendChild(barInner);
+      row.appendChild(barOuter);
+      catSection.appendChild(row);
+    });
+    buyerContent.appendChild(catSection);
+  }
+
+  // Footer con last compute
+  if (stats.computedAt) {
+    const ts = stats.computedAt.toDate ? stats.computedAt.toDate() : new Date(stats.computedAt);
+    const footer = _fcBuyerMakeEl('div', 'font-size:10.5px;color:#94a3b8;text-align:right;margin-top:8px', 'Snapshot: ' + ts.toLocaleString('es-AR') + ' (actualizado diariamente 03:00 ART)');
+    buyerContent.appendChild(footer);
+  }
+}
 
 // ============================================================
 // Modal: detalle de localidad con clientes + direcciones.

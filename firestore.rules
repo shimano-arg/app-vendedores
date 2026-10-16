@@ -879,6 +879,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // v1350 Buyer-cliente: stats pre-computados por cardCode (CF nocturna).
+    // Read authed (todos los roles ven buyer de todos los clientes — decision Mariano).
+    // Write SOLO CF (via admin SDK, bypassa rules).
+    // _meta_ doc: con status de la ultima corrida (lastRun, duration, errors).
+    match /client_buyer_stats/{cardCode} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     // v1346 Telemetria del modal de sugerencias. Cada apertura crea un doc;
     // acciones se appendean mientras el modal esta abierto; cierra con closedAt.
     // Create/update solo del propio vendedor (email match). Read admin/gerente.
