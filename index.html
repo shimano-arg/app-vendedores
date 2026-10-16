@@ -6561,7 +6561,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1350';
+const APP_VERSION = 'v1351';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11707,12 +11707,20 @@ function _renderFichaClienteBuyer() {
     buyerContent.appendChild(vueloEl);
   }
 
-  // Top 25 SKUs
+  // v1351: Top SKUs con buscador + botón "ver todos". Antes Top 25 fijo.
   const topSkus = window.topSkus || [];
   if (topSkus.length > 0) {
     const skusSection = _fcBuyerMakeEl('div', 'background:#fff;border-radius:8px;border:1px solid var(--border-subtle);margin-bottom:12px;overflow:hidden');
-    const skusHeader = _fcBuyerMakeEl('div', 'padding:10px 14px;background:#0f172a;color:#fff;font-size:11px;font-weight:800;letter-spacing:.5px', 'TOP 25 SKUs');
+    const skusHeader = _fcBuyerMakeEl('div', 'padding:10px 14px;background:#0f172a;color:#fff;display:flex;align-items:center;gap:10px;flex-wrap:wrap');
+    skusHeader.appendChild(_fcBuyerMakeEl('span', 'font-size:11px;font-weight:800;letter-spacing:.5px;flex-shrink:0', 'SKUs COMPRADOS'));
+    skusHeader.appendChild(_fcBuyerMakeEl('span', 'font-size:10.5px;color:#94a3b8;font-weight:600;flex-shrink:0', '(' + topSkus.length + ' total)'));
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Buscar SKU o nombre…';
+    searchInput.style.cssText = 'flex:1;min-width:140px;padding:5px 10px;border:1px solid #475569;border-radius:4px;background:#1e293b;color:#fff;font-size:11px;outline:none';
+    skusHeader.appendChild(searchInput);
     skusSection.appendChild(skusHeader);
+
     const table = _fcBuyerMakeEl('table', 'width:100%;border-collapse:collapse;font-size:11.5px');
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
@@ -11723,22 +11731,64 @@ function _renderFichaClienteBuyer() {
     thead.appendChild(trh);
     table.appendChild(thead);
     const tbody = document.createElement('tbody');
-    topSkus.forEach((s, i) => {
-      const tr = document.createElement('tr');
-      tr.style.borderBottom = '1px solid #f1f5f9';
-      const td = (txt, styleExtra) => _fcBuyerMakeEl('td', 'padding:6px 10px;color:#1e293b' + (styleExtra || ''), String(txt));
-      tr.appendChild(td(i + 1, ';color:#64748b;font-weight:700'));
-      tr.appendChild(td(s.sku, ';font-family:monospace;font-weight:700'));
-      const nameTd = td(s.nombre || '', ';max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');
-      tr.appendChild(nameTd);
-      tr.appendChild(td(s.categoria || '', ';color:#64748b;font-size:10.5px'));
-      tr.appendChild(td(s.qty, ';text-align:right;font-weight:700'));
-      tr.appendChild(td(fmtArs(s.monto), ';text-align:right;font-weight:700'));
-      tr.appendChild(td((s.pctMonto || 0).toFixed(1) + '%', ';text-align:right;color:#64748b'));
-      tbody.appendChild(tr);
-    });
     table.appendChild(tbody);
     skusSection.appendChild(table);
+
+    // Render function: filtra + limita según modo (top25 / expanded / search)
+    let showAll = false;
+    const renderRows = () => {
+      while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+      const q = (searchInput.value || '').trim().toLowerCase();
+      let list;
+      let note = '';
+      if (q) {
+        list = topSkus.filter(s =>
+          (s.sku || '').toLowerCase().includes(q) ||
+          (s.nombre || '').toLowerCase().includes(q)
+        );
+        if (list.length === 0) {
+          note = 'Sin coincidencias. Este cliente no compró ningún SKU con "' + q + '" en el período.';
+        }
+      } else {
+        list = showAll ? topSkus : topSkus.slice(0, 25);
+      }
+      list.forEach((s, i) => {
+        const originalRank = topSkus.indexOf(s) + 1;
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid #f1f5f9';
+        const td = (txt, styleExtra) => _fcBuyerMakeEl('td', 'padding:6px 10px;color:#1e293b' + (styleExtra || ''), String(txt));
+        tr.appendChild(td(originalRank, ';color:#64748b;font-weight:700'));
+        tr.appendChild(td(s.sku, ';font-family:monospace;font-weight:700'));
+        tr.appendChild(td(s.nombre || '', ';max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'));
+        tr.appendChild(td(s.categoria || '', ';color:#64748b;font-size:10.5px'));
+        tr.appendChild(td(s.qty, ';text-align:right;font-weight:700'));
+        tr.appendChild(td(fmtArs(s.monto), ';text-align:right;font-weight:700'));
+        tr.appendChild(td((s.pctMonto || 0).toFixed(1) + '%', ';text-align:right;color:#64748b'));
+        tbody.appendChild(tr);
+      });
+      // Note row si no hay coincidencias
+      let noteRow = skusSection.querySelector('[data-note-row]');
+      if (noteRow) noteRow.remove();
+      if (note) {
+        const nr = _fcBuyerMakeEl('div', 'padding:16px;text-align:center;color:#64748b;font-size:11.5px;background:#f8fafc', note);
+        nr.setAttribute('data-note-row', '1');
+        skusSection.appendChild(nr);
+      }
+      // "Ver todos" footer
+      let footerBtn = skusSection.querySelector('[data-ver-todos]');
+      if (footerBtn) footerBtn.remove();
+      if (!q && topSkus.length > 25) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('data-ver-todos', '1');
+        btn.style.cssText = 'width:100%;padding:9px;background:#f8fafc;color:#2563eb;border:none;border-top:1px solid #e2e8f0;font-size:11.5px;font-weight:700;cursor:pointer';
+        btn.textContent = showAll ? 'Mostrar solo top 25 ▲' : ('Ver todos los ' + topSkus.length + ' SKUs ▽');
+        btn.onclick = () => { showAll = !showAll; renderRows(); };
+        skusSection.appendChild(btn);
+      }
+    };
+    searchInput.oninput = renderRows;
+    renderRows();
     buyerContent.appendChild(skusSection);
   }
 
