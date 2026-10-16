@@ -40,7 +40,9 @@ const WINDOWS = [3, 6, 12, 24];
  */
 function daysBetween(fechaIso, nowDate) {
   const d = new Date(fechaIso + 'T00:00:00Z');
-  const now = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate()));
+  const now = new Date(
+    Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate())
+  );
   const ms = now.getTime() - d.getTime();
   return Math.round(ms / (1000 * 60 * 60 * 24));
 }
@@ -51,7 +53,9 @@ function daysBetween(fechaIso, nowDate) {
  * @returns {string} yyyy-mm-dd
  */
 function monthsAgo(nowDate, months) {
-  const d = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth() - months, nowDate.getUTCDate()));
+  const d = new Date(
+    Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth() - months, nowDate.getUTCDate())
+  );
   return d.toISOString().slice(0, 10);
 }
 
@@ -64,10 +68,16 @@ function monthsAgo(nowDate, months) {
 function computeWindowStats(rows, nowDate, windowMonths) {
   if (rows.length === 0) {
     return {
-      montoTotal: 0, facturasCount: 0, montoPromedio: 0,
-      primeraCompra: null, ultimaCompra: null,
-      frecuenciaDias: null, facturasPorMes: 0, diasDesdeUltima: null,
-      topSkus: [], topCategorias: [],
+      montoTotal: 0,
+      facturasCount: 0,
+      montoPromedio: 0,
+      primeraCompra: null,
+      ultimaCompra: null,
+      frecuenciaDias: null,
+      facturasPorMes: 0,
+      diasDesdeUltima: null,
+      topSkus: [],
+      topCategorias: [],
     };
   }
   let montoTotal = 0;
@@ -121,7 +131,7 @@ function computeWindowStats(rows, nowDate, windowMonths) {
   const topSkus = Array.from(bySku.values())
     .sort((a, b) => b.monto - a.monto)
     .slice(0, 25)
-    .map(s => ({
+    .map((s) => ({
       sku: s.sku,
       nombre: s.nombre,
       qty: Math.round(s.qty * 100) / 100,
@@ -184,7 +194,7 @@ export function aggregateVentasIntoBuyerStats(rows, nowDate) {
     };
     for (const w of WINDOWS) {
       const threshold = monthsAgo(nowDate, w);
-      const windowRows = cardRows.filter(r => r.fecha >= threshold);
+      const windowRows = cardRows.filter((r) => r.fecha >= threshold);
       doc['stats_' + w + 'm'] = computeWindowStats(windowRows, nowDate, w);
     }
     result.set(cardCode, doc);

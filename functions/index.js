@@ -2773,11 +2773,23 @@ export const generateVentasReportCF = onCall(
 function _buyerDeriveCategoria(familia) {
   const fam = String(familia || '').toLowerCase();
   if (fam.includes('baitcasting') && fam.includes('low profile')) return 'REELS';
-  if (fam.includes('casting') || fam.includes('spinning') || fam.includes('surf') || fam.includes('jigging') || fam.includes('multi') || fam.includes('shoresurf') || fam.includes('inshore') || fam.includes('boat') || fam.includes('travel') || fam.includes('telescop')) {
+  if (
+    fam.includes('casting') ||
+    fam.includes('spinning') ||
+    fam.includes('surf') ||
+    fam.includes('jigging') ||
+    fam.includes('multi') ||
+    fam.includes('shoresurf') ||
+    fam.includes('inshore') ||
+    fam.includes('boat') ||
+    fam.includes('travel') ||
+    fam.includes('telescop')
+  ) {
     return 'CAÑAS';
   }
   if (fam.includes('rotativo') || fam.includes('reel')) return 'REELS';
-  if (fam.includes('kairiki') || fam.includes('power pro') || fam.includes('powerpro')) return 'LÍNEAS';
+  if (fam.includes('kairiki') || fam.includes('power pro') || fam.includes('powerpro'))
+    return 'LÍNEAS';
   return (familia || 'OTRO').toUpperCase();
 }
 
@@ -2813,7 +2825,13 @@ async function _buyerEnrichLocationFromClientMaster(db, cardCodes) {
   for (let i = 0; i < cardCodes.length; i += CHUNK) {
     const chunk = cardCodes.slice(i, i + CHUNK);
     const docs = await Promise.all(
-      chunk.map((cc) => db.collection('client_master').doc(cc).get().catch(() => null))
+      chunk.map((cc) =>
+        db
+          .collection('client_master')
+          .doc(cc)
+          .get()
+          .catch(() => null)
+      )
     );
     for (let j = 0; j < docs.length; j++) {
       const d = docs[j];
@@ -2873,18 +2891,27 @@ export const recomputeClientBuyerStats = onSchedule(
     const db = getFirestore();
     const { BigQuery } = await import('@google-cloud/bigquery');
     const { aggregateVentasIntoBuyerStats } = await import('./core/buyer-stats-core.js');
-    const bq = new BigQuery({ projectId: 'app-vendedores-shimano', location: 'southamerica-east1' });
+    const bq = new BigQuery({
+      projectId: 'app-vendedores-shimano',
+      location: 'southamerica-east1',
+    });
 
     let rows;
     try {
       rows = await _buyerFetchVentasRows(bq);
     } catch (e) {
       console.error('[recomputeClientBuyerStats] BQ query failed', e);
-      await db.collection('client_buyer_stats').doc('_meta_').set({
-        lastRun: FieldValue.serverTimestamp(),
-        error: String((e && e.message) || e),
-        status: 'bq_error',
-      }, { merge: true });
+      await db
+        .collection('client_buyer_stats')
+        .doc('_meta_')
+        .set(
+          {
+            lastRun: FieldValue.serverTimestamp(),
+            error: String((e && e.message) || e),
+            status: 'bq_error',
+          },
+          { merge: true }
+        );
       throw e;
     }
     console.log('[recomputeClientBuyerStats] BQ rows:', rows.length);
@@ -2897,15 +2924,24 @@ export const recomputeClientBuyerStats = onSchedule(
     const written = await _buyerWriteStatsFirestore(db, statsMap, locByCard);
 
     const durationMs = Date.now() - startMs;
-    await db.collection('client_buyer_stats').doc('_meta_').set({
-      lastRun: FieldValue.serverTimestamp(),
-      durationMs,
-      cardsProcesados: statsMap.size,
-      rowsBQ: rows.length,
-      status: 'ok',
-    }, { merge: true });
+    await db.collection('client_buyer_stats').doc('_meta_').set(
+      {
+        lastRun: FieldValue.serverTimestamp(),
+        durationMs,
+        cardsProcesados: statsMap.size,
+        rowsBQ: rows.length,
+        status: 'ok',
+      },
+      { merge: true }
+    );
 
-    console.log('[recomputeClientBuyerStats] OK:', written, 'docs in', Math.round(durationMs / 1000), 's');
+    console.log(
+      '[recomputeClientBuyerStats] OK:',
+      written,
+      'docs in',
+      Math.round(durationMs / 1000),
+      's'
+    );
   }
 );
 
@@ -2922,7 +2958,7 @@ export const triggerRecomputeClientBuyerStats = onCall(
     if (!auth) throw new HttpsError('unauthenticated', 'Login requerido');
     const db = getFirestore();
     const userDoc = await db.doc(`users/${auth.uid}`).get();
-    const userData = userDoc.exists ? (userDoc.data() || {}) : {};
+    const userData = userDoc.exists ? userDoc.data() || {} : {};
     const role = userData.role || '';
     if (role !== 'admin' && role !== 'gerente') {
       throw new HttpsError('permission-denied', 'Solo admin/gerente puede trigger manual');
@@ -2930,20 +2966,29 @@ export const triggerRecomputeClientBuyerStats = onCall(
 
     const { BigQuery } = await import('@google-cloud/bigquery');
     const { aggregateVentasIntoBuyerStats } = await import('./core/buyer-stats-core.js');
-    const bq = new BigQuery({ projectId: 'app-vendedores-shimano', location: 'southamerica-east1' });
+    const bq = new BigQuery({
+      projectId: 'app-vendedores-shimano',
+      location: 'southamerica-east1',
+    });
 
     const rows = await _buyerFetchVentasRows(bq);
     const statsMap = aggregateVentasIntoBuyerStats(rows, new Date());
     const cardCodes = Array.from(statsMap.keys());
     const locByCard = await _buyerEnrichLocationFromClientMaster(db, cardCodes);
     const written = await _buyerWriteStatsFirestore(db, statsMap, locByCard);
-    await db.collection('client_buyer_stats').doc('_meta_').set({
-      lastRun: FieldValue.serverTimestamp(),
-      cardsProcesados: statsMap.size,
-      rowsBQ: rows.length,
-      status: 'ok_manual',
-      triggeredBy: auth.token.email || auth.uid,
-    }, { merge: true });
+    await db
+      .collection('client_buyer_stats')
+      .doc('_meta_')
+      .set(
+        {
+          lastRun: FieldValue.serverTimestamp(),
+          cardsProcesados: statsMap.size,
+          rowsBQ: rows.length,
+          status: 'ok_manual',
+          triggeredBy: auth.token.email || auth.uid,
+        },
+        { merge: true }
+      );
     return { cards: statsMap.size, rows: rows.length, written };
   }
 );
