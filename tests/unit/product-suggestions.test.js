@@ -1,9 +1,9 @@
 // @ts-check
 import { describe, expect, it } from 'vitest';
 import {
+  computeSoftScore,
   overlapRatio,
   passHard,
-  computeSoftScore,
   suggestForSku,
 } from '../../src/pure/product-suggestions.js';
 
@@ -15,35 +15,179 @@ const ORIG_SKU = 'CLC70H2PY';
 const CARRITO_SKU = 'CLS70XH2CH'; // SKU que simula ya estar en carrito
 
 const CATALOG = [
-  { code: 'CLC70H2PY', desc: 'Casting Heavy 7ft 30lb', cat: 'CAÑAS', fam: 'FW Casting', sub: 'Clarus' },
-  { code: 'CLC70HA2', desc: 'otro Casting 7ft Heavy', cat: 'CAÑAS', fam: 'FW Casting', sub: 'Clarus' },
-  { code: 'CDC72HA', desc: 'Curado Casting 7.2ft Heavy', cat: 'CAÑAS', fam: 'FW Casting', sub: 'Curado' },
-  { code: 'CLC70M2', desc: 'Casting Medium 7ft 15lb', cat: 'CAÑAS', fam: 'FW Casting', sub: 'Clarus' },
-  { code: 'CLC66HA', desc: 'Casting 1 tramo 6.6ft Heavy', cat: 'CAÑAS', fam: 'FW Casting', sub: 'Clarus' },
-  { code: 'CDC60M', desc: 'Casting 1 tramo 6ft Medium', cat: 'CAÑAS', fam: 'FW Casting', sub: 'Curado' },
+  {
+    code: 'CLC70H2PY',
+    desc: 'Casting Heavy 7ft 30lb',
+    cat: 'CAÑAS',
+    fam: 'FW Casting',
+    sub: 'Clarus',
+  },
+  {
+    code: 'CLC70HA2',
+    desc: 'otro Casting 7ft Heavy',
+    cat: 'CAÑAS',
+    fam: 'FW Casting',
+    sub: 'Clarus',
+  },
+  {
+    code: 'CDC72HA',
+    desc: 'Curado Casting 7.2ft Heavy',
+    cat: 'CAÑAS',
+    fam: 'FW Casting',
+    sub: 'Curado',
+  },
+  {
+    code: 'CLC70M2',
+    desc: 'Casting Medium 7ft 15lb',
+    cat: 'CAÑAS',
+    fam: 'FW Casting',
+    sub: 'Clarus',
+  },
+  {
+    code: 'CLC66HA',
+    desc: 'Casting 1 tramo 6.6ft Heavy',
+    cat: 'CAÑAS',
+    fam: 'FW Casting',
+    sub: 'Clarus',
+  },
+  {
+    code: 'CDC60M',
+    desc: 'Casting 1 tramo 6ft Medium',
+    cat: 'CAÑAS',
+    fam: 'FW Casting',
+    sub: 'Curado',
+  },
   { code: 'CLS70HA', desc: 'Spinning Heavy', cat: 'CAÑAS', fam: 'FW Spinning', sub: 'Clarus' },
   { code: CARRITO_SKU, desc: 'Spinning XH', cat: 'CAÑAS', fam: 'FW Spinning', sub: 'Clarus' },
   { code: 'OUT_OF_STOCK', desc: 'Casting Heavy', cat: 'CAÑAS', fam: 'FW Casting', sub: 'Clarus' },
-  { code: 'REEL1', desc: 'Reel Stella 4000', cat: 'REEL', fam: 'Spinning Low Profile', sub: 'Stella' },
-  { code: 'REEL2', desc: 'Reel Stella 2500', cat: 'REEL', fam: 'Spinning Low Profile', sub: 'Stella' },
-  { code: 'REEL3', desc: 'Reel Twin Power 4000', cat: 'REEL', fam: 'Spinning Low Profile', sub: 'TwinPower' },
+  {
+    code: 'REEL1',
+    desc: 'Reel Stella 4000',
+    cat: 'REEL',
+    fam: 'Spinning Low Profile',
+    sub: 'Stella',
+  },
+  {
+    code: 'REEL2',
+    desc: 'Reel Stella 2500',
+    cat: 'REEL',
+    fam: 'Spinning Low Profile',
+    sub: 'Stella',
+  },
+  {
+    code: 'REEL3',
+    desc: 'Reel Twin Power 4000',
+    cat: 'REEL',
+    fam: 'Spinning Low Profile',
+    sub: 'TwinPower',
+  },
 ];
 
 const ATTRS = {
-  CLC70H2PY: { sku: 'CLC70H2PY', familia_motor: 'canas', tipo: 'Casting', tramos: 2, libraje_min: 25, libraje_max: 35, largo_cm: 213, accion: 'rapida', potencia: 'H' },
-  CLC70HA2: { sku: 'CLC70HA2', familia_motor: 'canas', tipo: 'Casting', tramos: 2, libraje_min: 25, libraje_max: 35, largo_cm: 213, accion: 'rapida', potencia: 'H' },
-  CDC72HA: { sku: 'CDC72HA', familia_motor: 'canas', tipo: 'Casting', tramos: 2, libraje_min: 20, libraje_max: 30, largo_cm: 218, accion: 'rapida', potencia: 'H' },
-  CLC70M2: { sku: 'CLC70M2', familia_motor: 'canas', tipo: 'Casting', tramos: 2, libraje_min: 10, libraje_max: 20, largo_cm: 213, accion: 'rapida', potencia: 'M' }, // overlap 0 con 25-35
-  CLC66HA: { sku: 'CLC66HA', familia_motor: 'canas', tipo: 'Casting', tramos: 1, libraje_min: 25, libraje_max: 35, largo_cm: 198, accion: 'rapida', potencia: 'H' },
-  CDC60M: { sku: 'CDC60M', familia_motor: 'canas', tipo: 'Casting', tramos: 1, libraje_min: 8, libraje_max: 17, largo_cm: 183, accion: 'moderada', potencia: 'M' },
-  CLS70HA: { sku: 'CLS70HA', familia_motor: 'canas', tipo: 'Spinning', tramos: 2, libraje_min: 25, libraje_max: 35, largo_cm: 213, accion: 'rapida', potencia: 'H' },
-  [CARRITO_SKU]: { sku: CARRITO_SKU, familia_motor: 'canas', tipo: 'Spinning', tramos: 2, libraje_min: 35, libraje_max: 45, largo_cm: 213, accion: 'rapida', potencia: 'XH' },
-  OUT_OF_STOCK: { sku: 'OUT_OF_STOCK', familia_motor: 'canas', tipo: 'Casting', tramos: 2, libraje_min: 25, libraje_max: 35, largo_cm: 213, accion: 'rapida', potencia: 'H' },
+  CLC70H2PY: {
+    sku: 'CLC70H2PY',
+    familia_motor: 'canas',
+    tipo: 'Casting',
+    tramos: 2,
+    libraje_min: 25,
+    libraje_max: 35,
+    largo_cm: 213,
+    accion: 'rapida',
+    potencia: 'H',
+  },
+  CLC70HA2: {
+    sku: 'CLC70HA2',
+    familia_motor: 'canas',
+    tipo: 'Casting',
+    tramos: 2,
+    libraje_min: 25,
+    libraje_max: 35,
+    largo_cm: 213,
+    accion: 'rapida',
+    potencia: 'H',
+  },
+  CDC72HA: {
+    sku: 'CDC72HA',
+    familia_motor: 'canas',
+    tipo: 'Casting',
+    tramos: 2,
+    libraje_min: 20,
+    libraje_max: 30,
+    largo_cm: 218,
+    accion: 'rapida',
+    potencia: 'H',
+  },
+  CLC70M2: {
+    sku: 'CLC70M2',
+    familia_motor: 'canas',
+    tipo: 'Casting',
+    tramos: 2,
+    libraje_min: 10,
+    libraje_max: 20,
+    largo_cm: 213,
+    accion: 'rapida',
+    potencia: 'M',
+  }, // overlap 0 con 25-35
+  CLC66HA: {
+    sku: 'CLC66HA',
+    familia_motor: 'canas',
+    tipo: 'Casting',
+    tramos: 1,
+    libraje_min: 25,
+    libraje_max: 35,
+    largo_cm: 198,
+    accion: 'rapida',
+    potencia: 'H',
+  },
+  CDC60M: {
+    sku: 'CDC60M',
+    familia_motor: 'canas',
+    tipo: 'Casting',
+    tramos: 1,
+    libraje_min: 8,
+    libraje_max: 17,
+    largo_cm: 183,
+    accion: 'moderada',
+    potencia: 'M',
+  },
+  CLS70HA: {
+    sku: 'CLS70HA',
+    familia_motor: 'canas',
+    tipo: 'Spinning',
+    tramos: 2,
+    libraje_min: 25,
+    libraje_max: 35,
+    largo_cm: 213,
+    accion: 'rapida',
+    potencia: 'H',
+  },
+  [CARRITO_SKU]: {
+    sku: CARRITO_SKU,
+    familia_motor: 'canas',
+    tipo: 'Spinning',
+    tramos: 2,
+    libraje_min: 35,
+    libraje_max: 45,
+    largo_cm: 213,
+    accion: 'rapida',
+    potencia: 'XH',
+  },
+  OUT_OF_STOCK: {
+    sku: 'OUT_OF_STOCK',
+    familia_motor: 'canas',
+    tipo: 'Casting',
+    tramos: 2,
+    libraje_min: 25,
+    libraje_max: 35,
+    largo_cm: 213,
+    accion: 'rapida',
+    potencia: 'H',
+  },
   // Reels no tienen attrs
 };
 
 const STOCK = {
-  CLC70H2PY: 0,  // El original esta sin stock
+  CLC70H2PY: 0, // El original esta sin stock
   CLC70HA2: 10,
   CDC72HA: 5,
   CLC70M2: 8,
@@ -51,7 +195,7 @@ const STOCK = {
   CDC60M: 20,
   CLS70HA: 7,
   [CARRITO_SKU]: 15,
-  OUT_OF_STOCK: 0,  // excluir
+  OUT_OF_STOCK: 0, // excluir
   REEL1: 12,
   REEL2: 4,
   REEL3: 2,
@@ -59,9 +203,9 @@ const STOCK = {
 
 const PRICES = {
   CLC70H2PY: 34000,
-  CLC70HA2: 34500,     // +1.5%
-  CDC72HA: 38000,      // +11.8%
-  CLC70M2: 30000,      // -11.8%
+  CLC70HA2: 34500, // +1.5%
+  CDC72HA: 38000, // +11.8%
+  CLC70M2: 30000, // -11.8%
   CLC66HA: 32000,
   CDC60M: 25000,
   CLS70HA: 33000,
@@ -69,7 +213,7 @@ const PRICES = {
   OUT_OF_STOCK: 34000,
   REEL1: 150000,
   REEL2: 140000,
-  REEL3: 180000,  // +20% vs 150k, fuera de ±30% si original fuera 100k
+  REEL3: 180000, // +20% vs 150k, fuera de ±30% si original fuera 100k
 };
 
 const baseCtx = (overrides = {}) => ({
@@ -150,14 +294,30 @@ describe('computeSoftScore', () => {
   it('mismo modelo + largo + accion suma 180 + bonus precio', () => {
     const orig = CATALOG.find((p) => p.code === 'CLC70H2PY');
     const cand = CATALOG.find((p) => p.code === 'CLC70HA2');
-    const score = computeSoftScore('CLC70H2PY', 'CLC70HA2', orig, cand, ATTRS.CLC70H2PY, ATTRS.CLC70HA2, PRICES);
+    const score = computeSoftScore(
+      'CLC70H2PY',
+      'CLC70HA2',
+      orig,
+      cand,
+      ATTRS.CLC70H2PY,
+      ATTRS.CLC70HA2,
+      PRICES
+    );
     // Mismo sub (Clarus): +100. Mismo largo (213): +50. Misma accion: +30. Delta 1.5%: +48.5. Total ≈ 228.5
     expect(score).toBeGreaterThan(220);
   });
   it('distinto sub resta 100', () => {
     const orig = CATALOG.find((p) => p.code === 'CLC70H2PY');
     const cand = CATALOG.find((p) => p.code === 'CDC72HA');
-    const score = computeSoftScore('CLC70H2PY', 'CDC72HA', orig, cand, ATTRS.CLC70H2PY, ATTRS.CDC72HA, PRICES);
+    const score = computeSoftScore(
+      'CLC70H2PY',
+      'CDC72HA',
+      orig,
+      cand,
+      ATTRS.CLC70H2PY,
+      ATTRS.CDC72HA,
+      PRICES
+    );
     // Sin sub (Curado≠Clarus): 0 por sub. Largo 218 cerca de 213 (±15): +50. Accion igual: +30. Precio +11.8%: 50-11.8=38.2. ≈118
     expect(score).toBeLessThan(130);
     expect(score).toBeGreaterThan(100);
@@ -267,16 +427,26 @@ describe('suggestForSku - fallback no-cañas', () => {
     { code: 'STELLA4000', desc: 'Reel Stella 4000', cat: 'REEL', fam: 'Spinning', sub: 'Stella' },
     { code: 'STELLA2500', desc: 'Reel Stella 2500', cat: 'REEL', fam: 'Spinning', sub: 'Stella' },
     { code: 'STELLA1000', desc: 'Reel Stella 1000', cat: 'REEL', fam: 'Spinning', sub: 'Stella' },
-    { code: 'TWINPOWER4000', desc: 'TwinPower 4000', cat: 'REEL', fam: 'Spinning', sub: 'TwinPower' },
+    {
+      code: 'TWINPOWER4000',
+      desc: 'TwinPower 4000',
+      cat: 'REEL',
+      fam: 'Spinning',
+      sub: 'TwinPower',
+    },
     { code: 'OTHER', desc: 'Other', cat: 'REEL', fam: 'Baitcasting', sub: 'Curado' },
   ];
   const REEL_STOCK = {
-    STELLA4000: 10, STELLA2500: 5, STELLA1000: 8, TWINPOWER4000: 7, OTHER: 20,
+    STELLA4000: 10,
+    STELLA2500: 5,
+    STELLA1000: 8,
+    TWINPOWER4000: 7,
+    OTHER: 20,
   };
   const REEL_PRICES = {
     STELLA4000: 100000,
-    STELLA2500: 90000,   // -10%
-    STELLA1000: 70000,   // -30% exacto
+    STELLA2500: 90000, // -10%
+    STELLA1000: 70000, // -30% exacto
     TWINPOWER4000: 150000, // +50% fuera de rango
     OTHER: 95000,
   };
@@ -379,8 +549,28 @@ describe('suggestForSku - edge cases', () => {
       ],
       attrsBySku: {
         ...ATTRS,
-        A: { sku: 'A', familia_motor: 'canas', tipo: 'Casting', tramos: 2, libraje_min: 25, libraje_max: 35, largo_cm: 213, accion: 'rapida', potencia: 'H' },
-        B: { sku: 'B', familia_motor: 'canas', tipo: 'Casting', tramos: 2, libraje_min: 25, libraje_max: 35, largo_cm: 213, accion: 'rapida', potencia: 'H' },
+        A: {
+          sku: 'A',
+          familia_motor: 'canas',
+          tipo: 'Casting',
+          tramos: 2,
+          libraje_min: 25,
+          libraje_max: 35,
+          largo_cm: 213,
+          accion: 'rapida',
+          potencia: 'H',
+        },
+        B: {
+          sku: 'B',
+          familia_motor: 'canas',
+          tipo: 'Casting',
+          tramos: 2,
+          libraje_min: 25,
+          libraje_max: 35,
+          largo_cm: 213,
+          accion: 'rapida',
+          potencia: 'H',
+        },
       },
       stockBySku: { A: 5, B: 20 },
       priceBySku: { CLC70H2PY: 34000, A: 34000, B: 34000 }, // mismo precio

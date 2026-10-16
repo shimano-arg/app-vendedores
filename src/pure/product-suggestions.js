@@ -70,8 +70,14 @@
  */
 export function overlapRatio(a_min, a_max, b_min, b_max) {
   if (
-    a_min == null || a_max == null || b_min == null || b_max == null ||
-    Number.isNaN(a_min) || Number.isNaN(a_max) || Number.isNaN(b_min) || Number.isNaN(b_max)
+    a_min == null ||
+    a_max == null ||
+    b_min == null ||
+    b_max == null ||
+    Number.isNaN(a_min) ||
+    Number.isNaN(a_max) ||
+    Number.isNaN(b_min) ||
+    Number.isNaN(b_max)
   ) {
     return 0;
   }
@@ -81,7 +87,7 @@ export function overlapRatio(a_min, a_max, b_min, b_max) {
   const minWidth = Math.min(widthA, widthB);
   if (minWidth <= 0) {
     // Ambos single-value: match solo si son iguales (o si rangos iguales)
-    return (a_min === b_min && a_max === b_max) ? 1 : 0;
+    return a_min === b_min && a_max === b_max ? 1 : 0;
   }
   return overlap / minWidth;
 }
@@ -107,14 +113,18 @@ export function passHard(origAttrs, candAttrs, level) {
 
   // Libraje
   if (
-    origAttrs.libraje_min == null || origAttrs.libraje_max == null ||
-    candAttrs.libraje_min == null || candAttrs.libraje_max == null
+    origAttrs.libraje_min == null ||
+    origAttrs.libraje_max == null ||
+    candAttrs.libraje_min == null ||
+    candAttrs.libraje_max == null
   ) {
     return false;
   }
   const ratio = overlapRatio(
-    origAttrs.libraje_min, origAttrs.libraje_max,
-    candAttrs.libraje_min, candAttrs.libraje_max
+    origAttrs.libraje_min,
+    origAttrs.libraje_max,
+    candAttrs.libraje_min,
+    candAttrs.libraje_max
   );
   if (level === 0) return ratio >= 0.5;
   if (level === 1) return ratio > 0;
@@ -125,7 +135,15 @@ export function passHard(origAttrs, candAttrs, level) {
  * Calcula score SOFT rank para ordenar candidatos.
  * Mayor score = mejor match semantico.
  */
-export function computeSoftScore(originalSku, candCode, original, candidate, origAttrs, candAttrs, priceBySku) {
+export function computeSoftScore(
+  originalSku,
+  candCode,
+  original,
+  candidate,
+  origAttrs,
+  candAttrs,
+  priceBySku
+) {
   let score = 0;
   // Mismo modelo (sub)
   if (original.sub && candidate.sub && original.sub === candidate.sub) {
@@ -138,7 +156,13 @@ export function computeSoftScore(originalSku, candCode, original, candidate, ori
     }
   }
   // Misma accion
-  if (origAttrs && candAttrs && origAttrs.accion && candAttrs.accion && origAttrs.accion === candAttrs.accion) {
+  if (
+    origAttrs &&
+    candAttrs &&
+    origAttrs.accion &&
+    candAttrs.accion &&
+    origAttrs.accion === candAttrs.accion
+  ) {
     score += 30;
   }
   // Precio: bonus mayor cuanto menor sea el delta absoluto en %
@@ -202,10 +226,9 @@ export function suggestForSku(originalSku, context) {
   const cartSet = new Set(cartSkus || []);
 
   // Filtro base: candidato debe tener stock suficiente, no estar en carrito, no ser el original
-  const candidates = catalog.filter((p) =>
-    p.code !== originalSku &&
-    !cartSet.has(p.code) &&
-    (stockBySku[p.code] || 0) >= qtyFaltante
+  const candidates = catalog.filter(
+    (p) =>
+      p.code !== originalSku && !cartSet.has(p.code) && (stockBySku[p.code] || 0) >= qtyFaltante
   );
 
   const origAttrs = attrsBySku[originalSku];
@@ -219,7 +242,15 @@ export function suggestForSku(originalSku, context) {
     for (const c of candidates) {
       const candAttrs = attrsBySku[c.code];
       if (!candAttrs || candAttrs.familia_motor !== 'canas') continue;
-      const score = computeSoftScore(originalSku, c.code, original, c, origAttrs, candAttrs, priceBySku);
+      const score = computeSoftScore(
+        originalSku,
+        c.code,
+        original,
+        c,
+        origAttrs,
+        candAttrs,
+        priceBySku
+      );
       if (passHard(origAttrs, candAttrs, 0)) {
         strict.push(buildScored(c.code, 'ok', score, stockBySku, priceBySku, originalPrice));
       } else if (passHard(origAttrs, candAttrs, 1)) {
@@ -242,9 +273,12 @@ export function suggestForSku(originalSku, context) {
   }
 
   // Fallback no-cañas: mismo sub + precio ±30%, afloja a mismo fam
-  const sameSub = candidates.filter((c) =>
-    c.sub && original.sub && c.sub === original.sub &&
-    withinPct(priceBySku[c.code] || 0, originalPrice, 0.30)
+  const sameSub = candidates.filter(
+    (c) =>
+      c.sub &&
+      original.sub &&
+      c.sub === original.sub &&
+      withinPct(priceBySku[c.code] || 0, originalPrice, 0.3)
   );
   if (sameSub.length > 0) {
     const scored = sameSub.map((c) => {
@@ -260,9 +294,7 @@ export function suggestForSku(originalSku, context) {
     };
   }
 
-  const sameFam = candidates.filter((c) =>
-    c.fam && original.fam && c.fam === original.fam
-  );
+  const sameFam = candidates.filter((c) => c.fam && original.fam && c.fam === original.fam);
   if (sameFam.length > 0) {
     const scored = sameFam.map((c) => {
       const price = priceBySku[c.code] || 0;

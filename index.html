@@ -6208,6 +6208,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <summary id="wcard-cliente-open-lines-summary"></summary>
         <div id="wcard-cliente-open-lines-body"></div>
       </details>
+      <button id="wcard-sugerencias-btn" type="button"
+              onclick="openSugerenciasModal(_wcardCurrent && _wcardCurrent._id)"
+              style="display:none;width:100%;padding:10px 14px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:700;font-size:12.5px;cursor:pointer;margin-bottom:10px;flex-shrink:0;letter-spacing:.3px;transition:background .15s"
+              onmouseover="this.style.background='#1d4ed8'" onmouseout="this.style.background='#2563eb'"
+              title="Alternativas con stock libre para los SKUs sin stock de este pedido">
+        Sugerencias de productos
+        <span id="wcard-sugerencias-count" style="background:rgba(255,255,255,.25);padding:2px 8px;border-radius:9px;font-size:11px;margin-left:6px;font-weight:800">0</span>
+      </button>
       <!-- v468: buscador para agregar productos nuevos al pedido en espera.
            v1324: flex-shrink:0 para que no se comprima dentro del flex-column.
            v1326 (2026-10-15): z-index:100 en el padre para que su stacking
@@ -6281,6 +6289,22 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              REMOVIDO. El gate ASIG se elimino tambien en v1162 (ver waitlistPasarAPendientes).
              Separacion de flows: ASIG se resuelve desde "Crear Pedido - ST". -->
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="sugerencias-modal" onclick="if(event.target===this)closeSugerenciasModal()" style="z-index:5100">
+  <div class="modal-box" style="width:min(1200px,96vw);max-height:95vh;display:flex;flex-direction:column">
+    <div class="modal-head" style="background:linear-gradient(135deg,#1d4ed8,#2563eb);flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <h2 id="sug-title" style="margin:0">Sugerencias de productos</h2>
+        <div class="subt" id="sug-subt" style="margin-top:2px;font-size:11.5px;opacity:.9"></div>
+      </div>
+      <button class="modal-close" onclick="closeSugerenciasModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="sug-body" style="flex:1;min-height:0;overflow-y:auto;padding:16px 20px;background:#f8fafc"></div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border-subtle);flex-shrink:0;display:flex;justify-content:flex-end;gap:8px;background:#fff">
+      <button class="stock-action-btn cancel" onclick="closeSugerenciasModal()">Volver al pedido</button>
     </div>
   </div>
 </div>
@@ -6505,7 +6529,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1345';
+const APP_VERSION = 'v1346';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22213,6 +22237,354 @@ window.closeWaitlistCardModal = function(){
   _wcardCurrent = null;
 };
 
+// v1346: Sugerencias de productos para SKUs sin stock libre en Pedido en Espera.
+// Motor en src/pure/product-suggestions.js (bundle, expuesto como window.suggestForSku).
+// Backfill en Firestore items_attrs/{sku} (lazy load al abrir modal).
+let _sugAttrsCache = null;
+let _sugAttrsLoading = null;
+let _sugCurrentLogId = null;
+let _sugCurrentPedidoId = null;
+
+async function _sugLoadAttrs() {
+  if (_sugAttrsCache) return _sugAttrsCache;
+  if (_sugAttrsLoading) return _sugAttrsLoading;
+  _sugAttrsLoading = (async () => {
+    const snap = await fbDb.collection('items_attrs').get();
+    const out = {};
+    snap.forEach(d => { if (d.id && !d.id.startsWith('_')) out[d.id] = d.data(); });
+    _sugAttrsCache = out;
+    _sugAttrsLoading = null;
+    return out;
+  })();
+  return _sugAttrsLoading;
+}
+
+function _sugFaltantesPorItem(w) {
+  const items = (w && w.items) || [];
+  const out = [];
+  for (const it of items) {
+    const sku = it.code;
+    if (!sku) continue;
+    const qtyPedida = Number(it.qty) || 0;
+    if (qtyPedida <= 0) continue;
+    const stockLibre = (typeof getStockRealmenteDisponible === 'function')
+      ? (getStockRealmenteDisponible(sku, w.clientCardCode || w.clientName || '', w._id || '').disponibleReal || 0)
+      : ((typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0);
+    const faltante = qtyPedida - stockLibre;
+    if (faltante > 0) out.push({ sku, qtyPedida, qtyFaltante: faltante, desc: it.desc || sku });
+  }
+  return out;
+}
+
+function _updateSugerenciasBtnVisibility() {
+  const btn = document.getElementById('wcard-sugerencias-btn');
+  const cnt = document.getElementById('wcard-sugerencias-count');
+  if (!btn || !cnt) return;
+  if (!_wcardCurrent) { btn.style.display = 'none'; return; }
+  const faltantes = _sugFaltantesPorItem(_wcardCurrent);
+  if (faltantes.length === 0) { btn.style.display = 'none'; return; }
+  cnt.textContent = String(faltantes.length);
+  btn.style.display = 'block';
+}
+
+function _sugMakeEl(tag, styleStr, text) {
+  const el = document.createElement(tag);
+  if (styleStr) el.style.cssText = styleStr;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+function _sugBadgeEl(badge) {
+  const map = {
+    ok:    { bg:'#dcfce7', fg:'#166534', txt:'OK' },
+    warn1: { bg:'#fef3c7', fg:'#92400e', txt:'APROX' },
+    warn2: { bg:'#fed7aa', fg:'#9a3412', txt:'MUY APROX' },
+    warn3: { bg:'#fecaca', fg:'#991b1b', txt:'SOLO TIPO' },
+  };
+  const m = map[badge]; if (!m) return _sugMakeEl('span','', '');
+  return _sugMakeEl('span', 'background:'+m.bg+';color:'+m.fg+';padding:2px 7px;border-radius:9px;font-size:10px;font-weight:800', m.txt);
+}
+
+function _sugAppendChipsAttrs(container, attrs, origAttrs) {
+  if (!attrs) return;
+  const chip = (txt, warn) => {
+    const bg = warn ? '#fef3c7' : '#f1f5f9';
+    const fg = warn ? '#92400e' : '#334155';
+    const el = _sugMakeEl('span', 'display:inline-block;background:'+bg+';color:'+fg+';padding:2px 7px;border-radius:4px;font-size:10.5px;margin-right:4px;font-weight:600', (warn ? '⚠ ' : '') + txt);
+    return el;
+  };
+  if (attrs.tipo) container.appendChild(chip(attrs.tipo, !!(origAttrs && attrs.tipo !== origAttrs.tipo)));
+  if (attrs.tramos != null) container.appendChild(chip(attrs.tramos + ' tramos', !!(origAttrs && attrs.tramos !== origAttrs.tramos)));
+  if (attrs.libraje_min != null && attrs.libraje_max != null) {
+    const warnLib = !!(origAttrs && (attrs.libraje_min !== origAttrs.libraje_min || attrs.libraje_max !== origAttrs.libraje_max));
+    container.appendChild(chip(attrs.libraje_min + '-' + attrs.libraje_max + ' lb', warnLib));
+  }
+  if (attrs.largo_cm != null) container.appendChild(chip(attrs.largo_cm + ' cm', !!(origAttrs && origAttrs.largo_cm != null && Math.abs(attrs.largo_cm - origAttrs.largo_cm) > 15)));
+  if (attrs.accion) container.appendChild(chip(String(attrs.accion).replace('_', ' '), !!(origAttrs && attrs.accion !== origAttrs.accion)));
+}
+
+function _sugMakeSuggestionRow(suggestion, origSku, faltante, attrsBySku, origAttrs) {
+  const prod = (PRODUCTS || []).find(p => p.code === suggestion.sku);
+  const nombre = (prod && prod.desc) ? prod.desc : suggestion.sku;
+  const candAttrs = attrsBySku[suggestion.sku];
+
+  const row = _sugMakeEl('div', 'background:#fff;border:1px solid var(--border-subtle);border-radius:6px;padding:10px 12px;margin-bottom:6px');
+
+  const headerLine = _sugMakeEl('div', 'display:flex;align-items:center;gap:8px;margin-bottom:4px');
+  headerLine.appendChild(_sugBadgeEl(suggestion.badge));
+  headerLine.appendChild(_sugMakeEl('span', 'font-family:monospace;font-weight:800;color:#1e293b;font-size:12px', suggestion.sku));
+  headerLine.appendChild(_sugMakeEl('span', 'color:#64748b;font-size:11.5px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', nombre));
+  row.appendChild(headerLine);
+
+  const chipsBox = _sugMakeEl('div', 'margin:4px 0 6px 0');
+  _sugAppendChipsAttrs(chipsBox, candAttrs, origAttrs);
+  row.appendChild(chipsBox);
+
+  const footer = _sugMakeEl('div', 'display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap');
+  const infoBox = _sugMakeEl('div', 'font-size:11.5px;color:#334155');
+  const deltaSign = suggestion.precioDelta >= 0 ? '+' : '';
+  const deltaColor = suggestion.precioDelta === 0 ? '#64748b' : (suggestion.precioDelta > 0 ? '#dc2626' : '#059669');
+  const deltaTxt = suggestion.precioDelta === 0
+    ? '='
+    : (deltaSign + '$' + Math.abs(suggestion.precioDelta).toLocaleString('es-AR') + ' · ' + deltaSign + suggestion.precioDeltaPct.toFixed(1) + '%');
+  infoBox.appendChild(document.createTextNode('Stock libre: '));
+  infoBox.appendChild(_sugMakeEl('b', '', suggestion.stockLibre + ' u'));
+  infoBox.appendChild(document.createTextNode(' · $' + (suggestion.precio || 0).toLocaleString('es-AR') + ' '));
+  infoBox.appendChild(_sugMakeEl('span', 'color:' + deltaColor + ';font-weight:700;margin-left:4px', deltaTxt));
+  footer.appendChild(infoBox);
+
+  const btnBox = _sugMakeEl('div', 'display:flex;gap:6px;flex-shrink:0');
+  const btnAg = _sugMakeEl('button', 'padding:5px 10px;background:#059669;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer', '+ Agregar ' + faltante.qtyFaltante);
+  btnAg.type = 'button';
+  btnAg.onclick = () => _sugDoAgregar(origSku, suggestion.sku, faltante.qtyFaltante, row);
+  btnBox.appendChild(btnAg);
+  const btnRe = _sugMakeEl('button', 'padding:5px 10px;background:#1d4ed8;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer', '⇄ Reemplazar ' + faltante.qtyPedida);
+  btnRe.type = 'button';
+  btnRe.onclick = () => _sugDoReemplazar(origSku, suggestion.sku, faltante.qtyPedida, row);
+  btnBox.appendChild(btnRe);
+  footer.appendChild(btnBox);
+  row.appendChild(footer);
+
+  return row;
+}
+
+function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
+  const bodyEl = document.getElementById('sug-body');
+  while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
+  if (!bandas.length) {
+    bodyEl.appendChild(_sugMakeEl('div', 'text-align:center;padding:40px;color:#64748b', 'No hay faltantes.'));
+    return;
+  }
+  for (const banda of bandas) {
+    const f = banda.faltante;
+    const r = banda.result;
+    const origAttrs = attrsBySku[f.sku];
+    const prod = (PRODUCTS || []).find(p => p.code === f.sku);
+    const nombre = (prod && prod.desc) ? prod.desc : f.sku;
+    const precioOrig = priceBySku[f.sku] || 0;
+
+    const section = _sugMakeEl('div', 'background:#fff;border-radius:8px;padding:14px 16px;margin-bottom:16px;border-left:4px solid #ef4444;box-shadow:0 1px 3px rgba(0,0,0,.05)');
+    const header = _sugMakeEl('div', 'margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle)');
+    header.appendChild(_sugMakeEl('div', 'font-family:monospace;font-size:12px;font-weight:800;color:#1e293b;margin-bottom:3px', f.sku));
+    header.appendChild(_sugMakeEl('div', 'font-size:11.5px;color:#64748b;line-height:1.4;margin-bottom:4px', nombre));
+    header.appendChild(_sugMakeEl('div', 'font-size:11.5px;color:#dc2626;font-weight:700', 'Faltan: ' + f.qtyFaltante + ' unidades · $' + precioOrig.toLocaleString('es-AR') + ' c/u'));
+    section.appendChild(header);
+
+    if (r.error === 'SKU_NOT_IN_CATALOG') {
+      section.appendChild(_sugMakeEl('div', 'padding:10px;background:#fef3c7;color:#92400e;border-radius:4px;font-size:11.5px', 'Sin datos técnicos cargados para este SKU. Avisá a admin para completar el catálogo.'));
+      try { if (typeof Sentry !== 'undefined') Sentry.captureMessage('sugerencias: sku sin catalog ' + f.sku, 'warning'); } catch(_){}
+    } else if (r.strict.length === 0 && r.approx.length === 0) {
+      const emptyTxt = r.mode === 'none' ? 'Sin alternativas disponibles con stock libre.' : 'Sin match exacto. Expandí "Ver aproximadas" para ver opciones más amplias.';
+      section.appendChild(_sugMakeEl('div', 'padding:10px;background:#f1f5f9;color:#475569;border-radius:4px;font-size:11.5px;text-align:center', emptyTxt));
+    } else {
+      if (r.strict.length > 0) {
+        for (const s of r.strict) section.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs));
+      } else {
+        const noStrictTxt = r.mode === 'canas'
+          ? 'Sin alternativas estrictas (tipo + tramos + libraje). Mirá aproximadas abajo.'
+          : 'Sin match por modelo + precio similar. Mirá aproximadas abajo (mismo tipo).';
+        section.appendChild(_sugMakeEl('div', 'padding:8px;background:#f1f5f9;color:#475569;border-radius:4px;font-size:11px;text-align:center;margin-bottom:8px', noStrictTxt));
+      }
+      if (r.approx.length > 0) {
+        const expand = _sugMakeEl('button', 'width:100%;padding:7px;background:#f8fafc;color:#475569;border:1px dashed #cbd5e1;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;margin-top:6px', 'Ver alternativas aproximadas (' + r.approx.length + ') ▽');
+        expand.type = 'button';
+        const approxBox = _sugMakeEl('div', 'display:none;margin-top:6px');
+        for (const s of r.approx) approxBox.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs));
+        expand.onclick = () => {
+          const open = approxBox.style.display === 'block';
+          approxBox.style.display = open ? 'none' : 'block';
+          expand.textContent = open ? ('Ver alternativas aproximadas (' + r.approx.length + ') ▽') : 'Ocultar aproximadas ▲';
+          if (!open) _sugLogAction(f.sku, { type: 'ver_aproximadas' });
+        };
+        section.appendChild(expand);
+        section.appendChild(approxBox);
+      }
+    }
+    bodyEl.appendChild(section);
+  }
+}
+
+window.openSugerenciasModal = async function(pedidoId) {
+  if (!pedidoId) { alert('Pedido no identificado'); return; }
+  const w = (revisionWaitlist || []).find(x => x._id === pedidoId);
+  if (!w) { alert('Pedido no encontrado'); return; }
+  _sugCurrentPedidoId = pedidoId;
+  const modal = document.getElementById('sugerencias-modal');
+  const titleEl = document.getElementById('sug-title');
+  const subtEl = document.getElementById('sug-subt');
+  const bodyEl = document.getElementById('sug-body');
+  const totalProd = (w.items || []).length;
+  const totalU = (w.items || []).reduce((a, i) => a + (Number(i.qty) || 0), 0);
+  const totalMon = (typeof _waitlistComputeTotal === 'function') ? _waitlistComputeTotal(w) : null;
+  titleEl.textContent = 'Sugerencias — ORDEN ' + (w.orderNumber || '?') + ' — ' + (w.clientName || 'Cliente');
+  subtEl.textContent = 'Pedido: ' + totalProd + ' prod · ' + totalU + ' u' + (totalMon ? (' · $' + Math.round(totalMon).toLocaleString('es-AR')) : '');
+  while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
+  bodyEl.appendChild(_sugMakeEl('div', 'text-align:center;padding:40px;color:#64748b;font-size:13px', 'Cargando sugerencias…'));
+  modal.classList.add('open');
+
+  try {
+    const attrsBySku = await _sugLoadAttrs();
+    const faltantes = _sugFaltantesPorItem(w);
+    if (faltantes.length === 0) {
+      while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
+      bodyEl.appendChild(_sugMakeEl('div', 'text-align:center;padding:40px;color:#64748b;font-size:13px', 'No hay SKUs faltantes en este pedido.'));
+      return;
+    }
+    const stockBySku = {};
+    const priceBySku = {};
+    for (const p of PRODUCTS || []) {
+      const sku = p.code;
+      if (!sku) continue;
+      stockBySku[sku] = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
+      priceBySku[sku] = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(sku) || 0) : 0;
+    }
+    const cartSkus = (w.items || []).map(i => i.code).filter(Boolean);
+
+    try {
+      const vendorEmail = (typeof user !== 'undefined' && user && user.email) || '';
+      const vendorKeyLocal = (typeof vendorKey !== 'undefined') ? vendorKey : (typeof window.vendorKey !== 'undefined' ? window.vendorKey : '');
+      const logDocRef = await fbDb.collection('sugerencias_log').add({
+        pedidoId,
+        orderNumber: w.orderNumber || null,
+        clienteName: w.clientName || null,
+        vendedor: {
+          email: vendorEmail,
+          displayName: (typeof userDisplayName !== 'undefined') ? userDisplayName : '',
+          vendorKey: vendorKeyLocal || null,
+        },
+        openedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        appVersion: APP_VERSION,
+        skusFaltantes: faltantes.map(f => ({
+          sku: f.sku, qtyPedida: f.qtyPedida, qtyFaltante: f.qtyFaltante,
+          esCana: (attrsBySku[f.sku] && attrsBySku[f.sku].familia_motor === 'canas') || false,
+          acciones: [],
+        })),
+      });
+      _sugCurrentLogId = logDocRef.id;
+    } catch(e) {
+      console.warn('sugerencias_log create failed:', e);
+      _sugCurrentLogId = null;
+    }
+
+    const bandas = faltantes.map(f => {
+      const ctx = { catalog: PRODUCTS || [], attrsBySku, stockBySku, cartSkus, priceBySku, qtyFaltante: f.qtyFaltante };
+      return { faltante: f, result: window.suggestForSku(f.sku, ctx) };
+    });
+    _sugRenderBody(bandas, w, attrsBySku, priceBySku);
+  } catch(e) {
+    console.error('openSugerenciasModal:', e);
+    while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
+    bodyEl.appendChild(_sugMakeEl('div', 'text-align:center;padding:40px;color:#dc2626;font-size:13px', 'Error cargando sugerencias: ' + (e.message || String(e))));
+    try { if (typeof Sentry !== 'undefined') Sentry.captureException(e); } catch(_){}
+  }
+};
+
+window.closeSugerenciasModal = function() {
+  const modal = document.getElementById('sugerencias-modal');
+  if (modal) modal.classList.remove('open');
+  if (_sugCurrentLogId) {
+    try {
+      fbDb.collection('sugerencias_log').doc(_sugCurrentLogId).update({
+        closedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch(_){}
+  }
+  _sugCurrentLogId = null;
+  _sugCurrentPedidoId = null;
+};
+
+async function _sugDoAgregar(origSku, newSku, qty, rowEl) {
+  if (!_sugCurrentPedidoId) return;
+  try {
+    await window.waitlistAddProductWithQty(_sugCurrentPedidoId, newSku, qty);
+    _sugLogAction(origSku, { type: 'agregar', sku: newSku, qty });
+    if (rowEl) {
+      rowEl.style.background = '#dcfce7';
+      rowEl.style.borderColor = '#86efac';
+      rowEl.appendChild(_sugMakeEl('div', 'color:#166534;font-size:11px;font-weight:700;margin-top:6px', '✓ Agregado al pedido'));
+    }
+  } catch(e) {
+    alert('Error agregando: ' + (e.message || e));
+    console.error('_sugDoAgregar', e);
+  }
+}
+
+async function _sugDoReemplazar(origSku, newSku, qty, rowEl) {
+  if (!_sugCurrentPedidoId) return;
+  const ok = confirm('¿Reemplazar ' + origSku + ' (' + qty + ' u) por ' + newSku + '?\n\nEl SKU original será eliminado del pedido.');
+  if (!ok) return;
+  try {
+    const w = (revisionWaitlist || []).find(x => x._id === _sugCurrentPedidoId);
+    if (!w) throw new Error('Pedido no encontrado');
+    const items = (w.items || []).filter(i => (i.code || '').toLowerCase() !== (origSku || '').toLowerCase());
+    const wLocal = revisionWaitlist.find(x => x._id === w._id);
+    if (wLocal) wLocal.items = items;
+    if (_wcardCurrent && _wcardCurrent._id === w._id) {
+      _wcardCurrent.items = items;
+      try { _renderWaitlistCard(); } catch(_){}
+    }
+    await fbDb.collection('revision_waitlist').doc(w._id).update({
+      items,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await window.waitlistAddProductWithQty(_sugCurrentPedidoId, newSku, qty);
+    _sugLogAction(origSku, { type: 'reemplazar', sku: newSku, qty });
+    if (rowEl) {
+      rowEl.style.background = '#dbeafe';
+      rowEl.style.borderColor = '#60a5fa';
+      rowEl.appendChild(_sugMakeEl('div', 'color:#1e40af;font-size:11px;font-weight:700;margin-top:6px', '⇄ Reemplazado'));
+    }
+    const faltantesRestantes = _sugFaltantesPorItem(_wcardCurrent);
+    if (faltantesRestantes.length === 0) {
+      setTimeout(() => {
+        closeSugerenciasModal();
+        if (typeof showSyncTag === 'function') showSyncTag('Todos los faltantes resueltos ✓');
+      }, 800);
+    }
+  } catch(e) {
+    alert('Error reemplazando: ' + (e.message || e));
+    console.error('_sugDoReemplazar', e);
+  }
+}
+
+function _sugLogAction(skuFaltante, action) {
+  if (!_sugCurrentLogId) return;
+  try {
+    const ref = fbDb.collection('sugerencias_log').doc(_sugCurrentLogId);
+    ref.get().then(snap => {
+      if (!snap.exists) return;
+      const data = snap.data() || {};
+      const faltantes = data.skusFaltantes || [];
+      const idx = faltantes.findIndex(f => f.sku === skuFaltante);
+      if (idx < 0) return;
+      const acciones = faltantes[idx].acciones || [];
+      acciones.push(Object.assign({ ts: new Date().toISOString() }, action));
+      faltantes[idx].acciones = acciones;
+      ref.update({ skusFaltantes: faltantes }).catch(e => console.warn('_sugLogAction', e));
+    }).catch(e => console.warn('_sugLogAction get', e));
+  } catch(e) { console.warn('_sugLogAction catch', e); }
+}
+
 // v817 (2026-09-07): modal Diagnostico SKU. Se abre desde el boton "// Diagnostico" al lado del codigo cuando la desc es "(SKU no encontrado en
 // catalogo)". Explica al vendedor la causa probable (SKU no es grupo PESCA
 // en SAP) + accion sugerida.
@@ -22296,6 +22668,7 @@ window.closeSkuDiagnostico = function(){
 function _renderWaitlistCard(){
   const w = _wcardCurrent;
   if (!w) return;
+  try { _updateSugerenciasBtnVisibility(); } catch(_){}
   // v861 (2026-09-10): preservar scroll position del modal-body antes de
   // regenerar el DOM. Sin esto, cada onSnapshot post-update (ej: tocar
   // flecha "+" del input qty) reseteaba scroll a 0 y el vendedor tenia que

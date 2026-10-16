@@ -51,6 +51,7 @@ import {
   formatAge,
 } from './pure/planner-column-age.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
+import { suggestForSku } from './pure/product-suggestions.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
@@ -225,6 +226,7 @@ const phase0 = {
     matchesAllTokens,
     findSapDuplicateForProvisorio,
     matchSkuFromTitle,
+    suggestForSku,
     passesTypeFilter,
     shouldIncludeWaitlistDoc,
     splitPedidoLine,
@@ -279,6 +281,9 @@ if (typeof window !== 'undefined') {
   // handler inline del modal "Reparto" (_repExecute) la invoca con pedido+sku+newQty.
   // @ts-expect-error — augmentation runtime-only
   window.redistributeAsigLine = redistributeAsigLine;
+  // v1346: motor sugerencias expuesto al inline (modal Sugerencias).
+  // @ts-expect-error — augmentation runtime-only
+  window.suggestForSku = suggestForSku;
 }
 
 export default phase0;
