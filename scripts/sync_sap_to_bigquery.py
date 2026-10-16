@@ -1543,9 +1543,11 @@ def sync_campaigns_from_firestore(db: firestore.Client, sync_ts: str) -> list:
             'scope_values_json': json.dumps([str(v) for v in scope_vals if v]),
             'created_by':       data.get('createdBy', ''),
             'created_by_email': data.get('createdByEmail', ''),
-            'created_at':       created_at.isoformat() if created_at else None,
+            # v1352: created_at/archived_at pueden venir como datetime (SERVER_TIMESTAMP
+            # resuelto) o como string ISO (en algunos docs antiguos cargados a mano).
+            'created_at':       (created_at.isoformat() if hasattr(created_at, 'isoformat') else created_at) if created_at else None,
             'archived':         bool(data.get('archivedManually')),
-            'archived_at':      archived_at.isoformat() if archived_at else None,
+            'archived_at':      (archived_at.isoformat() if hasattr(archived_at, 'isoformat') else archived_at) if archived_at else None,
             'archived_by':      data.get('archivedBy', ''),
             '_sync_timestamp':  sync_ts,
         })
