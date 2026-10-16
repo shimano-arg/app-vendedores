@@ -886,8 +886,14 @@ service cloud.firestore {
     match /sugerencias_log/{logId} {
       allow create: if request.auth != null
         && request.resource.data.vendedor.email == request.auth.token.email;
+      // Update protege campos criticos (vendedor.email, pedidoId, openedAt, appVersion
+      // deben mantenerse iguales al original).
       allow update: if request.auth != null
-        && resource.data.vendedor.email == request.auth.token.email;
+        && resource.data.vendedor.email == request.auth.token.email
+        && request.resource.data.vendedor.email == resource.data.vendedor.email
+        && request.resource.data.pedidoId == resource.data.pedidoId
+        && request.resource.data.openedAt == resource.data.openedAt
+        && request.resource.data.appVersion == resource.data.appVersion;
       allow read: if isAdminOrGerente();
       allow delete: if false;
     }

@@ -67,6 +67,10 @@
  * Calcula el ratio de overlap entre dos rangos [a_min, a_max] y [b_min, b_max].
  * Devuelve un valor en [0, 1] relativo al rango menor.
  * Si ambos rangos tienen width=0 (single value), devuelve 1 si son iguales, 0 si no.
+ * @param {number | null | undefined} a_min
+ * @param {number | null | undefined} a_max
+ * @param {number | null | undefined} b_min
+ * @param {number | null | undefined} b_max
  */
 export function overlapRatio(a_min, a_max, b_min, b_max) {
   if (
@@ -98,6 +102,9 @@ export function overlapRatio(a_min, a_max, b_min, b_max) {
  * Nivel 1: tipo + tramos + libraje (overlap > 0)
  * Nivel 2: tipo + tramos (sin libraje)
  * Nivel 3: solo tipo
+ * @param {AttrsDoc | null | undefined} origAttrs
+ * @param {AttrsDoc | null | undefined} candAttrs
+ * @param {number} level
  */
 export function passHard(origAttrs, candAttrs, level) {
   if (!origAttrs || !candAttrs) return false;
@@ -134,6 +141,13 @@ export function passHard(origAttrs, candAttrs, level) {
 /**
  * Calcula score SOFT rank para ordenar candidatos.
  * Mayor score = mejor match semantico.
+ * @param {string} originalSku
+ * @param {string} candCode
+ * @param {ProductItem} original
+ * @param {ProductItem} candidate
+ * @param {AttrsDoc | undefined} origAttrs
+ * @param {AttrsDoc | undefined} candAttrs
+ * @param {Record<string, number>} priceBySku
  */
 export function computeSoftScore(
   originalSku,
@@ -177,6 +191,9 @@ export function computeSoftScore(
 
 /**
  * Ordena un array de candidatos con score precalculado. Desempate: mayor stock -> menor precio.
+ * @param {ScoredSuggestion[]} items
+ * @param {Record<string, number>} stockBySku
+ * @param {Record<string, number>} priceBySku
  */
 function sortByScoreDesc(items, stockBySku, priceBySku) {
   return items.slice().sort((a, b) => {
@@ -190,6 +207,14 @@ function sortByScoreDesc(items, stockBySku, priceBySku) {
   });
 }
 
+/**
+ * @param {string} code
+ * @param {'ok'|'warn1'|'warn2'|'warn3'} badge
+ * @param {number} score
+ * @param {Record<string, number>} stockBySku
+ * @param {Record<string, number>} priceBySku
+ * @param {number} originalPrice
+ */
 function buildScored(code, badge, score, stockBySku, priceBySku, originalPrice) {
   const precio = priceBySku[code] || 0;
   const precioDelta = precio - (originalPrice || 0);
@@ -205,6 +230,11 @@ function buildScored(code, badge, score, stockBySku, priceBySku, originalPrice) 
   };
 }
 
+/**
+ * @param {number} a
+ * @param {number} b
+ * @param {number} pct
+ */
 function withinPct(a, b, pct) {
   if (!b || b <= 0) return false;
   return Math.abs((a - b) / b) <= pct;

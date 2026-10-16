@@ -22249,14 +22249,30 @@ async function _sugLoadAttrs() {
   if (_sugAttrsCache) return _sugAttrsCache;
   if (_sugAttrsLoading) return _sugAttrsLoading;
   _sugAttrsLoading = (async () => {
-    const snap = await fbDb.collection('items_attrs').get();
-    const out = {};
-    snap.forEach(d => { if (d.id && !d.id.startsWith('_')) out[d.id] = d.data(); });
-    _sugAttrsCache = out;
-    _sugAttrsLoading = null;
-    return out;
+    try {
+      const snap = await fbDb.collection('items_attrs').get();
+      const out = {};
+      snap.forEach(d => { if (d.id && !d.id.startsWith('_')) out[d.id] = d.data(); });
+      _sugAttrsCache = out;
+      return out;
+    } catch (e) {
+      try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'sugerencias', step: 'loadAttrs' } }); } catch(_){}
+      throw e;
+    } finally {
+      _sugAttrsLoading = null;
+    }
   })();
   return _sugAttrsLoading;
+}
+
+function _sugStockLibre(sku) {
+  // getStockRealmenteDisponible(sku) devuelve numero (ver index.html:6744).
+  // Descuenta reservas (confirmed/BO/ASIG/waitlist-cpst) vs stock fisico.
+  if (typeof getStockRealmenteDisponible === 'function') {
+    return Number(getStockRealmenteDisponible(sku)) || 0;
+  }
+  if (typeof getStockDisponibleVenta === 'function') return getStockDisponibleVenta(sku) || 0;
+  return 0;
 }
 
 function _sugFaltantesPorItem(w) {
@@ -22267,9 +22283,7 @@ function _sugFaltantesPorItem(w) {
     if (!sku) continue;
     const qtyPedida = Number(it.qty) || 0;
     if (qtyPedida <= 0) continue;
-    const stockLibre = (typeof getStockRealmenteDisponible === 'function')
-      ? (getStockRealmenteDisponible(sku, w.clientCardCode || w.clientName || '', w._id || '').disponibleReal || 0)
-      : ((typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0);
+    const stockLibre = _sugStockLibre(sku);
     const faltante = qtyPedida - stockLibre;
     if (faltante > 0) out.push({ sku, qtyPedida, qtyFaltante: faltante, desc: it.desc || sku });
   }
@@ -22455,21 +22469,30 @@ window.openSugerenciasModal = async function(pedidoId) {
     for (const p of PRODUCTS || []) {
       const sku = p.code;
       if (!sku) continue;
-      stockBySku[sku] = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
+      // Usar stock libre REAL (descuenta reservas) para evitar doble booking al sugerir.
+      stockBySku[sku] = _sugStockLibre(sku);
       priceBySku[sku] = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(sku) || 0) : 0;
     }
     const cartSkus = (w.items || []).map(i => i.code).filter(Boolean);
 
     try {
-      const vendorEmail = (typeof user !== 'undefined' && user && user.email) || '';
+      // fbAuth.currentUser es el pattern autoritativo (ver uso en otros writes del repo).
+      // `user` y `userDisplayName` NO son globales (son locals de otros scopes).
+      const currentUser = (typeof fbAuth !== 'undefined' && fbAuth.currentUser) ? fbAuth.currentUser : null;
+      const vendorEmail = (currentUser && currentUser.email) || '';
+      const vendorDisplayName = (currentUser && currentUser.displayName) || '';
       const vendorKeyLocal = (typeof vendorKey !== 'undefined') ? vendorKey : (typeof window.vendorKey !== 'undefined' ? window.vendorKey : '');
+      if (!vendorEmail) {
+        // Sin email no pasa la rule allow create (email match). No tiene sentido intentar.
+        throw new Error('No se puede loguear: usuario sin email autenticado');
+      }
       const logDocRef = await fbDb.collection('sugerencias_log').add({
         pedidoId,
         orderNumber: w.orderNumber || null,
         clienteName: w.clientName || null,
         vendedor: {
           email: vendorEmail,
-          displayName: (typeof userDisplayName !== 'undefined') ? userDisplayName : '',
+          displayName: vendorDisplayName,
           vendorKey: vendorKeyLocal || null,
         },
         openedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -22483,6 +22506,7 @@ window.openSugerenciasModal = async function(pedidoId) {
       _sugCurrentLogId = logDocRef.id;
     } catch(e) {
       console.warn('sugerencias_log create failed:', e);
+      try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'sugerencias', step: 'log-create' } }); } catch(_){}
       _sugCurrentLogId = null;
     }
 
@@ -22502,30 +22526,81 @@ window.openSugerenciasModal = async function(pedidoId) {
 window.closeSugerenciasModal = function() {
   const modal = document.getElementById('sugerencias-modal');
   if (modal) modal.classList.remove('open');
-  if (_sugCurrentLogId) {
-    try {
-      fbDb.collection('sugerencias_log').doc(_sugCurrentLogId).update({
-        closedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    } catch(_){}
-  }
+  const logId = _sugCurrentLogId;
   _sugCurrentLogId = null;
   _sugCurrentPedidoId = null;
+  if (!logId) return;
+  // Fire-and-forget con error handling explicito (telemetria no bloqueante).
+  fbDb.collection('sugerencias_log').doc(logId).update({
+    closedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }).catch(e => {
+    console.warn('sugerencias_log closedAt failed:', e);
+    try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'sugerencias', step: 'close' } }); } catch(_){}
+  });
 };
+
+// Write directo a revision_waitlist (no delegamos a waitlistAddProductWithQty
+// porque esa fn traga errores con alert interno sin rethrow — el caller cree
+// que todo OK aunque falle en servidor).
+async function _sugWritePedidoItems(pedidoId, items) {
+  await fbDb.collection('revision_waitlist').doc(pedidoId).update({
+    items,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+function _sugUpsertSkuInItems(items, sku, qtyDelta) {
+  const prod = (typeof PRODUCTS !== 'undefined' && PRODUCTS)
+    ? PRODUCTS.find(p => (p.code || '').toLowerCase() === (sku || '').toLowerCase()) : null;
+  const out = [...(items || [])];
+  const idx = out.findIndex(i => (i.code || '').toLowerCase() === (sku || '').toLowerCase());
+  if (idx >= 0) {
+    out[idx] = Object.assign({}, out[idx], { qty: (Number(out[idx].qty) || 0) + qtyDelta });
+  } else {
+    const stk = (typeof _revisionStockFor === 'function') ? _revisionStockFor(sku) : { stockTotal: 0, backorder: 0, disponible: 0 };
+    out.push({
+      code: prod ? prod.code : sku,
+      desc: prod ? prod.desc : (sku + ' (agregado desde Sugerencias)'),
+      qty: qtyDelta,
+      firstStockTotal: stk.stockTotal,
+      firstBackorder: stk.backorder || 0,
+      firstDisponible: stk.disponible,
+    });
+  }
+  return out;
+}
 
 async function _sugDoAgregar(origSku, newSku, qty, rowEl) {
   if (!_sugCurrentPedidoId) return;
+  const w = (revisionWaitlist || []).find(x => x._id === _sugCurrentPedidoId);
+  if (!w) { alert('Pedido no encontrado'); return; }
+  const itemsPrev = [...(w.items || [])];
+  const itemsNext = _sugUpsertSkuInItems(itemsPrev, newSku, qty);
+  const wLocal = revisionWaitlist.find(x => x._id === w._id);
+  if (wLocal) wLocal.items = itemsNext;
+  if (_wcardCurrent && _wcardCurrent._id === w._id) {
+    _wcardCurrent.items = itemsNext;
+    try { _renderWaitlistCard(); } catch(_){}
+  }
   try {
-    await window.waitlistAddProductWithQty(_sugCurrentPedidoId, newSku, qty);
+    await _sugWritePedidoItems(w._id, itemsNext);
     _sugLogAction(origSku, { type: 'agregar', sku: newSku, qty });
+    if (typeof showSyncTag === 'function') showSyncTag('Agregado: ' + newSku + ' (' + qty + ' u)');
     if (rowEl) {
       rowEl.style.background = '#dcfce7';
       rowEl.style.borderColor = '#86efac';
       rowEl.appendChild(_sugMakeEl('div', 'color:#166534;font-size:11px;font-weight:700;margin-top:6px', '✓ Agregado al pedido'));
     }
   } catch(e) {
-    alert('Error agregando: ' + (e.message || e));
+    // Revert optimistic
+    if (wLocal) wLocal.items = itemsPrev;
+    if (_wcardCurrent && _wcardCurrent._id === w._id) {
+      _wcardCurrent.items = itemsPrev;
+      try { _renderWaitlistCard(); } catch(_){}
+    }
     console.error('_sugDoAgregar', e);
+    try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'sugerencias', action: 'agregar' } }); } catch(_){}
+    alert('Error agregando: ' + (e.message || e));
   }
 }
 
@@ -22533,22 +22608,21 @@ async function _sugDoReemplazar(origSku, newSku, qty, rowEl) {
   if (!_sugCurrentPedidoId) return;
   const ok = confirm('¿Reemplazar ' + origSku + ' (' + qty + ' u) por ' + newSku + '?\n\nEl SKU original será eliminado del pedido.');
   if (!ok) return;
+  const w = (revisionWaitlist || []).find(x => x._id === _sugCurrentPedidoId);
+  if (!w) { alert('Pedido no encontrado'); return; }
+  const itemsPrev = [...(w.items || [])];
+  let itemsNext = itemsPrev.filter(i => (i.code || '').toLowerCase() !== (origSku || '').toLowerCase());
+  itemsNext = _sugUpsertSkuInItems(itemsNext, newSku, qty);
+  const wLocal = revisionWaitlist.find(x => x._id === w._id);
+  if (wLocal) wLocal.items = itemsNext;
+  if (_wcardCurrent && _wcardCurrent._id === w._id) {
+    _wcardCurrent.items = itemsNext;
+    try { _renderWaitlistCard(); } catch(_){}
+  }
   try {
-    const w = (revisionWaitlist || []).find(x => x._id === _sugCurrentPedidoId);
-    if (!w) throw new Error('Pedido no encontrado');
-    const items = (w.items || []).filter(i => (i.code || '').toLowerCase() !== (origSku || '').toLowerCase());
-    const wLocal = revisionWaitlist.find(x => x._id === w._id);
-    if (wLocal) wLocal.items = items;
-    if (_wcardCurrent && _wcardCurrent._id === w._id) {
-      _wcardCurrent.items = items;
-      try { _renderWaitlistCard(); } catch(_){}
-    }
-    await fbDb.collection('revision_waitlist').doc(w._id).update({
-      items,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    await window.waitlistAddProductWithQty(_sugCurrentPedidoId, newSku, qty);
+    await _sugWritePedidoItems(w._id, itemsNext);
     _sugLogAction(origSku, { type: 'reemplazar', sku: newSku, qty });
+    if (typeof showSyncTag === 'function') showSyncTag('Reemplazado: ' + origSku + ' → ' + newSku);
     if (rowEl) {
       rowEl.style.background = '#dbeafe';
       rowEl.style.borderColor = '#60a5fa';
@@ -22562,8 +22636,15 @@ async function _sugDoReemplazar(origSku, newSku, qty, rowEl) {
       }, 800);
     }
   } catch(e) {
-    alert('Error reemplazando: ' + (e.message || e));
+    // Revert optimistic (prev snapshot)
+    if (wLocal) wLocal.items = itemsPrev;
+    if (_wcardCurrent && _wcardCurrent._id === w._id) {
+      _wcardCurrent.items = itemsPrev;
+      try { _renderWaitlistCard(); } catch(_){}
+    }
     console.error('_sugDoReemplazar', e);
+    try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'sugerencias', action: 'reemplazar' } }); } catch(_){}
+    alert('Error reemplazando: ' + (e.message || e));
   }
 }
 
