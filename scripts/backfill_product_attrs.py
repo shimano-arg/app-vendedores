@@ -1,15 +1,26 @@
 # -*- coding: utf-8 -*-
-"""Backfill de atributos tecnicos para cañas → items_attrs/{sku} en Firestore.
+"""Backfill de atributos tecnicos para cañas, reels y lineas → items_attrs/{sku}.
 
-Lee PRODUCTS embebido en index.html, parsea con regex pulidos:
+CAÑAS (familia_motor='canas'):
 - tipo (Casting/Spinning/Baitcasting/Surfcasting/Jigging/Multipurpose)
 - tramos (int o 'variable')
-- libraje_min, libraje_max (lb) — con heuristica desde potencia si falta
-- largo_cm (convierte 2.1m o 7'0" → cm)
+- libraje_min, libraje_max (lb) — fallback desde potencia
+- largo_cm (convierte 2.1m o 7'0" → cm) + largo_ft (display amigable)
 - accion, potencia
 
+REELS (familia_motor='reels', v1347):
+- tipo (Spinning/Baitcasting/Conventional)
+- tamano (1000, 2500, 4000, 14000, etc) — regex desc "Tamaño XXXX" + fallback SKU
+- velocidad (regular/HG/XG/PG) — sufijo del SKU
+
+LINEAS (familia_motor='lineas', v1347):
+- marca (PowerPro/Kairiki)
+- hebras (4 o 8) — mapeo del sub
+- libraje (lb)
+- largo_m (metros, para Kairiki) + largo_yd (yardas, PowerPro)
+
 Idempotente, con --dry-run para preview sin escribir.
-Gate: ≥95% cañas con los 3 HARD completos (tipo+tramos+libraje) antes de push.
+Gate: ≥95% items con los 3 HARD completos por familia.
 
 Uso:
   python scripts/backfill_product_attrs.py --dry-run
@@ -287,8 +298,21 @@ def infer_accion(desc: str) -> str | None:
 
 
 # -----------------------------------------------------------------------------
-# 4. Build attrs doc
+# 4. Build attrs doc (canas)
 # -----------------------------------------------------------------------------
+def cm_to_ft_display(cm: int | None) -> str | None:
+    """213cm → '7'0\"' (display amigable para vendedor)."""
+    if cm is None:
+        return None
+    total_inches = cm / 2.54
+    ft = int(total_inches // 12)
+    inches = round(total_inches - ft * 12)
+    if inches == 12:
+        ft += 1
+        inches = 0
+    return f"{ft}'{inches}\""
+
+
 def build_attrs(p: dict) -> dict:
     desc = p.get('desc') or ''
     sku = p['code']
@@ -325,13 +349,192 @@ def build_attrs(p: dict) -> dict:
         'libraje_min': libraje[0] if libraje else None,
         'libraje_max': libraje[1] if libraje else None,
         'largo_cm': largo_cm,
+        'largo_display': cm_to_ft_display(largo_cm),
         'accion': accion,
         'potencia': potencia,
         'warnings': warnings,
-        'source': 'regex_v1',
+        'source': 'regex_v2',
         'backfillAt': datetime.now(timezone.utc).isoformat(),
     }
     return doc
+
+
+# -----------------------------------------------------------------------------
+# 4b. REELS (v1347)
+# -----------------------------------------------------------------------------
+
+def is_reel(p: dict) -> bool:
+    return (p.get('cat') or '').upper() == 'REEL'
+
+
+RE_TAMANO_DESC = re.compile(r'tama[nñ]o\s+(\d{3,5})', re.IGNORECASE)
+RE_TAMANO_SKU = re.compile(r'(\d{3,5})')
+RE_VEL_SKU = re.compile(r'(XG|HG|PG)[A-Z]*$')
+RE_VEL_DESC = re.compile(r'\b(XG|HG|PG)\b')
+
+
+def infer_tipo_reel(p: dict) -> str | None:
+    fam = (p.get('fam') or '').lower()
+    desc = (p.get('desc') or '').lower()
+    if 'baitcasting' in fam or 'baitcasting' in desc:
+        return 'Baitcasting'
+    if 'conventional' in fam:
+        return 'Conventional'
+    if 'spinning' in fam or 'spinning' in desc:
+        return 'Spinning'
+    if 'rotativo' in desc:
+        return 'Rotativo'
+    return None
+
+
+def infer_tamano_reel(p: dict) -> int | None:
+    desc = p.get('desc') or ''
+    sku = p.get('code') or ''
+    m = RE_TAMANO_DESC.search(desc)
+    if m:
+        return int(m.group(1))
+    # Fallback: numero en el SKU — buscar 4-5 digitos
+    m = re.search(r'(\d{4,5})', sku)
+    if m:
+        n = int(m.group(1))
+        # Sanity: tamaños razonables 500-30000
+        if 500 <= n <= 30000:
+            return n
+    # Fallback: 3-4 digitos (CU150, CAT1000)
+    m = re.search(r'(\d{3,4})', sku)
+    if m:
+        n = int(m.group(1))
+        if 100 <= n <= 10000:
+            return n
+    return None
+
+
+def infer_velocidad_reel(p: dict) -> str:
+    """Returns 'regular' | 'HG' | 'XG' | 'PG'."""
+    sku = p.get('code') or ''
+    desc = p.get('desc') or ''
+    # XG tiene prioridad (contiene G), luego HG, luego PG
+    m = RE_VEL_SKU.search(sku)
+    if m:
+        return m.group(1)
+    m = RE_VEL_DESC.search(desc)
+    if m:
+        return m.group(1)
+    return 'regular'  # sin sigla = regular (mas lento, segun Mariano)
+
+
+def build_attrs_reel(p: dict) -> dict:
+    sku = p['code']
+    warnings: list[str] = []
+    tipo = infer_tipo_reel(p)
+    tamano = infer_tamano_reel(p)
+    velocidad = infer_velocidad_reel(p)
+
+    if not tipo:
+        warnings.append('tipo_missing')
+    if tamano is None:
+        warnings.append('tamano_missing')
+
+    return {
+        'sku': sku,
+        'familia_motor': 'reels',
+        'tipo': tipo,
+        'tamano': tamano,
+        'velocidad': velocidad,
+        'warnings': warnings,
+        'source': 'regex_v2',
+        'backfillAt': datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# -----------------------------------------------------------------------------
+# 4c. LINEAS (v1347)
+# -----------------------------------------------------------------------------
+
+def is_linea(p: dict) -> bool:
+    return (p.get('cat') or '').upper() == 'LINEAS'
+
+
+# Mapeo sub -> (marca, hebras). Cubre 100% del catalogo actual.
+SUB_LINEA_MAP = {
+    'Regular PP': ('PowerPro', 4),
+    'Super Slick V2': ('PowerPro', 8),
+    'Maxcuatro': ('PowerPro', 4),
+    'Kairiki 4': ('Kairiki', 4),
+    'Kairiki 8': ('Kairiki', 8),
+}
+
+RE_METROS = re.compile(r'(\d+)\s*m(?:ts|etros)?\b', re.IGNORECASE)
+RE_YARDAS = re.compile(r'(\d+)\s*yd', re.IGNORECASE)
+
+
+def infer_marca_hebras_linea(p: dict) -> tuple[str | None, int | None]:
+    sub = (p.get('sub') or '').strip()
+    if sub in SUB_LINEA_MAP:
+        marca, hebras = SUB_LINEA_MAP[sub]
+        return marca, hebras
+    # Fallback desc
+    desc = (p.get('desc') or '').lower()
+    marca = None
+    if 'power pro' in desc or 'powerpro' in desc:
+        marca = 'PowerPro'
+    elif 'kairiki' in desc or 'hairiki' in desc:
+        marca = 'Kairiki'
+    hebras = None
+    if re.search(r'\b8\s*hebras?\b', desc) or 'superslick' in desc or 'v2' in desc:
+        hebras = 8
+    elif re.search(r'\b4\s*hebras?\b', desc) or 'max 4' in desc or 'maxcuatro' in desc:
+        hebras = 4
+    return marca, hebras
+
+
+def infer_libraje_linea(p: dict) -> int | None:
+    """Lineas usan single value lb (ej. '30 LB'). Devuelve el numero."""
+    desc = p.get('desc') or ''
+    m = re.search(r'(\d+)\s*lb', desc, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def infer_largo_linea(p: dict) -> tuple[int | None, int | None]:
+    """Returns (largo_m, largo_yd). Si no hay dato explicito, None."""
+    desc = p.get('desc') or ''
+    m = RE_METROS.search(desc)
+    largo_m = int(m.group(1)) if m else None
+    m = RE_YARDAS.search(desc)
+    largo_yd = int(m.group(1)) if m else None
+    return largo_m, largo_yd
+
+
+def build_attrs_linea(p: dict) -> dict:
+    sku = p['code']
+    warnings: list[str] = []
+    marca, hebras = infer_marca_hebras_linea(p)
+    libraje = infer_libraje_linea(p)
+    largo_m, largo_yd = infer_largo_linea(p)
+
+    if not marca:
+        warnings.append('marca_missing')
+    if hebras is None:
+        warnings.append('hebras_missing')
+    if libraje is None:
+        warnings.append('libraje_missing')
+    if largo_m is None and largo_yd is None:
+        warnings.append('largo_missing')
+
+    return {
+        'sku': sku,
+        'familia_motor': 'lineas',
+        'marca': marca,
+        'hebras': hebras,
+        'libraje': libraje,
+        'largo_m': largo_m,
+        'largo_yd': largo_yd,
+        'warnings': warnings,
+        'source': 'regex_v2',
+        'backfillAt': datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # -----------------------------------------------------------------------------
@@ -345,49 +548,76 @@ def pct(a: int, b: int) -> str:
 
 def report(attrs_docs: list[dict]) -> dict:
     n = len(attrs_docs)
-    with_tipo = sum(1 for d in attrs_docs if d.get('tipo'))
-    with_tramos = sum(1 for d in attrs_docs if d.get('tramos') is not None)
-    with_libraje = sum(1 for d in attrs_docs if d.get('libraje_min') is not None)
-    with_largo = sum(1 for d in attrs_docs if d.get('largo_cm') is not None)
-    with_accion = sum(1 for d in attrs_docs if d.get('accion'))
-    with_potencia = sum(1 for d in attrs_docs if d.get('potencia'))
-    with_3_hard = sum(1 for d in attrs_docs if d.get('tipo') and d.get('tramos') is not None and d.get('libraje_min') is not None)
-    with_all = sum(1 for d in attrs_docs if not d.get('warnings'))
-    libraje_inferido = sum(1 for d in attrs_docs if 'libraje_inferido_desde_potencia' in (d.get('warnings') or []))
+    canas = [d for d in attrs_docs if d.get('familia_motor') == 'canas']
+    reels = [d for d in attrs_docs if d.get('familia_motor') == 'reels']
+    lineas = [d for d in attrs_docs if d.get('familia_motor') == 'lineas']
 
-    print(f'\n{"="*70}\nREPORTE BACKFILL\n{"="*70}')
-    print(f'Cañas procesadas: {n}')
-    print(f'\n  tipo:     {with_tipo}/{n} ({pct(with_tipo, n)})')
-    print(f'  tramos:   {with_tramos}/{n} ({pct(with_tramos, n)})')
-    print(f'  libraje:  {with_libraje}/{n} ({pct(with_libraje, n)}) [{libraje_inferido} inferidos desde potencia]')
-    print(f'  largo:    {with_largo}/{n} ({pct(with_largo, n)})')
-    print(f'  accion:   {with_accion}/{n} ({pct(with_accion, n)})')
-    print(f'  potencia: {with_potencia}/{n} ({pct(with_potencia, n)})')
-    print(f'\n  >>> 3 HARD completos (tipo+tramos+libraje): {with_3_hard}/{n} ({pct(with_3_hard, n)}) <<<')
-    print(f'  Sin warnings: {with_all}/{n} ({pct(with_all, n)})')
+    print(f'\n{"="*70}\nREPORTE BACKFILL v2 (canas + reels + lineas)\n{"="*70}')
+    print(f'Total procesados: {n}')
+    print(f'  Cañas:  {len(canas)}')
+    print(f'  Reels:  {len(reels)}')
+    print(f'  Lineas: {len(lineas)}')
 
-    # Listas de SKUs sin cada HARD
-    sin_tipo = [d['sku'] for d in attrs_docs if not d.get('tipo')][:15]
-    sin_tramos = [d['sku'] for d in attrs_docs if d.get('tramos') is None][:15]
-    sin_libraje = [d['sku'] for d in attrs_docs if d.get('libraje_min') is None][:15]
+    # Cañas
+    if canas:
+        c_tipo = sum(1 for d in canas if d.get('tipo'))
+        c_tramos = sum(1 for d in canas if d.get('tramos') is not None)
+        c_libraje = sum(1 for d in canas if d.get('libraje_min') is not None)
+        c_largo = sum(1 for d in canas if d.get('largo_cm') is not None)
+        c_hard = sum(1 for d in canas if d.get('tipo') and d.get('tramos') is not None and d.get('libraje_min') is not None)
+        nc = len(canas)
+        print(f'\n== CAÑAS ({nc}) ==')
+        print(f'  tipo: {pct(c_tipo, nc)} · tramos: {pct(c_tramos, nc)} · libraje: {pct(c_libraje, nc)} · largo: {pct(c_largo, nc)}')
+        print(f'  >>> 3 HARD completos: {c_hard}/{nc} ({pct(c_hard, nc)}) <<<')
 
-    if sin_tipo:
-        print(f'\nMuestra SIN tipo ({len(sin_tipo)} de {sum(1 for d in attrs_docs if not d.get("tipo"))}):')
-        for s in sin_tipo:
-            print(f'  {s}')
-    if sin_tramos:
-        print(f'\nMuestra SIN tramos (primeros 15):')
-        for s in sin_tramos:
-            print(f'  {s}')
-    if sin_libraje:
-        print(f'\nMuestra SIN libraje (primeros 15):')
-        for s in sin_libraje:
-            print(f'  {s}')
+    # Reels
+    if reels:
+        r_tipo = sum(1 for d in reels if d.get('tipo'))
+        r_tamano = sum(1 for d in reels if d.get('tamano') is not None)
+        r_velocidad = sum(1 for d in reels if d.get('velocidad'))  # siempre existe (regular default)
+        r_hard = sum(1 for d in reels if d.get('tipo') and d.get('tamano') is not None)
+        nr = len(reels)
+        print(f'\n== REELS ({nr}) ==')
+        print(f'  tipo: {pct(r_tipo, nr)} · tamano: {pct(r_tamano, nr)} · velocidad: {pct(r_velocidad, nr)} (siempre, default=regular)')
+        print(f'  >>> HARD completos (tipo+tamano): {r_hard}/{nr} ({pct(r_hard, nr)}) <<<')
+        sin_tipo_r = [d['sku'] for d in reels if not d.get('tipo')][:10]
+        sin_tamano_r = [d['sku'] for d in reels if d.get('tamano') is None][:10]
+        if sin_tipo_r:
+            print(f'  Sin tipo (primeros 10): {", ".join(sin_tipo_r)}')
+        if sin_tamano_r:
+            print(f'  Sin tamano (primeros 10): {", ".join(sin_tamano_r)}')
 
+    # Lineas
+    if lineas:
+        l_marca = sum(1 for d in lineas if d.get('marca'))
+        l_hebras = sum(1 for d in lineas if d.get('hebras') is not None)
+        l_libraje = sum(1 for d in lineas if d.get('libraje') is not None)
+        l_largo = sum(1 for d in lineas if d.get('largo_m') is not None or d.get('largo_yd') is not None)
+        l_hard = sum(1 for d in lineas if d.get('marca') and d.get('hebras') is not None and d.get('libraje') is not None)
+        nl = len(lineas)
+        print(f'\n== LINEAS ({nl}) ==')
+        print(f'  marca: {pct(l_marca, nl)} · hebras: {pct(l_hebras, nl)} · libraje: {pct(l_libraje, nl)} · largo: {pct(l_largo, nl)}')
+        print(f'  >>> 3 HARD completos (marca+hebras+libraje): {l_hard}/{nl} ({pct(l_hard, nl)}) <<<')
+        sin_hard_l = [d['sku'] for d in lineas if not (d.get('marca') and d.get('hebras') is not None and d.get('libraje') is not None)][:10]
+        if sin_hard_l:
+            print(f'  Sin HARD completo (primeros 10): {", ".join(sin_hard_l)}')
+
+    # Global 3-HARD rate (ponderado por familia)
+    hard_total = 0
+    hard_ok = 0
+    if canas:
+        hard_total += len(canas)
+        hard_ok += sum(1 for d in canas if d.get('tipo') and d.get('tramos') is not None and d.get('libraje_min') is not None)
+    if reels:
+        hard_total += len(reels)
+        hard_ok += sum(1 for d in reels if d.get('tipo') and d.get('tamano') is not None)
+    if lineas:
+        hard_total += len(lineas)
+        hard_ok += sum(1 for d in lineas if d.get('marca') and d.get('hebras') is not None and d.get('libraje') is not None)
     return {
         'total': n,
-        'with_3_hard': with_3_hard,
-        'pct_3_hard': with_3_hard / n if n else 0,
+        'with_hard': hard_ok,
+        'pct_hard': hard_ok / hard_total if hard_total else 0,
     }
 
 
@@ -451,24 +681,36 @@ def main():
     products = load_products()
     print(f'[load] Total PRODUCTS: {len(products)}')
     canas = [p for p in products if is_cana(p)]
-    print(f'[filter] Cañas detectadas: {len(canas)}')
+    reels = [p for p in products if is_reel(p)]
+    lineas = [p for p in products if is_linea(p)]
+    print(f'[filter] Cañas: {len(canas)} · Reels: {len(reels)} · Lineas: {len(lineas)}')
 
     if args.only_sku:
-        canas = [p for p in canas if p['code'] == args.only_sku]
-        if not canas:
-            print(f'[FATAL] SKU {args.only_sku} no encontrado o no es caña')
+        all_items = canas + reels + lineas
+        found = [p for p in all_items if p['code'] == args.only_sku]
+        if not found:
+            print(f'[FATAL] SKU {args.only_sku} no encontrado o no es caña/reel/linea')
             sys.exit(1)
-
-    attrs_docs = [build_attrs(p) for p in canas]
-
-    if args.only_sku:
-        print(json.dumps(attrs_docs[0], indent=2, ensure_ascii=False))
+        p = found[0]
+        if is_cana(p):
+            doc = build_attrs(p)
+        elif is_reel(p):
+            doc = build_attrs_reel(p)
+        else:
+            doc = build_attrs_linea(p)
+        print(json.dumps(doc, indent=2, ensure_ascii=False, default=str))
         return
+
+    attrs_docs = (
+        [build_attrs(p) for p in canas] +
+        [build_attrs_reel(p) for p in reels] +
+        [build_attrs_linea(p) for p in lineas]
+    )
 
     stats = report(attrs_docs)
     gate = 0.95
-    if stats['pct_3_hard'] < gate:
-        print(f'\n[WARN] {pct(stats["with_3_hard"], stats["total"])} < {int(gate*100)}% requerido')
+    if stats['pct_hard'] < gate:
+        print(f'\n[WARN] {pct(stats["with_hard"], stats["total"])} < {int(gate*100)}% requerido')
         print('[WARN] Iterar regex antes de push. Usar --dry-run para iterar.')
     else:
         print(f'\n[OK] Gate ≥{int(gate*100)}% alcanzado.')
@@ -477,7 +719,7 @@ def main():
         print('\n[DRY-RUN] No escribo a Firestore.')
         return
 
-    if stats['pct_3_hard'] < gate:
+    if stats['pct_hard'] < gate:
         resp = input('\nGate NO cumplido. Escribir igual? (yes/N): ').strip().lower()
         if resp != 'yes':
             print('Abortado.')

@@ -23,14 +23,26 @@
 /**
  * @typedef {Object} AttrsDoc
  * @property {string} sku
- * @property {'canas'|null} [familia_motor]
+ * @property {'canas'|'reels'|'lineas'|null} [familia_motor]
+ * Shared (canas):
  * @property {string|null} [tipo]
  * @property {number|'variable'|null} [tramos]
  * @property {number|null} [libraje_min]
  * @property {number|null} [libraje_max]
  * @property {number|null} [largo_cm]
+ * @property {string|null} [largo_display]
  * @property {string|null} [accion]
  * @property {string|null} [potencia]
+ * Reels (v1347):
+ * @property {number|null} [tamano]
+ * @property {'regular'|'HG'|'XG'|'PG'|null} [velocidad]
+ * Lineas (v1347):
+ * @property {string|null} [marca]
+ * @property {number|null} [hebras]
+ * @property {number|null} [libraje]
+ * @property {number|null} [largo_m]
+ * @property {number|null} [largo_yd]
+ * Meta:
  * @property {string[]} [warnings]
  */
 
@@ -48,7 +60,7 @@
  * @typedef {Object} SuggestionResult
  * @property {Array<ScoredSuggestion>} strict Nivel 0 (match exacto).
  * @property {Array<ScoredSuggestion>} approx Niveles 1+2+3 agrupados (orden: 1 primero).
- * @property {'canas'|'fallback_sub'|'fallback_fam'|'none'} mode
+ * @property {'canas'|'reels'|'lineas'|'fallback_sub'|'fallback_fam'|'none'} mode
  * @property {string} [error] 'SKU_NOT_IN_CATALOG' si original no esta en catalog
  */
 
@@ -97,7 +109,7 @@ export function overlapRatio(a_min, a_max, b_min, b_max) {
 }
 
 /**
- * Determina si un candidato pasa los HARD filters de un nivel dado.
+ * Determina si un candidato pasa los HARD filters de un nivel dado (CAÑAS).
  * Nivel 0: tipo + tramos + libraje (overlap >= 50%)
  * Nivel 1: tipo + tramos + libraje (overlap > 0)
  * Nivel 2: tipo + tramos (sin libraje)
@@ -135,6 +147,65 @@ export function passHard(origAttrs, candAttrs, level) {
   );
   if (level === 0) return ratio >= 0.5;
   if (level === 1) return ratio > 0;
+  return false;
+}
+
+/**
+ * Determina si un candidato REEL pasa los HARD filters por nivel.
+ * HARD: tipo + tamano + velocidad.
+ * Nivel 0: tipo igual + tamaño igual + velocidad igual
+ * Nivel 1: tipo igual + tamaño igual + velocidad distinta
+ * Nivel 2: tipo igual + tamaño cercano (±30%) + velocidad cualquiera
+ * Nivel 3: solo tipo
+ * @param {AttrsDoc | null | undefined} origAttrs
+ * @param {AttrsDoc | null | undefined} candAttrs
+ * @param {number} level
+ */
+export function passHardReel(origAttrs, candAttrs, level) {
+  if (!origAttrs || !candAttrs) return false;
+  if (!origAttrs.tipo || !candAttrs.tipo) return false;
+  if (origAttrs.tipo !== candAttrs.tipo) return false;
+  if (level >= 3) return true;
+
+  // Tamaño
+  if (origAttrs.tamano == null || candAttrs.tamano == null) return false;
+  if (level === 2) {
+    const diff = Math.abs(candAttrs.tamano - origAttrs.tamano) / origAttrs.tamano;
+    return diff <= 0.3;
+  }
+  if (origAttrs.tamano !== candAttrs.tamano) return false;
+  if (level === 1) return true;
+
+  // Velocidad (nivel 0)
+  if (!origAttrs.velocidad || !candAttrs.velocidad) return false;
+  return origAttrs.velocidad === candAttrs.velocidad;
+}
+
+/**
+ * Determina si un candidato LINEA pasa los HARD filters por nivel.
+ * HARD: marca + hebras + libraje.
+ * Nivel 0: marca igual + hebras igual + libraje exacto (±2 lb)
+ * Nivel 1: marca igual + hebras igual + libraje ±5 lb
+ * Nivel 2: marca igual + hebras igual (sin libraje)
+ * Nivel 3: marca igual (sin hebras ni libraje)
+ * @param {AttrsDoc | null | undefined} origAttrs
+ * @param {AttrsDoc | null | undefined} candAttrs
+ * @param {number} level
+ */
+export function passHardLinea(origAttrs, candAttrs, level) {
+  if (!origAttrs || !candAttrs) return false;
+  if (!origAttrs.marca || !candAttrs.marca) return false;
+  if (origAttrs.marca !== candAttrs.marca) return false;
+  if (level >= 3) return true;
+
+  if (origAttrs.hebras == null || candAttrs.hebras == null) return false;
+  if (origAttrs.hebras !== candAttrs.hebras) return false;
+  if (level >= 2) return true;
+
+  if (origAttrs.libraje == null || candAttrs.libraje == null) return false;
+  const diff = Math.abs(candAttrs.libraje - origAttrs.libraje);
+  if (level === 0) return diff <= 2;
+  if (level === 1) return diff <= 5;
   return false;
 }
 
@@ -180,6 +251,103 @@ export function computeSoftScore(
     score += 30;
   }
   // Precio: bonus mayor cuanto menor sea el delta absoluto en %
+  const origPrice = priceBySku[originalSku] || 0;
+  const candPrice = priceBySku[candCode] || 0;
+  if (origPrice > 0) {
+    const deltaPct = Math.abs((candPrice - origPrice) / origPrice) * 100;
+    score += Math.max(-50, Math.min(50, 50 - deltaPct));
+  }
+  return score;
+}
+
+/**
+ * SOFT rank para REELS: mismo sub (modelo) + tamaño cercano + precio.
+ * @param {string} originalSku
+ * @param {string} candCode
+ * @param {ProductItem} original
+ * @param {ProductItem} candidate
+ * @param {AttrsDoc | undefined} origAttrs
+ * @param {AttrsDoc | undefined} candAttrs
+ * @param {Record<string, number>} priceBySku
+ */
+export function computeSoftScoreReel(
+  originalSku,
+  candCode,
+  original,
+  candidate,
+  origAttrs,
+  candAttrs,
+  priceBySku
+) {
+  let score = 0;
+  if (original.sub && candidate.sub && original.sub === candidate.sub) score += 100;
+  if (origAttrs && candAttrs && origAttrs.tamano != null && candAttrs.tamano != null) {
+    if (origAttrs.tamano === candAttrs.tamano) score += 60;
+    else {
+      const diff = Math.abs(candAttrs.tamano - origAttrs.tamano) / origAttrs.tamano;
+      score += Math.max(0, 50 - diff * 100);
+    }
+  }
+  if (
+    origAttrs &&
+    candAttrs &&
+    origAttrs.velocidad &&
+    candAttrs.velocidad &&
+    origAttrs.velocidad === candAttrs.velocidad
+  ) {
+    score += 30;
+  }
+  const origPrice = priceBySku[originalSku] || 0;
+  const candPrice = priceBySku[candCode] || 0;
+  if (origPrice > 0) {
+    const deltaPct = Math.abs((candPrice - origPrice) / origPrice) * 100;
+    score += Math.max(-50, Math.min(50, 50 - deltaPct));
+  }
+  return score;
+}
+
+/**
+ * SOFT rank para LINEAS: mismo sub + largo cercano + precio.
+ * @param {string} originalSku
+ * @param {string} candCode
+ * @param {ProductItem} original
+ * @param {ProductItem} candidate
+ * @param {AttrsDoc | undefined} origAttrs
+ * @param {AttrsDoc | undefined} candAttrs
+ * @param {Record<string, number>} priceBySku
+ */
+export function computeSoftScoreLinea(
+  originalSku,
+  candCode,
+  original,
+  candidate,
+  origAttrs,
+  candAttrs,
+  priceBySku
+) {
+  let score = 0;
+  if (original.sub && candidate.sub && original.sub === candidate.sub) score += 100;
+  // Largo similar (en metros, 1 yd = 0.9144 m)
+  if (origAttrs && candAttrs) {
+    const origM =
+      origAttrs.largo_m ??
+      (origAttrs.largo_yd != null ? Math.round(origAttrs.largo_yd * 0.9144) : null);
+    const candM =
+      candAttrs.largo_m ??
+      (candAttrs.largo_yd != null ? Math.round(candAttrs.largo_yd * 0.9144) : null);
+    if (origM != null && candM != null) {
+      if (origM === candM) score += 50;
+      else {
+        const diff = Math.abs(candM - origM) / origM;
+        score += Math.max(0, 40 - diff * 100);
+      }
+    }
+    // Libraje cercano (ya pasaron HARD, bonus por exactitud)
+    if (origAttrs.libraje != null && candAttrs.libraje != null) {
+      const diff = Math.abs(candAttrs.libraje - origAttrs.libraje);
+      score += Math.max(0, 30 - diff * 5);
+    }
+  }
   const origPrice = priceBySku[originalSku] || 0;
   const candPrice = priceBySku[candCode] || 0;
   if (origPrice > 0) {
@@ -262,32 +430,33 @@ export function suggestForSku(originalSku, context) {
   );
 
   const origAttrs = attrsBySku[originalSku];
-  const esCana = origAttrs && origAttrs.familia_motor === 'canas';
+  const familia = origAttrs && origAttrs.familia_motor;
 
-  if (esCana) {
+  // Motor estructurado por familia (canas/reels/lineas).
+  if (familia === 'canas' || familia === 'reels' || familia === 'lineas') {
+    const passFn =
+      familia === 'canas' ? passHard : familia === 'reels' ? passHardReel : passHardLinea;
+    const scoreFn =
+      familia === 'canas'
+        ? computeSoftScore
+        : familia === 'reels'
+          ? computeSoftScoreReel
+          : computeSoftScoreLinea;
     const strict = [];
     const approx1 = [];
     const approx2 = [];
     const approx3 = [];
     for (const c of candidates) {
       const candAttrs = attrsBySku[c.code];
-      if (!candAttrs || candAttrs.familia_motor !== 'canas') continue;
-      const score = computeSoftScore(
-        originalSku,
-        c.code,
-        original,
-        c,
-        origAttrs,
-        candAttrs,
-        priceBySku
-      );
-      if (passHard(origAttrs, candAttrs, 0)) {
+      if (!candAttrs || candAttrs.familia_motor !== familia) continue;
+      const score = scoreFn(originalSku, c.code, original, c, origAttrs, candAttrs, priceBySku);
+      if (passFn(origAttrs, candAttrs, 0)) {
         strict.push(buildScored(c.code, 'ok', score, stockBySku, priceBySku, originalPrice));
-      } else if (passHard(origAttrs, candAttrs, 1)) {
+      } else if (passFn(origAttrs, candAttrs, 1)) {
         approx1.push(buildScored(c.code, 'warn1', score, stockBySku, priceBySku, originalPrice));
-      } else if (passHard(origAttrs, candAttrs, 2)) {
+      } else if (passFn(origAttrs, candAttrs, 2)) {
         approx2.push(buildScored(c.code, 'warn2', score, stockBySku, priceBySku, originalPrice));
-      } else if (passHard(origAttrs, candAttrs, 3)) {
+      } else if (passFn(origAttrs, candAttrs, 3)) {
         approx3.push(buildScored(c.code, 'warn3', score, stockBySku, priceBySku, originalPrice));
       }
     }
@@ -298,7 +467,7 @@ export function suggestForSku(originalSku, context) {
         ...sortByScoreDesc(approx2, stockBySku, priceBySku),
         ...sortByScoreDesc(approx3, stockBySku, priceBySku),
       ],
-      mode: 'canas',
+      mode: familia,
     };
   }
 
