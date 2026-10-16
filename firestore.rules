@@ -869,5 +869,33 @@ service cloud.firestore {
       allow read: if isMariano();
       allow write: if false;
     }
+
+    // v1346 Sugerencias de productos para SKUs sin stock libre.
+    // Backfill de atributos tecnicos por SKU (scripts/backfill_product_attrs.py).
+    // Lectura amplia (todos los roles autenticados consumen el catalogo).
+    // Escritura solo admin (el backfill usa admin SDK y bypassa rules).
+    match /items_attrs/{sku} {
+      allow read: if isReader();
+      allow write: if isAdmin();
+    }
+
+    // v1346 Telemetria del modal de sugerencias. Cada apertura crea un doc;
+    // acciones se appendean mientras el modal esta abierto; cierra con closedAt.
+    // Create/update solo del propio vendedor (email match). Read admin/gerente.
+    // Nunca borrar (historial).
+    match /sugerencias_log/{logId} {
+      allow create: if request.auth != null
+        && request.resource.data.vendedor.email == request.auth.token.email;
+      // Update protege campos criticos (vendedor.email, pedidoId, openedAt, appVersion
+      // deben mantenerse iguales al original).
+      allow update: if request.auth != null
+        && resource.data.vendedor.email == request.auth.token.email
+        && request.resource.data.vendedor.email == resource.data.vendedor.email
+        && request.resource.data.pedidoId == resource.data.pedidoId
+        && request.resource.data.openedAt == resource.data.openedAt
+        && request.resource.data.appVersion == resource.data.appVersion;
+      allow read: if isAdminOrGerente();
+      allow delete: if false;
+    }
   }
 }

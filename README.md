@@ -17020,3 +17020,39 @@ Sesión intensiva multi-frente. 16+ shipments cerrados. Todo en `main` y despleg
 
 `v1082` desplegado en `main`. GH Pages activo. CFs `onPlannerStageChanged` y `setupGetMovimientos` deployadas manualmente vía `firebase deploy --only functions:X`.
 
+## 55) Sugerencias de productos para SKUs sin stock (v1346 — 2026-10-16)
+
+**Qué hace**: botón "Sugerencias" en toolbar del modal "Pedido en espera" (visible solo cuando hay ≥1 SKUs faltantes). Al tocarlo, abre un modal apilado con alternativas disponibles con stock libre, agrupadas por SKU faltante.
+
+**Reglas de matching para cañas** (HARD filters, en orden): `tipo` (Casting/Spinning/Baitcasting/etc) → `tramos` → `libraje` (overlap ≥ 50% del rango menor). El tipo NUNCA se afloja. Dentro del subconjunto que pasa los HARD, SOFT rank por: mismo modelo (`sub`) → mismo largo (±15 cm) → misma acción → precio cercano. Desempate: mayor stock → menor precio.
+
+**No-cañas** (reels, líneas, FG, combos): fallback simple — mismo `sub`/modelo + precio ±30%; si no hay match, afloja a mismo `fam`.
+
+**Aflojado "Ver aproximadas"**: botón al final de cada banda despliega niveles 1 (libraje off), 2 (sin libraje), 3 (solo mismo tipo) con badges graduales ⚠️/⚠️⚠️/⚠️⚠️⚠️.
+
+**Acciones** por sugerencia: `+ Agregar N` (agrega línea nueva con qty=faltante) o `⇄ Reemplazar N` (elimina el original + agrega con qty=pedida; confirmación antes).
+
+**Backfill de atributos**: `scripts/backfill_product_attrs.py` parsea 185 cañas desde `PRODUCTS` embebido en index.html y escribe en Firestore `items_attrs/{sku}` (97.8% con los 3 HARD completos). Idempotente, `--dry-run` disponible. Re-correr al agregar SKUs nuevos.
+
+**Telemetría**: cada apertura del modal crea doc en `sugerencias_log/{logId}` con vendor + faltantes + sugerencias mostradas + acciones (append) + cierre.
+
+**Rules nuevas**:
+- `items_attrs/{sku}`: read authed, write admin.
+- `sugerencias_log/{logId}`: create/update self (vendedor email match), read admin/gerente, delete nunca.
+
+**Mantenimiento**:
+1. Nuevo SKU cañas → correr `python scripts/backfill_product_attrs.py` (idempotente, merge).
+2. Si <95% HARD completo → iterar regex en el script, re-correr dry-run.
+3. V2 pendiente: dashboard analítico sobre `sugerencias_log`, reglas específicas para reels/líneas, ícono ✨ en el carrito del modal padre.
+
+**Diseño completo**: `docs/superpowers/specs/2026-10-16-productos-sugeridos-sin-stock-design.md`.
+
+**Archivos tocados**:
+- `src/pure/product-suggestions.js` (motor puro + 36 tests)
+- `src/main.js` (export al window)
+- `index.html` (botón + modal + handlers)
+- `scripts/backfill_product_attrs.py`
+- `firestore.rules` (2 rules nuevas)
+- `app.bundle.js` + `chunks/*` (regenerados)
+- `sw.js` (CACHE_VERSION bump)
+

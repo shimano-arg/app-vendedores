@@ -4,6 +4,43 @@ Log resumido de trabajo grande no-trivial en el proyecto. Formato: 1 sección po
 
 ---
 
+## 2026-10-16 — Sugerencias de productos para SKUs sin stock (v1346)
+
+### Motivo
+
+Cuando un vendedor arma un pedido, varios SKUs quedan en Backorder por falta de stock libre. El vendedor tenía que buscar manualmente alternativas disponibles o resignar la venta.
+
+### Qué se construyó
+
+- **Botón "Sugerencias"** en toolbar modal "Pedido en espera" (visible solo si hay ≥1 SKUs faltantes, con contador).
+- **Modal apilado** con una banda por SKU faltante; dentro, alternativas estrictas + aproximadas.
+- **Motor matching** (`src/pure/product-suggestions.js`, 36 tests):
+  - Cañas: HARD filters tipo + tramos + libraje (overlap ≥ 50%), SOFT rank mismo modelo → largo → acción → precio.
+  - No-cañas: fallback mismo sub + precio ±30%, afloja a mismo fam.
+  - Aflojado progresivo con badges graduales OK/APROX/MUY APROX/SOLO TIPO.
+- **Backfill Python** `scripts/backfill_product_attrs.py`: parsea 185 cañas desde PRODUCTS. 97.8% tienen los 3 campos HARD completos (tipo + tramos + libraje); escribe a `items_attrs/{sku}` en Firestore.
+- **Acciones** Agregar (qty = faltante) y Reemplazar (qty = original, confirma antes de borrar).
+- **Telemetría** en `sugerencias_log/{logId}`: apertura, acciones, cierre.
+- **Rules** nuevas: `items_attrs` read authed/write admin, `sugerencias_log` create/update self + read admin.
+
+### Diseño detallado
+
+Ver `docs/superpowers/specs/2026-10-16-productos-sugeridos-sin-stock-design.md`.
+
+### Alcance v1
+
+Solo modal "Pedido en espera". Todas las categorías del catálogo. Todos los roles que ya ven el modal. Sin dashboard analítico (datos quedan en log para v2).
+
+### Commits
+
+- `5e61d56` design doc
+- `8a985bb` backfill Python (97.8% HARD completo)
+- `f495d56` motor matching + 36 tests vitest
+- `2d98afc` UI modal + handlers + telemetria + bump v1346
+- `f39924f` firestore.rules
+
+---
+
 ## 2026-09-09 — Anti-duplicados de rendiciones (Fases 1-4)
 
 ### Motivo
