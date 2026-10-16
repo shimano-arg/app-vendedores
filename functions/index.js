@@ -2764,3 +2764,186 @@ export const generateVentasReportCF = onCall(
     };
   }
 );
+
+// v1350: Buyer-cliente — pre-computo nocturno de stats de compra por cardCode.
+// Lee BQ v_ventas_lineas ultimos 24m, agrega en 4 ventanas (3/6/12/24m),
+// escribe Firestore client_buyer_stats/{cardCode}.
+// Diseño: docs/superpowers/specs/2026-10-16-buyer-cliente-design.md
+/** @param {string | null | undefined} familia */
+function _buyerDeriveCategoria(familia) {
+  const fam = String(familia || '').toLowerCase();
+  if (fam.includes('baitcasting') && fam.includes('low profile')) return 'REELS';
+  if (fam.includes('casting') || fam.includes('spinning') || fam.includes('surf') || fam.includes('jigging') || fam.includes('multi') || fam.includes('shoresurf') || fam.includes('inshore') || fam.includes('boat') || fam.includes('travel') || fam.includes('telescop')) {
+    return 'CAÑAS';
+  }
+  if (fam.includes('rotativo') || fam.includes('reel')) return 'REELS';
+  if (fam.includes('kairiki') || fam.includes('power pro') || fam.includes('powerpro')) return 'LÍNEAS';
+  return (familia || 'OTRO').toUpperCase();
+}
+
+/** @param {import('@google-cloud/bigquery').BigQuery} bq */
+async function _buyerFetchVentasRows(bq) {
+  const sql = `
+    SELECT
+      card_code, card_name, item_code, descripcion_linea,
+      cantidad, importe_linea_ars, doc_entry, doc_kind,
+      FORMAT_DATE('%Y-%m-%d', DATE(fecha_contable)) AS fecha,
+      familia, subfamilia
+    FROM \`app-vendedores-shimano.shimano_app.v_ventas_lineas\`
+    WHERE fecha_contable >= DATE_SUB(CURRENT_DATE('America/Argentina/Buenos_Aires'), INTERVAL 24 MONTH)
+      AND card_code IS NOT NULL AND card_code != ''
+  `;
+  const [rows] = await bq.query({ query: sql, location: 'southamerica-east1' });
+  for (const r of rows) {
+    r.cantidad = Number(r.cantidad) || 0;
+    r.importe_linea_ars = Number(r.importe_linea_ars) || 0;
+    r.doc_entry = Number(r.doc_entry);
+    r.categoria = _buyerDeriveCategoria(r.familia);
+  }
+  return rows;
+}
+
+/**
+ * @param {import('firebase-admin/firestore').Firestore} db
+ * @param {string[]} cardCodes
+ */
+async function _buyerEnrichLocationFromClientMaster(db, cardCodes) {
+  const CHUNK = 30;
+  const locByCard = new Map();
+  for (let i = 0; i < cardCodes.length; i += CHUNK) {
+    const chunk = cardCodes.slice(i, i + CHUNK);
+    const docs = await Promise.all(
+      chunk.map((cc) => db.collection('client_master').doc(cc).get().catch(() => null))
+    );
+    for (let j = 0; j < docs.length; j++) {
+      const d = docs[j];
+      if (d && d.exists) {
+        const data = d.data() || {};
+        locByCard.set(chunk[j], {
+          provincia: data.provincia || null,
+          localidad: data.localidad || null,
+          direccion: data.address || data.direccion || null,
+        });
+      }
+    }
+  }
+  return locByCard;
+}
+
+/**
+ * @param {import('firebase-admin/firestore').Firestore} db
+ * @param {Map<string, any>} statsMap
+ * @param {Map<string, any>} locByCard
+ */
+async function _buyerWriteStatsFirestore(db, statsMap, locByCard) {
+  const col = db.collection('client_buyer_stats');
+  const docs = Array.from(statsMap.values()).map((d) => {
+    const loc = locByCard.get(d.cardCode) || {};
+    return Object.assign({}, d, {
+      provincia: loc.provincia || null,
+      localidad: loc.localidad || null,
+      direccion: loc.direccion || null,
+      computedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  const BATCH = 400;
+  let written = 0;
+  for (let i = 0; i < docs.length; i += BATCH) {
+    const batch = db.batch();
+    for (const doc of docs.slice(i, i + BATCH)) {
+      batch.set(col.doc(doc.cardCode), doc, { merge: false });
+    }
+    await batch.commit();
+    written += Math.min(BATCH, docs.length - i);
+  }
+  return written;
+}
+
+export const recomputeClientBuyerStats = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 3 * * *',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '1GiB',
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const startMs = Date.now();
+    const db = getFirestore();
+    const { BigQuery } = await import('@google-cloud/bigquery');
+    const { aggregateVentasIntoBuyerStats } = await import('./core/buyer-stats-core.js');
+    const bq = new BigQuery({ projectId: 'app-vendedores-shimano', location: 'southamerica-east1' });
+
+    let rows;
+    try {
+      rows = await _buyerFetchVentasRows(bq);
+    } catch (e) {
+      console.error('[recomputeClientBuyerStats] BQ query failed', e);
+      await db.collection('client_buyer_stats').doc('_meta_').set({
+        lastRun: FieldValue.serverTimestamp(),
+        error: String((e && e.message) || e),
+        status: 'bq_error',
+      }, { merge: true });
+      throw e;
+    }
+    console.log('[recomputeClientBuyerStats] BQ rows:', rows.length);
+
+    const statsMap = aggregateVentasIntoBuyerStats(rows, new Date());
+    console.log('[recomputeClientBuyerStats] cards computed:', statsMap.size);
+
+    const cardCodes = Array.from(statsMap.keys());
+    const locByCard = await _buyerEnrichLocationFromClientMaster(db, cardCodes);
+    const written = await _buyerWriteStatsFirestore(db, statsMap, locByCard);
+
+    const durationMs = Date.now() - startMs;
+    await db.collection('client_buyer_stats').doc('_meta_').set({
+      lastRun: FieldValue.serverTimestamp(),
+      durationMs,
+      cardsProcesados: statsMap.size,
+      rowsBQ: rows.length,
+      status: 'ok',
+    }, { merge: true });
+
+    console.log('[recomputeClientBuyerStats] OK:', written, 'docs in', Math.round(durationMs / 1000), 's');
+  }
+);
+
+// v1350: trigger manual (callable) — admin/gerente only. Util para el first compute
+// y para refrescar sin esperar las 03:00.
+export const triggerRecomputeClientBuyerStats = onCall(
+  {
+    region: REGION,
+    memory: '1GiB',
+    timeoutSeconds: 540,
+  },
+  async (request) => {
+    const auth = request.auth;
+    if (!auth) throw new HttpsError('unauthenticated', 'Login requerido');
+    const db = getFirestore();
+    const userDoc = await db.doc(`users/${auth.uid}`).get();
+    const userData = userDoc.exists ? (userDoc.data() || {}) : {};
+    const role = userData.role || '';
+    if (role !== 'admin' && role !== 'gerente') {
+      throw new HttpsError('permission-denied', 'Solo admin/gerente puede trigger manual');
+    }
+
+    const { BigQuery } = await import('@google-cloud/bigquery');
+    const { aggregateVentasIntoBuyerStats } = await import('./core/buyer-stats-core.js');
+    const bq = new BigQuery({ projectId: 'app-vendedores-shimano', location: 'southamerica-east1' });
+
+    const rows = await _buyerFetchVentasRows(bq);
+    const statsMap = aggregateVentasIntoBuyerStats(rows, new Date());
+    const cardCodes = Array.from(statsMap.keys());
+    const locByCard = await _buyerEnrichLocationFromClientMaster(db, cardCodes);
+    const written = await _buyerWriteStatsFirestore(db, statsMap, locByCard);
+    await db.collection('client_buyer_stats').doc('_meta_').set({
+      lastRun: FieldValue.serverTimestamp(),
+      cardsProcesados: statsMap.size,
+      rowsBQ: rows.length,
+      status: 'ok_manual',
+      triggeredBy: auth.token.email || auth.uid,
+    }, { merge: true });
+    return { cards: statsMap.size, rows: rows.length, written };
+  }
+);
