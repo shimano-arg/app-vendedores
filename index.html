@@ -6293,6 +6293,13 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
   </div>
 </div>
 
+<style>
+#sugerencias-modal details > summary { list-style: none; }
+#sugerencias-modal details > summary::-webkit-details-marker { display: none; }
+#sugerencias-modal details > summary::marker { display: none; }
+#sugerencias-modal details > summary:hover { background: #f8fafc; }
+#sugerencias-modal details[open] > summary { background: #f1f5f9; }
+</style>
 <div class="modal-overlay" id="sugerencias-modal" onclick="if(event.target===this)closeSugerenciasModal()" style="z-index:5100">
   <div class="modal-box" style="width:min(1200px,96vw);max-height:95vh;display:flex;flex-direction:column">
     <div class="modal-head" style="background:linear-gradient(135deg,#1d4ed8,#2563eb);flex-shrink:0">
@@ -6529,7 +6536,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1347';
+const APP_VERSION = 'v1348';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22411,6 +22418,24 @@ function _sugMakeSuggestionRow(suggestion, origSku, faltante, attrsBySku, origAt
   return row;
 }
 
+// v1348: badge tipo (CAÑA/REEL/LÍNEA/FG/COMBO/otro) derivado de familia_motor o cat PRODUCTS.
+function _sugTipoBadge(sku, attrs) {
+  if (attrs && attrs.familia_motor === 'canas') return { label: 'CAÑA', bg: '#ddd6fe', fg: '#5b21b6' };
+  if (attrs && attrs.familia_motor === 'reels') return { label: 'REEL', bg: '#bae6fd', fg: '#0369a1' };
+  if (attrs && attrs.familia_motor === 'lineas') return { label: 'LÍNEA', bg: '#bbf7d0', fg: '#166534' };
+  const prod = (PRODUCTS || []).find(p => p.code === sku);
+  const cat = (prod && prod.cat) ? String(prod.cat).toUpperCase() : '';
+  if (cat === 'FG') return { label: 'FG', bg: '#fed7aa', fg: '#9a3412' };
+  if (cat === 'COMBO') return { label: 'COMBO', bg: '#e9d5ff', fg: '#6b21a8' };
+  if (cat === 'LINEAS') return { label: 'LÍNEA', bg: '#bbf7d0', fg: '#166534' };
+  if (cat === 'REEL') return { label: 'REEL', bg: '#bae6fd', fg: '#0369a1' };
+  if (cat === 'CAÑAS') return { label: 'CAÑA', bg: '#ddd6fe', fg: '#5b21b6' };
+  return { label: cat || 'OTRO', bg: '#f1f5f9', fg: '#475569' };
+}
+
+// v1348: render body como lista colapsable (pattern Stock Asignado).
+// Cada banda es <details>; summary = SKU + badge tipo + desc corta + faltan Nu.
+// Default: colapsado. Si solo 1 banda, abrir expandido por default.
 function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
   const bodyEl = document.getElementById('sug-body');
   while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
@@ -22418,6 +22443,14 @@ function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
     bodyEl.appendChild(_sugMakeEl('div', 'text-align:center;padding:40px;color:#64748b', 'No hay faltantes.'));
     return;
   }
+
+  // Resumen arriba con contador
+  const resumen = _sugMakeEl('div', 'background:#fef3c7;border:1.5px solid #fde047;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#92400e;font-weight:600');
+  resumen.textContent = bandas.length + ' SKU(s) con faltante — tocá cada uno para ver alternativas';
+  bodyEl.appendChild(resumen);
+
+  const singleBanda = bandas.length === 1;
+
   for (const banda of bandas) {
     const f = banda.faltante;
     const r = banda.result;
@@ -22425,45 +22458,99 @@ function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
     const prod = (PRODUCTS || []).find(p => p.code === f.sku);
     const nombre = (prod && prod.desc) ? prod.desc : f.sku;
     const precioOrig = priceBySku[f.sku] || 0;
+    const tipoBadge = _sugTipoBadge(f.sku, origAttrs);
 
-    const section = _sugMakeEl('div', 'background:#fff;border-radius:8px;padding:14px 16px;margin-bottom:16px;border-left:4px solid #ef4444;box-shadow:0 1px 3px rgba(0,0,0,.05)');
-    const header = _sugMakeEl('div', 'margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle)');
-    header.appendChild(_sugMakeEl('div', 'font-family:monospace;font-size:12px;font-weight:800;color:#1e293b;margin-bottom:3px', f.sku));
-    header.appendChild(_sugMakeEl('div', 'font-size:11.5px;color:#64748b;line-height:1.4;margin-bottom:4px', nombre));
-    header.appendChild(_sugMakeEl('div', 'font-size:11.5px;color:#dc2626;font-weight:700', 'Faltan: ' + f.qtyFaltante + ' unidades · $' + precioOrig.toLocaleString('es-AR') + ' c/u'));
-    section.appendChild(header);
+    // Count alternativas disponibles
+    const nStrict = (r.strict || []).length;
+    const nApprox = (r.approx || []).length;
+    const alternativasInfo = (nStrict + nApprox) > 0
+      ? (nStrict + ' estrictas' + (nApprox > 0 ? ' · ' + nApprox + ' aproximadas' : ''))
+      : (r.error === 'SKU_NOT_IN_CATALOG' ? 'Sin datos técnicos' : 'Sin alternativas');
+    const alternativasColor = (nStrict + nApprox) > 0 ? '#059669' : '#64748b';
+
+    const details = document.createElement('details');
+    details.style.cssText = 'background:#fff;border-radius:8px;margin-bottom:10px;border-left:4px solid #ef4444;box-shadow:0 1px 3px rgba(0,0,0,.05);overflow:hidden';
+    if (singleBanda) details.open = true;
+
+    const summary = document.createElement('summary');
+    summary.style.cssText = 'padding:12px 16px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap;user-select:none';
+    // Hide default triangle
+    summary.innerHTML = '';
+
+    // Chevron
+    const chevron = _sugMakeEl('span', 'display:inline-block;color:#64748b;font-size:11px;transition:transform .15s;flex-shrink:0', '▶');
+    details.addEventListener('toggle', () => {
+      chevron.style.transform = details.open ? 'rotate(90deg)' : 'rotate(0deg)';
+      // Log action when user opens the SKU
+      if (details.open) _sugLogAction(f.sku, { type: 'ver_sku' });
+    });
+    if (singleBanda) chevron.style.transform = 'rotate(90deg)';
+    summary.appendChild(chevron);
+
+    // SKU
+    const skuEl = _sugMakeEl('span', 'font-family:monospace;font-weight:800;color:#1e293b;font-size:12.5px;flex-shrink:0', f.sku);
+    summary.appendChild(skuEl);
+
+    // Badge tipo
+    const badge = _sugMakeEl('span', 'background:' + tipoBadge.bg + ';color:' + tipoBadge.fg + ';padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;flex-shrink:0;letter-spacing:.3px', tipoBadge.label);
+    summary.appendChild(badge);
+
+    // Desc corta (ellipsis en 1 linea)
+    const descShort = nombre.length > 70 ? nombre.substring(0, 68) + '…' : nombre;
+    const descEl = _sugMakeEl('span', 'color:#64748b;font-size:11.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', descShort);
+    summary.appendChild(descEl);
+
+    // Faltan + alternativas (lado derecho)
+    const rightInfo = _sugMakeEl('div', 'display:flex;align-items:center;gap:12px;flex-shrink:0');
+    rightInfo.appendChild(_sugMakeEl('span', 'font-size:11.5px;color:#dc2626;font-weight:700', 'Faltan ' + f.qtyFaltante + ' u'));
+    rightInfo.appendChild(_sugMakeEl('span', 'font-size:11px;color:' + alternativasColor + ';font-weight:700', alternativasInfo));
+    summary.appendChild(rightInfo);
+
+    details.appendChild(summary);
+
+    // Content box (contenido expandible)
+    const content = _sugMakeEl('div', 'padding:12px 16px;border-top:1px solid var(--border-subtle);background:#f8fafc');
+
+    // Linea info original
+    const origInfo = _sugMakeEl('div', 'margin-bottom:10px;font-size:11.5px;color:#64748b;line-height:1.5');
+    origInfo.appendChild(_sugMakeEl('div', '', nombre));
+    origInfo.appendChild(_sugMakeEl('div', 'color:#dc2626;font-weight:700;margin-top:3px', 'Faltan: ' + f.qtyFaltante + ' u · $' + precioOrig.toLocaleString('es-AR') + ' c/u'));
+    content.appendChild(origInfo);
 
     if (r.error === 'SKU_NOT_IN_CATALOG') {
-      section.appendChild(_sugMakeEl('div', 'padding:10px;background:#fef3c7;color:#92400e;border-radius:4px;font-size:11.5px', 'Sin datos técnicos cargados para este SKU. Avisá a admin para completar el catálogo.'));
+      content.appendChild(_sugMakeEl('div', 'padding:10px;background:#fef3c7;color:#92400e;border-radius:4px;font-size:11.5px', 'Sin datos técnicos cargados para este SKU. Avisá a admin para completar el catálogo.'));
       try { if (typeof Sentry !== 'undefined') Sentry.captureMessage('sugerencias: sku sin catalog ' + f.sku, 'warning'); } catch(_){}
     } else if (r.strict.length === 0 && r.approx.length === 0) {
       const emptyTxt = r.mode === 'none' ? 'Sin alternativas disponibles con stock libre.' : 'Sin match exacto. Expandí "Ver aproximadas" para ver opciones más amplias.';
-      section.appendChild(_sugMakeEl('div', 'padding:10px;background:#f1f5f9;color:#475569;border-radius:4px;font-size:11.5px;text-align:center', emptyTxt));
+      content.appendChild(_sugMakeEl('div', 'padding:10px;background:#f1f5f9;color:#475569;border-radius:4px;font-size:11.5px;text-align:center', emptyTxt));
     } else {
       if (r.strict.length > 0) {
-        for (const s of r.strict) section.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs));
+        for (const s of r.strict) content.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs));
       } else {
         const noStrictTxt = r.mode === 'canas'
           ? 'Sin alternativas estrictas (tipo + tramos + libraje). Mirá aproximadas abajo.'
           : 'Sin match por modelo + precio similar. Mirá aproximadas abajo (mismo tipo).';
-        section.appendChild(_sugMakeEl('div', 'padding:8px;background:#f1f5f9;color:#475569;border-radius:4px;font-size:11px;text-align:center;margin-bottom:8px', noStrictTxt));
+        content.appendChild(_sugMakeEl('div', 'padding:8px;background:#f1f5f9;color:#475569;border-radius:4px;font-size:11px;text-align:center;margin-bottom:8px', noStrictTxt));
       }
       if (r.approx.length > 0) {
-        const expand = _sugMakeEl('button', 'width:100%;padding:7px;background:#f8fafc;color:#475569;border:1px dashed #cbd5e1;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;margin-top:6px', 'Ver alternativas aproximadas (' + r.approx.length + ') ▽');
+        const expand = _sugMakeEl('button', 'width:100%;padding:7px;background:#fff;color:#475569;border:1px dashed #cbd5e1;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;margin-top:6px', 'Ver alternativas aproximadas (' + r.approx.length + ') ▽');
         expand.type = 'button';
         const approxBox = _sugMakeEl('div', 'display:none;margin-top:6px');
         for (const s of r.approx) approxBox.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs));
-        expand.onclick = () => {
+        expand.onclick = (e) => {
+          e.preventDefault();
           const open = approxBox.style.display === 'block';
           approxBox.style.display = open ? 'none' : 'block';
           expand.textContent = open ? ('Ver alternativas aproximadas (' + r.approx.length + ') ▽') : 'Ocultar aproximadas ▲';
           if (!open) _sugLogAction(f.sku, { type: 'ver_aproximadas' });
         };
-        section.appendChild(expand);
-        section.appendChild(approxBox);
+        content.appendChild(expand);
+        content.appendChild(approxBox);
       }
     }
-    bodyEl.appendChild(section);
+
+    details.appendChild(content);
+    bodyEl.appendChild(details);
   }
 }
 
