@@ -5631,6 +5631,51 @@ Mariano reportó inconsistencia visual: SKU EXGS70HB2AR tiene 64u en depósito 1
 
 ---
 
+### v1281 (2026-10-19) — Fix lineas colgadas en pedidos paid=full (bug CUDC201XG)
+
+**Archivos**:
+- `functions/core/close-stale-lines-on-cobrado-core.js` (nuevo) — helper puro `computeStaleLineClosure(pedido)`.
+- `functions/core/sync-sap-payments-core.js`: import + llamada en `applyPaymentUpdate` + 2 campos nuevos en `PaymentSyncResult` (`linesClosedStale`, `pedidosWithStaleClosure`). Writes separados (amounts + closure) con try/catch defensivo en el closure.
+- `functions/core/invoice-sync-core.js:306`: `SKIP_STATES += ['closed_stale','legacy']` para proteger de notas de credito tardias que pisaban el `state` nuevo (silent-failure hunter HIGH #1).
+- `tests/unit/close-stale-lines-on-cobrado.test.js` (nuevo) — 26 tests TDD del helper puro.
+- `tests/functions/sync-sap-payments.test.js`: 3 tests nuevos del integration path.
+- `tests/functions/invoice-sync.test.js`: 2 tests nuevos (invoice tardio sobre `closed_stale`/`legacy` → saltea).
+- `scripts/backfill-close-stale-lines-v1255.cjs` (nuevo) — backfill one-off con `--dry-run`/`--commit`, checkpoint por batch, try/catch tolerante.
+
+**Antes**:
+Mariano reportó 2026-10-19 que el modal Backorder del CRM mostraba **71u** para SKU `CUDC201XG` mientras el tablero PBI SAR mostraba **59u**. Los 12u de diferencia venían de 6 líneas `state='confirmed'` + `qtyOpen>0` dentro de pedidos ya cobrados (`paidStatus='paid'` / `sapEstado='COBRADO_COMPLETO'`): clientes YOEL SAIA (3), FATECHI parcial 3/6, MUNDO ESTURION ×2 (4), KOVRA (1), CRISTIAN ACOSTA (1). SAP cerró bien pero Firestore quedó con la línea abierta → el FIFO compute del modal (v1201) con `stock=0` reclasificaba esos `qtyOpen` al bucket backorder incorrectamente. Patrón alineado con incidente **FATECHI 2026-10-06** (SQ huérfana no linkeada por timeout CF).
+
+**Problema**:
+Cuando SAP marca un pedido como pagado 100% (`paidToDate >= docTotal`), la app no cerraba las líneas sueltas `state='confirmed'/'ASIG'` con `qtyOpen>0`. Esas líneas quedaban reservando "demanda virtual" que inflaba el modal Backorder del CRM y divergía del tablero PBI. Backfill global contó **125 pedidos / 457 líneas / 990 unidades** acumuladas como basura.
+
+**Cambio**:
+- **Helper puro `computeStaleLineClosure(pedido, {nowIso})`**: devuelve `{closedLines, newLines}`. Trigger solo cuando `paidStatus === 'paid'`. Cierra líneas con `state in {'confirmed','ASIG'}` + `qtyOpen > 0`. **NO toca `state='BO'`** (backorder legítimo, la SQ sigue abierta en SAP). Por línea cerrada: `qtyCancelled += qtyOpen; qtyOpen = 0; state = 'closed_stale'; closedStaleAt=ISO; closedStaleReason='pedido_paid_full_line_stale'`. Idempotente.
+- **Integración en `applyPaymentUpdate`**: ahora corre el helper además de calcular montos. Si hay closure, mergea el patch (`lines` + `staleLinesClosedAt` + `staleLinesLog` con últimos 10 eventos). Fix extra: si el pedido ya está `paid` y no cambian montos pero hay líneas colgadas, el update igual se dispara (antes `changed=false` saltaba todo).
+- **Nuevo state `closed_stale`**: sentinel que ningún filtro existente matchea (`BO`/`ASIG`/`confirmed`) → la línea desaparece del modal Backorder y de `pedido-snapshot-core.js` (`OPEN_STATES`), pero preserva trazabilidad por separado de `cancelled` (que lo usa el flow manual del usuario).
+- **Backfill `backfill-close-stale-lines-v1255.cjs`**: aplica el mismo helper en batch sobre todos los pedidos con `paidStatus='paid'`. Default `--dry-run`; con `--commit` escribe en batches de 400. Imprime top SKUs/clientes + sanity CUDC201XG. **No ejecutado automáticamente — Mariano lo corre a mano.**
+
+**Por que**:
+- Precedente FATECHI 2026-10-06: SQ huérfana no linkeada por timeout CF. Mismo patrón: SAP OK, app con línea colgada.
+- Trade-off v1201 (modal↔modal coherencia > modal↔PBI): el FIFO strict mode reclasificaba confirmed sin stock al bucket backorder. En vez de revertir ese trade-off, cerramos la raíz (las líneas colgadas).
+- `state='BO'` protegido: BO es demanda real registrada en SAP SQ que puede facturarse después. No cerrar automáticamente.
+- `paidStatus='partial'` NO dispara el cierre: pueden faltar invoices por generarse, no es seguro.
+
+**Verificacion**:
+- `vitest run tests/unit/close-stale-lines-on-cobrado.test.js` → 26/26 pass.
+- `vitest run tests/functions/sync-sap-payments.test.js` → 20/20 pass (incluye 3 nuevos v1281).
+- `vitest run tests/functions/invoice-sync.test.js` → pass con 2 tests nuevos (closed_stale/legacy inmutable ante invoice tardio).
+- `npm run test:unit` → 791/791 pass.
+- `npm run typecheck` → clean.
+- `npx biome check` sobre los 6 archivos tocados → clean.
+- Silent-failure hunter audit (pr-review-toolkit): 1 HIGH + 2 MEDIUM arreglados antes del merge; 3 LOW aceptados.
+- Dry-run backfill: `node scripts/backfill-close-stale-lines-v1255.cjs` → 125 pedidos / 457 líneas / 990u detectadas, sanity CUDC201XG exacto 6 líneas / 12u.
+- Smoke post-deploy (próxima corrida de `syncSapPaymentsScheduled`, cada 15min): verificar en logs `syncSapPayments: closed stale lines` + buscar en Firestore pedidos con `staleLinesClosedAt` reciente.
+
+**Rollback**:
+1. `git revert <commit>` + `firebase deploy --only functions:syncSapPaymentsScheduled` → el helper deja de correr, pero las líneas ya cerradas quedan con `state='closed_stale'`.
+2. Para "resurrectar" líneas backfilleadas incorrectamente: script inverso que lea `staleLinesLog[]` del pedido y restaure `state`/`qtyOpen`/`qtyCancelled` desde la entrada original. Marcar `rollbackedFrom='backfill_v1255'` para audit.
+3. El helper es idempotente — correr nuevo dry-run post-rollback muestra cuánto queda para re-aplicar si fuera necesario.
+
 ### v1280 (2026-10-14) — Waitlist stock-asignado-batch con TTL 7d + reserva de stock durante waitlist
 
 **Archivos**:
