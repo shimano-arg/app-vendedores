@@ -6771,7 +6771,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1366';
+const APP_VERSION = 'v1367';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -29837,14 +29837,52 @@ window.queryStockLive = function(code, btn){
         stockAsignadoQty = reservado;
         backorderQty = pendienteSinStock;
       }
-      const libre = Math.max(disp - stockAsignadoQty - backorderQty, 0);
+      // v1367 (2026-10-19): fix divergencia con el export Lista de Precios.
+      // Antes: libre = disp - stockAsignado - backorder (solo cuenta BO+ASIG).
+      // Export usa getStockRealmenteDisponible = disp - confirmed - BO - ASIG
+      // - WAITLIST_CPST. Si hay confirmed (ya en SAP, aún no facturado) o
+      // waitlist CPST (reservas de pedidos en espera), el export los descuenta
+      // y el modal no → divergencia (ej. 32 vs 30). Alineamos a la misma
+      // formula + agregamos las 2 lineas faltantes para que la aritmetica
+      // cierre a la vista. Reporte Mariano 2026-10-19 11:17 ART.
+      let confirmedQty = 0;
+      let waitlistCpstQty = 0;
+      try {
+        const _desgloseFn = typeof window.getStockDesglose === 'function' ? window.getStockDesglose : null;
+        if (_desgloseFn) {
+          const _desg = _desgloseFn(k);
+          if (_desg && _desg.breakdown) {
+            confirmedQty = Math.round(Number(_desg.breakdown.confirmed) || 0);
+            waitlistCpstQty = Math.round(Number(_desg.breakdown.WAITLIST_CPST) || 0);
+          }
+        }
+      } catch (_desgErr) {
+        console.warn('[stock-modal] getStockDesglose fallo:', _desgErr);
+      }
+      // Usar getStockRealmenteDisponible como fuente unica de "libre" (coincide
+      // con el export). Fallback a la formula manual si la pure no esta cargada.
+      let libre;
+      try {
+        const _fn = typeof window.getStockRealmenteDisponible === 'function'
+          ? window.getStockRealmenteDisponible : null;
+        libre = _fn ? Math.max(Math.round(Number(_fn(k)) || 0), 0)
+                    : Math.max(disp - stockAsignadoQty - backorderQty - confirmedQty - waitlistCpstQty, 0);
+      } catch (_libErr) {
+        libre = Math.max(disp - stockAsignadoQty - backorderQty - confirmedQty - waitlistCpstQty, 0);
+      }
       const lines = [
         'STOCK FISICO (DEP 11): ' + disp + ' unidades',
         'STOCK EN TRANSITO (DEP 12): ' + transito + ' unidades',
-        'BACKORDER: ' + backorderQty + ' unidades',
-        'STOCK ASIGNADO: ' + stockAsignadoQty + ' unidades',
-        'LIBRE PARA LA VENTA: ' + libre + ' unidades',
+        'BACKORDER (pedidos BO): ' + backorderQty + ' unidades',
+        'STOCK ASIGNADO (ASIG Pablo): ' + stockAsignadoQty + ' unidades',
       ];
+      if (confirmedQty > 0) {
+        lines.push('CONFIRMED (en SAP, no facturado): ' + confirmedQty + ' unidades');
+      }
+      if (waitlistCpstQty > 0) {
+        lines.push('LISTA DE ESPERA (CPST): ' + waitlistCpstQty + ' unidades');
+      }
+      lines.push('LIBRE PARA LA VENTA: ' + libre + ' unidades');
       status = lines.join('\n');
     } else if (hasQtyData) {
       status = 'Total vendible: ' + qty + ' unidades\n\n(Sin desglose por almacen — el proximo sync separara disponible vs transito)';

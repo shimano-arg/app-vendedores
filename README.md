@@ -4717,6 +4717,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1367 (2026-10-19) — Modal Master de Productos: LIBRE alineado al export (confirmed + waitlist descuentan)
+
+**Archivos**:
+- `index.html:29840-29900` — en el modal "Stock del SKU" (alert desde Master de Productos):
+  - LIBRE ahora se calcula con `getStockRealmenteDisponible` (= `disp - confirmed - BO - ASIG - WAITLIST_CPST`), coincide con el export Lista de Precios.
+  - Agregadas 2 líneas condicionales al breakdown:
+    - `CONFIRMED (en SAP, no facturado): N unidades` — solo si > 0.
+    - `LISTA DE ESPERA (CPST): N unidades` — solo si > 0.
+  - Renombrados labels existentes para claridad: `BACKORDER` → `BACKORDER (pedidos BO)`, `STOCK ASIGNADO` → `STOCK ASIGNADO (ASIG Pablo)`.
+- `index.html:6568` + `sw.js:20` — bump v1366 → v1367.
+
+**Reporte Mariano** (2026-10-19 11:17 ART):
+"Al buscar un SKU veo 32 unidades libre para la venta, al exportar lista de precio veo ese SKU con 30 unidades."
+
+**Diagnóstico** (SKU `31500100150C`):
+- Modal mostraba: Stock 36 − ASIG 4 − BO 0 = Libre **32**.
+- Export mostraba: Stock 36 − confirmed − BO − ASIG − waitlist = Libre **30**.
+- Gap = 2u en `confirmed` o `WAITLIST_CPST` que el modal **no estaba contando**.
+
+El modal v1242 (2026-10-13) solo contaba ASIG y BO para que la aritmética cerrara con los modales Backorder/Stock Asignado. Pero `getStockRealmenteDisponible` (fuente del export) también descuenta `confirmed` (pedidos ya en SAP, facturándose) y `WAITLIST_CPST` (reservas en pedidos en espera).
+
+**Fix**:
+Alineé el modal al export usando `getStockRealmenteDisponible` como fuente única del LIBRE. Las 2 líneas condicionales nuevas (CONFIRMED + CPST) hacen la aritmética visible al vendedor para que no quede sorprendido por el "gap de 2u".
+
+Para el caso de 31500100150C ahora el modal muestra:
+```
+STOCK FISICO (DEP 11): 36
+STOCK EN TRANSITO (DEP 12): 0
+BACKORDER (pedidos BO): 0
+STOCK ASIGNADO (ASIG Pablo): 4
+CONFIRMED (en SAP, no facturado): 2    ← nueva línea
+LIBRE PARA LA VENTA: 30                 ← coincide con export
+```
+
 ### v1366 (2026-10-19) — Export Backorder: hoja Resumen con TOTAL igual al modal + fila TOTAL en la hoja detalle
 
 **Archivos**:
