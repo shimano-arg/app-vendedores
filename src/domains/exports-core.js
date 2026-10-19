@@ -1709,10 +1709,135 @@ window.exportBackorderAll = async function () {
     return;
   }
   rows.sort((a, b) => (a.Cliente || '').localeCompare(b.Cliente || ''));
+  // v1366 (2026-10-19): hoja "Resumen" con los MISMOS totales que el modal
+  // Backorder (computeBackorderSkuMap post-consolidacion por cliente). Antes
+  // el export dumpeaba lineas crudas sin ningun total → Mariano sumaba la
+  // columna Subtotal_BO_ARS y el valor podia diverger del modal cuando un
+  // cliente tenia varias lineas BO del mismo SKU con precios distintos (el
+  // modal consolida usando el precio de la 1ra linea procesada; el export
+  // usa el precio de cada linea individual).
+  const _computeSkuMapFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderSkuMap;
+  const _modalDeps = {
+    getStockDisponibleVenta:
+      typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+    canonVendor:
+      typeof w._canonVendor === 'function'
+        ? w._canonVendor
+        : (x) =>
+            String(x || '')
+              .trim()
+              .toUpperCase(),
+    products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+    backorderLines: Array.isArray(w.backorderLines) ? w.backorderLines : [],
+    sapGetClienteCode: typeof w.sapGetClienteCode === 'function' ? w.sapGetClienteCode : undefined,
+    resolveVendorFallback: _resolveVendorFallback,
+  };
+  const _modalFilters = {
+    tiendaQuery: '',
+    vendorKey: '',
+    mesYYYYMM: '',
+    urgencyFilter: '',
+    includeExpired: true,
+    aggregationMode: 'fifo',
+  };
+  const _modalResult = _computeSkuMapFn
+    ? _computeSkuMapFn(arr, 'urgente', _modalFilters, _modalDeps)
+    : { skus: [], totalUnidades: 0, totalClientes: 0 };
+  let totalPesosModal = 0;
+  const subtotalesPorUrgency = { urgente: 0, parcial: 0 };
+  for (const g of _modalResult.skus || []) {
+    const urg = g.urgency || 'urgente';
+    for (const c of g.clientes || []) {
+      const qty = Number(c.qtyBackorder) || 0;
+      if (qty <= 0) continue;
+      const precio = Number(c.precio) || 0;
+      const sub = qty * precio;
+      totalPesosModal += sub;
+      if (urg === 'parcial') subtotalesPorUrgency.parcial += sub;
+      else subtotalesPorUrgency.urgente += sub;
+    }
+  }
+  const totalUnidadesModal = _modalResult.totalUnidades || 0;
+  const totalClientesModal = _modalResult.totalClientes || 0;
+  const totalSkusModal = (_modalResult.skus || []).length;
+  const resumenRows = [
+    { Metrica: 'TOTAL Backorder ARS (igual al modal)', Valor: Math.round(totalPesosModal) },
+    { Metrica: 'SKUs con backorder', Valor: totalSkusModal },
+    { Metrica: 'Unidades pendientes', Valor: Math.round(totalUnidadesModal) },
+    { Metrica: 'Clientes afectados', Valor: totalClientesModal },
+    { Metrica: '— Subtotal SIN REPOSICION', Valor: Math.round(subtotalesPorUrgency.urgente) },
+    { Metrica: '— Subtotal PARCIAL', Valor: Math.round(subtotalesPorUrgency.parcial) },
+    {
+      Metrica:
+        'Lineas crudas en hoja Backorder (hay varias por cliente/SKU si hay multiples pedidos)',
+      Valor: rows.length,
+    },
+    { Metrica: 'Snapshot generado', Valor: new Date().toLocaleString('es-AR') },
+  ];
+  // Agregar fila TOTAL al final de la hoja Backorder usando la MISMA formula
+  // que _modalResult (consolidada por cliente). Sin esto, sumar la columna
+  // Subtotal_BO_ARS a mano da el valor crudo (puede diverger).
+  const totalRow = {
+    Fecha_Pedido: '',
+    Mes: '',
+    Cliente: 'TOTAL (igual al modal)',
+    CardCode: '',
+    Provincia: '',
+    Localidad: '',
+    Vendedor: '',
+    SKU: '',
+    Producto: '',
+    Cantidad_Pedida: '',
+    Cantidad_Pendiente_BO: Math.round(totalUnidadesModal),
+    Precio_Unit_ARS: '',
+    Subtotal_BO_ARS: Math.round(totalPesosModal),
+    Pedido_ID: '',
+    Linea_Idx: '',
+    SQ_DocNum: '',
+    Origen: '',
+    Estado: '',
+    Stock_Disp_SKU: '',
+  };
+  rows.push(totalRow);
   const today = new Date().toISOString().slice(0, 10);
   const fname = 'Shimano_Backorder_Snapshot_' + today + '.xlsx';
-  downloadXlsx(fname, [{ name: 'Backorder', rows }]);
-  showSyncTag('Export Backorder listo (' + rows.length + ' lineas)', 2400);
+  downloadXlsx(
+    fname,
+    [
+      { name: 'Resumen', rows: resumenRows },
+      { name: 'Backorder', rows },
+    ],
+    {
+      // Pintar la fila TOTAL de la hoja Backorder + fila 1 (TOTAL) de Resumen.
+      cellStyler: (cell, columnName, _value, rowIndex) => {
+        // Hoja Resumen: fila TOTAL = rowIndex 0 (primera data row post header).
+        // Hoja Backorder: fila TOTAL = ultima row (rowIndex === rows.length - 1).
+        // No tenemos acceso al nombre de la hoja en el styler, pero pintamos
+        // por celda: si columnName=='Metrica' y es 'TOTAL Backorder ARS...',
+        // o si columnName=='Cliente' y el valor incluye 'TOTAL'.
+        const txt = String(cell.value || '');
+        if (
+          (columnName === 'Metrica' && txt.includes('TOTAL Backorder')) ||
+          (columnName === 'Cliente' && txt.includes('TOTAL'))
+        ) {
+          cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF991B1B' } }; // red-800
+        }
+        // Celdas de la MISMA FILA TOTAL (los numeros)
+        if (rowIndex === 0 && columnName === 'Valor') {
+          cell.font = { bold: true };
+        }
+      },
+    }
+  );
+  showSyncTag(
+    'Export Backorder listo (' +
+      (rows.length - 1) +
+      ' lineas + Resumen con total $' +
+      Math.round(totalPesosModal).toLocaleString('es-AR') +
+      ')',
+    3000
+  );
 };
 
 // v737: SNAPSHOT ACTUAL de todo el Stock Asignado (sin filtro de mes). Mismo
