@@ -36,13 +36,14 @@ def extract_view_sql(file_path: Path, view_name: str) -> str:
     create_start = text.rfind('CREATE OR REPLACE VIEW', 0, start)
     if create_start < 0:
         raise RuntimeError(f'No pude ubicar CREATE OR REPLACE VIEW antes de {marker}')
-    # Final: el proximo ";" fuera de string. Simplificacion: busca ";\n" o fin de archivo.
-    end = text.find(';\n', start)
-    if end < 0:
-        end = len(text)
-    stmt = text[create_start:end].strip()
-    if not stmt.endswith(';'):
-        stmt += ';'
+    # Final: hay varios ; (dentro de CASE/END) — buscar el proximo CREATE OR REPLACE
+    # VIEW o fin de archivo, y retroceder al ultimo ; antes.
+    next_create = text.find('CREATE OR REPLACE VIEW', start + 1)
+    if next_create > 0:
+        end = text.rfind(';', start, next_create)
+    else:
+        end = text.rfind(';')
+    stmt = text[create_start:end + 1].strip()
     return stmt
 
 
