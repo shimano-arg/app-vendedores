@@ -1,0 +1,46 @@
+name: Sync SAP ORTT daily (tipos de cambio)
+
+# Cron diario: trae las cotizaciones de los ultimos 10 dias desde SAP
+# (ORTT) y hace MERGE a sap_tipo_cambio_raw.
+#
+# Horario: 14:00 UTC = 11:00 ART. SAP Argentina carga la cotizacion a la
+# mañana (normalmente antes de las 10am local), asi que a las 11am ya esta.
+# Ventana de 10 dias para re-capturar correcciones post-hoc + feriados.
+#
+# El script usa MERGE idempotente — JAMAS pierde datos aunque la ventana
+# sea corta. Si queres re-cargar historia desde cero usa el workflow
+# backfill-sap-ortt (dispatch manual con start_date=2024-01-01).
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests google-cloud-bigquery google-cloud-firestore
+
+      - name: Compute start_date (hoy - 10 dias)
+        id: date
+        run: |
+          echo "value=$(date -u -d '10 days ago' +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Run incremental sync
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/backfill_sap_ortt.py --start-date=${{ steps.date.outputs.value }}

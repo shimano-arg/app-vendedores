@@ -1,0 +1,54 @@
+name: Backfill SAP ORTT (tipos de cambio)
+
+# Dispatch manual. Reemplaza completo la tabla sap_tipo_cambio_raw desde
+# ORTT (SAP B1 Service Layer vista sml.svc/ORTT) con las cotizaciones
+# diarias desde start_date (default 2024-01-01).
+#
+# Spec: ver scripts/backfill_sap_ortt.py docstring.
+#
+# Secrets:
+#   FIREBASE_SERVICE_ACCOUNT  mismo SA JSON que los otros workflows SAP sync.
+#                             SA tiene BQ Data Editor desde backfill 2026-07-07.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no escribe a BQ, solo loguea)'
+        type: boolean
+        required: false
+        default: false
+      start_date:
+        description: 'Fecha desde la cual traer cotizaciones (YYYY-MM-DD)'
+        required: false
+        default: '2024-01-01'
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests google-cloud-bigquery google-cloud-firestore
+
+      - name: Run backfill
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          args=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            args="$args --dry-run"
+          fi
+          args="$args --start-date=${{ inputs.start_date }}"
+          python scripts/backfill_sap_ortt.py $args
