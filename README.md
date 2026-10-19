@@ -4717,6 +4717,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1356 (2026-10-19) — Buyer: banner con período activo + hint cuando los stats son iguales entre ventanas
+
+**Archivos**:
+- `index.html:11687-11707` — después del period-toggle, nuevo `periodBanner` azul con `📅 Mostrando últimos N meses · primera compra YYYY-MM-DD (X días atrás)`. Si la primera compra está dentro de una ventana menor, agrega `— toda la actividad cabe en los últimos M meses, por eso ampliar la ventana no cambia los números`.
+- `index.html:6568` + `sw.js:20` — bump v1355 → v1356.
+
+**Reporte Mariano** (2026-10-19 ~08:55 ART): "no funcionan los botones que filtran los meses" en la tab Buyer de SUSANA GRACIELA ANDRILI (cardCode C27064094683).
+
+**Diagnóstico** (`scripts/debug-buyer-andrili.cjs`):
+Los stats SÍ son diferentes por diseño, pero para este cliente stats_3m == stats_6m == stats_12m == stats_24m porque sus 4 facturas únicas están entre 2026-07-27 y 2026-10-14 (span ~2.7 meses, todas caen en las 4 ventanas). Los botones funcionan (cambian el `active` visual) pero visualmente no se percibe diferencia alguna → se interpreta como "no funcionan".
+
+**Cambio**:
+- Banner visible debajo del toggle con `📅 Mostrando últimos N meses · primera compra ...`.
+- Si la primera compra está dentro de una ventana más corta que la seleccionada, agrega hint explicando por qué los números no cambian al ampliar.
+- No cambia la lógica subyacente, solo UX de feedback.
+
+**Alternativas descartadas**: ocultar botones de ventanas donde los stats son iguales — rompe la consistencia de la UI y requiere comparación client-side de 4 docs, overkill.
+
 ### v1355 (2026-10-19) — Forecast: botón "Próximas descontinuaciones" (bulk-marking)
 
 **Archivos**:

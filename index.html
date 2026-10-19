@@ -6565,7 +6565,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1355';
+const APP_VERSION = 'v1356';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11686,6 +11686,25 @@ function _renderFichaClienteBuyer() {
     toggleBox.appendChild(btn);
   });
   buyerContent.appendChild(toggleBox);
+
+  // v1356 (2026-10-19): label visible con el periodo activo + hint cuando los stats
+  // de distintas ventanas son iguales (ej cliente nuevo con toda la actividad en
+  // los ultimos 3m — stats_3m == stats_6m == stats_12m == stats_24m, los botones
+  // "no cambian" visualmente aunque esten funcionando). Reporte Mariano 2026-10-19.
+  const periodMonths = _fcBuyerCurrentPeriod === '3m' ? 3 : _fcBuyerCurrentPeriod === '6m' ? 6 : _fcBuyerCurrentPeriod === '12m' ? 12 : 24;
+  const periodBanner = _fcBuyerMakeEl('div', 'margin:8px 0 12px;padding:10px 14px;background:#eff6ff;border-left:3px solid #2563eb;border-radius:4px;font-size:12px;color:#1e40af;font-weight:600');
+  let bannerText = '📅 Mostrando últimos ' + periodMonths + ' meses';
+  if (window.primeraCompra) {
+    const primeraDate = new Date(window.primeraCompra + 'T00:00:00Z');
+    const diasDesdePrimera = Math.round((Date.now() - primeraDate.getTime()) / (1000 * 60 * 60 * 24));
+    const mesesCubiertos = Math.max(1, Math.round(diasDesdePrimera / 30));
+    bannerText += ' · primera compra ' + window.primeraCompra + ' (' + diasDesdePrimera + ' días atrás)';
+    if (mesesCubiertos < periodMonths) {
+      bannerText += ' — toda la actividad cabe en los últimos ' + mesesCubiertos + ' meses, por eso ampliar la ventana no cambia los números';
+    }
+  }
+  periodBanner.textContent = bannerText;
+  buyerContent.appendChild(periodBanner);
 
   // KPIs grid
   const kpiGrid = _fcBuyerMakeEl('div', 'display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px');
