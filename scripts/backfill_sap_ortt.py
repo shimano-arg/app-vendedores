@@ -10,10 +10,13 @@ Spec (pedido Mariano 2026-10-19 cierre Fase 2 Bike):
   huecos: ORTT no tiene fila para fines de semana/feriados — no rellenar.
           El arrastre de ultima cotizacion conocida es decision DAX en PBI.
 
-Endpoints probados (en orden):
-  1. /b1s/v1/sml.svc/ORTT                      — vista semantica (preferida)
-  2. /b1s/v1/sml.svc/CurrencyRates             — fallback alterno
-  3. SQLQueries (requiere setup previo en SAP, no implementado)
+Endpoint usado:
+  POST /b1s/v1/SBOBobService_GetCurrencyRate (body: Currency + Date)
+  Este metodo esta siempre expuesto en SAP B1 SL. Iteramos moneda × fecha.
+  Alternativas descartadas (probadas y fallan en este SAP):
+    - /b1s/v1/sml.svc/ORTT                 → "View ORTT not exposed"
+    - /b1s/v1/sml.svc/CurrencyRates        → idem
+    - /b1s/v1/CurrencyRates                → "Unrecognized resource path"
 
 IDEMPOTENCIA (v2 2026-10-19):
   Usa MERGE sobre la tabla destino. Jamas trunca.
@@ -32,7 +35,8 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 
@@ -59,103 +63,126 @@ BQ_TABLE_TIPO_CAMBIO_STAGING = f'{BQ_PROJECT}.{BQ_DATASET}._tmp_sap_tipo_cambio_
 START_DATE_DEFAULT = '2024-01-01'
 
 
-# ----- Fetch SL -----
+# ----- Fetch SL (metodo SBOBobService_GetCurrencyRate) -----
 
-def probe_endpoint(cfg: dict, session: requests.Session, path: str) -> bool:
-    """Devuelve True si el endpoint responde 2xx con 'value' array."""
-    url = f"{cfg['url']}{path}?$top=1"
-    try:
-        resp = session.get(url, timeout=30)
-    except requests.RequestException as e:
-        log(f'[PROBE {path}] error de red: {e}')
-        return False
+def list_currencies(cfg: dict, session: requests.Session) -> list:
+    """Lista las monedas definidas en SAP. Devuelve codigos (ej ['USD','EUR'])."""
+    url = f"{cfg['url']}/b1s/v1/Currencies?$select=Code,Name,International&$top=100"
+    resp = session.get(url, timeout=30)
     if not resp.ok:
-        log(f'[PROBE {path}] HTTP {resp.status_code}: {resp.text[:200]}')
-        return False
+        log(f'[CURR] WARN HTTP {resp.status_code}, fallback a lista fija USD+EUR')
+        return ['USD', 'EUR']
+    rows = resp.json().get('value', [])
+    # Filtrar: solo tomar las monedas marcadas como "International" (= no la local).
+    codes = []
+    for r in rows:
+        code = (r.get('Code') or '').strip()
+        if not code:
+            continue
+        # International='tYES' indica moneda extranjera. ARS no la tiene.
+        intl = r.get('International')
+        if intl in ('tYES', True, 'Y', 'y'):
+            codes.append(code)
+    if not codes:
+        log('[CURR] WARN no se detectaron monedas Internacional, fallback USD+EUR')
+        return ['USD', 'EUR']
+    log(f'[CURR] monedas detectadas: {codes}')
+    return codes
+
+
+def get_rate_one(cfg: dict, session: requests.Session, currency: str, fecha: date):
+    """
+    POST /b1s/v1/SBOBobService_GetCurrencyRate con body { Currency, Date }.
+    Devuelve float (tasa) o None si no hay rate ese dia (fin de semana, feriado).
+    """
+    url = f"{cfg['url']}/b1s/v1/SBOBobService_GetCurrencyRate"
+    body = {
+        'Currency': currency,
+        'Date': fecha.strftime('%Y-%m-%dT00:00:00Z'),
+    }
     try:
-        body = resp.json()
+        resp = session.post(url, json=body, timeout=15)
+    except requests.RequestException as e:
+        log(f'[RATE] red error {currency} {fecha}: {e}')
+        return None
+    if resp.status_code == 401:
+        sl_login(cfg, session)
+        resp = session.post(url, json=body, timeout=15)
+    if not resp.ok:
+        # SAP devuelve 400 cuando no hay cotizacion para ese dia. Es esperado.
+        if resp.status_code == 400:
+            return None
+        log(f'[RATE] HTTP {resp.status_code} {currency} {fecha}: {resp.text[:200]}')
+        return None
+    try:
+        data = resp.json()
     except ValueError:
-        log(f'[PROBE {path}] respuesta no es JSON')
-        return False
-    rows = body.get('value', [])
-    log(f'[PROBE {path}] OK — devolvio {len(rows)} rows.')
-    if rows:
-        log(f'[PROBE {path}] columnas sample: {sorted(rows[0].keys())}')
-    return True
+        return None
+    # El metodo devuelve { "SBOBobService_GetCurrencyRateResponse": { "Rate": N.NN } }
+    # o directamente { "value": N.NN } segun version.
+    rate = None
+    if 'SBOBobService_GetCurrencyRateResponse' in data:
+        rate = data['SBOBobService_GetCurrencyRateResponse'].get('Rate')
+    elif 'value' in data:
+        rate = data.get('value')
+    elif 'Rate' in data:
+        rate = data.get('Rate')
+    try:
+        return float(rate) if rate is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
-def pick_endpoint(cfg: dict, session: requests.Session) -> str:
-    """Prueba endpoints en orden hasta encontrar uno que responda."""
-    candidates = [
-        '/b1s/v1/sml.svc/ORTT',
-        '/b1s/v1/sml.svc/CurrencyRates',
-        '/b1s/v1/CurrencyRates',
-    ]
-    for path in candidates:
-        if probe_endpoint(cfg, session, path):
-            return path
-    log('[FATAL] Ningun endpoint de ORTT responde.')
-    log('        Candidatos probados: ' + ', '.join(candidates))
-    sys.exit(4)
+def date_range(start: date, end: date):
+    cur = start
+    while cur <= end:
+        yield cur
+        cur = cur + timedelta(days=1)
 
 
-def fetch_ortt(cfg: dict, session: requests.Session, path: str, start_date: str) -> list:
-    """Pagina el endpoint elegido con $filter=RateDate ge start_date."""
-    rows_all = []
-    filter_expr = f"RateDate ge {start_date}T00:00:00Z"
-    select = 'RateDate,Currency,Rate'
-    orderby = 'RateDate asc,Currency asc'
-    url = (
-        f"{cfg['url']}{path}"
-        f"?$filter={filter_expr}"
-        f"&$select={select}"
-        f"&$orderby={orderby}"
-    )
-    page = 0
-    headers = {'Prefer': 'odata.maxpagesize=1000'}
-    while url:
-        try:
-            resp = session.get(url, timeout=60, headers=headers)
-        except requests.RequestException as e:
-            log(f'[ORTT] red error pag {page}: {e}. Retry en 3s.')
-            time.sleep(3)
-            resp = session.get(url, timeout=60, headers=headers)
-        if resp.status_code == 401:
-            log('[ORTT] 401, re-login + retry')
-            sl_login(cfg, session)
-            resp = session.get(url, timeout=60, headers=headers)
-        if not resp.ok:
-            log(f'[FATAL] HTTP {resp.status_code}: {resp.text[:500]}')
-            sys.exit(4)
-        body = resp.json()
-        value = body.get('value', [])
-        rows_all.extend(value)
-        page += 1
-        log(f'[ORTT] pag {page}: +{len(value)} rows (acum {len(rows_all)})')
-        next_link = body.get('@odata.nextLink') or body.get('odata.nextLink')
-        if not next_link:
-            break
-        url = next_link if next_link.startswith('http') else f"{cfg['url']}/{next_link.lstrip('/')}"
-    return rows_all
+def fetch_ortt_via_bob(cfg, session, start_date_str: str, currencies: list, max_workers: int = 8) -> list:
+    """Itera cada (moneda, fecha) desde start_date hasta hoy, paralelizado."""
+    start_date_obj = date.fromisoformat(start_date_str)
+    end_date_obj = datetime.now(tz=timezone.utc).date()
+    tasks = []
+    for curr in currencies:
+        for fecha in date_range(start_date_obj, end_date_obj):
+            tasks.append((curr, fecha))
+    log(f'[RATE] {len(tasks)} tasks ({len(currencies)} monedas × {(end_date_obj - start_date_obj).days + 1} dias)')
+    sync_ts = datetime.now(tz=timezone.utc).isoformat()
+    rows = []
+
+    def _worker(args):
+        curr, fecha = args
+        rate = get_rate_one(cfg, session, curr, fecha)
+        if rate is not None and rate > 0:
+            return {
+                'fecha': fecha.isoformat(),
+                'moneda': curr,
+                'tasa': rate,
+                '_sync_timestamp': sync_ts,
+            }
+        return None
+
+    done = 0
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for future in as_completed(pool.submit(_worker, t) for t in tasks):
+            r = future.result()
+            done += 1
+            if r:
+                rows.append(r)
+            if done % 500 == 0:
+                elapsed = time.time() - t0
+                rate_per_sec = done / elapsed if elapsed > 0 else 0
+                log(f'[RATE] progress {done}/{len(tasks)} ({rate_per_sec:.1f} req/s), rows ok={len(rows)}')
+    log(f'[RATE] completado en {time.time() - t0:.1f}s. {len(rows)} rows con tasa > 0')
+    return rows
 
 
 def normalize_row(raw: dict, sync_ts: str) -> dict:
-    """ORTT raw -> schema sap_tipo_cambio_raw."""
-    rate_date = raw.get('RateDate') or raw.get('rateDate') or ''
-    if rate_date and 'T' in rate_date:
-        rate_date = rate_date.split('T', 1)[0]
-    currency = (raw.get('Currency') or raw.get('currency') or '').strip()
-    rate_raw = raw.get('Rate') if 'Rate' in raw else raw.get('rate')
-    try:
-        rate = float(rate_raw) if rate_raw is not None else None
-    except (TypeError, ValueError):
-        rate = None
-    return {
-        'fecha': rate_date,
-        'moneda': currency,
-        'tasa': rate,
-        '_sync_timestamp': sync_ts,
-    }
+    """Normalizador legacy (compat). Hoy no se usa — rows ya vienen normalizadas."""
+    return raw
 
 
 # ----- BQ load (idempotente via MERGE) -----
@@ -261,13 +288,12 @@ def main():
     session = requests.Session()
     sl_login(cfg, session)
 
-    endpoint = pick_endpoint(cfg, session)
-    raw_rows = fetch_ortt(cfg, session, endpoint, args.start_date)
-    log(f'Total rows obtenidas de SAP: {len(raw_rows)}')
+    # 1. Listar monedas internacionales desde SAP.
+    currencies = list_currencies(cfg, session)
 
-    normalized = [normalize_row(r, sync_ts) for r in raw_rows]
-    normalized = [r for r in normalized if r['fecha'] and r['moneda']]
-    log(f'Rows post-normalizacion: {len(normalized)}')
+    # 2. Iterar (moneda, fecha) via SBOBobService_GetCurrencyRate.
+    normalized = fetch_ortt_via_bob(cfg, session, args.start_date, currencies, max_workers=8)
+    log(f'Rows con tasa > 0: {len(normalized)}')
 
     from collections import Counter
     by_currency = Counter(r['moneda'] for r in normalized)
