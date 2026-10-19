@@ -496,6 +496,118 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
   border-color: var(--border-default) !important;
 }
 
+/* v1358 (2026-10-19) HOTFIX dark mode: overrides por CSS CLASS para componentes
+   con bg hardcoded que no reaccionaban al theme (los selectores [style*="..."]
+   del bloque anterior solo capturan inline styles, no CSS rules).
+   Reporte Mariano screenshot: stat-boxes blancas, filter pills claros,
+   buscador claro, client-cards habilitado/cancelado con bg pastel claro,
+   notif-tabs-bar roja clara, sap-info/ruta-summary/qmodal pastel claros,
+   ac/rd approved/rejected cards pastel claras. */
+
+/* Client cards con estado semantico (sidebar-right pane-clients) */
+[data-theme="dark"] .client-card { background: var(--bg-elevated) !important; color: var(--text-primary) !important; border-color: var(--border-default) !important; }
+[data-theme="dark"] .client-card:hover { background: var(--bg-muted) !important; }
+[data-theme="dark"] .client-card.contacted,
+[data-theme="dark"] .client-card.estado-habilitado { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; border-left-color: var(--color-success) !important; color: var(--color-success) !important; }
+[data-theme="dark"] .client-card.estado-habilitado .client-name,
+[data-theme="dark"] .client-card.contacted .client-name { color: var(--color-success) !important; }
+[data-theme="dark"] .client-card.estado-cancelado { background: var(--color-danger-bg) !important; border-color: var(--color-danger) !important; border-left-color: var(--color-danger) !important; color: var(--color-danger) !important; }
+[data-theme="dark"] .client-card.estado-cancelado .client-name { color: var(--color-danger) !important; text-decoration: line-through; }
+
+/* Ruta cards (Rutas pane) con estado completo/reagendado */
+[data-theme="dark"] .ruta-card.completa { background: var(--color-success-bg) !important; border-left-color: var(--color-success) !important; }
+[data-theme="dark"] .ruta-tienda.visited { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; border-left-color: var(--color-success) !important; color: var(--color-success) !important; }
+[data-theme="dark"] .ruta-tienda-btn.outline:hover { background: var(--color-success-bg) !important; }
+[data-theme="dark"] .ruta-card.reagendados { background: var(--color-warning-bg) !important; border-left-color: var(--color-warning) !important; }
+[data-theme="dark"] .ruta-tienda.reagendada { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; border-left-color: var(--color-warning) !important; color: var(--color-warning) !important; }
+[data-theme="dark"] .ruta-summary { background: #1e3a8a !important; color: #93c5fd !important; border-left-color: #60a5fa !important; }
+
+/* Qmodal / Quick-pick modal options */
+[data-theme="dark"] .qmodal-opt:hover { background: #1e3a8a !important; border-color: #93c5fd !important; color: #93c5fd !important; }
+[data-theme="dark"] .qmodal-date-picker .dpd-day:hover { background: #1e3a8a !important; border-color: #93c5fd !important; }
+
+/* AC (Alta Clientes) + RD (Rendiciones) cards con estado approved/rejected */
+[data-theme="dark"] .ac-app-card.approved,
+[data-theme="dark"] .rd-mias-card.approved { background: var(--color-success-bg) !important; border-left-color: var(--color-success) !important; color: var(--color-success) !important; }
+[data-theme="dark"] .ac-app-card.rejected,
+[data-theme="dark"] .rd-mias-card.rejected { background: var(--color-danger-bg) !important; border-left-color: var(--color-danger) !important; color: var(--color-danger) !important; }
+
+/* Notif tabs bar — era rojo claro, migrar a danger-bg oscuro */
+[data-theme="dark"] .notif-tabs-bar { background: var(--color-danger-bg) !important; border-bottom-color: var(--color-danger) !important; }
+
+/* CCM-opt (Create client modal option cards) */
+[data-theme="dark"] .ccm-opt:hover { background: #1e3a8a !important; border-color: #93c5fd !important; }
+
+/* SAP info/input/btn con estados pastel */
+[data-theme="dark"] .sap-info { background: #1e3a8a !important; color: #93c5fd !important; border-left-color: #60a5fa !important; }
+[data-theme="dark"] .sap-btn.secondary:hover { background: #1e3a8a !important; }
+[data-theme="dark"] .sap-input.has-value { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; color: var(--color-success) !important; }
+
+/* Master Clientes stats + addr-input (header rojo + bg warning) */
+[data-theme="dark"] .mc-stats { background: var(--color-danger-bg) !important; color: var(--color-danger) !important; border-bottom-color: var(--color-danger) !important; }
+[data-theme="dark"] .mc-stats span.ok { background: var(--color-success-bg) !important; color: var(--color-success) !important; border-color: var(--color-success) !important; }
+[data-theme="dark"] .mc-addr-input.has-value { background: var(--color-danger-bg) !important; border-color: var(--color-danger) !important; color: var(--color-danger) !important; }
+
+/* SAP tags + bloqueado groups + assign rows */
+[data-theme="dark"] .sap-tag.transferido { background: var(--color-success-bg) !important; color: var(--color-success) !important; }
+[data-theme="dark"] .sap-bloqueado-group { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; border-left-color: var(--color-warning) !important; }
+[data-theme="dark"] .sap-assign-row input { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; color: var(--color-warning) !important; }
+
+/* Targets input semantic states (changed/saving/saved) */
+[data-theme="dark"] .targets-table input.tgt-input.changed { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; color: var(--color-warning) !important; }
+[data-theme="dark"] .targets-table input.tgt-input.saving { background: #1e3a8a !important; border-color: #60a5fa !important; color: #93c5fd !important; }
+[data-theme="dark"] .targets-table input.tgt-input.saved { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; color: var(--color-success) !important; }
+[data-theme="dark"] .targets-table tr.month-current td { background: var(--color-warning-bg) !important; color: var(--color-warning) !important; }
+
+/* Danger zone (modales admin) */
+[data-theme="dark"] .danger-zone { background: var(--color-danger-bg) !important; border-color: var(--color-danger) !important; color: var(--color-danger) !important; }
+[data-theme="dark"] .danger-zone h3, [data-theme="dark"] .danger-zone h4, [data-theme="dark"] .danger-zone p { color: var(--color-danger) !important; }
+
+/* v1358 REINFORCE stat-boxes + filter-btn + search inputs: redundante con
+   bloques anteriores pero defensivo contra specificity surprises. Mariano
+   reporto estos componentes como claros en v1357 (foto 09:56 ART). */
+html[data-theme="dark"] .stat-box {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-default) !important;
+  color: var(--text-primary) !important;
+}
+html[data-theme="dark"] .stat-box .num { color: var(--text-primary) !important; }
+html[data-theme="dark"] .stat-box .num[style*="color:#10b981"] { color: var(--color-success) !important; }
+html[data-theme="dark"] .stat-box .num[style*="color:var(--color-warning)"] { color: var(--color-warning) !important; }
+html[data-theme="dark"] .stat-box .lbl { color: var(--text-secondary) !important; }
+
+html[data-theme="dark"] .cli-filter-btn {
+  background: var(--bg-elevated) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border-default) !important;
+}
+html[data-theme="dark"] .cli-filter-btn.active { background: var(--brand-shimano-blue) !important; color: #fff !important; border-color: var(--brand-shimano-blue) !important; }
+html[data-theme="dark"] .cli-filter-btn[data-cli-filter="confirmados"].active { background: var(--color-success) !important; border-color: var(--color-success) !important; color: var(--text-inverse) !important; }
+html[data-theme="dark"] .cli-filter-btn[data-cli-filter="pendientes"].active { background: var(--color-warning) !important; border-color: var(--color-warning) !important; color: var(--text-inverse) !important; }
+
+html[data-theme="dark"] .ped-search {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+html[data-theme="dark"] .ped-search::placeholder { color: var(--text-muted) !important; }
+
+html[data-theme="dark"] .contact-controls { background: var(--bg-secondary) !important; color: var(--text-secondary) !important; }
+html[data-theme="dark"] .contact-summary { color: var(--text-secondary) !important; }
+html[data-theme="dark"] .contact-reset { background: var(--bg-elevated) !important; color: var(--text-secondary) !important; border-color: var(--border-default) !important; }
+html[data-theme="dark"] .contact-reset:hover { background: var(--bg-muted) !important; color: var(--text-primary) !important; }
+
+/* Toggle pedidos (Crear/Pendientes/Confirmados) */
+html[data-theme="dark"] .toggle-pedidos button { background: var(--bg-elevated) !important; color: var(--text-secondary) !important; border-color: var(--border-default) !important; }
+html[data-theme="dark"] .toggle-pedidos button.active { background: var(--brand-shimano-blue) !important; color: #fff !important; border-color: var(--brand-shimano-blue) !important; }
+
+/* Reinforce .sidebar (right) background con specificity html[data-theme] */
+html[data-theme="dark"] .sidebar {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+}
+html[data-theme="dark"] .sidebar h3 { color: var(--text-primary) !important; }
+
 /* Text color overrides adicionales (bg-slate-900 texts que quedan invisibles en dark) */
 [data-theme="dark"] [style*="color:var(--color-success)"] { color: var(--color-success) !important; }
 [data-theme="dark"] [style*="color:var(--color-danger)"] { color: var(--color-danger) !important; }
@@ -6659,7 +6771,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1357';
+const APP_VERSION = 'v1358';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

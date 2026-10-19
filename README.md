@@ -4717,6 +4717,34 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1358 (2026-10-19) — Dark Mode E6 hotfix: overrides por CSS class para componentes con bg hardcoded
+
+**Archivos**:
+- `index.html:491-595` — nuevo bloque "HOTFIX" con ~30 reglas `html[data-theme="dark"] .xxx { ... }` para componentes cuyo bg pastel estaba en CSS RULE (no inline), por lo que los selectores `[style*="..."]` del v1357 no los capturaban.
+- `index.html:6568` + `sw.js:20` — bump v1357 → v1358.
+
+**Reporte Mariano** (2026-10-19 ~09:56 ART, screenshot sidebar derecho): stat-boxes blancas, filter pills claros, buscador claro, cards de clientes verde-claro (estado-habilitado), "783/828 habilitados" sobre fondo claro, Limpiar btn claro.
+
+**Diagnóstico**:
+v1357 agregó overrides por `[style*="background:#ecfdf5"]` etc., que SOLO capturan atributo `style="..."` INLINE. Pero muchas clases tienen bg hardcoded en CSS RULES (ej. `.client-card.estado-habilitado { background:#ecfdf5 }`) — esos selectores nunca aplican override y quedan con el bg pastel claro en dark.
+
+**Cambio v1358**:
+Overrides por CSS class para los componentes identificados en el screenshot + los más usados del repo:
+
+- `.client-card`, `.client-card.contacted`, `.client-card.estado-habilitado`, `.client-card.estado-cancelado`.
+- `.ruta-card.completa`, `.ruta-tienda.visited`, `.ruta-card.reagendados`, `.ruta-tienda.reagendada`, `.ruta-summary`.
+- `.qmodal-opt:hover`, `.qmodal-date-picker .dpd-day:hover`.
+- `.ac-app-card.approved/rejected`, `.rd-mias-card.approved/rejected`.
+- `.notif-tabs-bar`.
+- `.ccm-opt:hover`, `.sap-info`, `.sap-btn.secondary:hover`, `.sap-input.has-value`.
+- `.mc-stats`, `.mc-stats span.ok`, `.mc-addr-input.has-value`.
+- `.sap-tag.transferido`, `.sap-bloqueado-group`, `.sap-assign-row input`.
+- `.targets-table input.tgt-input.changed/saving/saved`, `.targets-table tr.month-current td`.
+- `.danger-zone` (y h3/h4/p dentro).
+- **Reinforce** con specificity `html[data-theme="dark"]` (vs `[data-theme="dark"]` antes) para pisar inline + base: `.stat-box`, `.cli-filter-btn` (+ variantes active confirmados/pendientes), `.ped-search`, `.contact-controls`, `.contact-summary`, `.contact-reset`, `.toggle-pedidos button`, `.sidebar`.
+
+**Patrón aplicado**: estados semánticos preservan señal cromática — approved/visited/completa → success-bg + success text; cancelado/rejected → danger-bg + danger text; reagendado/warning → warning-bg + warning text; info → blue-900 + blue-300.
+
 ### v1357 (2026-10-19) — Dark Mode E6: WCAG 26/26 dark + overrides pastel por color semántico
 
 **Archivos**:
