@@ -4717,6 +4717,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1370 (2026-10-19) — Guard ASIG en Pasar a Pendientes: excluir ASIG cubiertas por waitlist CPST
+
+**Archivos**:
+- `src/domains/pedidos-modal.js:459-510` — en el guard "este cliente tiene N líneas con STOCK ASIGNADO sin resolver" previo a Pasar a Pendientes, nueva etapa: calcular `asigCubiertasPorCpst` = Set de `(pedidoId, lineIndex)` de ASIG que ya están vinculadas a un waitlist CPST (`source='stock-asignado-batch'`) con `pedidosOrigenes[]`. Esas ASIG YA están "en proceso" y no se cuentan como "no resueltas".
+- `chunks/*.js` rebuild.
+- `index.html:6568` + `sw.js:20` — bump v1369 → v1370.
+
+**Reporte Mariano** (2026-10-19 ~15:40 ART):
+"SNAKE S.R.L tiene 2 órdenes 441 y 459, ambas en Lista de Espera. Al querer pasar cualquiera a Pendientes el guard me bloquea diciendo 'este cliente tiene 1 línea con STOCK ASIGNADO sin resolver en 1 pedido anterior'. Mutuo bloqueo."
+
+**Diagnóstico**:
+- ORDEN 441 es CPST (vino de "Crear Pedido Desde Stock Asignado"). Su waitlist entry tiene `pedidosOrigenes[]` apuntando a las líneas ASIG del pedido fuente de 441.
+- ORDEN 459 ídem, con `pedidosOrigenes[]` distinto.
+- Al pasar 441 a Pendientes, el guard `src/domains/pedidos-modal.js:482` escanea `globalPedidos` buscando otros pedidos del cliente con ASIG activas. Encuentra las ASIG fuente de 459 → bloquea.
+- Al abrir 459 → encuentra las ASIG fuente de 441 → bloquea.
+- Las ASIG están "cubiertas" por los CPST, pero el guard no lo sabía.
+
+**Fix v1370**:
+Pre-cálculo `asigCubiertasPorCpst = Set<string>` iterando `revisionWaitlist` con `source='stock-asignado-batch'` y agregando cada entry de `pedidosOrigenes[].{pedidoId, lineIndex}`. En el loop del guard, al filtrar `asigLinesOfP`, excluir las que tengan key en ese Set. Así las ASIG cubiertas por CPST abiertos se tratan como "en proceso de resolución" y no bloquean el flow.
+
+**Consecuencia**: SNAKE 441 y 459 ahora pueden pasarse a Pendientes sin bloquear mutuamente. Al confirmar definitivamente cada uno, v1280 cancela las ASIG originales normalmente.
+
+**Edge case no cambia**: si un cliente tiene ASIG viejas NO cubiertas por CPST (ASIG huérfanas de Pablo sin que ningún VDE las haya tomado), el guard sigue bloqueando con el mismo mensaje. Correcto — hay que resolverlas primero.
+
 ### v1369 (2026-10-19) — Modal Pedido en Espera: sub-span "X tuyas" + hover azul marino + sin ASIG expirado
 
 **Archivos**:
