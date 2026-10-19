@@ -43,4 +43,5 @@ jobs:
       - name: Run incremental sync
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}
         run: python scripts/backfill_sap_ortt.py --start-date=${{ steps.date.outputs.value }}
