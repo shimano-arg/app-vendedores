@@ -3332,17 +3332,24 @@ SELECT
   item_bike.cost_avg_ars
     * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
     * inv.sign AS costo_total_prom_ars,
-  -- v2 (2026-10-19): costo en USD (sap_items_bike_raw.cost_usd). PBI debe
-  -- convertir con el TC del momento usando la medida TC_USD(fecha). Es la
-  -- unica forma de reproducir Paiva/PL exacto.
-  -- VERIFICADO (ver docs/BIKE DASHBOARD/rentabilidad/PROPUESTA.md seccion
-  -- "Hallazgo TC"): cost_avg_ars esta en TC implicito ~1288 (histórico);
-  -- Paiva usa TC ~1461 (sept 2026 spot). Al reconstruir con cost_usd * 1461,
-  -- el COGS Paiva se reproduce con diff $12K/$539M = 99.997% exacto.
+  -- v2 (2026-10-19): costo en USD (sap_items_bike_raw.cost_usd). Columna base
+  -- para que PBI haga la conversion con el TC del momento usando TC_USD(fecha).
+  -- v3 (2026-10-19): la hipotesis "TC unico" fue DESCARTADA tras test del CV.
+  -- CV_paiva = 37% (no <1% que esperaria un spot unico) → Paiva no usa un TC
+  -- fijo, su costo varia por SKU. Mi cost_avg_ars tampoco es un snapshot
+  -- actual limpio: tiene dispersion propia (CV 194%, outliers). El gap no
+  -- es cambiario. Ver docs seccion "Hallazgo TC descartado".
   item_bike.cost_usd AS costo_unitario_prom_usd,
   item_bike.cost_usd
     * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
     * inv.sign AS costo_total_prom_usd,
+  -- v3 (2026-10-19): costo de Paiva de Sep 2026 como caso de prueba permanente.
+  -- NULL para toda linea fuera de Sep 2026 o que no matchee. Si la vista deja
+  -- de reproducir a Paiva en el futuro, la diferencia salta aca. Join por
+  -- (card_code, item_code, fecha, cantidad) — misma clave que uso en diag.
+  -- La tabla bike_test_paiva_sep2026 es fija (no se recarga), es snapshot
+  -- del CSV Paiva al cierre de Sep 2026.
+  pbt.costo_unitario_paiva_ars AS costo_unitario_paiva_ars_sep2026,
 
   -- ====== Jerarquia Bike (desde sap_items_bike_raw) ======
   item_bike.marca,
@@ -3416,20 +3423,17 @@ SELECT
       * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
   ) * inv.sign AS margen_ars_prom_con_dcto,
 
-  -- ====== Flag politica 48% (v2 2026-10-19) ======
-  -- Dato de negocio: la politica del 48% de margen bruto esta medida SIN
-  -- descuentos (confirmado por hoja OBJETIVO Y DESVIO de Paiva Sep 2026:
-  -- MARGEN OBJETIVO 48,00% / MARGEN ACTUAL S/ DCTOS 48,27% desvio +0,27).
-  -- Flag TRUE si la linea cumple 48%+ en margen SIN descuento cabecera,
-  -- usando costo PROM (politica), no doc (operativo).
-  (
-    SAFE_DIVIDE(
-      SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
-      - item_bike.cost_avg_ars
-        * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64),
-      NULLIF(SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64), 0)
-    ) >= 0.48
-  ) AS cumple_politica_48,
+  -- ====== Flag politica 48% — PROVISORIO, NO USAR EN DIRECTORIO ======
+  -- v2 2026-10-19: eliminado del output tras feedback Mariano.
+  -- Razon: con mi costo prom el mes da 54.79% margen sin dctos; con el costo
+  -- de Paiva da 48.39%. 6.4 pts de sesgo en el UNICO umbral que a Fujita le
+  -- importa, y en direccion que marca como cumplidores SKUs que no lo son.
+  -- Hasta que la columna costo_unitario_paiva_ars confirme reconciliacion
+  -- SKU por SKU, esta columna queda fuera.
+  --
+  -- Si/cuando se reinstale: usar margen SIN descuento cabecera con costo_prom
+  -- (confirmado por hoja OBJETIVO Y DESVIO de Paiva Sep 2026 — 48,27% s/dcto,
+  -- 38,91% c/dcto, umbral 48,00%).
 
   -- ====== Flags / metadata ======
   TRUE AS is_bike,
@@ -3444,5 +3448,24 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.sap_items_bike_raw` item_bike
   ON item_bike.item_code = JSON_VALUE(line, '$.ItemCode')
 LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
+-- v3 (2026-10-19): LEFT JOIN con caso de prueba Paiva Sep 2026, dedupe ROW_NUMBER=1
+-- (misma clave puede repetirse por lineas de factura con mismo cliente/item/dia/qty).
+LEFT JOIN (
+  SELECT card_code, item_code, fecha_contab, cantidad, costo_unitario_paiva_ars
+  FROM (
+    SELECT *,
+      ROW_NUMBER() OVER (
+        PARTITION BY card_code, item_code, fecha_contab, CAST(cantidad AS STRING)
+        ORDER BY nro_factura
+      ) AS rn
+    FROM `app-vendedores-shimano.shimano_app.bike_test_paiva_sep2026`
+  )
+  WHERE rn = 1
+) pbt
+  ON pbt.card_code = inv.card_code
+  AND pbt.item_code = JSON_VALUE(line, '$.ItemCode')
+  AND pbt.fecha_contab = inv.doc_date
+  AND pbt.cantidad = SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+  AND inv.doc_date BETWEEN DATE('2026-09-01') AND DATE('2026-09-30')
 WHERE inv.cancelled = 'tNO'
   AND JSON_VALUE(line, '$.COGSCostingCode3') = 'BIK';
