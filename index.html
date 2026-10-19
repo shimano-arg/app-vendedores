@@ -6419,6 +6419,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     </div>
     <div style="padding:16px 26px 20px;display:flex;flex-direction:column;gap:14px;flex:1 1 0;overflow:hidden;min-height:0;box-sizing:border-box">
       <input type="search" id="reparto-search" placeholder="Buscar por SKU o cliente" oninput="_repartoRender()" style="padding:11px 16px;border:0.5px solid rgba(0,0,0,.1);border-radius:10px;font-size:14px;font-family:inherit;outline:none;flex-shrink:0;box-sizing:border-box;background:#fff;color:#1d1d1f;letter-spacing:-0.1px;transition:border-color .15s ease,box-shadow .15s ease" />
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#6e6e73;font-family:inherit;letter-spacing:-0.08px;cursor:pointer;flex-shrink:0;user-select:none">
+        <input type="checkbox" id="reparto-hide-nostock" checked onchange="_repartoRender()" style="margin:0;cursor:pointer" />
+        Ocultar SKU sin stock físico (dep 11)
+      </label>
       <div id="reparto-summary" style="padding:10px 14px;background:rgba(255,204,0,.08);border:0.5px solid rgba(255,204,0,.2);border-radius:10px;font-size:12.5px;color:#8a6d00;text-align:center;flex-shrink:0;font-family:inherit;letter-spacing:-0.08px">Cargando ingresos pending…</div>
       <div id="reparto-list" style="flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0;display:flex;flex-direction:column;gap:12px"></div>
     </div>
@@ -6561,7 +6565,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1351';
+const APP_VERSION = 'v1353';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -19689,14 +19693,23 @@ function _repartoRender(){
   const _withSnap = (_repartoIngresos || []).filter((i) =>
     Array.isArray(i.clientesBO) && i.clientesBO.length > 0
   );
+  // v1353 (2026-10-19): esconder ingresos cuyo stock fisico actual (dep 11)
+  // es 0. Son ruido porque no hay nada que repartir hasta que llegue stock
+  // nuevo. Toggle "Ocultar SKU sin stock fisico" en el header permite
+  // destildar y verlos para marcarlos como procesado si quedaron huerfanos.
+  const _hideEl = document.getElementById('reparto-hide-nostock');
+  const _hideNoStock = !_hideEl || _hideEl.checked;
+  const _withStock = _hideNoStock
+    ? _withSnap.filter((i) => _repartoStockFisico(i) > 0)
+    : _withSnap.slice();
   const _matchesRaw = q
-    ? _withSnap.filter((i) => {
+    ? _withStock.filter((i) => {
         const skuHit = String(i.sku || '').toLowerCase().includes(q);
         if (skuHit) return true;
         const snap = Array.isArray(i.clientesBO) ? i.clientesBO : [];
         return snap.some((c) => String(c.clientName || '').toLowerCase().includes(q));
       })
-    : _withSnap.slice();
+    : _withStock.slice();
   // v1341 (2026-10-15): sort ascending por qtyIngresada (SKU con menos unidades
   // primero). Pedido Mariano: priorizar visualmente los ingresos chicos porque
   // son los mas rapidos de resolver + fuerzan decidir que cliente lo recibe.
