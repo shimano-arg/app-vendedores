@@ -1371,6 +1371,12 @@ function _renderRecoSectionImpl(cont) {
         _fmtInt(nDisc) +
         ' descontinuados</button>'
       : '';
+  // v1355 (2026-10-19): boton "Proximas descontinuaciones" para marcar en bulk
+  // los SKUs que se van a descontinuar en proximos meses. Mismo efecto en
+  // forecast que descontinuar (skipea en _computeRecommendations) pero UX
+  // bulk-marking con checkboxes vs fila-por-fila con 🗑. Pedido Mariano.
+  const upcomingBtn =
+    '<button onclick="openUpcomingDiscontinuedModal()" style="padding:6px 12px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer" title="Marcar en bulk SKUs que se van a descontinuar">📋 Próximas descontinuaciones</button>';
 
   const header =
     '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">' +
@@ -1378,6 +1384,7 @@ function _renderRecoSectionImpl(cont) {
     '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">Balance = Stock + Tránsito + Plan − Backorder − (Venta mens. × ' +
     RECO_HORIZON_MONTHS +
     'm)</div></div>' +
+    upcomingBtn +
     '<div style="padding:6px 12px;background:#0d9488;color:#fff;border-radius:6px;font-size:12px;font-weight:700">' +
     _fmtInt(totalConReco) +
     ' SKUs con reco</div>' +
@@ -1665,6 +1672,8 @@ window.openDiscontinuedModal = function () {
   _renderDiscontinuedModal();
 };
 
+// v1355: ver bloque "Proximas descontinuaciones" al final del archivo.
+
 function _renderDiscontinuedModal() {
   const cont = document.getElementById('discontinued-modal-content');
   if (!cont) return;
@@ -1716,3 +1725,260 @@ function _renderDiscontinuedModal() {
         '</div>';
   cont.innerHTML = head + body;
 }
+
+// v1355 (2026-10-19): modal bulk-marking "Proximas descontinuaciones".
+// Mariano pidio poder marcar varios SKUs a la vez (vs fila-por-fila con 🗑).
+// Lista completa de SKUs del sales plan actual (rods + reels, dedupe) con
+// checkbox pre-tildado si ya estan en _discontinuedSkus. Al guardar sincroniza
+// el Set con lo tildado (agrega los nuevos, saca los destildados de los que
+// vemos en el DOM).
+// NOTA XSS: usamos createElement + textContent para todo contenido variable
+// (SKU, descripcion, texto de busqueda). Innerhtml solo con strings literales
+// controlados por nosotros, nunca con datos del sales plan.
+let _upcomingSearchText = '';
+
+function _collectAllSkusFromSalesPlan() {
+  const map = new Map();
+  for (const fam of ['rods', 'reels']) {
+    const cache = _salesPlanCaches[fam];
+    if (!cache || !Array.isArray(cache.rows)) continue;
+    for (const r of cache.rows) {
+      const sku = String(r.sku || '').trim();
+      if (!sku) continue;
+      const upper = sku.toUpperCase();
+      map.set(upper, {
+        sku,
+        skuUpper: upper,
+        description: r.description || '',
+        familia: fam,
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.skuUpper.localeCompare(b.skuUpper));
+}
+
+function _makeEl(tag, styleStr, textContent) {
+  const el = document.createElement(tag);
+  if (styleStr) el.style.cssText = styleStr;
+  if (textContent != null) el.textContent = textContent;
+  return el;
+}
+
+function _buildUpcomingRow(row, isDisc) {
+  const label = _makeEl(
+    'label',
+    'display:flex;align-items:center;gap:10px;padding:8px 10px;background:' +
+      (isDisc ? 'rgba(147,51,234,.08)' : 'var(--bg-secondary)') +
+      ';border-radius:5px;cursor:pointer;transition:background .1s'
+  );
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.setAttribute('data-upcoming-sku', row.skuUpper);
+  cb.checked = !!isDisc;
+  cb.style.cssText = 'margin:0;flex-shrink:0;cursor:pointer;width:16px;height:16px';
+  label.appendChild(cb);
+  const badge = _makeEl(
+    'span',
+    'display:inline-block;padding:1px 6px;border-radius:8px;background:' +
+      (row.familia === 'rods' ? '#0ea5e9' : '#8b5cf6') +
+      ';color:#fff;font-size:9px;font-weight:700;margin-right:6px',
+    row.familia === 'rods' ? 'ROD' : 'REEL'
+  );
+  label.appendChild(badge);
+  const content = _makeEl('div', 'flex:1;min-width:0');
+  content.appendChild(
+    _makeEl('div', 'font-family:monospace;font-weight:700;color:var(--text-primary);font-size:12px', row.sku)
+  );
+  if (row.description) {
+    content.appendChild(
+      _makeEl(
+        'div',
+        'font-size:11px;color:var(--text-muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
+        row.description
+      )
+    );
+  }
+  label.appendChild(content);
+  return label;
+}
+
+function _renderUpcomingDiscontinuedListOnly() {
+  const listEl = document.getElementById('upcoming-disc-list');
+  if (!listEl) return;
+  const all = _collectAllSkusFromSalesPlan();
+  const q = _upcomingSearchText.toLowerCase();
+  const filtered = q
+    ? all.filter(
+        (r) =>
+          r.skuUpper.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q)
+      )
+    : all;
+  while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+  if (filtered.length === 0) {
+    const empty = _makeEl(
+      'div',
+      'padding:30px;text-align:center;color:var(--text-muted)',
+      q ? 'Sin resultados para "' + _upcomingSearchText + '".' : 'No hay SKUs cargados en el sales plan.'
+    );
+    listEl.appendChild(empty);
+    return;
+  }
+  const wrap = _makeEl('div', 'display:flex;flex-direction:column;gap:3px');
+  const currentSet = _discontinuedSkus || new Set();
+  for (const r of filtered) {
+    wrap.appendChild(_buildUpcomingRow(r, currentSet.has(r.skuUpper)));
+  }
+  listEl.appendChild(wrap);
+}
+
+window.onUpcomingSearchChange = function (ev) {
+  _upcomingSearchText = String((ev && ev.target && ev.target.value) || '').trim();
+  _renderUpcomingDiscontinuedListOnly();
+};
+
+function _renderUpcomingDiscontinuedModal() {
+  const cont = document.getElementById('upcoming-disc-content');
+  if (!cont) return;
+  while (cont.firstChild) cont.removeChild(cont.firstChild);
+  const all = _collectAllSkusFromSalesPlan();
+  const nDiscCurrent = _discontinuedSkus ? _discontinuedSkus.size : 0;
+  // Header.
+  const head = _makeEl(
+    'div',
+    'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;flex-shrink:0'
+  );
+  const headLeft = _makeEl('div');
+  headLeft.appendChild(_makeEl('div', 'font-size:18px;font-weight:800;color:var(--text-primary)', 'Próximas descontinuaciones'));
+  headLeft.appendChild(
+    _makeEl(
+      'div',
+      'font-size:11px;color:var(--text-muted);margin-top:2px',
+      all.length +
+        ' SKUs en el sales plan actual · ' +
+        nDiscCurrent +
+        ' ya descontinuados. Marcá los que se vayan a descontinuar en los próximos meses — el forecast los va a desestimar en el cálculo de Recomendación de Compra.'
+    )
+  );
+  head.appendChild(headLeft);
+  const closeBtn = _makeEl(
+    'button',
+    'background:transparent;border:1px solid var(--border-subtle);border-radius:6px;padding:6px 12px;cursor:pointer;font-weight:700;flex-shrink:0',
+    '✕'
+  );
+  closeBtn.onclick = () => {
+    const m = document.getElementById('upcoming-disc-modal');
+    if (m) m.remove();
+  };
+  head.appendChild(closeBtn);
+  cont.appendChild(head);
+  // Search.
+  const searchInp = document.createElement('input');
+  searchInp.type = 'text';
+  searchInp.placeholder = 'Buscar SKU o descripción...';
+  searchInp.value = _upcomingSearchText;
+  searchInp.oninput = window.onUpcomingSearchChange;
+  searchInp.style.cssText =
+    'width:100%;padding:8px 12px;border:1px solid var(--border-subtle);border-radius:6px;font-size:13px;background:var(--bg-elevated);color:var(--text-primary);margin-bottom:10px;flex-shrink:0;box-sizing:border-box';
+  cont.appendChild(searchInp);
+  // List container (poblado por _renderUpcomingDiscontinuedListOnly).
+  const list = _makeEl('div', 'flex:1 1 0;overflow-y:auto;min-height:0');
+  list.id = 'upcoming-disc-list';
+  cont.appendChild(list);
+  // Footer con botones.
+  const foot = _makeEl(
+    'div',
+    'display:flex;justify-content:space-between;align-items:center;gap:10px;padding-top:14px;border-top:1px solid var(--border-subtle);margin-top:12px;flex-shrink:0'
+  );
+  foot.appendChild(
+    _makeEl(
+      'div',
+      'font-size:11px;color:var(--text-muted)',
+      'Se guarda en forecast_config/discontinued_skus. Reversible desde el chip 🚫 descontinuados.'
+    )
+  );
+  const btnWrap = _makeEl('div', 'display:flex;gap:8px');
+  const cancelBtn = _makeEl(
+    'button',
+    'padding:8px 14px;background:transparent;border:1px solid var(--border-subtle);border-radius:6px;cursor:pointer;font-weight:700;color:var(--text-primary)',
+    'Cancelar'
+  );
+  cancelBtn.onclick = () => {
+    const m = document.getElementById('upcoming-disc-modal');
+    if (m) m.remove();
+  };
+  btnWrap.appendChild(cancelBtn);
+  const saveBtn = _makeEl(
+    'button',
+    'padding:8px 16px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700',
+    'Guardar cambios'
+  );
+  saveBtn.id = 'upcoming-save-btn';
+  saveBtn.onclick = window.saveUpcomingDiscontinuedChanges;
+  btnWrap.appendChild(saveBtn);
+  foot.appendChild(btnWrap);
+  cont.appendChild(foot);
+  _renderUpcomingDiscontinuedListOnly();
+}
+
+window.openUpcomingDiscontinuedModal = function () {
+  _upcomingSearchText = '';
+  const existing = document.getElementById('upcoming-disc-modal');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'upcoming-disc-modal';
+  el.style.cssText =
+    'position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:2100;display:flex;align-items:center;justify-content:center;padding:3vh';
+  el.onclick = (ev) => {
+    if (ev.target === el) el.remove();
+  };
+  const content = document.createElement('div');
+  content.id = 'upcoming-disc-content';
+  content.style.cssText =
+    'background:var(--bg-elevated);border-radius:12px;padding:24px;max-width:760px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)';
+  el.appendChild(content);
+  document.body.appendChild(el);
+  _renderUpcomingDiscontinuedModal();
+};
+
+window.saveUpcomingDiscontinuedChanges = async function () {
+  const btn = document.getElementById('upcoming-save-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Guardando…';
+    btn.style.opacity = '.6';
+  }
+  // Iteramos TODOS los checkboxes del DOM (no solo los visibles con el filtro
+  // de busqueda), para no perder cambios hechos antes de filtrar.
+  // Reconstruimos el Set desde el estado actual del DOM: lo que esta tildado queda,
+  // lo destildado se quita (pero solo para SKUs que vemos en el DOM — SKUs
+  // descontinuados que no estan en el sales plan actual se preservan como estaban).
+  const allInDom = document.querySelectorAll('[data-upcoming-sku]');
+  const seenInDom = new Set();
+  const checkedInDom = new Set();
+  allInDom.forEach((cb) => {
+    const sku = String(cb.getAttribute('data-upcoming-sku') || '').trim().toUpperCase();
+    if (!sku) return;
+    seenInDom.add(sku);
+    if (cb.checked) checkedInDom.add(sku);
+  });
+  if (!_discontinuedSkus) _discontinuedSkus = new Set();
+  const prev = new Set(_discontinuedSkus);
+  checkedInDom.forEach((sku) => _discontinuedSkus.add(sku));
+  seenInDom.forEach((sku) => {
+    if (!checkedInDom.has(sku)) _discontinuedSkus.delete(sku);
+  });
+  try {
+    await _saveDiscontinuedSkus();
+    const modal = document.getElementById('upcoming-disc-modal');
+    if (modal) modal.remove();
+    _renderRecoSection();
+  } catch (e) {
+    _discontinuedSkus = prev;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Guardar cambios';
+      btn.style.opacity = '1';
+    }
+    alert('Error guardando: ' + (e.message || e));
+  }
+};
