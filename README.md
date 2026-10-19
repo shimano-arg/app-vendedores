@@ -4717,6 +4717,38 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1360 (2026-10-19) — Pedido en Espera: LIBRE respeta las reservas del cliente actual (ASIG/waitlist propias no restan)
+
+**Archivos**:
+- `index.html:23502-23527` — en `_revisionRender`, nuevo cálculo de `disp` usando `getStockPorCliente(sku, cardCode).libreParaCliente` (= `max(stock - reservadasPorOtros, 0)`) en vez de `getStockRealmenteDisponible` (= `max(stock - comprometidoTotal, 0)`). Mantiene fallback al general si no hay `clientCardCode`.
+- `index.html:6568` + `sw.js:20` — bump v1359 → v1360.
+
+**Reporte Mariano** (2026-10-19 10:16 ART, follow-up del ORDEN 417 post-v1359):
+"Pablo asigna stock en Reparto → eso pasa a Stock asignado quedando reservado para el cliente. Al Crear Pedido desde Stock Asignado debería pasar a lista de espera con TODO DISPONIBLE porque estaba reservado para ese cliente."
+
+**Diagnóstico**:
+En v1359 el sub-span rojo mostró el gap honestamente: `−1 BO + 2 waitlist` restando del libre. Pero conceptualmente las unidades ASIG/waitlist que son del PROPIO cliente no deberían restar — ya son suyas, no compiten. El fix de v1359 era UX informativo; v1360 fixea la LÓGICA.
+
+**Cambio**:
+Cambié la fuente del `disp` en el modal Pedido en Espera:
+- **Antes** (v919-v1359): `disp = getStockRealmenteDisponible(sku) = max(stock - confirmed - BO - ASIG - waitlist, 0)` → libre general, cuenta todos los comprometidos sin importar a quién pertenezcan.
+- **Ahora** (v1360): `disp = getStockPorCliente(sku, cardCode).libreParaCliente = max(stock - reservadasPorOtros, 0)` → libre que ESTE cliente puede efectivamente obtener. Sus propias reservas (ASIG + confirmed + BO + waitlist) NO restan porque ya son suyas.
+
+**Consecuencia**:
+Para el pedido ORDEN 417 (ARIEL ESTEBAN, SGS80MH2A, stock=4, cliente tiene 2 ASIG + 2 waitlist propias, otros clientes 0):
+- v1359: libre=0, pedido final=0, BO=2 ❌
+- v1360: libre=4, pedido final=2, BO=0 ✓
+
+Si el pedido es más grande que las reservas (ej. 10u pedidas, 2 ASIG propias, 0 de otros, stock=4):
+- libre=4, pedido final=min(10,4)=4, BO=6 ✓ (las 4 incluyen las 2 que ya tenía reservadas + 2 extras del stock general).
+
+Si otros clientes también tienen reservas (ej. stock=4, cliente actual 2 ASIG, otros 2 ASIG, pide 10):
+- libre = max(4 − 2, 0) = 2, pedido final = min(10, 2) = 2, BO = 8 ✓ (solo tiene 2 "para él" + lo que ya tenía queda disponible como refuerzo = 2 adicionales ya en ASIG).
+
+**No cambia la semántica** de `getStockRealmenteDisponible` ni `getStockPorCliente` (son pure functions) ni la fórmula general. Solo cambia QUÉ fuente de "libre" usa el modal Pedido en Espera. El modal Recomendación (que es nacional, sin cliente específico) sigue usando el general.
+
+**El sub-span rojo de v1359** sigue vivo pero ahora solo aparecería si hay reservas de OTROS clientes que descuentan — info útil para el vendedor en escenarios de competencia.
+
 ### v1359 (2026-10-19) — Pedido en Espera: LIBRE con desglose visible cuando hay BO/confirmed/waitlist comprometidos
 
 **Archivos**:
