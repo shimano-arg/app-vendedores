@@ -483,20 +483,37 @@ window.exportPreciosStock = async function () {
     return;
   }
   showSyncTag('Generando Excel precios + stock...');
-  // v574 (2026-08-21): pedido de Mariano — mostrar UNIDADES numericas
-  // exactas del deposito 11 (venta) en vez de "Disponible"/"Sin stock".
-  // Usa getStockDisponibleVenta que lee STOCK_WAREHOUSE_BREAKDOWN[sku]['11'].
-  // Retorna '' (celda vacia) cuando no hay dato de stock (snapshot no cargado
-  // aun); 0 si el SKU no tiene stock. Los numeros permiten sort/filter/sum en
-  // Excel — no perdemos el estado "no dato" vs "0 unidades" gracias al ''.
+  // v574 (2026-08-21): mostrar UNIDADES numericas exactas del deposito 11.
+  // v1363 (2026-10-19): pedido Mariano — cambiar de "stock físico dep 11" a
+  // "libre para la venta" (= dep 11 − reservas confirmed/BO/ASIG/waitlist).
+  // Razón: enviar al cliente lo que efectivamente se le puede prometer HOY.
+  // Si solo mostramos stock físico, puede pasar que haya 5u pero las 5 estén
+  // reservadas → el cliente se entera recién al hacer el pedido que no hay.
+  // Usa getStockRealmenteDisponible (pure function, filtra TTLs). Retorna '' si
+  // no hay snapshot cargado; 0 si no hay libre.
   function fmtStock(sku) {
-    const fn =
+    const fnReal =
+      typeof window !== 'undefined' && typeof window.getStockRealmenteDisponible === 'function'
+        ? window.getStockRealmenteDisponible
+        : null;
+    if (fnReal) {
+      try {
+        const v = fnReal(sku);
+        if (v == null) return '';
+        return Number(v) || 0;
+      } catch (_e) {
+        // fallback a stock físico abajo
+      }
+    }
+    // Fallback: stock físico dep 11 (si getStockRealmenteDisponible no está disponible,
+    // ej. bootstrap muy temprano).
+    const fnFisico =
       typeof window !== 'undefined' && typeof window.getStockDisponibleVenta === 'function'
         ? window.getStockDisponibleVenta
         : null;
-    const v = fn ? fn(sku) : null;
-    if (v == null) return '';
-    return Number(v) || 0;
+    const vF = fnFisico ? fnFisico(sku) : null;
+    if (vF == null) return '';
+    return Number(vF) || 0;
   }
   function fmtPrecio(sku) {
     const p = typeof PRICE_LIST_MAP === 'object' && PRICE_LIST_MAP ? PRICE_LIST_MAP[sku] : null;
@@ -511,7 +528,7 @@ window.exportPreciosStock = async function () {
     Subfamilia: p.sub || '',
     Categoria: p.cat || '',
     'Precio ARS': fmtPrecio(p.code),
-    'Stock W11': fmtStock(p.code),
+    Stock: fmtStock(p.code),
   })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
   // v1090 (2026-09-29): refactor a downloadXlsx helper (estilo verde uniforme).
   // El formato de moneda ARS de la columna Precio queda como número simple —
@@ -531,7 +548,7 @@ window.exportPreciosStock = async function () {
   const stockRows = PRODUCTS.map((p) => ({
     SKU: p.code || '',
     Descripcion: p.desc || '',
-    'Stock W11': fmtStock(p.code),
+    Stock: fmtStock(p.code),
   })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
 
   // Hoja 4: metadata - cuando fue cada snapshot para que el lector sepa
