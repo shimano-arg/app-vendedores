@@ -4717,6 +4717,31 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1354 (2026-10-19) — Buyer: fix lookup por cardCode SAP real (antes buscaba por slug)
+
+**Archivos**:
+- `index.html:11427-11446` — en `openFichaClienteFromClientModal`, header muestra `SAP <cardCode-real>` (vía `cmData.sapCardCode / cardCodeSap / sapGetClienteCode(clientName)`) o `sin cardCode SAP` si no hay. Antes mostraba `SAP <slug clientLocId>` que confundía.
+- `index.html:11546-11590` — en `_loadFichaClienteBuyer`, resolver `sapCardCode` real antes de consultar `client_buyer_stats` y `_fcBuyerPedidosEnVuelo`. Antes se usaba `docId` del `client_master` (slug tipo `buenos_aires__canuelas__susana_graciela_andrili`) → `doc(cardCode).get()` siempre devolvía `exists:false` → mensaje "Buyer no computado aún" universal.
+- `index.html:6565` + `sw.js:20` (bump v1353 → v1354).
+
+**Antes**:
+Reporte Mariano 2026-10-19 ~08:40 ART: en la ficha de SUSANA GRACIELA ANDRILI (y presumiblemente en cualquier otra), la tab Buyer mostraba siempre "Buyer no computado aún para este cliente. Se calcula cada noche 03:00 ART." aunque el cron nocturno hubiera corrido 3 veces desde v1350.
+
+**Diagnóstico**:
+- `_loadFichaClienteBuyer` leía `cmEl.dataset.docId` como "cardCode", pero el docId del `client_master` es un slug `clientLocId(provincia, localidad, clientName)` (ej `buenos_aires__canuelas__susana_graciela_andrili`).
+- El cron `recomputeClientBuyerStats` (`functions/index.js:2882`) guarda stats en `client_buyer_stats/{card_code}` donde `card_code` viene de BQ `v_ventas_lineas` y es el cardCode SAP real (ej `C00xxxxx`).
+- Mismatch total → ningún doc existe.
+- Mismo bug en `_fcBuyerPedidosEnVuelo` (busca `pedidos.where('clientCardCode','==', slug)` y nunca matchea) y en el header del modal (mostraba `SAP <slug>` como si fuera un cardCode real).
+
+**Cambio**:
+Resolver `sapCardCode` real antes de consultar, en 2 pasos (ortodoxo + fallback):
+1. `clientMasterCache.get(docId).sapCardCode / cardCodeSap` (campo canónico, poblado por `importSapClients` + altas SAP).
+2. Si no hay en client_master, `window.sapGetClienteCode(clientName)` que busca en `sapClientsMap` + `approvedAltasList`.
+3. Si tampoco hay, mensaje más preciso "Cliente sin cardCode SAP — buyer no disponible".
+4. Si hay sapCardCode pero el doc tampoco existe, mensaje nuevo "Buyer no computado aún para este cliente (cardCode C00xxxx). ... Si recién se dio de alta en SAP o no tiene ventas en los últimos 24 meses, no va a aparecer." (desambigua causas).
+
+**Impacto**: ninguna CF cambia. El cron sigue corriendo igual. Es solo el UI leyendo bien la key.
+
 ### v1353 (2026-10-19) — Reparto: ocultar ingresos con stock físico 0 (toggle en header)
 
 **Archivos**:

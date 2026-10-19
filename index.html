@@ -6565,7 +6565,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1353';
+const APP_VERSION = 'v1354';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11428,7 +11428,17 @@ function openFichaClienteFromClientModal(){
     var parts = [];
     if (localidad) parts.push(localidad);
     if (provincia) parts.push(titleCase ? titleCase(provincia) : provincia);
-    parts.push('SAP ' + docId);
+    // v1354 (2026-10-19): mostrar sapCardCode real cuando lo tiene (ej C00xxxx)
+    // en vez del slug clientLocId que confundia (parecia un cardCode y no lo era).
+    var sapCode = String(cmData.sapCardCode || cmData.cardCodeSap || '').trim();
+    if (!sapCode && clientName && typeof window.sapGetClienteCode === 'function') {
+      try { sapCode = String(window.sapGetClienteCode(clientName) || '').trim(); } catch (_e) {}
+    }
+    if (sapCode) {
+      parts.push('SAP ' + sapCode);
+    } else {
+      parts.push('sin cardCode SAP');
+    }
     fcMeta.textContent = parts.join(' - ');
   }
   // Populate 6 selects desde client_master cache.
@@ -11546,9 +11556,25 @@ function _fcBuyerMakeEl(tag, styleStr, text) {
 async function _loadFichaClienteBuyer() {
   const buyerContent = document.getElementById('fc-buyer-content');
   const cmEl = document.getElementById('client-modal');
-  const cardCode = cmEl && cmEl.dataset && cmEl.dataset.docId;
+  const docId = cmEl && cmEl.dataset && cmEl.dataset.docId;
   const clientName = (cmEl && cmEl.dataset && cmEl.dataset.clientName) || '';
-  if (!cardCode) {
+  // v1354 (2026-10-19) FIX: client_buyer_stats esta keyed por cardCode SAP real
+  // (ej C00xxxxx), no por el slug docId del client_master
+  // (ej buenos_aires__canuelas__susana_graciela_andrili). Resolver sapCardCode
+  // real desde:
+  //   1) client_master.sapCardCode / cardCodeSap (fuente ortodoxa)
+  //   2) sapGetClienteCode(clientName) — fallback via sapClientsMap / approvedAltasList
+  // Antes (v1350-v1353): se consultaba doc(docId) == doc(slug) y nunca existia.
+  let sapCardCode = '';
+  try {
+    const cmData = (typeof clientMasterCache !== 'undefined' && clientMasterCache.get)
+      ? (clientMasterCache.get(docId) || {}) : {};
+    sapCardCode = String(cmData.sapCardCode || cmData.cardCodeSap || '').trim();
+  } catch (_e) { /* cache miss, seguimos al fallback */ }
+  if (!sapCardCode && clientName && typeof window.sapGetClienteCode === 'function') {
+    try { sapCardCode = String(window.sapGetClienteCode(clientName) || '').trim(); } catch (_e) {}
+  }
+  if (!sapCardCode) {
     while (buyerContent.firstChild) buyerContent.removeChild(buyerContent.firstChild);
     buyerContent.appendChild(_fcBuyerMakeEl('div', 'padding:40px;text-align:center;color:#64748b', 'Cliente sin cardCode SAP — buyer no disponible.'));
     return;
@@ -11558,14 +11584,14 @@ async function _loadFichaClienteBuyer() {
 
   try {
     const [statsSnap, visitSnap, pedidosEnVuelo] = await Promise.all([
-      fbDb.collection('client_buyer_stats').doc(cardCode).get(),
+      fbDb.collection('client_buyer_stats').doc(sapCardCode).get(),
       _fcBuyerLastVisit(clientName),
-      _fcBuyerPedidosEnVuelo(cardCode),
+      _fcBuyerPedidosEnVuelo(sapCardCode),
     ]);
 
     if (!statsSnap.exists) {
       while (buyerContent.firstChild) buyerContent.removeChild(buyerContent.firstChild);
-      buyerContent.appendChild(_fcBuyerMakeEl('div', 'padding:30px;text-align:center;color:#92400e;background:#fef3c7;border-radius:6px', 'Buyer no computado aún para este cliente. Se calcula cada noche 03:00 ART.'));
+      buyerContent.appendChild(_fcBuyerMakeEl('div', 'padding:30px;text-align:center;color:#92400e;background:#fef3c7;border-radius:6px', 'Buyer no computado aún para este cliente (cardCode ' + sapCardCode + '). Se calcula cada noche 03:00 ART. Si recién se dio de alta en SAP o no tiene ventas en los últimos 24 meses, no va a aparecer.'));
       return;
     }
     _fcBuyerCurrentData = { stats: statsSnap.data(), visit: visitSnap, pedidosEnVuelo };
