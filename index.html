@@ -6779,7 +6779,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1370';
+const APP_VERSION = 'v1371';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16564,6 +16564,26 @@ function _cpstBuildCache(){
     if (l.asigReserva !== false && l.asigReserva !== 0) return false;
     return !!l.asigReservaChangedAt;
   };
+  // v1371 (2026-10-19): Pre-pass — ASIG cubiertas por waitlist CPST abiertos.
+  // Si una ASIG ya tiene un pedido CPST en Lista de Espera que apunta a ella
+  // (via pedidosOrigenes[]), el cliente YA inicio el flow — no debe aparecer
+  // en "Crear Pedido Desde Stock Asignado" para ese SKU. Al confirmar el CPST,
+  // v1280 cancela la ASIG; mientras tanto queda oculta aca. Reporte Mariano:
+  // "cuando mando un pedido CPST a Lista de Espera sigue apareciendo aca".
+  /** @type {Set<string>} key = pedidoId|lineIndex */
+  const asigCubiertasPorCpst = new Set();
+  const _revWl = (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist))
+    ? revisionWaitlist : null;
+  if (_revWl) {
+    for (const w of _revWl) {
+      if (!w || w.source !== 'stock-asignado-batch') continue;
+      const origenes = Array.isArray(w.pedidosOrigenes) ? w.pedidosOrigenes : [];
+      for (const org of origenes) {
+        if (!org || !org.pedidoId) continue;
+        asigCubiertasPorCpst.add(String(org.pedidoId) + '|' + Number(org.lineIndex));
+      }
+    }
+  }
   // Pre-pass: pares (clienteNombreUP|skuUP) con destildado manual.
   /** @type {Set<string>} */
   const paresDestildadosManual = new Set();
@@ -16578,12 +16598,15 @@ function _cpstBuildCache(){
     if (!nombre) continue;
     const nombreUp = nombre.toUpperCase();
     const pedidoId = p._fsId || '';
-    for (const l of p.lines) {
+    for (let idx = 0; idx < p.lines.length; idx++) {
+      const l = p.lines[idx];
       if (!l || l.state !== 'ASIG') continue;
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) continue;
       const skuUp = String(l.code || '').trim().toUpperCase();
       if (!skuUp) continue;
+      // v1371: skip si esta ASIG ya tiene un CPST en Lista de Espera.
+      if (asigCubiertasPorCpst.has(String(pedidoId) + '|' + idx)) continue;
       if (_esDestildadaManual(l)) {
         paresDestildadosManual.add(nombreUp + '|' + skuUp);
         continue; // no agregar al mapRaw tampoco
