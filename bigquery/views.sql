@@ -3259,6 +3259,7 @@ SELECT
   inv.card_name,
   inv.doc_currency,
   inv.doc_rate,
+  inv.series,                                                             -- v1 serie SAP de la factura (serie 4 = BIKE/general, serie 5 = otra)
   inv.sales_person_code,
   ca.assigned_vendor_app AS assigned_vendor,
   SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64) AS line_num,
@@ -3266,6 +3267,17 @@ SELECT
   JSON_VALUE(line, '$.WarehouseCode')              AS warehouse_code,
   JSON_VALUE(line, '$.PriceSource')                AS price_source,
   inv.sign,                                                               -- 1 factura, -1 NC
+  -- v1 (2026-10-19): "division" proxy — Fernando filtra por Division=BICI de
+  -- cabecera, campo que NO se sincroniza al raw. Como proxy: 'BIKE' si TODAS
+  -- las lineas del doc tienen COGSCostingCode3='BIK', 'MIXTO' si combina
+  -- con otras divisiones. Pendiente confirmar con Fernando el campo exacto.
+  -- Mientras tanto esta columna permite reproducir ambos criterios en PBI
+  -- (division='BIKE' o COGSCostingCode3='BIK') sin rehacer la vista.
+  CASE
+    WHEN (SELECT COUNT(*) FROM UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS l2
+          WHERE JSON_VALUE(l2, '$.COGSCostingCode3') != 'BIK') = 0 THEN 'BIKE'
+    ELSE 'MIXTO'
+  END AS division_proxy,
 
   -- ====== Cantidad + precios unitarios ======
   SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) * inv.sign AS cantidad,
@@ -3303,12 +3315,23 @@ SELECT
     * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
     * inv.sign AS importe_linea_neto_ars,                                 -- post prorrateo cabecera
 
-  -- ====== Costo ======
-  SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64) AS costo_unitario_ars,
+  -- ====== Costo — 2 fuentes paralelas (v1 2026-10-19) ======
+  -- costo_doc: GrossBuyPrice del JSON de linea = OITM.AvgPrice al momento de
+  --   facturar (inmutable, operativo). Verificado contra Paiva: su export
+  --   muestra UN costo unitario fijo por SKU en todo el mes, consistente con
+  --   una foto de AvgPrice (no con GrossBuyPrice que varia dia a dia).
+  -- costo_prom: cost_avg_ars del maestro sap_items_bike_raw = AvgPrice actual
+  --   (revaluable, politica). El 48% de Fujita se mide contra esta base.
+  -- Dejamos ambos para que PBI reconcilie contra Paiva (costo_prom) y contra
+  -- el resultado contable del momento (costo_doc).
+  SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64) AS costo_unitario_doc_ars,
   SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
     * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
-    * inv.sign AS costo_total_ars,
-  item_bike.cost_avg_ars AS costo_maestro_actual_unit_ars,                -- OITM.AvgPrice actual
+    * inv.sign AS costo_total_doc_ars,
+  item_bike.cost_avg_ars AS costo_unitario_prom_ars,
+  item_bike.cost_avg_ars
+    * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+    * inv.sign AS costo_total_prom_ars,
 
   -- ====== Jerarquia Bike (desde sap_items_bike_raw) ======
   item_bike.marca,
@@ -3319,24 +3342,16 @@ SELECT
   item_bike.clasificacion_abc,
   item_bike.ciclo_producto,
 
-  -- ====== Margen bruto (calculado) ======
-  (
-    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
-    - SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
-      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
-  ) * inv.sign AS margen_sin_descuento_cabecera_ars,
-  (
-    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
-      * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
-    - SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
-      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
-  ) * inv.sign AS margen_con_descuento_cabecera_ars,
+  -- ====== Margen bruto — 4 variantes (v1 2026-10-19) ======
+  -- Patron: (costo_doc | costo_prom) x (sin dcto cabecera | con dcto cabecera)
+  -- "sin dcto cabecera" usa importe_linea_bruto_ars (LineTotal post dcto linea).
+  -- "con dcto cabecera" usa importe_linea_neto_ars (LineTotal post prorrateo).
   SAFE_DIVIDE(
     SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
     - SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
       * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64),
     NULLIF(SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64), 0)
-  ) AS margen_sin_descuento_cabecera_pct,
+  ) AS margen_pct_doc_sin_dcto,
   SAFE_DIVIDE(
     SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
       * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
@@ -3347,7 +3362,48 @@ SELECT
         * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0))),
       0
     )
-  ) AS margen_con_descuento_cabecera_pct,
+  ) AS margen_pct_doc_con_dcto,
+  SAFE_DIVIDE(
+    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    - item_bike.cost_avg_ars
+      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64),
+    NULLIF(SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64), 0)
+  ) AS margen_pct_prom_sin_dcto,
+  SAFE_DIVIDE(
+    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+      * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
+    - item_bike.cost_avg_ars
+      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64),
+    NULLIF(
+      SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+        * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0))),
+      0
+    )
+  ) AS margen_pct_prom_con_dcto,
+
+  -- Margenes en ARS (los 4 pares correspondientes)
+  (
+    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    - SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
+      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+  ) * inv.sign AS margen_ars_doc_sin_dcto,
+  (
+    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+      * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
+    - SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
+      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+  ) * inv.sign AS margen_ars_doc_con_dcto,
+  (
+    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    - item_bike.cost_avg_ars
+      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+  ) * inv.sign AS margen_ars_prom_sin_dcto,
+  (
+    SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+      * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
+    - item_bike.cost_avg_ars
+      * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+  ) * inv.sign AS margen_ars_prom_con_dcto,
 
   -- ====== Flags / metadata ======
   TRUE AS is_bike,
