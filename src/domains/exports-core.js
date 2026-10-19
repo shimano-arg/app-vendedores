@@ -520,22 +520,31 @@ window.exportPreciosStock = async function () {
     if (p == null) return '';
     return Number(p) || 0;
   }
-  // Hoja 1: combo completo (es la mas pedida).
-  const rows = PRODUCTS.map((p) => ({
-    SKU: p.code || '',
-    Descripcion: p.desc || '',
-    Familia: p.fam || '',
-    Subfamilia: p.sub || '',
-    Categoria: p.cat || '',
-    'Precio ARS': fmtPrecio(p.code),
-    Stock: fmtStock(p.code),
-  })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
-  // v1090 (2026-09-29): refactor a downloadXlsx helper (estilo verde uniforme).
-  // El formato de moneda ARS de la columna Precio queda como número simple —
-  // se pierde el prefix "$" pero se gana consistencia visual. Excel permite
-  // aplicar formato manual si el usuario lo necesita.
+  // v1364 (2026-10-19): rework del export por pedido Mariano:
+  // - Hoja principal renombrada "Precios y Stock" -> "Lista de precios".
+  // - Nueva columna "Disponibilidad" (DISPONIBLE verde si Stock>0, NO DISPONIBLE
+  //   rojo si Stock<=0 o vacio).
+  // - Hoja "Info" eliminada.
+  // - Nombre archivo: Precios_y_Stock_YYYY-MM-DD.xlsx -> Lista_de_Precios_YYYY-MM-DD.xlsx.
+  // Hojas "Precios" y "Stock" se mantienen por si Mariano las usa.
+  function dispLabel(stockVal) {
+    if (stockVal === '' || stockVal == null) return 'NO DISPONIBLE';
+    return Number(stockVal) > 0 ? 'DISPONIBLE' : 'NO DISPONIBLE';
+  }
+  const rows = PRODUCTS.map((p) => {
+    const st = fmtStock(p.code);
+    return {
+      SKU: p.code || '',
+      Descripcion: p.desc || '',
+      Familia: p.fam || '',
+      Subfamilia: p.sub || '',
+      Categoria: p.cat || '',
+      'Precio ARS': fmtPrecio(p.code),
+      Stock: st,
+      Disponibilidad: dispLabel(st),
+    };
+  }).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
 
-  // Hoja 2: solo Precios
   const preciosRows = PRODUCTS.map((p) => ({
     SKU: p.code || '',
     Descripcion: p.desc || '',
@@ -544,59 +553,42 @@ window.exportPreciosStock = async function () {
     .filter((r) => r['Precio ARS'] !== '')
     .sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
 
-  // Hoja 3: solo Stock
-  const stockRows = PRODUCTS.map((p) => ({
-    SKU: p.code || '',
-    Descripcion: p.desc || '',
-    Stock: fmtStock(p.code),
-  })).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
+  const stockRows = PRODUCTS.map((p) => {
+    const st = fmtStock(p.code);
+    return {
+      SKU: p.code || '',
+      Descripcion: p.desc || '',
+      Stock: st,
+      Disponibilidad: dispLabel(st),
+    };
+  }).sort((a, b) => (a.SKU || '').localeCompare(b.SKU || ''));
 
-  // Hoja 4: metadata - cuando fue cada snapshot para que el lector sepa
-  // si la lista esta fresca.
-  const infoRows = [
-    { Item: 'Total SKUs en catalogo', Valor: PRODUCTS.length },
-    { Item: 'Total SKUs con precio cargado', Valor: preciosRows.length },
-    {
-      Item: 'Total SKUs con stock disponible',
-      Valor: PRODUCTS.filter((p) => hasStock(p.code) === true).length,
-    },
-    {
-      Item: 'Total SKUs sin stock',
-      Valor: PRODUCTS.filter((p) => hasStock(p.code) === false).length,
-    },
-    {
-      Item: 'Total SKUs sin dato de stock',
-      Valor: PRODUCTS.filter((p) => hasStock(p.code) == null).length,
-    },
-    {
-      Item: 'Lista de precios moneda',
-      Valor: typeof PRICE_LIST_CURRENCY !== 'undefined' ? PRICE_LIST_CURRENCY : 'ARS',
-    },
-    {
-      Item: 'Lista de precios actualizada',
-      Valor:
-        typeof PRICE_LIST_UPDATED_AT !== 'undefined' && PRICE_LIST_UPDATED_AT
-          ? new Date(PRICE_LIST_UPDATED_AT).toLocaleString('es-AR')
-          : '(no cargada)',
-    },
-    {
-      Item: 'Stock snapshot actualizado',
-      Valor: STOCK_UPDATED_AT ? new Date(STOCK_UPDATED_AT).toLocaleString('es-AR') : '(no cargado)',
-    },
-    { Item: 'Exportado', Valor: new Date().toLocaleString('es-AR') },
-    {
-      Item: 'Exportado por',
-      Valor: (currentUser && (currentUser.email || currentUser.displayName)) || '(desconocido)',
-    },
-  ];
   const ts = new Date().toISOString().slice(0, 10);
-  await downloadXlsx('Precios_y_Stock_' + ts + '.xlsx', [
-    { name: 'Precios y Stock', rows },
-    { name: 'Precios', rows: preciosRows },
-    { name: 'Stock', rows: stockRows },
-    { name: 'Info', rows: infoRows },
-  ]);
-  showSyncTag(rows.length + ' SKUs exportados (precios + stock)');
+  await downloadXlsx(
+    'Lista_de_Precios_' + ts + '.xlsx',
+    [
+      { name: 'Lista de precios', rows },
+      { name: 'Precios', rows: preciosRows },
+      { name: 'Stock', rows: stockRows },
+    ],
+    {
+      // Painter aplicado post-render por downloadXlsx. Pinta la columna
+      // "Disponibilidad" segun su valor: verde+blanco si DISPONIBLE,
+      // rojo+blanco si NO DISPONIBLE. Centrado + bold para legibilidad.
+      cellStyler: (cell, columnName, _value, _rowIndex) => {
+        if (columnName !== 'Disponibilidad') return;
+        const txt = String(cell.value || '').toUpperCase();
+        if (txt === 'DISPONIBLE') {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF16A34A' } }; // green-600
+          cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+        } else if (txt === 'NO DISPONIBLE') {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } }; // red-600
+          cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+        }
+      },
+    }
+  );
+  showSyncTag(rows.length + ' SKUs exportados (lista de precios + disponibilidad)');
 };
 
 // ======================================================
@@ -711,7 +703,7 @@ function periodLabel(anio, monthIdx) {
 // Antes usaba XLSX SheetJS free que ignora silently los estilos de celda. El
 // pattern verde replica el TOTAL bar de exportBackordersToExcel (modal
 // Backorder v720+). ExcelJS ya se carga on-demand via window.loadExcelJS.
-async function downloadXlsx(filename, sheets) {
+async function downloadXlsx(filename, sheets, opts) {
   try {
     await window.loadExcelJS();
   } catch (e) {
@@ -724,6 +716,10 @@ async function downloadXlsx(filename, sheets) {
   const CENTER = { vertical: 'middle', horizontal: 'center', wrapText: true };
   const BORDER_THIN = { style: 'thin', color: { argb: 'FFCCCCCC' } };
   const BORDER = { top: BORDER_THIN, left: BORDER_THIN, bottom: BORDER_THIN, right: BORDER_THIN };
+  // v1364: cellStyler opcional para colorear celdas por valor (ej. columna
+  // Disponibilidad DISPONIBLE verde / NO DISPONIBLE rojo en el export
+  // Lista de precios). Signature: (cell, columnName, value, rowIndex) => void.
+  const cellStyler = opts && typeof opts.cellStyler === 'function' ? opts.cellStyler : null;
 
   for (const s of sheets) {
     const ws = wb.addWorksheet(s.name.slice(0, 31));
@@ -739,12 +735,20 @@ async function downloadXlsx(filename, sheets) {
     });
     headerRow.height = 26;
 
-    for (const row of rows) {
+    for (let rIdx = 0; rIdx < rows.length; rIdx++) {
+      const row = rows[rIdx];
       const values = headers.map((h) => (row[h] !== undefined && row[h] !== null ? row[h] : ''));
       const dataRow = ws.addRow(values);
-      dataRow.eachCell((cell) => {
+      dataRow.eachCell((cell, colNumber) => {
         cell.alignment = CENTER;
         cell.border = BORDER;
+        if (cellStyler) {
+          try {
+            cellStyler(cell, headers[colNumber - 1], values[colNumber - 1], rIdx);
+          } catch (_e) {
+            // no-op: no romper el export por un error de styler
+          }
+        }
       });
     }
 
