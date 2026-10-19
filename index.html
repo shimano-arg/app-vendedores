@@ -6771,7 +6771,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1367';
+const APP_VERSION = 'v1368';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -6978,9 +6978,21 @@ window.isPedidoSplitEnabled = function(){
 // v1198 (2026-10-08): helper comun para extraer waitlist entries CPST
 // (source='stock-asignado-batch') que reservan stock. Entries normales
 // (VDE carga pedido manual) NO reservan — son pre-carga sin proteccion.
+// v1368 (2026-10-19): FIX double-count — si el CPST tiene pedidosOrigenes[]
+// (fue creado desde Crear Pedido Desde Stock Asignado), las unidades YA
+// estan contadas via las lineas ASIG originales (que siguen vivas hasta
+// que v1280 las cancele al Confirmar Definitivo post-Pasar a Pendientes).
+// Ventana de coexistencia ASIG+CPST se contaba doble → libre inflado hacia
+// abajo. Reporte Mariano 2026-10-19 11:24 ART (SKU 31500100150C: modal mostraba
+// libre=30, real=32 porque las 2u CPST de FERNANDO ya estaban en las 2u ASIG).
+// CPST sin pedidosOrigenes (edge case pre-v1280) sigue contandose como antes.
 function _getWaitlistCpstEntries() {
   if (typeof revisionWaitlist === 'undefined' || !Array.isArray(revisionWaitlist)) return [];
-  return revisionWaitlist.filter(w => w && w.source === 'stock-asignado-batch');
+  return revisionWaitlist.filter((w) => {
+    if (!w || w.source !== 'stock-asignado-batch') return false;
+    if (Array.isArray(w.pedidosOrigenes) && w.pedidosOrigenes.length > 0) return false;
+    return true;
+  });
 }
 
 window.getStockRealmenteDisponible = function(sku){

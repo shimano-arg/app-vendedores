@@ -4717,6 +4717,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1368 (2026-10-19) — Fix double-count ASIG+CPST en el cálculo de LIBRE
+
+**Archivos**:
+- `index.html:_getWaitlistCpstEntries` — nuevo filtro: excluye CPST con `pedidosOrigenes[]` del cálculo WAITLIST_CPST (ya están contadas via las ASIG originales).
+- `index.html:6568` + `sw.js:20` — bump v1367 → v1368.
+
+**Reporte Mariano** (2026-10-19 11:24 ART, SKU `31500100150C`):
+"Explicame la diferencia [entre STOCK ASIGNADO 4u y LISTA DE ESPERA CPST 2u] y por qué aparece Lista de espera."
+
+**Diagnóstico** (`scripts/debug-31500100150C-asig-cpst.cjs`):
+- ASIG 4u: 2u FERNANDO + 2u BROBRO (pedidos abiertos con state=ASIG).
+- CPST 2u: 1 entry `revision_waitlist` FERNANDO (con `pedidosOrigenes[]` apuntando a la línea ASIG de FERNANDO).
+- **Las 2u CPST SON LAS MISMAS 2u ASIG de FERNANDO**, no reservas independientes.
+
+**Mecánica del bug**:
+- v1198 (2026-10-08) agregó `WAITLIST_CPST` al cálculo de comprometido en `getStockDesglose`.
+- v1280 (2026-10-14) cancela las ASIG originales al "Confirmar Definitivo" (post-Pasar a Pendientes).
+- **Entre CPST creado y Confirmar Definitivo**, ASIG y CPST coexisten. `getStockDesglose` las sumaba a ambas → libre se descontaba 2 veces por las mismas unidades.
+
+**Verificación** (`scripts/debug-cpst-origenes.cjs`): 4 de 5 CPST en Firestore tienen `pedidosOrigenes[]` → son derivados de ASIG → candidatos a double-count. 1 CPST huerfano pre-v1280 (sin `pedidosOrigenes`) sigue contándose como reserva independiente.
+
+**Fix**: en `_getWaitlistCpstEntries`, filtrar `w.pedidosOrigenes.length > 0`. Las ASIG originales siguen descontando normalmente; cuando se cancelen (v1280 post-confirm), el CPST también desaparece.
+
+**Resultado SKU 31500100150C**:
+- Antes v1368: libre = 36 − (BO 0 + ASIG 4 + confirmed 0 + CPST 2) = 30 ❌
+- Ahora v1368: libre = 36 − (BO 0 + ASIG 4 + confirmed 0 + CPST 0) = 32 ✓
+
+Modal y export ahora coinciden en 32u para este SKU. El modal muestra "LISTA DE ESPERA (CPST): 0 unidades" (línea oculta porque es 0 por el filtro v1367).
+
 ### v1367 (2026-10-19) — Modal Master de Productos: LIBRE alineado al export (confirmed + waitlist descuentan)
 
 **Archivos**:
