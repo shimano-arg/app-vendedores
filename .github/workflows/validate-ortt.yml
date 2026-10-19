@@ -1,0 +1,38 @@
+name: Validate ORTT vs doc_rate facturas USD
+
+# Dispatch manual. Cruza las facturas USD 2026 (41 facturas) contra la vista
+# dim_tipo_cambio y reporta MATCH exacto / centavos / DIFF.
+#
+# Si todas matchean exacto queda demostrado que ORTT es la fuente correcta.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install google-cloud-bigquery
+
+      - name: Auth GCP
+        run: |
+          echo "$FIREBASE_SA" > /tmp/sa.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Run validation
+        run: python bigquery/validate_ortt_vs_facturas.py

@@ -308,6 +308,18 @@ def main():
 
     write_to_bq(bq_client, normalized, dry_run=args.dry_run)
 
+    # Deploy idempotente del view consumible por PBI.
+    if not args.dry_run:
+        view_sql = f'''
+        CREATE OR REPLACE VIEW `{BQ_PROJECT}.{BQ_DATASET}.dim_tipo_cambio` AS
+        SELECT fecha, moneda, tasa, _sync_timestamp
+        FROM `{BQ_TABLE_TIPO_CAMBIO}`
+        WHERE fecha IS NOT NULL AND moneda IS NOT NULL
+          AND tasa IS NOT NULL AND tasa > 0
+        '''
+        bq_client.query(view_sql).result()
+        log(f'[BQ] view dim_tipo_cambio OK')
+
     # Reporte final del estado de la tabla.
     if not args.dry_run and normalized:
         q = f'''
