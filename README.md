@@ -4717,6 +4717,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1364 (2026-10-19) — Export Lista de Precios: columna Disponibilidad verde/rojo + archivo renombrado + info eliminada
+
+**Archivos**:
+- `src/domains/exports-core.js:exportPreciosStock` — rework:
+  - Hoja "Precios y Stock" renombrada a **"Lista de precios"**.
+  - Nueva columna **"Disponibilidad"** después de "Stock": `DISPONIBLE` si Stock > 0, `NO DISPONIBLE` si Stock ≤ 0 o vacío. Celda pintada verde (`#16A34A`) o roja (`#DC2626`) con texto blanco bold.
+  - Hoja "Info" **eliminada**.
+  - Hojas "Precios" y "Stock" se mantienen (Mariano no las mencionó eliminar). La hoja "Stock" también incluye la nueva columna Disponibilidad.
+  - Nombre del archivo: `Precios_y_Stock_YYYY-MM-DD.xlsx` → **`Lista_de_Precios_YYYY-MM-DD.xlsx`**.
+- `src/domains/exports-core.js:downloadXlsx` — nuevo parámetro opcional `opts.cellStyler(cell, columnName, value, rowIndex)` para pintar celdas por valor. Backward compatible: si no se pasa, comportamiento idéntico al previo. Try/catch defensivo para no romper el export si el styler falla.
+- `chunks/exports-core.js` — rebuild (regla CLAUDE.md #18).
+- `index.html:6568` + `sw.js:20` — bump v1363 → v1364.
+
+**Pedido Mariano** (2026-10-19 ~11:01 ART):
+"Eliminar hoja Info en el Excel. Que la hoja 'Precios y Stock' se llame 'Lista de precios'. Agregar columna Disponibilidad: si Stock > 0 → DISPONIBLE fondo verde + texto blanco, si Stock ≤ 0 → NO DISPONIBLE fondo rojo + texto blanco. Y cambiarle el nombre al archivo que exporta."
+
 ### v1363 (2026-10-19) — Export "LISTA DE PRECIOS - DISPONIBLE": stock = libre para la venta (no físico)
 
 **Archivos**:
