@@ -4717,6 +4717,26 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1355 (2026-10-19) — Forecast: botón "Próximas descontinuaciones" (bulk-marking)
+
+**Archivos**:
+- `src/domains/forecast.js:1367-1403` — nuevo `upcomingBtn` (azul `#2563eb`) en el header de "Recomendación de Compra", entre el título y los chips de totales.
+- `src/domains/forecast.js:1740-1937` — nuevo modal `openUpcomingDiscontinuedModal` + `_renderUpcomingDiscontinuedModal` + `_renderUpcomingDiscontinuedListOnly` + `_buildUpcomingRow` + `saveUpcomingDiscontinuedChanges` + helper `_makeEl`. Usa `createElement` + `textContent` para contenido variable (SKU, descripción, search) — evita XSS vs patrón innerHTML del modal gemelo.
+- `index.html:6568` + `sw.js:20` — bump v1354 → v1355.
+- `app.bundle.js` + `chunks/forecast.js` rebuild (regla CLAUDE.md #18: cambios en src/domains/*.js requieren `node build.js` + commit outputs en el MISMO PR).
+
+**Pedido Mariano** (2026-10-19 ~08:50 ART): poder marcar en bulk los SKUs que van a descontinuarse en los próximos meses para que el forecast los desestime en el cálculo de Recomendación de Compra, en vez de ir fila por fila con el 🗑.
+
+**Cambio**:
+- Botón nuevo `📋 Próximas descontinuaciones` siempre visible (no condicional como el chip `🚫 N descontinuados` que aparece solo si hay > 0).
+- Abre modal con la lista COMPLETA de SKUs del sales plan actual (rods + reels dedupe), sorteada por SKU.
+- Cada fila tiene checkbox pre-tildado si ya está en `_discontinuedSkus`. Fila tildada tiene fondo lila `rgba(147,51,234,.08)`.
+- Buscador por SKU o descripción (filtra la lista en vivo).
+- Botón `Guardar cambios` sincroniza el Set con el estado de los checkboxes del DOM: agrega los nuevos tildados, saca los destildados. Preserva SKUs descontinuados que no están en el sales plan actual (edge case: SKU dado de baja hace tiempo).
+- Persiste en la misma colección `forecast_config/discontinued_skus` que el flujo existente (mismo efecto en `_computeRecommendations`).
+
+**Impacto**: ninguna CF cambia. Reversible desde el chip morado `🚫 N descontinuados` existente.
+
 ### v1354 (2026-10-19) — Buyer: fix lookup por cardCode SAP real (antes buscaba por slug)
 
 **Archivos**:
