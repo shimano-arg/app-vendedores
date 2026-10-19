@@ -118,15 +118,22 @@ def get_rate_one(cfg: dict, session: requests.Session, currency: str, fecha: dat
         data = resp.json()
     except ValueError:
         return None
-    # El metodo devuelve { "SBOBobService_GetCurrencyRateResponse": { "Rate": N.NN } }
-    # o directamente { "value": N.NN } segun version.
+    # Este SAP devuelve el rate como primitivo (float directo).
+    # Otras versiones devuelven { "value": N } o { "Rate": N }. Manejamos ambos.
     rate = None
-    if 'SBOBobService_GetCurrencyRateResponse' in data:
-        rate = data['SBOBobService_GetCurrencyRateResponse'].get('Rate')
-    elif 'value' in data:
-        rate = data.get('value')
-    elif 'Rate' in data:
-        rate = data.get('Rate')
+    if isinstance(data, (int, float)):
+        rate = data
+    elif isinstance(data, dict):
+        if 'value' in data:
+            rate = data.get('value')
+        elif 'Rate' in data:
+            rate = data.get('Rate')
+        elif 'SBOBobService_GetCurrencyRateResponse' in data:
+            inner = data.get('SBOBobService_GetCurrencyRateResponse') or {}
+            if isinstance(inner, dict):
+                rate = inner.get('Rate')
+            else:
+                rate = inner
     try:
         return float(rate) if rate is not None else None
     except (TypeError, ValueError):
