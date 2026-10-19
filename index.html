@@ -6771,7 +6771,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1360';
+const APP_VERSION = 'v1361';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23502,14 +23502,18 @@ function _renderWaitlistCard(){
   const rows = [];
   let excedidos = 0;
   // v1360 (2026-10-19): Fix reporte Mariano "Pablo asigno 2u para ESTE cliente
-  // via Reparto, deberian estar DISPONIBLES para este pedido (no competir con
-  // BO/waitlist de otros)". getStockRealmenteDisponible descuenta todo lo
-  // comprometido (incluyendo ASIG+waitlist de ESTE cliente), lo que hace que
-  // el pedido vaya a BO aunque las unidades ya estuvieran reservadas. Para el
-  // modal Pedido en Espera usamos getStockPorCliente.libreParaCliente que es
-  // max(fisico - reservadasPorOtros, 0) — refleja lo que ESTE cliente puede
-  // efectivamente obtener (sus propias reservas se le acreditan).
+  // via Reparto, deberian estar DISPONIBLES para este pedido".
+  // v1361 (2026-10-19): Fix adicional reporte BROBRO + STS70M2C: cuando otros
+  // clientes tienen BO que exceden el stock (oversold), libreParaCliente
+  // devolvia 0 y las ASIG firmes del propio cliente quedaban invisibles.
+  // Pablo ya decidio asignar esas unidades a ESTE cliente (ASIG firme) — no
+  // deben competir con BO de otros (que son solo espera). Nuevo calculo:
+  //   disp = reservasFirmesPropias (ASIG+confirmed activas de este cliente)
+  //        + max(fisico - total_propias - total_otros, 0)   // sobrante libre
+  // Capped at fisico para no sobrepasar el stock real.
   const _ccUpThis = String(w.clientCardCode || '').trim();
+  const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock) || null;
+  const _nowMs = Date.now();
   (w.items || []).forEach((it, idx) => {
     const stk = _revisionStockFor(it.code);
     const otros = _otrosPedidosEnEsperaDeSku(it.code, w._id);
@@ -23520,12 +23524,37 @@ function _renderWaitlistCard(){
       ? window.getStockPorCliente(it.code, _ccUpThis)
       : null;
     const _libreGeneral = stk.hasData ? Math.max(Number(stk.disponible || 0), 0) : null;
-    // Si tenemos info por cliente, usar libreParaCliente (= fisico - reservadasPorOtros).
-    // Esto incluye las reservas de ESTE cliente como "disponibles para el pedido".
-    // Si no (sin cardCode), fallback al general.
-    const disp = _porCli
-      ? Math.max(Number(_porCli.libreParaCliente || 0), 0)
-      : _libreGeneral;
+    // v1361: calcular reservas FIRMES propias (solo state=ASIG o confirmed con
+    // asigReserva activo, no expiradas). Son unidades YA garantizadas al
+    // cliente que deben seguir disponibles aunque otros tengan BO excedente.
+    let _firmesPropias = 0;
+    if (stk.hasData && _ccUpThis && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+      const _skuUp = String(it.code || '').toUpperCase();
+      for (const _p of globalPedidos) {
+        if (!_p || _p.closedAt) continue;
+        if (String(_p.clientCardCode || '').trim() !== _ccUpThis) continue;
+        const _lns = Array.isArray(_p.lines) ? _p.lines : [];
+        for (const _l of _lns) {
+          if (!_l || !_l.code) continue;
+          if (String(_l.code).toUpperCase() !== _skuUp) continue;
+          if (_l.state !== 'ASIG' && _l.state !== 'confirmed') continue;
+          if (_lrsFn && !_lrsFn(_l, _nowMs, _p)) continue;
+          _firmesPropias += Number(_l.qtyOpen) || 0;
+        }
+      }
+    }
+    // disp = firmes propias (garantizadas por Pablo) + lo que sobre del stock
+    // despues de descontar TODAS las reservas (propias + otros). Capped at fisico.
+    let disp;
+    if (_porCli) {
+      const _fisico = Number(_porCli.fisico) || 0;
+      const _resPropias = Number(_porCli.reservadasPorCliente) || 0;
+      const _resOtros = Number(_porCli.reservadasPorOtros) || 0;
+      const _residual = Math.max(_fisico - _resPropias - _resOtros, 0);
+      disp = Math.min(_fisico, _firmesPropias + _residual);
+    } else {
+      disp = _libreGeneral;
+    }
     // dispApp = descontamos ademas pedidos en Espera (pendingApp) para el
     // caso "si el vendedor tarda, otros pedidos-en-espera pueden agarrar
     // el stock primero via FIFO al confirmar".

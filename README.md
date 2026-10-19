@@ -4717,6 +4717,46 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1361 (2026-10-19) — Pedido en Espera: ASIG firmes del cliente prevalecen sobre BO de otros (oversold-aware)
+
+**Archivos**:
+- `index.html:23502-23558` — en `_revisionRender`, nuevo cálculo de `disp`:
+  ```
+  firmesPropias = suma(ASIG + confirmed del cliente actual que reservan stock)
+  residual = max(fisico - total_propias - total_otros, 0)
+  disp = min(fisico, firmesPropias + residual)
+  ```
+  Reemplaza al v1360 (`disp = libreParaCliente = max(fisico - reservasPorOtros, 0)`) que fallaba en escenarios de oversold.
+- `index.html:6568` + `sw.js:20` — bump v1360 → v1361.
+
+**Reporte Mariano** (2026-10-19 ~10:20 ART, BROBRO SA + STS70M2C):
+"fui a Crear Pedido Desde Stock Asignado para pasar a BROBRO a la Lista de espera y no entiendo qué pasó con STS70M2C si ya fueron reservadas para ese cliente ¿por qué figura como que no hay?"
+
+**Diagnóstico** (`scripts/debug-brobro-sts70m2c-live.cjs`):
+- Stock físico STS70M2C dep11 = 6u.
+- BROBRO: 2 ASIG + 3 BO = 5u reservadas.
+- ANDREA TRENTIN: 1 confirmed + 5 BO = 6u reservadas.
+- Total comprometido = 11u sobre stock = 6u → oversold.
+- Con la fórmula v1360: `libreParaCliente = max(6 − 6, 0) = 0` → BROBRO ve 0 disponible aunque Pablo le haya asignado 2u firmes.
+
+**Problema conceptual**:
+Las unidades ASIG son decisiones firmes de Pablo (asignación explícita via Reparto). Los BO son solo "esperando mercadería" — no son reservas firmes. v1360 trataba todas las reservas de otros por igual, por lo que las BO de otros (incluso excedidas) terminaban "ocupando" el stock disponible para el cliente actual.
+
+**Fix v1361**:
+Separar reservas FIRMES (ASIG + confirmed activos) del resto. La fórmula nueva:
+- `firmesPropias` = unidades que Pablo ya le prometió al cliente actual (siempre disponibles para él).
+- `residual` = lo que sobre del stock físico después de todas las reservas (si sobra algo, también disponible).
+- `disp = min(fisico, firmesPropias + residual)` — capped al stock físico para no inventar unidades.
+
+**Resultado**:
+Para BROBRO + STS70M2C: `disp = min(6, 2 ASIG + max(6-5-6, 0)) = min(6, 2 + 0) = 2`. ✓ Puede pedir hasta 2u que son suyas firmes.
+
+Para el caso Ariel (v1360): `disp = min(4, 2 ASIG + max(4-4-0, 0)) = min(4, 2 + 0) = 2`. Pedido final = min(2, 2) = 2, BO = 0. ✓ Mismo resultado práctico que v1360 para su pedido.
+
+**No cambia pure functions** — solo el cálculo en `_revisionRender`. `getStockPorCliente` sigue devolviendo `libreParaCliente` como antes.
+
+**Nota operativa**: BO de otros NO son ignorados completamente — si piden más que las firmes propias, el pedido final se cappea en firmes + residual. BO de otros son info visual en el sub-span rojo (v1359) si corresponde.
+
 ### v1360 (2026-10-19) — Pedido en Espera: LIBRE respeta las reservas del cliente actual (ASIG/waitlist propias no restan)
 
 **Archivos**:
