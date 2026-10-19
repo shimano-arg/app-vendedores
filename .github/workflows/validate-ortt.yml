@@ -36,3 +36,7 @@ jobs:
 
       - name: Run validation
         run: python bigquery/validate_ortt_vs_facturas.py
+
+      - name: Diagnostico mismatches (D-5 a D+2)
+        if: always()
+        run: python bigquery/diagnose_ortt_mismatches.py
