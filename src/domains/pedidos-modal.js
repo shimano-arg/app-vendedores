@@ -457,6 +457,30 @@ window.validateReviewAndPasarAPendientes = function () {
         );
       }
       if (cliCardCode && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+        // v1370 (2026-10-19): calcular ASIG "cubiertas" por waitlist CPST abiertos.
+        // Reporte Mariano SNAKE S.R.L: 2 CPST en espera (ORDEN 441 + 459), al
+        // intentar pasar cualquiera a Pendientes el guard contaba las ASIG del
+        // OTRO CPST como "no resueltas" → mutuo bloqueo. Fix: una ASIG que ya
+        // esta vinculada a un waitlist CPST (source='stock-asignado-batch' con
+        // pedidosOrigenes[] apuntando a esa linea) YA esta en proceso de ser
+        // resuelta — no contar. Si el VDE confirma el CPST, v1280 cancela la
+        // ASIG original.
+        /** @type {Set<string>} key = pedidoId|lineIndex */
+        const asigCubiertasPorCpst = new Set();
+        const _revWl =
+          typeof window !== 'undefined' && Array.isArray(window.revisionWaitlist)
+            ? window.revisionWaitlist
+            : null;
+        if (_revWl) {
+          for (const w of _revWl) {
+            if (!w || w.source !== 'stock-asignado-batch') continue;
+            const origenes = Array.isArray(w.pedidosOrigenes) ? w.pedidosOrigenes : [];
+            for (const org of origenes) {
+              if (!org || !org.pedidoId) continue;
+              asigCubiertasPorCpst.add(String(org.pedidoId) + '|' + Number(org.lineIndex));
+            }
+          }
+        }
         let asigCount = 0;
         let asigPedidos = 0;
         const _lrsFn =
@@ -471,9 +495,14 @@ window.validateReviewAndPasarAPendientes = function () {
               ? sapGetClienteCode(p.clientName || '') || ''
               : '';
           if (pCardCode !== cliCardCode) return;
-          const asigLinesOfP = p.lines.filter(
-            (l) => l && l.state === 'ASIG' && (!_lrsFn || _lrsFn(l, _nowTs, p))
-          );
+          // v1370: filtrar ASIG que ya estan cubiertas por un waitlist CPST abierto.
+          const asigLinesOfP = p.lines.filter((l, idx) => {
+            if (!l || l.state !== 'ASIG') return false;
+            if (_lrsFn && !_lrsFn(l, _nowTs, p)) return false;
+            const key = String(p._fsId) + '|' + idx;
+            if (asigCubiertasPorCpst.has(key)) return false; // cubierta por CPST
+            return true;
+          });
           if (asigLinesOfP.length > 0) {
             asigPedidos++;
             asigCount += asigLinesOfP.length;
