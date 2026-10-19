@@ -3328,10 +3328,21 @@ SELECT
   SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
     * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
     * inv.sign AS costo_total_doc_ars,
-  item_bike.cost_avg_ars AS costo_unitario_prom_ars,
+  item_bike.cost_avg_ars AS costo_unitario_prom_ars,                      -- cost_usd * TC historico (OITM pesos acumulado)
   item_bike.cost_avg_ars
     * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
     * inv.sign AS costo_total_prom_ars,
+  -- v2 (2026-10-19): costo en USD (sap_items_bike_raw.cost_usd). PBI debe
+  -- convertir con el TC del momento usando la medida TC_USD(fecha). Es la
+  -- unica forma de reproducir Paiva/PL exacto.
+  -- VERIFICADO (ver docs/BIKE DASHBOARD/rentabilidad/PROPUESTA.md seccion
+  -- "Hallazgo TC"): cost_avg_ars esta en TC implicito ~1288 (histórico);
+  -- Paiva usa TC ~1461 (sept 2026 spot). Al reconstruir con cost_usd * 1461,
+  -- el COGS Paiva se reproduce con diff $12K/$539M = 99.997% exacto.
+  item_bike.cost_usd AS costo_unitario_prom_usd,
+  item_bike.cost_usd
+    * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+    * inv.sign AS costo_total_prom_usd,
 
   -- ====== Jerarquia Bike (desde sap_items_bike_raw) ======
   item_bike.marca,
@@ -3404,6 +3415,21 @@ SELECT
     - item_bike.cost_avg_ars
       * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
   ) * inv.sign AS margen_ars_prom_con_dcto,
+
+  -- ====== Flag politica 48% (v2 2026-10-19) ======
+  -- Dato de negocio: la politica del 48% de margen bruto esta medida SIN
+  -- descuentos (confirmado por hoja OBJETIVO Y DESVIO de Paiva Sep 2026:
+  -- MARGEN OBJETIVO 48,00% / MARGEN ACTUAL S/ DCTOS 48,27% desvio +0,27).
+  -- Flag TRUE si la linea cumple 48%+ en margen SIN descuento cabecera,
+  -- usando costo PROM (politica), no doc (operativo).
+  (
+    SAFE_DIVIDE(
+      SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+      - item_bike.cost_avg_ars
+        * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64),
+      NULLIF(SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64), 0)
+    ) >= 0.48
+  ) AS cumple_politica_48,
 
   -- ====== Flags / metadata ======
   TRUE AS is_bike,
