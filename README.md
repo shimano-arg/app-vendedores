@@ -4717,6 +4717,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1359 (2026-10-19) — Pedido en Espera: LIBRE con desglose visible cuando hay BO/confirmed/waitlist comprometidos
+
+**Archivos**:
+- `index.html:6479-6480` — rename columna "Unidades reservadas" → "Reservadas (ASIG)" y tooltips más explícitos indicando que RESERVADAS post-v1291 solo cuenta ASIG real (no incluye confirmed/BO).
+- `index.html:23794-23830` — celda `tdLibre` muestra número principal + sub-línea roja "−N BO + N SAP + N waitlist" cuando `libre + reservadas < stock`. Tooltip detallado explica la aritmética.
+- `index.html:6568` + `sw.js:20` — bump v1358 → v1359.
+
+**Reporte Mariano** (2026-10-19 10:05 ART, screenshot pedido ORDEN 417 ARIEL GUSTAVO ESTEBAN, SKU SGS80MH2A): "stock 4, reservadas 2, libre 0, deberían quedar 2 libres".
+
+**Diagnóstico**:
+- `getStockDesglose` (src/pure/stock-realmente-disponible.js:433) calcula `comprometido = confirmed + BO + ASIG + WAITLIST_CPST`, luego `libre = max(stock − comprometido, 0)`.
+- Columna RESERVADAS post-v1291 (2026-10-14) solo muestra ASIG real (filtrado por lineReservesStock + state=ASIG) para alinear con el modal Stock Asignado post-Reparto Manual.
+- Consecuencia: el vendedor hace `4 − 2 = 2` mentalmente pero la UI muestra `libre = 0` porque hay 2u más en BO (precisamente las 2u que acaba de enviar en este mismo pedido).
+- No es bug de lógica: es información faltante en la UI que hace que la aritmética parezca rota.
+
+**Cambio**:
+- La celda LIBRE ahora muestra el número principal (0, 2, lo que corresponda) + sub-línea roja compacta debajo mostrando qué comprometidos descuentan el gap: `−2 BO + 1 SAP + 1 waitlist` o similar.
+- Sub-línea aparece solo cuando `stock − reservadas > libre` (gap matemático). En SKUs normales no aparece nada extra.
+- Tooltip de LIBRE detalla: `dep 11 X − comprometidos totales Y = libre Z` + breakdown confirmed/BO/ASIG/waitlist + explicación de por qué RESERVADAS no incluye todo.
+- Header RESERVADAS renombrado a "Reservadas (ASIG)" para que sea obvio desde el nombre.
+
+**No cambia la lógica subyacente** — solo visualiza mejor info que ya estaba en el tooltip. Fórmula de LIBRE sigue igual (correcta semánticamente: BO esperando mercadería compite por el stock, por eso descuenta).
+
 ### v1358 (2026-10-19) — Dark Mode E6 hotfix: overrides por CSS class para componentes con bg hardcoded
 
 **Archivos**:

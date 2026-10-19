@@ -6476,8 +6476,8 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
                 <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px">SKU</th>
                 <th style="text-align:left;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px">Producto</th>
                 <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Stock fisico completo en deposito 11">Stock completo (dep 11)</th>
-                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Unidades reservadas = confirmed (ya en SAP) + ASIG (asignado FIFO)">Unidades reservadas</th>
-                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Stock realmente disponible = Stock completo - Unidades reservadas">Libre para la venta</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Unidades RESERVADAS (ASIG real) = asignado por Pablo via Reparto Manual (post-v1288/v1291). NO incluye confirmed en SAP ni BO porque esos NO reservan stock app-side en el modelo actual. Para ver el breakdown completo de todo lo comprometido mirá el tooltip de LIBRE PARA LA VENTA.">Reservadas (ASIG)</th>
+                <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Stock realmente disponible = Stock completo - TODO lo comprometido (confirmed en SAP + BO esperando + ASIG). Puede ser menor que Stock - Reservadas porque hay unidades comprometidas en BO/confirmed que tambien se descuentan.">Libre para la venta</th>
                 <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Cantidad ORIGINAL que pidio el cliente">Pedido Original</th>
                 <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Pedido Final = min(Pedido Original, Libre para la venta)">Pedido Final</th>
                 <th style="text-align:center;padding:8px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;font-size:10px" title="Precio unitario del catalogo/SAP">Precio</th>
@@ -6771,7 +6771,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1358';
+const APP_VERSION = 'v1359';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23793,14 +23793,41 @@ function _renderWaitlistCard(){
     // tampoco cuentan como stock realmente disponible). Tooltip explicito.
     const tdLibre = document.createElement('td');
     tdLibre.className = 'num disp-sap-col';
-    tdLibre.textContent = r.hasData ? String(r.disponible || 0) : '-';
     if (r.hasData) {
       const _confN = (desg.breakdown && desg.breakdown.confirmed) || 0;
       const _boN = (desg.breakdown && desg.breakdown.BO) || 0;
       const _asigN = (desg.breakdown && desg.breakdown.ASIG) || 0;
-      tdLibre.title = 'Libre para la venta: ' + (r.disponible || 0) + ' u\\n' +
-        '= dep 11 ' + stockDep11Only + ' - comprometidos totales ' + (_confN + _boN + _asigN) + '\\n' +
-        'Breakdown comprometido: confirmed ' + _confN + ' u · BO ' + _boN + ' u · ASIG ' + _asigN + ' u';
+      const _wcpstN = (desg.breakdown && desg.breakdown.WAITLIST_CPST) || 0;
+      // v1359 (2026-10-19): si LIBRE no cierra con STOCK - RESERVADAS (porque
+      // hay BO/confirmed/WAITLIST comprometidos que descuentan libre pero no
+      // aparecen en la columna RESERVADAS post-v1291), mostrar el delta como
+      // sub-linea para que el vendedor entienda el gap matematico. Reporte
+      // Mariano 2026-10-19 10:05 ART.
+      const libreVal = r.disponible || 0;
+      const gapExtra = Math.max(0, (stockDep11Only || 0) - reservadasBacked - libreVal);
+      const mainSpan = document.createElement('div');
+      mainSpan.textContent = String(libreVal);
+      mainSpan.style.cssText = 'font-weight:700';
+      tdLibre.appendChild(mainSpan);
+      if (gapExtra > 0) {
+        const subSpan = document.createElement('div');
+        const parts = [];
+        if (_boN > 0) parts.push(_boN + ' BO');
+        if (_confN > 0) parts.push(_confN + ' SAP');
+        if (_asigN > 0 && _asigN !== reservadasBacked) parts.push((_asigN - reservadasBacked) + ' ASIG expirado');
+        if (_wcpstN > 0) parts.push(_wcpstN + ' waitlist');
+        const detail = parts.length > 0 ? parts.join(' + ') : (gapExtra + ' comprometidos');
+        subSpan.textContent = '−' + detail;
+        subSpan.style.cssText = 'font-size:9px;color:var(--color-danger);font-weight:600;margin-top:1px;line-height:1.1';
+        subSpan.title = 'Diferencia entre Stock(' + stockDep11Only + ') − Reservadas(' + reservadasBacked + ') = ' + ((stockDep11Only||0) - reservadasBacked) + ', vs Libre real = ' + libreVal + '. Hay ' + gapExtra + ' u comprometidas en BO/SAP/waitlist que tambien se descuentan.';
+        tdLibre.appendChild(subSpan);
+      }
+      tdLibre.title = 'Libre para la venta: ' + libreVal + ' u\\n' +
+        '= dep 11 ' + stockDep11Only + ' − comprometidos totales ' + (_confN + _boN + _asigN + _wcpstN) + '\\n' +
+        'Breakdown comprometido: confirmed ' + _confN + ' · BO ' + _boN + ' · ASIG ' + _asigN + (_wcpstN > 0 ? ' · waitlist ' + _wcpstN : '') + '\\n' +
+        '(La columna RESERVADAS solo muestra ASIG real = ' + reservadasBacked + '; los demas comprometidos impactan en LIBRE pero no en RESERVADAS.)';
+    } else {
+      tdLibre.textContent = '-';
     }
     tr.appendChild(tdLibre);
     // v713.1: Alerta visual cuando el SKU se repite - resaltar fila y marcar summary.
