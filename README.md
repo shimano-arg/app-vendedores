@@ -4717,6 +4717,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1363 (2026-10-19) — Export "LISTA DE PRECIOS - DISPONIBLE": stock = libre para la venta (no físico)
+
+**Archivos**:
+- `index.html:4157-4163` — label del botón del modal "¿Qué querés exportar?":
+  - Título: `Precios + Stock por SKU` → `LISTA DE PRECIOS - DISPONIBLE`.
+  - Descripción: actualizada para explicar que ahora es libre real, no físico.
+- `src/domains/exports-core.js:fmtStock` — cambio de `getStockDisponibleVenta` (= dep 11 físico) a `getStockRealmenteDisponible` (= dep 11 − confirmed − BO − ASIG − waitlist, filtrado por TTLs). Fallback a stock físico si la pure function no está disponible (bootstrap muy temprano).
+- `src/domains/exports-core.js` — columna `Stock W11` renombrada a `Stock` en las hojas "Precios y Stock" y "Stock".
+- `chunks/exports-core.js` — rebuild (regla CLAUDE.md #18).
+- `index.html:6568` + `sw.js:20` — bump v1362 → v1363.
+
+**Pedido Mariano** (2026-10-19 ~10:50 ART):
+"En el Excel la columna Stock W11 que se llame Stock y que muestre las unidades libres para la venta — NO todo el stock físico porque si no capaz muestro que del SKU YY hay 5 unidades y las 5 están reservadas. Y que no se llame Precios + Stock por SKU, que se pase a llamar LISTA DE PRECIOS - DISPONIBLE."
+
+**Cambio**:
+Ahora el export refleja lo que efectivamente se le puede prometer al cliente HOY. Si un SKU tiene 5u físicas pero 5u reservadas (BO + ASIG), la columna Stock muestra `0` en vez de `5`.
+
 ### v1362 (2026-10-19) — Crear Pedido Desde Stock Asignado: aplicar fix oversold-aware en el recorte de qty
 
 **Archivos**:
