@@ -4717,6 +4717,26 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1371 (2026-10-19) — Modal CPST: ocultar ASIG ya cubiertas por waitlist CPST abiertos
+
+**Archivos**:
+- `index.html:_cpstBuildCache` — nuevo pre-pass `asigCubiertasPorCpst = Set<pedidoId|lineIndex>` iterando `revisionWaitlist` con `source='stock-asignado-batch'` + `pedidosOrigenes[]`. En el loop principal, skip la línea si su `(pedidoId, lineIndex)` está en el Set. Cambio de `for (const l of p.lines)` a `for (let idx = 0; idx < p.lines.length; idx++)` para tener el índice.
+- `index.html:6568` + `sw.js:20` — bump v1370 → v1371.
+
+**Reporte Mariano** (2026-10-19 ~16:43 ART):
+"Cuando mando un pedido CPST a Lista de Espera sigue apareciendo en 'Crear Pedido Desde Stock Asignado'. Debería salir de ahí para no confundir."
+
+**Causa**:
+`_cpstBuildCache` iteraba todas las líneas ASIG activas de `globalPedidos` sin considerar si el VDE ya había iniciado el flow CPST para ese cliente/SKU. Los waitlist CPST tienen `pedidosOrigenes[]` apuntando a esas ASIG, pero el cache no lo miraba. Resultado: después de "Confirmar y pasar a Lista de Espera", el cliente seguía apareciendo con los mismos SKUs disponibles.
+
+**Fix**:
+Mismo patrón que v1368 (dedupe stock) y v1370 (guard ASIG). Pre-calcular Set de `(pedidoId, lineIndex)` de ASIG cubiertas por CPST abiertos. En el loop, skip las que estén en el Set.
+
+**Resultado**:
+- Si el cliente tenía 3 SKUs ASIG y el VDE pasó TODOS vía CPST → el cliente desaparece del modal.
+- Si pasó solo algunos SKUs → el cliente sigue apareciendo pero solo con los SKUs restantes (los que aún no fueron a Lista de Espera).
+- Al "Confirmar Definitivo" el CPST desde el modal Pedido en Espera, v1280 cancela las ASIG; en ese momento el waitlist se borra y el cliente/SKU desaparece también del modal CPST (ya no hay nada que mostrar).
+
 ### v1370 (2026-10-19) — Guard ASIG en Pasar a Pendientes: excluir ASIG cubiertas por waitlist CPST
 
 **Archivos**:
