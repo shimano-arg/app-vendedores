@@ -4717,6 +4717,40 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1366 (2026-10-19) — Export Backorder: hoja Resumen con TOTAL igual al modal + fila TOTAL en la hoja detalle
+
+**Archivos**:
+- `src/domains/exports-core.js:exportBackorderAll` — agregada:
+  - Hoja nueva **"Resumen"** (primera hoja del Excel) con los totales exactos del modal:
+    - `TOTAL Backorder ARS` (bold, fondo rojo + texto blanco)
+    - SKUs con backorder
+    - Unidades pendientes
+    - Clientes afectados
+    - Subtotal SIN REPOSICION (urgente)
+    - Subtotal PARCIAL
+    - Líneas crudas en hoja Backorder
+    - Snapshot generado (timestamp)
+  - Fila **"TOTAL (igual al modal)"** al final de la hoja "Backorder" con el valor correcto en `Subtotal_BO_ARS` y `Cantidad_Pendiente_BO`, pintada bold rojo + blanco.
+- `chunks/exports-core.js` — rebuild.
+- `index.html:6568` + `sw.js:20` — bump v1365 → v1366.
+
+**Reporte Mariano** (2026-10-19 ~11:12 ART):
+"En el modal Backorder veo Total backorder $640.301.000, al exportar Backorder veo otra cosa."
+
+**Diagnóstico**:
+El modal (`openBackordersModal`) usa `computeBackorderSkuMap` que **CONSOLIDA** duplicados por cliente: si un cliente tiene 3 líneas BO del mismo SKU en 3 pedidos distintos, las agrega en una sola row con `qtyBackorder` sumado. El total modal multiplica `qty_consolidada × precio_de_la_1ra_linea_procesada`.
+
+El export (`exportBackorderAll`) usa `computeBackorderRawLines` que devuelve **1 fila por LÍNEA individual** (sin consolidar). Si Mariano sumaba la columna `Subtotal_BO_ARS` a mano, obtenía `Σ(qty_i × precio_i)` por línea — valor exacto por línea pero divergente del modal cuando hay precios distintos entre líneas del mismo cliente/SKU (ej. pedidos de distintos momentos con diferencias de precio).
+
+**Fix**:
+No cambié la lógica de ninguna función pure. Agregué los totales del modal (`computeBackorderSkuMap`) como una hoja nueva **"Resumen"** y una fila **TOTAL** al final del detalle. Así:
+- La hoja "Backorder" sigue siendo el dump crudo línea por línea (útil para auditoría + pivots en Excel).
+- La hoja "Resumen" + fila final tienen el número exacto del modal — Mariano abre el Excel y ve el mismo `$640.301.000` en 2 lugares.
+
+### v1365 (2026-10-19) — Rename export: "Clientes (masterfile)" → "Masterfile Clientes"
+
+Simple rename del label del botón del modal "Qué querés exportar?" (pedido Mariano 2026-10-19 ~11:08).
+
 ### v1364 (2026-10-19) — Export Lista de Precios: columna Disponibilidad verde/rojo + archivo renombrado + info eliminada
 
 **Archivos**:
