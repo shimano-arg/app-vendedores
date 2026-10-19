@@ -4717,6 +4717,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1353 (2026-10-19) — Reparto: ocultar ingresos con stock físico 0 (toggle en header)
+
+**Archivos**:
+- `index.html:6421-6425` — nuevo `<label>` + `<input type="checkbox" id="reparto-hide-nostock" checked>` en el header del modal Reparto, debajo del buscador.
+- `index.html:19693-19712` — en `_repartoRender()`, nuevo filtro `_withStock = _withSnap.filter((i) => _repartoStockFisico(i) > 0)` cuando el toggle está activo (default). Cadena de filtros: `_withSnap → _withStock → _matchesRaw (search) → matches (sort)`.
+- `index.html:6565` + `sw.js:20` (bump v1351 → v1353). v1352 fue fix de Python sync, no tocó index.html.
+
+**Antes**:
+Pedido Mariano 2026-10-19 ~08:30 ART: en "Reparto de ingresos" aparecen cards de SKUs cuyo stock físico actual (dep 11) ya es 0, por ejemplo `21100500300E` (Stock: 0 u, Demanda: 16 u · 5 clientes) y `23SJT420SURFS` (Stock: 0 u, Demanda: 113 u · 8 clientes). Son ruido: no hay nada que repartir hasta que vuelva a llegar mercadería. Antes del fix la tabla mostraba 12 ingresos pendientes, varios con stock 0.
+
+**Cambio**:
+Toggle "Ocultar SKU sin stock físico (dep 11)" en el header del modal, tildado por defecto. Cuando está tildado, `_repartoRender` filtra los ingresos cuyo `_repartoStockFisico(ing) <= 0`. Destildar vuelve a mostrarlos (útil para marcarlos como procesado si quedaron huérfanos pending con stock 0 permanente). El filtro se aplica antes del search y del sort, respetando el pipeline existente.
+
+**Por qué toggle y no filtro silencioso**: si un ingreso quedó en `status='pending'` o `'in_progress'` con stock físico 0 (ej. se vendió por fuera del reparto), nunca más se podrá cerrar porque jamás aparecería en el modal. El toggle permite al operador verlos y marcar "procesado".
+
 ### v1345 (2026-10-15) — Ficha Cliente z-index 5000 (visible arriba de Master Clientes Direcciones)
 
 **Archivos**:
