@@ -3390,3 +3390,29 @@ LEFT JOIN (
 WHERE inv.cancelled = 'tNO'
   AND JSON_VALUE(line, '$.COGSCostingCode3') = 'BIK';
 
+
+-- ============================================================
+-- View: dim_tipo_cambio
+-- ============================================================
+-- Dimension de tipos de cambio diarios desde ORTT (SAP B1).
+-- Alimentada por sap_tipo_cambio_raw (sync via scripts/backfill_sap_ortt.py
+-- + sync_sap_to_bigquery.py en el ciclo regular).
+--
+-- Grano: 1 fila por (fecha, moneda). Rango desde 2024-01-01.
+-- Huecos (fines de semana, feriados): SIN FILA. El arrastre de la ultima
+-- cotizacion conocida es decision DAX en Power BI (medida TC USD).
+--
+-- Spec: BIKE DASHBOARD/rentabilidad/CONTRATO_PBI.md + pedido Mariano
+-- 2026-10-19 cierre Fase 2 Bike.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.dim_tipo_cambio` AS
+SELECT
+  fecha,
+  moneda,
+  tasa,
+  _sync_timestamp
+FROM `app-vendedores-shimano.shimano_app.sap_tipo_cambio_raw`
+WHERE fecha IS NOT NULL
+  AND moneda IS NOT NULL
+  AND tasa IS NOT NULL
+  AND tasa > 0;
