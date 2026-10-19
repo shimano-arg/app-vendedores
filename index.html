@@ -214,7 +214,7 @@
   --text-muted: #cbd5e1; /* v745 E4 WCAG: era #94a3b8 (4.04 fail vs bg-elevated). Ahora 6.97 pass. */
   --text-disabled: #64748b;
   --text-inverse: #0f172a;
-  --border-default: #475569; /* v745 E4 WCAG: era #334155 = igual a bg-elevated (1.0 fail). Ahora visible. */
+  --border-default: #849ab0; /* v1357 E6 WCAG: era #475569 (2.36/1.37 fail), despues #7a8b9f (2.97 vs bg-elevated apenas por debajo de 3.0). Ahora 3.47 vs bg-elevated + 5.17 vs bg-base, ambos pass AA UI. */
   --border-subtle: #1e293b;
   --border-strong: #64748b; /* v745 E4: era #475569, ahora mas visible sobre bg-elevated. */
   --color-success: #4ade80; /* v745 E4 WCAG: era #22c55e (4.0 sub-AA vs success-bg). Ahora 5.99 pass. */
@@ -377,21 +377,115 @@ body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, b
   color: var(--text-primary) !important;
 }
 
-/* Overrides adicionales de inline styles pastel (color-50/color-100 Tailwind) */
-[data-theme="dark"] [style*="background:#f0fdf4"], /* green-50 */
-[data-theme="dark"] [style*="background:#ecfdf5"], /* emerald-50 */
-[data-theme="dark"] [style*="background:#eff6ff"], /* blue-50 */
-[data-theme="dark"] [style*="background:#ede9fe"], /* violet-100 */
-[data-theme="dark"] [style*="background:#e0e7ff"], /* indigo-100 */
-[data-theme="dark"] [style*="background:#f3e8ff"], /* fuchsia-100 */
-[data-theme="dark"] [style*="background:var(--color-success-bg)"], /* green-100 */
-[data-theme="dark"] [style*="background:#bae6fd"], /* sky-200 */
-[data-theme="dark"] [style*="background:#e0f2fe"], /* sky-100 */
-[data-theme="dark"] [style*="background:var(--color-warning-bg)"], /* amber-100 */
-[data-theme="dark"] [style*="background:var(--color-danger-bg)"], /* red-100 */
-[data-theme="dark"] [style*="background:#dbeafe"] /* blue-100 */ {
+/* v1357: Overrides de inline pastels con PRESERVACION DEL COLOR SEMANTICO.
+   Antes: todos los pastels iban a bg-secondary gris (perdia la señal
+   warning/success/danger). Ahora: rojos → danger-bg oscuro + danger text claro,
+   verdes → success-bg + success text, amber → warning-bg + warning text, etc.
+   Mariano 2026-10-19: "colores acorde entre fondos y textos". */
+
+/* Verdes/success: green-50, emerald-50, green-100 */
+[data-theme="dark"] [style*="background:#f0fdf4"],
+[data-theme="dark"] [style*="background:#ecfdf5"],
+[data-theme="dark"] [style*="background:#dcfce7"],
+[data-theme="dark"] [style*="background:#d1fae5"] {
+  background: var(--color-success-bg) !important;
+  color: var(--color-success) !important;
+}
+
+/* Rojos/danger: red-50, red-100, rose-50, rose-100 */
+[data-theme="dark"] [style*="background:#fef2f2"],
+[data-theme="dark"] [style*="background:#fee2e2"],
+[data-theme="dark"] [style*="background:#fff1f2"],
+[data-theme="dark"] [style*="background:#ffe4e6"] {
+  background: var(--color-danger-bg) !important;
+  color: var(--color-danger) !important;
+}
+
+/* Amber/warning: amber-50, amber-100, yellow-50, yellow-100 */
+[data-theme="dark"] [style*="background:#fffbeb"],
+[data-theme="dark"] [style*="background:#fef3c7"],
+[data-theme="dark"] [style*="background:#fefce8"],
+[data-theme="dark"] [style*="background:#fef9c3"] {
+  background: var(--color-warning-bg) !important;
+  color: var(--color-warning) !important;
+}
+
+/* Orange: orange-50, orange-100 (similar a warning pero mas calido) */
+[data-theme="dark"] [style*="background:#fff7ed"],
+[data-theme="dark"] [style*="background:#ffedd5"] {
+  background: #7c2d12 !important; /* orange-900 */
+  color: #fdba74 !important;      /* orange-300 */
+}
+
+/* Blue/info: blue-50, blue-100, sky-50, sky-100 */
+[data-theme="dark"] [style*="background:#eff6ff"],
+[data-theme="dark"] [style*="background:#dbeafe"],
+[data-theme="dark"] [style*="background:#f0f9ff"],
+[data-theme="dark"] [style*="background:#e0f2fe"],
+[data-theme="dark"] [style*="background:#bae6fd"] {
+  background: #1e3a8a !important; /* blue-900 */
+  color: #93c5fd !important;      /* blue-300 */
+}
+
+/* Violet/indigo/purple/fuchsia pastels */
+[data-theme="dark"] [style*="background:#ede9fe"],
+[data-theme="dark"] [style*="background:#e0e7ff"],
+[data-theme="dark"] [style*="background:#f3e8ff"],
+[data-theme="dark"] [style*="background:#faf5ff"] {
+  background: #4c1d95 !important; /* violet-900 */
+  color: #c4b5fd !important;      /* violet-300 */
+}
+
+/* Slate/gray/neutral pastels (slate-50, gray-100, zinc-50) */
+[data-theme="dark"] [style*="background:#f8fafc"],
+[data-theme="dark"] [style*="background:#f1f5f9"],
+[data-theme="dark"] [style*="background:#f9fafb"],
+[data-theme="dark"] [style*="background:#f3f4f6"],
+[data-theme="dark"] [style*="background:#fafafa"] {
   background: var(--bg-secondary) !important;
   color: var(--text-primary) !important;
+}
+
+/* Textos oscuros hardcodeados sobre backgrounds que acabamos de overridear.
+   Si el elemento tiene inline color:#<dark-color> y queda sobre bg oscuro, va
+   el color claro semantico equivalente. */
+[data-theme="dark"] [style*="color:#78350f"], /* amber-800 */
+[data-theme="dark"] [style*="color:#92400e"], /* amber-700 */
+[data-theme="dark"] [style*="color:#b45309"], /* amber-600 */
+[data-theme="dark"] [style*="color:#9a3412"]  /* orange-700 */ {
+  color: var(--color-warning) !important;
+}
+[data-theme="dark"] [style*="color:#14532d"], /* green-900 */
+[data-theme="dark"] [style*="color:#166534"], /* green-800 */
+[data-theme="dark"] [style*="color:#15803d"]  /* green-700 */ {
+  color: var(--color-success) !important;
+}
+[data-theme="dark"] [style*="color:#7f1d1d"], /* red-900 */
+[data-theme="dark"] [style*="color:#991b1b"], /* red-800 */
+[data-theme="dark"] [style*="color:#b91c1c"]  /* red-700 */ {
+  color: var(--color-danger) !important;
+}
+[data-theme="dark"] [style*="color:#1e3a8a"], /* blue-900 */
+[data-theme="dark"] [style*="color:#1e40af"], /* blue-800 */
+[data-theme="dark"] [style*="color:#075985"], /* sky-800 */
+[data-theme="dark"] [style*="color:#0c4a6e"]  /* sky-900 */ {
+  color: #93c5fd !important; /* blue-300 */
+}
+[data-theme="dark"] [style*="color:#6b21a8"], /* purple-800 */
+[data-theme="dark"] [style*="color:#581c87"]  /* purple-900 */ {
+  color: #c4b5fd !important; /* violet-300 */
+}
+[data-theme="dark"] [style*="color:#1d1d1f"], /* apple black */
+[data-theme="dark"] [style*="color:#1e293b"], /* slate-800 */
+[data-theme="dark"] [style*="color:#0f172a"], /* slate-900 */
+[data-theme="dark"] [style*="color:#334155"], /* slate-700 */
+[data-theme="dark"] [style*="color:#000"]     /* black */ {
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] [style*="color:#475569"], /* slate-600 */
+[data-theme="dark"] [style*="color:#64748b"], /* slate-500 */
+[data-theme="dark"] [style*="color:#86868b"]  /* apple gray */ {
+  color: var(--text-secondary) !important;
 }
 
 /* Sidebar-left pill buttons - los proxy buttons creados por el bootstrap */
@@ -6565,7 +6659,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1356';
+const APP_VERSION = 'v1357';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
