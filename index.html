@@ -6771,7 +6771,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1361';
+const APP_VERSION = 'v1362';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16752,27 +16752,50 @@ function _cpstRenderPreview(){
       '<b>Localidad:</b> ' + _cpstEsc(r.localidad || '-') + ' · ' +
       '<b>Vendedor asignado:</b> ' + _cpstEsc(r.vendor || '(sin asignar)');
   }
-  // v1198 (2026-10-08): ajustar qty por SKU al stock realmente disponible HOY
-  // para ese cliente. Si las ASIG viejas expiraron (>7d) y el stock se usó para
-  // otros clientes, no tiene sentido pasar la qty original al waitlist — el
-  // VDE va a abrir la card y ver un split con BO fantasma. Mejor crear la card
-  // con la qty que efectivamente HAY libre para el cliente HOY.
+  // v1198 (2026-10-08): ajustar qty por SKU al stock realmente disponible HOY.
+  // v1362 (2026-10-19): mismo fix que v1361 (modal Pedido en Espera) aplicado
+  // aca. En escenarios de oversold (otros clientes tienen BO que exceden stock),
+  // libreParaCliente=0 recortaba la qty a 0 aunque Pablo le hubiera asignado
+  // unidades firmes al cliente. Nueva formula:
+  //   disp = min(fisico, firmesPropias + residual)
+  // Donde firmesPropias = ASIG+confirmed activos del cliente (ya garantizadas
+  // por Pablo), y residual = max(fisico - propias - otros, 0). BO de otros no
+  // puede comerse unidades que ya son firmes de este cliente.
   //
-  // Rationale Mariano: "si hay 50 va a tener 50 no las 80 y eso es lo que pasa
-  // a la Lista de Espera".
-  //
-  // qty_ajustada = min(qty_asignada_original, stock_libre_para_cliente_hoy)
-  // libre_para_cliente = dep11 - reservas_de_OTROS (no cuenta sus propias ASIG
-  //                      viejas porque esas se van a cancelar).
+  // Rationale Mariano 2026-10-19 (BROBRO + STS70M2C): "ya fueron reservadas
+  // para ese cliente, por que figura como que no hay".
   const cardCode = r.cardCode || '';
+  const _lrsFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock) || null;
+  const _nowMs = Date.now();
   let totalRecortado = 0;
   c.skus.forEach(sk => {
     let qtyAjustada = sk.qty;
     try {
       if (cardCode && typeof window.getStockPorCliente === 'function') {
         const stk = window.getStockPorCliente(sk.sku, cardCode);
-        const libre = Math.max(0, Number(stk && stk.libreParaCliente) || 0);
-        qtyAjustada = Math.min(sk.qty, libre);
+        const _fisico = Number(stk && stk.fisico) || 0;
+        const _resPropias = Number(stk && stk.reservadasPorCliente) || 0;
+        const _resOtros = Number(stk && stk.reservadasPorOtros) || 0;
+        // Calcular firmes propias (ASIG+confirmed activas) desde globalPedidos.
+        let _firmesPropias = 0;
+        if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+          const _skuUp = String(sk.sku || '').toUpperCase();
+          for (const _p of globalPedidos) {
+            if (!_p || _p.closedAt) continue;
+            if (String(_p.clientCardCode || '').trim() !== cardCode) continue;
+            const _lns = Array.isArray(_p.lines) ? _p.lines : [];
+            for (const _l of _lns) {
+              if (!_l || !_l.code) continue;
+              if (String(_l.code).toUpperCase() !== _skuUp) continue;
+              if (_l.state !== 'ASIG' && _l.state !== 'confirmed') continue;
+              if (_lrsFn && !_lrsFn(_l, _nowMs, _p)) continue;
+              _firmesPropias += Number(_l.qtyOpen) || 0;
+            }
+          }
+        }
+        const _residual = Math.max(_fisico - _resPropias - _resOtros, 0);
+        const disp = Math.min(_fisico, _firmesPropias + _residual);
+        qtyAjustada = Math.min(sk.qty, disp);
       }
     } catch (_e) {}
     sk.qtyAjustada = qtyAjustada;

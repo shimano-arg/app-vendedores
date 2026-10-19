@@ -4717,6 +4717,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1362 (2026-10-19) — Crear Pedido Desde Stock Asignado: aplicar fix oversold-aware en el recorte de qty
+
+**Archivos**:
+- `index.html:16755-16803` — en `_cpstRenderPreview`, cambio de `qtyAjustada = min(sk.qty, libreParaCliente)` a la fórmula oversold-aware:
+  ```
+  firmesPropias = ASIG + confirmed activos del cliente (via globalPedidos + lineReservesStock)
+  residual = max(fisico - propias - otros, 0)
+  disp = min(fisico, firmesPropias + residual)
+  qtyAjustada = min(sk.qty, disp)
+  ```
+- `index.html:6568` + `sw.js:20` — bump v1361 → v1362.
+
+**Reporte Mariano** (2026-10-19 ~10:39 ART, screenshot "Crear Pedido Desde Stock Asignado" BROBRO SA):
+STS70M2C aparece recortado `-2u` con "reservas expiradas o stock insuficiente", subtotal $0, aunque Pablo le haya asignado 2u firmes.
+
+**Diagnóstico**:
+v1361 arregló `_revisionRender` (modal Pedido en Espera posterior), pero el modal "Crear Pedido Desde Stock Asignado" (`_cpstRenderPreview`, línea 16742) tiene el mismo cálculo con el mismo bug — se ejecuta ANTES de crear el waitlist, recortando qty antes de que llegue al modal posterior.
+
+Mismo escenario: stock=6, BROBRO 2 ASIG + 3 BO, ANDREA TRENTIN 1 confirmed + 5 BO (oversold). v1198 usaba `libreParaCliente = max(6-6, 0) = 0`. BROBRO recortaba STS70M2C a 0.
+
+**Fix**: aplicar misma fórmula oversold-aware que v1361. Las ASIG firmes del cliente prevalecen sobre BO de otros.
+
+Para BROBRO + STS70M2C: `disp = min(6, 2 ASIG + max(6-5-6, 0)) = min(6, 2) = 2`. qtyAjustada = min(2, 2) = 2. ✓ Sin recorte.
+
+**Dos modales ahora alineados**: Crear Pedido Desde Stock Asignado + Pedido en Espera usan la misma fórmula. Si surge un tercer modal con misma lógica, aplicar mismo patrón o extraer helper.
+
 ### v1361 (2026-10-19) — Pedido en Espera: ASIG firmes del cliente prevalecen sobre BO de otros (oversold-aware)
 
 **Archivos**:
