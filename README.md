@@ -4717,6 +4717,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1369 (2026-10-19) — Modal Pedido en Espera: sub-span "X tuyas" + hover azul marino + sin ASIG expirado
+
+**Archivos**:
+- `index.html:23870-23900` — sub-span de la celda LIBRE reescrito:
+  - **Removido** "N ASIG expirado" (confuso — ASIG expirado por definición no reserva stock) y "N waitlist" (ya dedupeado por v1368).
+  - **Agregado** sub-línea `"N tuyas"` en gris claro cuando LIBRE no cierra con `STOCK − RESERVADAS` y LIBRE > 0. Tooltip explica que LIBRE es específico para este cliente mientras RESERVADAS agrega todo el SKU.
+- `index.html:2615-2630` — regla CSS v1299 actualizada: `disp-sap-col` en hover ahora usa **azul marino** (`#1e3a8a`) en vez de verde oscuro (`#14532d`). Agregadas selectores para los `<div>` internos (mainSpan + subSpan) para que hereden el color.
+- `index.html:6568` + `sw.js:20` — bump v1368 → v1369.
+
+**Reportes Mariano** (2026-10-19 11:35 ART):
+1. "No entiendo qué significa `−4 ASIG expirado`, quitarlo."
+2. "No entiendo cómo dice STOCK COMPLETO 6 y RESERVADAS 6 cómo es que figura LIBRE PARA LA VENTA 2."
+3. "Al pasar hover azul en LIBRE PARA LA VENTA no se ve el valor porque queda blanco, prefiero azul marino."
+
+**Explicación conceptual del #2** (SKU 597144 ejemplo):
+- `RESERVADAS (ASIG) 6` = suma de ASIG activas del SKU en **todos los clientes** (agregado global).
+- `LIBRE PARA LA VENTA 2` = específico para ESTE cliente (FERNANDO) = `firmesPropias (ASIG+confirmed de FERNANDO) + residual (sobrante del stock general)`.
+- Las 2u LIBRE son firmes de FERNANDO. Las 4u restantes de RESERVADAS son reservas de otros clientes → no disponibles para FERNANDO.
+- No cierra la aritmética simple `6 − 6 = 0` por diseño: las columnas agregan a nivel distinto.
+
+**Fix UX**: en vez de solo mostrar `2` solo, ahora muestra `2` + sub-línea `"2 tuyas"` con tooltip explicativo. Más explícito que las restantes son de otros.
+
+**Hover azul marino**: `disp-sap-col` sobre fila hover ahora pinta `#1e3a8a` (navy) con alto contraste contra fondo amarillo pastel (warn-quiebra/repeat-sku) o celeste.
+
 ### v1368 (2026-10-19) — Fix double-count ASIG+CPST en el cálculo de LIBRE
 
 **Archivos**:

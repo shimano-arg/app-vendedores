@@ -2616,11 +2616,19 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    las columnas destacadas disp-sap-col y pedido-final-col mantienen su fondo
    claro (verde/azul claro) por el !important previo. Pero el texto heredaba
    blanco del hover y quedaba ilegible. Forzar color oscuro para que sean
-   legibles. Pedido Mariano: "Libre para la venta queda blanco y no se ve". */
+   legibles.
+   v1369 (2026-10-19): Mariano pide azul marino para disp-sap-col en hover (vs
+   verde #14532d). Pedido-final-col ya era azul marino. Tambien forzar el
+   mismo color en los <div> internos (mainSpan + subSpan de v1359/v1369) para
+   que hereden bien. */
 #wcard-rows tr:hover td.disp-sap-col,
 #wcard-rows tr:focus-within td.disp-sap-col,
 #wcard-rows tr.highlighted td.disp-sap-col,
-#wcard-rows tr.selected td.disp-sap-col{color:#14532d !important}
+#wcard-rows tr.selected td.disp-sap-col,
+#wcard-rows tr:hover td.disp-sap-col div,
+#wcard-rows tr:focus-within td.disp-sap-col div,
+#wcard-rows tr.highlighted td.disp-sap-col div,
+#wcard-rows tr.selected td.disp-sap-col div{color:#1e3a8a !important}
 #wcard-rows tr:hover td.pedido-final-col,
 #wcard-rows tr:focus-within td.pedido-final-col,
 #wcard-rows tr.highlighted td.pedido-final-col,
@@ -6771,7 +6779,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1368';
+const APP_VERSION = 'v1369';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23867,34 +23875,37 @@ function _renderWaitlistCard(){
       const _boN = (desg.breakdown && desg.breakdown.BO) || 0;
       const _asigN = (desg.breakdown && desg.breakdown.ASIG) || 0;
       const _wcpstN = (desg.breakdown && desg.breakdown.WAITLIST_CPST) || 0;
-      // v1359 (2026-10-19): si LIBRE no cierra con STOCK - RESERVADAS (porque
-      // hay BO/confirmed/WAITLIST comprometidos que descuentan libre pero no
-      // aparecen en la columna RESERVADAS post-v1291), mostrar el delta como
-      // sub-linea para que el vendedor entienda el gap matematico. Reporte
-      // Mariano 2026-10-19 10:05 ART.
+      // v1359 (2026-10-19): sub-linea con desglose cuando LIBRE < STOCK − RESERVADAS.
+      // v1369 (2026-10-19): simplificado. Removido "ASIG expirado" (confuso) y
+      // "waitlist" (ya dedupeado por v1368). Si libre < reservadas, lo mas util
+      // es decir cuantas son "tuyas" vs "de otros". Reporte Mariano screenshot
+      // caso SKU 597144: Stock=6, Reservadas=6, Libre=2 → confuso visualmente.
+      // Ahora muestra "2 tuyas" para que sea obvio que las 4 restantes son
+      // reservas de otros clientes.
       const libreVal = r.disponible || 0;
-      const gapExtra = Math.max(0, (stockDep11Only || 0) - reservadasBacked - libreVal);
       const mainSpan = document.createElement('div');
       mainSpan.textContent = String(libreVal);
       mainSpan.style.cssText = 'font-weight:700';
       tdLibre.appendChild(mainSpan);
-      if (gapExtra > 0) {
+      // Sub-linea solo cuando aritmetica simple (stock - reservadas) != libre y
+      // libre > 0 (si libre=0 la UX ya es clara: "no tenes nada").
+      const _esperadoSimple = Math.max((stockDep11Only || 0) - reservadasBacked, 0);
+      if (libreVal > 0 && libreVal !== _esperadoSimple) {
         const subSpan = document.createElement('div');
-        const parts = [];
-        if (_boN > 0) parts.push(_boN + ' BO');
-        if (_confN > 0) parts.push(_confN + ' SAP');
-        if (_asigN > 0 && _asigN !== reservadasBacked) parts.push((_asigN - reservadasBacked) + ' ASIG expirado');
-        if (_wcpstN > 0) parts.push(_wcpstN + ' waitlist');
-        const detail = parts.length > 0 ? parts.join(' + ') : (gapExtra + ' comprometidos');
-        subSpan.textContent = '−' + detail;
-        subSpan.style.cssText = 'font-size:9px;color:var(--color-danger);font-weight:600;margin-top:1px;line-height:1.1';
-        subSpan.title = 'Diferencia entre Stock(' + stockDep11Only + ') − Reservadas(' + reservadasBacked + ') = ' + ((stockDep11Only||0) - reservadasBacked) + ', vs Libre real = ' + libreVal + '. Hay ' + gapExtra + ' u comprometidas en BO/SAP/waitlist que tambien se descuentan.';
+        subSpan.textContent = libreVal + ' tuyas';
+        subSpan.style.cssText = 'font-size:9px;color:var(--text-muted);font-weight:600;margin-top:1px;line-height:1.1';
+        const _resOtros = Number(porCli.reservadasPorOtros) || 0;
+        subSpan.title = 'LIBRE es lo que vos (' + (w.clientName || 'este cliente') +
+          ') podes tomar HOY. RESERVADAS = total ASIG del SKU en TODOS los clientes (' +
+          reservadasBacked + '). De eso, ' + libreVal + ' son firmes tuyas (ASIG+confirmed activos). ' +
+          _resOtros + ' u son reservas de otros clientes y no estan disponibles para vos.';
         tdLibre.appendChild(subSpan);
       }
       tdLibre.title = 'Libre para la venta: ' + libreVal + ' u\\n' +
-        '= dep 11 ' + stockDep11Only + ' − comprometidos totales ' + (_confN + _boN + _asigN + _wcpstN) + '\\n' +
-        'Breakdown comprometido: confirmed ' + _confN + ' · BO ' + _boN + ' · ASIG ' + _asigN + (_wcpstN > 0 ? ' · waitlist ' + _wcpstN : '') + '\\n' +
-        '(La columna RESERVADAS solo muestra ASIG real = ' + reservadasBacked + '; los demas comprometidos impactan en LIBRE pero no en RESERVADAS.)';
+        '= firmes TUYAS (ASIG+confirmed de ' + (w.clientName || 'este cliente') + ') + sobrante del stock general despues de descontar todas las reservas\\n' +
+        'Stock fisico dep 11: ' + stockDep11Only + '\\n' +
+        'Reservas globales del SKU: confirmed ' + _confN + ' · BO ' + _boN + ' · ASIG ' + _asigN + '\\n' +
+        'La columna RESERVADAS muestra el agregado del SKU (todos los clientes); LIBRE es especifico para vos.';
     } else {
       tdLibre.textContent = '-';
     }
