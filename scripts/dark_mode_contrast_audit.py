@@ -86,7 +86,7 @@ DARK_TOKENS = {
     "text-muted": "#cbd5e1",             # v745: era #94a3b8
     "text-disabled": "#64748b",
     "text-inverse": "#0f172a",
-    "border-default": "#475569",         # v745: era #334155 (igual a bg-elevated)
+    "border-default": "#849ab0",         # v1357: era #475569 (2.36/1.37 fail), despues #7a8b9f (2.97 bg-elevated), ahora 3.47/5.17 pass
     "border-subtle": "#1e293b",
     "border-strong": "#64748b",          # v745: era #475569
     "brand-shimano-blue": "#00A9E0",

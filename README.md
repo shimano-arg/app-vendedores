@@ -4717,6 +4717,46 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1357 (2026-10-19) — Dark Mode E6: WCAG 26/26 dark + overrides pastel por color semántico
+
+**Archivos**:
+- `index.html:217` — `--border-default` dark: `#475569` → `#849ab0`. Antes ratio 2.36 (vs bg-base) y 1.37 (vs bg-elevated), ambos FAIL AA UI (threshold 3.0). Ahora 5.17 y 3.47, pass. Intermedio `#7a8b9f` quedó en 2.97 contra bg-elevated — insuficiente por 0.03.
+- `index.html:380-485` — reemplazado el catch-all que mapeaba todos los pastels a `bg-secondary` gris por 7 buckets semánticos:
+  - verdes (green-50/emerald-50/green-100/emerald-100) → `--color-success-bg` + `--color-success`.
+  - rojos (red-50/red-100/rose-50/rose-100) → `--color-danger-bg` + `--color-danger`.
+  - amber/yellow (amber-50/amber-100/yellow-50/yellow-100) → `--color-warning-bg` + `--color-warning`.
+  - orange (orange-50/orange-100) → `#7c2d12` + `#fdba74`.
+  - blue/sky (blue-50/blue-100/sky-50/sky-100/sky-200) → `#1e3a8a` + `#93c5fd`.
+  - violet/indigo/purple/fuchsia (varias) → `#4c1d95` + `#c4b5fd`.
+  - slate/gray/neutral (slate-50/gray-100/zinc-50/etc.) → `--bg-secondary` + `--text-primary`.
+- `index.html:447-485` — nuevos overrides de **textos oscuros inline** para que al cambiar el bg correspondiente, el texto siga con color semántico claro:
+  - amber-800/700/600 + orange-700 → `--color-warning`.
+  - green-900/800/700 → `--color-success`.
+  - red-900/800/700 → `--color-danger`.
+  - blue-900/800 + sky-800/900 → `#93c5fd`.
+  - purple-800/900 → `#c4b5fd`.
+  - apple-black (#1d1d1f) + slate-800/900/700 + #000 → `--text-primary`.
+  - slate-600/500 + apple-gray (#86868b) → `--text-secondary`.
+- `scripts/dark_mode_contrast_audit.py:89` — bump de la constante `border-default` del audit a `#849ab0` para que refleje el fix.
+- `index.html:6568` + `sw.js:20` — bump v1356 → v1357.
+
+**Pedido Mariano** (2026-10-19 ~09:30 ART): "Quiero mejorar el Dark Mode asegurate que quede impecable con buenos contrastes y todo colores acorde entre fondos y textos. No finalizar hasta cumplir tu goal. Autonomía plena."
+
+**Baseline previo** (`scripts/dark_mode_contrast_audit.py`):
+- Dark: 24/26 pass. Fails: `border-default` ratio 2.36 vs bg-base + 1.37 vs bg-elevated.
+- Observación adicional: muchos badges warning/success/danger quedaban grises porque el catch-all los mapeaba a `bg-secondary`, perdiendo señal semántica.
+
+**Resultado**:
+- Dark: **26/26 pass** WCAG AA.
+- Badges warning: fondo amber oscuro + texto amber claro (antes: gris sobre gris).
+- Badges danger: fondo red oscuro + texto red claro (antes: gris).
+- Badges success: fondo green oscuro + texto green claro.
+- Badges info: fondo blue oscuro + texto blue claro.
+
+**No scope** (quedó pendiente): light theme sigue con 10 fails WCAG preexistentes (warning text sobre warning bg, focus-ring, border-default light). No pedido explícito.
+
+**QA visual**: no corrido en esta sesión (browser extension no disponible). Mariano verifica al mergear y abre hotfix si queda algo residual.
+
 ### v1356 (2026-10-19) — Buyer: banner con período activo + hint cuando los stats son iguales entre ventanas
 
 **Archivos**:
