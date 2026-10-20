@@ -3416,3 +3416,97 @@ WHERE fecha IS NOT NULL
   AND moneda IS NOT NULL
   AND tasa IS NOT NULL
   AND tasa > 0;
+
+
+-- ============================================================
+-- View: v_cartera_vendor (v1283, 2026-10-20)
+-- ============================================================
+-- Fuente del dashboard "Analisis de Cartera por Vendedor".
+-- 1 fila por cliente de la cartera (client_master.vendor IS NOT NULL).
+-- Enriquece con: ultima visita presencial, ultimo contacto, ultima compra
+-- (SAP INVOICE neto de CREDIT_NOTE porque las NC vienen con importe negativo),
+-- facturado 12M movil, deuda abierta, cliTipo, geo.
+-- Consumida por CF syncCarteraVendorScheduled (04:00 ART).
+--
+-- Field names reales confirmados 2026-10-20 (Task 1 pre-work, v1283):
+--   client_master_raw_raw_latest.data: vendor (NO assignedVendor), sapCardCode
+--     (NO cardCodeSap), provincia (NO province), localidad (NO locName),
+--     clientName, cliTipo (sparse: solo ~7 docs lo tienen hoy).
+--   v_visitas_full: NO existe client_id; match por card_code (SAP). Visitas
+--     sin card_code (leads) NO entran -- consistente con spec linea 211.
+--     Field de fecha es fecha_visita (NO fecha).
+--   v_ventas_lineas: doc_kind IN ('INVOICE','CREDIT_NOTE'); los CN tienen
+--     importe_linea_ars negativo, por eso SUM() ya da neto.
+-- ============================================================
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_cartera_vendor` AS
+
+WITH cartera AS (
+  SELECT
+    document_id                                            AS client_id,
+    JSON_VALUE(data, '$.sapCardCode')                      AS card_code,
+    JSON_VALUE(data, '$.clientName')                       AS client_name,
+    JSON_VALUE(data, '$.provincia')                        AS province,
+    JSON_VALUE(data, '$.localidad')                        AS loc_name,
+    JSON_VALUE(data, '$.cliTipo')                          AS cli_tipo,
+    -- canonVendor: alias legacy MARTIN BOIERO -> PACHI consistente con planner-stage-change-core.js
+    CASE
+      WHEN UPPER(TRIM(JSON_VALUE(data, '$.vendor'))) = 'MARTIN BOIERO' THEN 'PACHI'
+      ELSE UPPER(TRIM(JSON_VALUE(data, '$.vendor')))
+    END                                                    AS vendor_key
+  FROM `app-vendedores-shimano.shimano_app.client_master_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.vendor') IS NOT NULL
+    AND TRIM(JSON_VALUE(data, '$.vendor')) != ''
+),
+visitas_agg AS (
+  -- Match por card_code (SAP). Visitas sin card_code (leads sin alta SAP) se
+  -- descartan por diseno (spec linea 211).
+  SELECT
+    card_code,
+    MAX(IF(interaction_type = 'visita',   fecha_visita, NULL)) AS ultima_visita_presencial,
+    MAX(IF(interaction_type = 'contacto', fecha_visita, NULL)) AS ultimo_contacto
+  FROM `app-vendedores-shimano.shimano_app.v_visitas_full`
+  WHERE card_code IS NOT NULL
+    AND TRIM(card_code) != ''
+  GROUP BY card_code
+),
+compras_agg AS (
+  -- SUM(importe_linea_ars) ya da neto porque CREDIT_NOTE viene con signo negativo.
+  -- ultima_compra se limita a INVOICE para no mostrar una NC como "ultima compra".
+  SELECT
+    card_code,
+    MAX(IF(doc_kind = 'INVOICE', doc_date, NULL)) AS ultima_compra,
+    SUM(IF(doc_date >= DATE_SUB(CURRENT_DATE('America/Argentina/Buenos_Aires'), INTERVAL 12 MONTH),
+           importe_linea_ars, 0)) AS facturado_12m
+  FROM `app-vendedores-shimano.shimano_app.v_ventas_lineas`
+  WHERE card_code IS NOT NULL
+  GROUP BY card_code
+),
+deuda_agg AS (
+  SELECT
+    card_code,
+    SUM(saldo_ars) AS deuda_abierta
+  FROM `app-vendedores-shimano.shimano_app.v_deuda_facturas_detalle`
+  WHERE saldo_ars > 0
+  GROUP BY card_code
+)
+SELECT
+  c.vendor_key,
+  c.client_id,
+  c.card_code,
+  c.client_name,
+  c.province,
+  c.loc_name,
+  c.cli_tipo,
+  v.ultima_visita_presencial,
+  v.ultimo_contacto,
+  co.ultima_compra,
+  COALESCE(co.facturado_12m, 0) AS facturado_12m,
+  COALESCE(d.deuda_abierta, 0)  AS deuda_abierta,
+  DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), v.ultima_visita_presencial, DAY) AS dias_sin_visita_presencial,
+  DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), v.ultimo_contacto,          DAY) AS dias_sin_contacto,
+  DATE_DIFF(CURRENT_DATE('America/Argentina/Buenos_Aires'), co.ultima_compra,           DAY) AS dias_sin_compra
+FROM cartera c
+LEFT JOIN visitas_agg v  ON v.card_code  = c.card_code
+LEFT JOIN compras_agg co ON co.card_code = c.card_code
+LEFT JOIN deuda_agg   d  ON d.card_code  = c.card_code
+;
