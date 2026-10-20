@@ -45,6 +45,7 @@
  * @property {number} [qtyInvoiced]
  * @property {number} [qtyCancelled]
  * @property {number} [qtyRecycled]
+ * @property {boolean} [asigReserva]
  *
  * @typedef {Object} PedidoLike
  * @property {string} [paidStatus]
@@ -89,6 +90,15 @@ export function computeStaleLineClosure(pedido, opts = {}) {
     // batch. El try/catch del caller lo captura, pero mejor filtrar aca.
     // Precedente: silent-failure hunter LOW #6 (2026-10-19).
     if (!Number.isFinite(qtyOpen)) return line;
+    // v1285 (2026-10-20): BUG CRÍTICO. asigReserva=true marca una línea ASIG
+    // como reserva FIRME de reparto manual (Pablo asigna N unidades a cliente
+    // X). v1281 cerró 78 líneas con asigReserva=true liberando stock reservado
+    // firme (incidente ANDRILI ORDEN 446 reportado por Mariano). Fix: NO cerrar
+    // líneas asigReserva=true aunque el pedido llegue a paid=full. Esa reserva
+    // es intencional del flow de reparto manual (v1268+v1272) y debe sobrevivir
+    // a la facturación parcial. Script restore_v1281_damage.cjs revierte el
+    // daño histórico.
+    if (line.asigReserva === true) return line;
 
     closedLines.push({
       idx,
