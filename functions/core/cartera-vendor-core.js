@@ -107,3 +107,80 @@ function toIsoDate(v) {
   if (typeof v === 'object' && typeof v.value === 'string') return v.value;
   return null;
 }
+
+/**
+ * @typedef {Object} CarteraSyncDeps
+ * @property {any} fbDb Firestore Admin instance.
+ * @property {{ query: (sql: string) => Promise<any[]> }} bqClient BigQuery client.
+ * @property {(msg: string, extra?: Record<string, unknown>) => void} [log]
+ */
+
+const BQ_QUERY = `SELECT * FROM \`app-vendedores-shimano.shimano_app.v_cartera_vendor\``;
+
+/**
+ * Handler puro de syncCarteraVendorScheduled.
+ *
+ * @param {CarteraSyncDeps} deps
+ * @returns {Promise<{vendorsProcessed:number,totalClientes:number,deletedOrphans:number,snapshotAt:string,snapshotDate:string}>}
+ */
+export async function handleSyncCarteraVendor(deps) {
+  const log = deps.log || (() => {});
+  const now = new Date();
+  const snapshotAt = now.toISOString();
+  const snapshotDate = toArtDate(now);
+
+  const [rows] = await deps.bqClient.query(BQ_QUERY);
+  log('syncCarteraVendor: BQ rows fetched', { count: rows.length });
+
+  /** @type {Map<string, Array<Object>>} */
+  const byVendor = new Map();
+  for (const row of rows) {
+    const key = row.vendor_key;
+    if (!key) continue;
+    if (!byVendor.has(key)) byVendor.set(key, []);
+    byVendor.get(key).push(normalizeClienteRow(row));
+  }
+
+  const col = deps.fbDb.collection('cartera_vendor');
+  const writeBatch = deps.fbDb.batch();
+  for (const [vendorKey, clientes] of byVendor) {
+    const counts = computeCounts(clientes);
+    writeBatch.set(col.doc(vendorKey), {
+      vendorKey, vendorNameDisplay: vendorKey, snapshotAt, snapshotDate, counts, clientes,
+    });
+  }
+  await writeBatch.commit();
+  log('syncCarteraVendor: wrote vendors', { count: byVendor.size });
+
+  const existingSnap = await col.get();
+  const deleteBatch = deps.fbDb.batch();
+  let deletedOrphans = 0;
+  existingSnap.forEach((doc) => {
+    if (!byVendor.has(doc.id)) {
+      deleteBatch.delete(doc.ref);
+      deletedOrphans++;
+    }
+  });
+  if (deletedOrphans > 0) {
+    await deleteBatch.commit();
+    log('syncCarteraVendor: deleted orphans', { count: deletedOrphans });
+  }
+
+  return { vendorsProcessed: byVendor.size, totalClientes: rows.length, deletedOrphans, snapshotAt, snapshotDate };
+}
+
+/**
+ * YYYY-MM-DD en zona America/Argentina/Buenos_Aires.
+ * @param {Date} d
+ * @returns {string}
+ */
+function toArtDate(d) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === 'year').value;
+  const m = parts.find((p) => p.type === 'month').value;
+  const dd = parts.find((p) => p.type === 'day').value;
+  return `${y}-${m}-${dd}`;
+}
