@@ -2628,7 +2628,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    v1369 (2026-10-19): Mariano pide azul marino para disp-sap-col en hover (vs
    verde #14532d). Pedido-final-col ya era azul marino. Tambien forzar el
    mismo color en los <div> internos (mainSpan + subSpan de v1359/v1369) para
-   que hereden bien. */
+   que hereden bien.
+   v1377 (2026-10-20): FIX. apple-design.css:5288-5293 (v674, 2026-08-26) pisa
+   el fondo de td a #1e3a8a (azul marino) en hover tr. v1369 tambien puso el
+   TEXTO en #1e3a8a → texto azul marino sobre fondo azul marino = INVISIBLE.
+   Cambio a #ffffff para alinear con el resto de la row (apple-design.css:
+   5296-5299 ya pone color #fff al resto del contenido en hover). Reporte
+   Mariano screenshot ORDEN 447 FERNANDO NADIR PERALTA: hover sobre LIBRE
+   PARA LA VENTA mostraba celda vacia. */
 #wcard-rows tr:hover td.disp-sap-col,
 #wcard-rows tr:focus-within td.disp-sap-col,
 #wcard-rows tr.highlighted td.disp-sap-col,
@@ -2636,11 +2643,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr:hover td.disp-sap-col div,
 #wcard-rows tr:focus-within td.disp-sap-col div,
 #wcard-rows tr.highlighted td.disp-sap-col div,
-#wcard-rows tr.selected td.disp-sap-col div{color:#1e3a8a !important}
+#wcard-rows tr.selected td.disp-sap-col div{color:#ffffff !important}
 #wcard-rows tr:hover td.pedido-final-col,
 #wcard-rows tr:focus-within td.pedido-final-col,
 #wcard-rows tr.highlighted td.pedido-final-col,
-#wcard-rows tr.selected td.pedido-final-col{color:#1e3a8a !important}
+#wcard-rows tr.selected td.pedido-final-col{color:#ffffff !important}
 #wcard-rows tr td.mono{font-family:monospace;font-size:10px;text-align:center}
 #wcard-rows tr td.num{text-align:center;font-weight:600}
 #wcard-rows tr td.left-align{text-align:left}
@@ -6760,7 +6767,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1376';
+const APP_VERSION = 'v1377';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
