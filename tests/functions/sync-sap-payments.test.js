@@ -174,6 +174,11 @@ describe('handleSyncSapPayments', () => {
           invoicedAmount: 400000,
           paidAmount: 400000,
           paidStatus: 'paid',
+          // v1282: fixture completo (incluye cobradoAt) para que el test
+          // represente un pedido fully reconciled. Sin cobradoAt el fix v1282
+          // dispara backfill del timestamp -> pedidosUpdated=1 (comportamiento
+          // intencional, ver test 'v1282: pedido ya paid con cobradoAt faltante').
+          cobradoAt: '2026-09-01T00:00:00.000Z',
         },
       },
     ];
@@ -503,6 +508,65 @@ describe('handleSyncSapPayments', () => {
     const stored = deps.fbDb._store.get('ped-with-bo-real');
     expect(stored.lines[0].state).toBe('BO'); // BO intacto
     expect(stored.lines[0].qtyOpen).toBe(5);
+  });
+
+  // v1282 (2026-10-20): fix cobradoAt faltante en pedidos paid pre-v1035.
+  // Agent #3 post-deploy v1281 detecto 155 pedidos paid=full sin cobradoAt
+  // porque applyPaymentUpdate solo lo escribia dentro del bloque
+  // `if (amountsChanged)` que nunca aplicaba para pedidos ya paid estables.
+  it('v1282: pedido ya paid con cobradoAt faltante → se backfillea sin tocar amounts', async () => {
+    const pedidos = [
+      {
+        id: 'ped-paid-sin-cobradoAt',
+        data: {
+          closedAt: null,
+          paidStatus: 'paid',
+          invoicedAmount: 100000,
+          paidAmount: 100000,
+          // cobradoAt NO esta
+          sapLinkage: { appliedInvoiceDocEntries: [12345] },
+          lines: [
+            { code: 'OK', state: 'invoiced', qty: 1, qtyOpen: 0, qtyInvoiced: 1, qtyCancelled: 0 },
+          ],
+        },
+      },
+    ];
+    const invoices = { 12345: { docTotal: 100000, paidToDate: 100000 } };
+    const deps = makeDeps(pedidos, invoices);
+    const r = await handleSyncSapPayments(deps);
+    expect(r.pedidosUpdated).toBe(1);
+    const stored = deps.fbDb._store.get('ped-paid-sin-cobradoAt');
+    expect(stored.cobradoAt).toBeDefined();
+    expect(stored.cobradoAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // amounts no cambiaron
+    expect(stored.invoicedAmount).toBe(100000);
+    expect(stored.paidAmount).toBe(100000);
+    expect(stored.paidStatus).toBe('paid');
+  });
+
+  it('v1282: segunda corrida con cobradoAt ya seteado → NO toca cobradoAt (idempotente)', async () => {
+    const originalCobradoAt = '2026-09-01T00:00:00.000Z';
+    const pedidos = [
+      {
+        id: 'ped-paid-con-cobradoAt',
+        data: {
+          closedAt: null,
+          paidStatus: 'paid',
+          invoicedAmount: 100000,
+          paidAmount: 100000,
+          cobradoAt: originalCobradoAt,
+          sapLinkage: { appliedInvoiceDocEntries: [12346] },
+          lines: [
+            { code: 'OK', state: 'invoiced', qty: 1, qtyOpen: 0, qtyInvoiced: 1, qtyCancelled: 0 },
+          ],
+        },
+      },
+    ];
+    const invoices = { 12346: { docTotal: 100000, paidToDate: 100000 } };
+    const deps = makeDeps(pedidos, invoices);
+    await handleSyncSapPayments(deps);
+    const stored = deps.fbDb._store.get('ped-paid-con-cobradoAt');
+    expect(stored.cobradoAt).toBe(originalCobradoAt);
   });
 
   it('case 13 (v1042): invoice NO compartida sigue funcionando 1:1 sin fracción', async () => {

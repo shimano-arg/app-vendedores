@@ -5631,6 +5631,45 @@ Mariano reportó inconsistencia visual: SKU EXGS70HB2AR tiene 64u en depósito 1
 
 ---
 
+### v1282 (2026-10-20) — Hardening post v1281 (3 hallazgos agents de verificación)
+
+**Archivos**:
+- `functions/core/close-stale-lines-on-cobrado-core.js:84` — guard `Number.isFinite(qtyOpen)` para rechazar Infinity/NaN.
+- `functions/core/sync-sap-payments-core.js` — proactively setear `cobradoAt` cuando falta aunque amounts no cambien.
+- `tests/unit/close-stale-lines-on-cobrado.test.js` — 3 tests nuevos (Infinity, -Infinity, NaN).
+- `tests/functions/sync-sap-payments.test.js` — 2 tests nuevos (cobradoAt backfill) + fix test case 5 (fixture completo).
+- `scripts/backfill-normalize-qtycancelled-v1282.cjs` — one-off clamp `qtyCancelled = min(qtyCancelled, qty - qtyInvoiced - qtyRecycled - qtyOpen)` sobre 4 líneas con dato sucio pre-existente.
+- `scripts/backfill-cobrado-at-v1282.cjs` — one-off backfill `cobradoAt = firstInvoicedAt||paidSyncedAt||updatedAt||createdAt` para 155 pedidos paid pre-v1035 sin timestamp.
+
+**Antes (v1281)**:
+Equipo de 4 agents verification corriendo post-deploy v1281 reportó 3 hallazgos no-bloqueantes:
+1. Helper no filtraba `qtyOpen = Infinity` → `Number(Infinity) || 0 = Infinity` → propagaba a Firestore write que lo rechaza. Caller tiene try/catch, pero mejor filtrar en origen.
+2. 4 líneas en 3 pedidos con dato sucio pre-existente (`qtyOpen=2` sobre `qty=1`) violan invariante `qty = qtyInvoiced + qtyOpen + qtyCancelled + qtyRecycled` post-backfill v1281. Preserva basura histórica.
+3. 155 pedidos `paidStatus='paid'` sin `cobradoAt` ni `paidAt` — cobrados antes de v1035 (2026-09-22), nunca tuvieron timestamp. `applyPaymentUpdate` solo lo escribía dentro de `if (amountsChanged)` que para pedidos estables nunca aplicaba. Impacto UX: columna "Cobrado" del Planner Kanban no puede ordenar cronológicamente.
+
+**Cambio**:
+- **Guard Infinity** (hallazgo #1): `if (!Number.isFinite(qtyOpen)) return line;` en el helper. 3 tests regresión (Infinity, -Infinity, NaN).
+- **Fix proactivo `cobradoAt`** (hallazgo #3): nueva flag `needsCobradoAtBackfill` en `applyPaymentUpdate` dispara el write incluso cuando `amountsChanged=false`. Idempotente: una vez seteado no se vuelve a tocar. Test case 5 (idempotencia) actualizado con fixture completo que incluye `cobradoAt`.
+- **Scripts backfill one-off** (hallazgos #2 y #3): dry-run default + `--commit`, batches de 400, audit trail en `normalizeQtyCancelledLog`/`cobradoAtBackfilledFrom`.
+
+**Por que**:
+- Guard Infinity: aunque el try/catch del caller cubre el riesgo, filtrar en helper evita trips innecesarios al handler y preserva el log limpio (silent-failure hunter LOW #6).
+- Fix `cobradoAt`: necesidad de UX real (Planner Kanban column sort). Fix proactivo evita re-ocurrencia para futuros pedidos pre-v1035 que aún no se procesaron.
+- Normalizer qtyCancelled: higiene de datos, cierra la invariante que el backfill expuso sin generar.
+
+**Verificacion**:
+- `vitest run tests/unit/close-stale-lines-on-cobrado.test.js` → 29/29 pass (26 originales + 3 Infinity).
+- `vitest run tests/functions/sync-sap-payments.test.js` → 22/22 pass (20 originales + 2 cobradoAt).
+- `npm run test:unit` → 794/794 pass.
+- `npm run typecheck` → clean.
+- `npx biome check` sobre los 6 archivos tocados → clean.
+- Dry-run `backfill-normalize-qtycancelled-v1282.cjs` → 3 pedidos / 4 líneas detectadas, matchea exacto el reporte Agent #3.
+- Dry-run `backfill-cobrado-at-v1282.cjs` → 155 pedidos detectados, todos usan `paidSyncedAt` como fallback (señal más cercana al cobro real).
+
+**Rollback**:
+1. `git revert <commit>` + `firebase deploy --only functions:syncSapPaymentsToApp` → fix proactivo `cobradoAt` se desactiva. Pedidos backfilleados mantienen el timestamp (no se re-remueve).
+2. Los backfills no se "revierten" automáticamente — los datos quedan en Firestore. Para rollback de datos: borrar fields `normalizeQtyCancelledAt`/`cobradoAtBackfilledFrom`/`cobradoAt` por script inverso (bajo demanda).
+
 ### v1281 (2026-10-19) — Fix lineas colgadas en pedidos paid=full (bug CUDC201XG)
 
 **Archivos**:
