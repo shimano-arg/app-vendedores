@@ -4717,6 +4717,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1376 (2026-10-20) — Campañas Activas · Detalle SKU: filtrar `detalle` por scope de campaña
+
+**Antes**: en v1373 el agregado por SKU usaba `CAMPANIA_SNAPSHOT[cid].detalle` tal cual (todas las ventas de los SKUs en el rango, sin aplicar scope). Resultado: para "MAURICIO OCTUBRE 2026" (scope=vendor, Mauricio) mostraba 208u vendidas / target 100u = 208%, mientras el card del Dashboard mostraba 54u / 100u = 54%. Inconsistencia reportada por Mariano (screenshot 2026-10-20).
+
+**Problema**: el sync `sync_sap_to_bigquery.py:sync_campania_snapshot_to_firestore` escribe el campo `detalle[]` BYPASSEANDO el scope filter — decisión v643 (2026-08-26) para que el modal Gráficos matchee el chart "Top 10 productos" de PBI, que agrega sin scope. Esa decisión era correcta para Gráficos pero rompe la nueva tabla Detalle SKU que debe matchear el card del Dashboard (que usa `v_campanias_progreso.realizadoQty`, scope-aware).
+
+**Cambio**: `index.html` `renderMisCampsDetalle` (línea ~31893). Antes de agregar `porSku`, filtrar `snap.detalle` según `camp.scope`:
+- `scope === 'vendor'` → `d.vendor` ∈ `camp.scopeValues` (case-insensitive, trim)
+- `scope === 'province'` → `d.provincia` ∈ `camp.scopeValues`
+- `scope === 'all'` (default) → sin filtro
+
+Replica exactamente la lógica del WHERE de `v_campanias_progreso.matched_lines` (`bigquery/views.sql:1670-1672`).
+
+También: subtítulo del modal "entre todos los vendedores" → "(respetando el scope)". APP_VERSION v1376. CACHE_VERSION v1376.
+
+**Por qué**: coherencia con el card del Dashboard y con PBI. Mariano usa ambos lado a lado; dos valores distintos para la misma campaña generaron confusión real.
+
+**Verificación**: al abrir Detalle SKU como admin, "MAURICIO OCTUBRE 2026" debe mostrar la misma qty que el card del Dashboard (54u). La suma de la columna "Vendidas" por campaña debe matchear `realizadoQty` del card.
+
+**Rollback**: revertir el commit. Si el fix rompe otra campaña con scope raro (datos inconsistentes entre `scopeValues` y `assigned_vendor`), bajar al código v1374 anterior sin filtro.
+
 ### v1374 (2026-10-20) — Campañas Activas · Detalle SKU: label "Stock whs 11" → "Stock"
 
 **Antes**: header de la tabla del tab "Detalle SKU" decía "Stock whs 11" (incluía el detalle técnico del almacén).
