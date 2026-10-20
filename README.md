@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1378 (2026-10-20) — Modal "Stock Asignado": migrar fuente a `v_backorder_lineas_v2` (deuda del sprint 2026-09-01)
+
+**Antes**: el modal "Stock Asignado" (bo que ya tiene stock para repartir) lo alimenta `scripts/sync_sap_to_bigquery.py:sync_backorder_snapshot_to_firestore`, que leía de la vista `v_backorder_lineas` (SAP SQs abiertas). Reporte Mariano 2026-10-20: SKU **SUNBASS** tiene 3u de stock físico en whs 11 y 12 pedidos app en `state='BO'` (12 clientes esperando), pero el modal mostraba 0 resultados → Pablo no podía repartir.
+
+**Problema**: desde la migración 2026-09-01 el backorder vive en la app (`pedidos` con `state='BO'/'ASIG'`) y los BO **nunca se envían a SAP como SQ** (son demanda sin stock, por diseño). La vieja vista SAP `v_backorder_lineas` por lo tanto NO los lista. El sprint migró el modelo de datos y creó la vista alternativa `v_backorder_lineas_v2` (shim con mismo shape, filtra `v_backorder_app` por state IN ('BO','ASIG')) — pero el sync Python que escribe `backorder_snapshot` a Firestore nunca se actualizó. Deuda técnica no cerrada. Impacto latente desde 2026-09-01.
+
+**Cambio**: `scripts/sync_sap_to_bigquery.py:sync_backorder_snapshot_to_firestore` (líneas 1734+): docstring actualizado documentando el pivot. Query `FROM v_backorder_lineas` → `FROM v_backorder_lineas_v2`. Zero cambios en el shape del payload Firestore (el shim preserva columnas idénticas). Zero cambios UI o Firestore rules.
+
+**Por qué**: para que el modal "Stock Asignado" muestre los SKUs con stock físico Y BO pendientes en la app. SUNBASS: 3u físico + 12 BO → ahora Pablo lo ve y puede repartir. Precedente: el shim `v_backorder_lineas_v2` ya existe hace meses con exactamente ese propósito.
+
+**Verificación**: query directa a `v_backorder_lineas_v2 WHERE sku='SUNBASS'` devuelve 12 filas BO, todas `is_pesca=TRUE`. Post-deploy + run manual del workflow sync, el modal "Stock Asignado" debe listar SUNBASS con "3u para asignar · 12 clientes para avisar".
+
+**Rollback**: revertir la query al nombre original `v_backorder_lineas` (shim viejo).
+
 ### v1377 (2026-10-20) — Modal Pedido en espera · fix color texto hover en columnas Libre para la venta + Pedido Final
 
 **Antes**: en el modal "Pedido en espera", al pasar el cursor sobre una fila, las celdas de "LIBRE PARA LA VENTA" y "PEDIDO FINAL" aparecían **vacías** — el valor "0" (u otro) no se veía. Reporte Mariano 2026-10-20 (screenshot ORDEN 447 FERNANDO NADIR PERALTA, SKU EXGC66MHBAR).

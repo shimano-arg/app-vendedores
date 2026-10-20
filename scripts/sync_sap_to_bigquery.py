@@ -1737,6 +1737,16 @@ def sync_backorder_snapshot_to_firestore(bq_client: bigquery.Client,
     cuando llega mercaderia el vendedor busca por SKU y ve que clientes
     lo tenian pedido para avisarles.
 
+    v1378 (2026-10-20): la fuente paso de v_backorder_lineas (SAP SQs
+    abiertas) a v_backorder_lineas_v2 (shim de v_backorder_app, que lee
+    de la coleccion `pedidos` de Firestore con state IN ('BO','ASIG')).
+    Rationale: desde 2026-09-01 el backorder vive en la app, no en SAP
+    (ver bigquery/backorder_app.sql). Los pedidos con state='BO' en app
+    nunca se envian a SAP (son demanda sin stock) → la vista vieja los
+    omitia. Reporte Mariano 2026-10-20 (SUNBASS): 3u fisicas + 12 BO
+    pendientes en app, modal "Stock Asignado" mostraba 0 resultados.
+    Shim preserva el shape (mismo payload a Firestore).
+
     Estrategia:
     - 1 doc por vendedor (~6 vendedores + '(SIN ASIGNAR)' fallback).
     - JOIN con client_applications_raw_raw_latest para obtener assignedVendor
@@ -1744,14 +1754,14 @@ def sync_backorder_snapshot_to_firestore(bq_client: bigquery.Client,
     - Vendedor lee solo su doc; admin/gerente/interno leen todos.
     - Firestore doc size ~50-500 KB por vendedor (dentro del limite 1MB).
     """
-    log('[BACKORDER] agregando v_backorder_lineas por vendedor...')
+    log('[BACKORDER] agregando v_backorder_lineas_v2 por vendedor...')
     query = """
     WITH backorder AS (
       SELECT sku, producto, familia, subfamilia, is_pesca,
              pedido, pendiente, stock_actual, precio_unitario,
              cliente_code, cliente_nombre, cliente_ciudad,
              sq_doc_num, sq_doc_date, estado
-      FROM `app-vendedores-shimano.shimano_app.v_backorder_lineas`
+      FROM `app-vendedores-shimano.shimano_app.v_backorder_lineas_v2`
       WHERE pendiente > 0
     ),
     cliente_vendor AS (
