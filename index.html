@@ -6747,7 +6747,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1373';
+const APP_VERSION = 'v1374';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -31929,7 +31929,7 @@ function renderMisCampsDetalle(){
     const table = mk('table', 'width:100%;border-collapse:collapse;font-size:12px');
     const thead = document.createElement('thead');
     const trH = mk('tr', 'background:#f9fafb;border-bottom:1px solid var(--border-color)');
-    ['SKU', 'Descripción', 'Vendidas', 'Stock whs 11'].forEach((label, idx) => {
+    ['SKU', 'Descripción', 'Vendidas', 'Stock'].forEach((label, idx) => {
       const align = idx >= 2 ? 'right' : 'left';
       trH.appendChild(mk('th', 'text-align:' + align + ';padding:8px 10px;font-weight:700;color:#374151', label));
     });
