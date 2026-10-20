@@ -6745,7 +6745,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1371';
+const APP_VERSION = 'v1372';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18498,7 +18498,7 @@ const VENDOR_INCLUDES_OTHERS = {
 // pareja en /roles/{uid}.internalPartnerUid (lista que ya cargo
 // loadMyExternalPartners en myExternalPartners).
 // Vendedores externos NUNCA tienen acceso.
-function canViewSeguimiento(){
+function canViewCarteraAnalisis(){
   if (userRole === 'admin' || userRole === 'gerente') return true;
   if (userRole === 'interno') return true;
   return false;
@@ -28813,7 +28813,7 @@ function applyRolePermissions(){
   // cada render (guard de scope) para que el frontend no pueda forzar
   // acceso ocultando estilo display:none.
   const segBtnEl = document.getElementById('seguimiento-btn');
-  if (segBtnEl) segBtnEl.style.display = (typeof canViewSeguimiento === 'function' && canViewSeguimiento()) ? '' : 'none';
+  if (segBtnEl) segBtnEl.style.display = (typeof canViewCarteraAnalisis === 'function' && canViewCarteraAnalisis()) ? '' : 'none';
   // SAP: admin + viewer + vendedor + gerente.
   document.getElementById('sap-btn').style.display = (userRole === 'admin' || userRole === 'viewer' || userRole === 'vendedor' || userRole === 'gerente') ? '' : 'none';
   // Notificaciones para usuarios que las reciben

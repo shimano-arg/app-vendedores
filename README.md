@@ -5631,6 +5631,31 @@ Mariano reportó inconsistencia visual: SKU EXGS70HB2AR tiene 64u en depósito 1
 
 ---
 
+### v1283 (2026-10-20) — Rediseño modal Seguimiento → Análisis de Cartera por Vendedor
+
+**Qué cambió**: el modal "Seguimiento" (6 tabs con visitas/pedidos/pendientes/oportunidades/duplas, ~1174 LOC) se reemplazó por un dashboard enfocado en **análisis de cobertura comercial por VDE**. Un gerente selecciona un vendedor del dropdown y ve en vista única: 6 KPIs cards (total cartera / base activa 90d / dormidos visita 30d / dormidos compra 90d / nunca visitados / nunca compraron) + tabla filtrable con chips rápidos (click en chip o card = aplica filtro) + search por cliente + click row → Ficha Cliente + export Excel que respeta chip + search activos.
+
+**Fuente de datos**: snapshot nightly 04:00 ART. BQ view `v_cartera_vendor` precomputa 1 fila por cliente de cartera (`client_master.vendor`) con fechas de última visita presencial, último contacto, última compra (SAP INVOICE neto NC) + facturado 12M móvil + deuda abierta + cliTipo + geo. CF scheduled `syncCarteraVendorScheduled` agrupa por vendor y escribe `cartera_vendor/{vendorKey}` Firestore. Frontend lee lazy 1 doc per selección.
+
+**Decisiones de product** (brainstorming 2026-10-20):
+- Fuente única = `client_master.vendor` Firestore.
+- Visita presencial (`interactionType='visita'`) vs contacto rápido (`interactionType='contacto'`) → 2 KPIs separados.
+- "Compra" = factura emitida SAP neto NC (no pedidos pending).
+- Umbrales fijos: 30d sin visita / 90d sin compra.
+- Permisos: admin/gerente/interno (gate `canViewCarteraAnalisis()`).
+
+**Backfill one-off previo (v1283 — pre-deploy)**: 50 docs normalizados en `client_master.vendor` (47 emails `gonzalo.de.la.rosa@shimano.com.ar` → `GONZALO DE LA ROSA` + 3 `MARTIN BOIERO` → `PACHI` legacy alias). Script `scripts/_backfill_vendor_canonical_v1283.cjs`. Resultado: 10 vendor_keys fragmentados → 6 canónicos consolidados.
+
+**Cleanup**: collections `seguimiento_notes` + `seguimiento_status` tiradas (backup en `./backups/seguimiento_backup_2026-10-20.json`). `src/domains/seguimiento.js` reescrito como `cartera-vendor.js` usando DOM API (createElement + textContent, policy anti-XSS). Reglas Firestore limpiadas. Botón header renombrado "📊 Cartera".
+
+**Tests**: 818/818 unit pass. 6 integration tests del handler (fakes). 12 tests de puros filter+sort. 12 tests de puros compute+normalize. Typecheck + biome clean.
+
+**Deploy**: BQ view + CF syncCarteraVendorScheduled + firestore:rules + hosting. Scheduler cron `0 4 * * *` America/Argentina/Buenos_Aires.
+
+**Spec + plan**:
+- `docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md`
+- `docs/superpowers/plans/2026-10-20-cartera-vendor-analisis.md`
+
 ### v1282 (2026-10-20) — Hardening post v1281 (3 hallazgos agents de verificación)
 
 **Archivos**:
