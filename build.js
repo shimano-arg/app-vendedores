@@ -112,22 +112,19 @@ const LAZY_CHUNKS = {
   // esta open y algo llama renderPanelControl antes del load, el stub
   // dispara loadChunk + re-invoke automatico.
   'panel-control': ['openPanelControl', 'closePanelControl', 'renderPanelControl'],
-  // v811 (2026-09-04) Loop iter 8: SEGUIMIENTO (visitas + notas + timeline).
-  // 1174 LOC. attachSegNotes/StatusListener corren dentro de openSeguimientoModal,
-  // NO al login. window.unsubSegNotes/Status son cross-scope pero se initializan
-  // en el chunk cuando el user abre el modal — antes de eso, off() ve undefined
-  // y skip (helper tolerante), sin errores. Safe lazy.
-  seguimiento: [
-    'openSeguimientoModal',
-    'closeSeguimientoModal',
-    'setSeguimientoTab',
-    'renderSeguimientoTab',
-    'deleteSegVisita',
-    'deleteSegPedido',
-    'openSegTimeline',
-    'closeSegTimeline',
-    'saveSegNote',
-    'setSegStatus',
+  // v1283 (2026-10-20): reemplazo de 'seguimiento' por 'cartera-vendor'.
+  // El modal viejo (6 tabs visitas/pedidos/pendientes/oportunidades/duplas) fue
+  // tirado completo. El nuevo chunk es un dashboard de analisis de cartera por
+  // vendedor leyendo cartera_vendor/{vendorKey} Firestore (snapshot nightly
+  // 04:00 ART). Ver docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md
+  'cartera-vendor': [
+    'openCarteraModal',
+    'closeCarteraModal',
+    'onCarteraVendorChange',
+    'onCarteraChipClick',
+    'onCarteraSearchChange',
+    'onCarteraSortClick',
+    'exportCarteraToExcel',
   ],
   // E4.4 (2026-09-18): CRM MELI modal (admin/gerente). Consulta datos ML
   // (ventas, publicaciones, competencia) scrapeados por pipeline mercado-intelligence

@@ -9,24 +9,35 @@
 
 /**
  * Aplica un chip de filtro al array de clientes.
- * @param {Array<Object>} clientes
+ * @param {Array<any>} clientes
  * @param {string} chip
- * @returns {Array<Object>}
+ * @returns {Array<any>}
  */
 export function applyChipFilter(clientes, chip) {
   if (!Array.isArray(clientes)) return [];
   switch (chip) {
     case 'baseActiva90d':
-      return clientes.filter((c) => c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra <= 90);
+      return clientes.filter(
+        (c) =>
+          c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra <= 90
+      );
     case 'dormidosVisita30d':
-      return clientes.filter((c) => c.diasSinVisitaPresencial !== null && c.diasSinVisitaPresencial !== undefined && c.diasSinVisitaPresencial > 30);
+      return clientes.filter(
+        (c) =>
+          c.diasSinVisitaPresencial !== null &&
+          c.diasSinVisitaPresencial !== undefined &&
+          c.diasSinVisitaPresencial > 30
+      );
     case 'dormidosCompra90d':
-      return clientes.filter((c) => c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra > 90);
+      return clientes.filter(
+        (c) => c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra > 90
+      );
     case 'nuncaVisitados':
-      return clientes.filter((c) => c.ultimaVisitaPresencial === null || c.ultimaVisitaPresencial === undefined);
+      return clientes.filter(
+        (c) => c.ultimaVisitaPresencial === null || c.ultimaVisitaPresencial === undefined
+      );
     case 'nuncaCompraron':
       return clientes.filter((c) => c.ultimaCompra === null || c.ultimaCompra === undefined);
-    case 'todos':
     default:
       return clientes.slice();
   }
@@ -34,10 +45,10 @@ export function applyChipFilter(clientes, chip) {
 
 /**
  * Ordena una copia del array por columna. Nulls siempre al final.
- * @param {Array<Object>} clientes
+ * @param {Array<any>} clientes
  * @param {string} sortBy
  * @param {'asc'|'desc'} sortDir
- * @returns {Array<Object>}
+ * @returns {Array<any>}
  */
 export function sortClientes(clientes, sortBy, sortDir) {
   if (!Array.isArray(clientes)) return [];

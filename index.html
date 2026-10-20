@@ -33751,14 +33751,11 @@ function detachFirebaseListeners(){
   n += off('unsubTemporalPriceList', unsubTemporalPriceList, () => unsubTemporalPriceList = null);
   n += off('unsubVendorOverrides', unsubVendorOverrides, () => unsubVendorOverrides = null);
   n += off('unsubClientLocs', unsubClientLocs, () => unsubClientLocs = null);
-  // v822 (2026-09-07): CRITICAL — estas 3 variables viven en el bundle/chunks
-  // (unsubSegNotes/Status en chunks/seguimiento.js, _unsubAutoSendPedidos en
-  // app.bundle.js) como window.X. Desde el inline scope NO son accesibles
-  // como identificador libre → ReferenceError que tumba TODO detach + attach.
-  // Bug latente desde que se agregaron esas 3 lineas. Fix: leer via window.
-  // con typeof guard para tolerar el caso "bundle aun no cargo".
-  n += off('unsubSegNotes', (typeof window.unsubSegNotes !== 'undefined') ? window.unsubSegNotes : null, () => { window.unsubSegNotes = null; });
-  n += off('unsubSegStatus', (typeof window.unsubSegStatus !== 'undefined') ? window.unsubSegStatus : null, () => { window.unsubSegStatus = null; });
+  // v1283 (2026-10-20): removidas off() de unsubSegNotes + unsubSegStatus — el
+  // chunk seguimiento.js fue tirado completo (reemplazado por cartera-vendor.js
+  // que NO tiene listeners Firestore propios, solo lee cartera_vendor/ on-demand).
+  // _unsubAutoSendPedidos sigue vivo en app.bundle.js como window.X. Patron
+  // typeof guard para tolerar "bundle aun no cargo" (v822).
   n += off('_unsubAutoSendPedidos', (typeof window._unsubAutoSendPedidos !== 'undefined') ? window._unsubAutoSendPedidos : null, () => { window._unsubAutoSendPedidos = null; });
   // v1077: revision_waitlist vive en el registry del helper.
   detachResilientListener('revision_waitlist');
