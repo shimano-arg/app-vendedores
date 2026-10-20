@@ -162,17 +162,17 @@ installChunkStubs('forecast', [
   'resetMultiplier',
 ]);
 installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
-installChunkStubs('seguimiento', [
-  'openSeguimientoModal',
-  'closeSeguimientoModal',
-  'setSeguimientoTab',
-  'renderSeguimientoTab',
-  'deleteSegVisita',
-  'deleteSegPedido',
-  'openSegTimeline',
-  'closeSegTimeline',
-  'saveSegNote',
-  'setSegStatus',
+// v1283 (2026-10-20): reemplazo de 'seguimiento' chunk por 'cartera-vendor'.
+// El modal viejo (6 tabs) fue tirado; el nuevo es dashboard de analisis de
+// cartera por vendedor. Ver docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md
+installChunkStubs('cartera-vendor', [
+  'openCarteraModal',
+  'closeCarteraModal',
+  'onCarteraVendorChange',
+  'onCarteraChipClick',
+  'onCarteraSearchChange',
+  'onCarteraSortClick',
+  'exportCarteraToExcel',
 ]);
 installChunkStubs('meli', ['openMeliModal', 'closeMeliModal', 'setMeliSubtab']);
 // v1178 (2026-10-07) Perf C1: notificaciones chunk. KNOWN BUG preservado del

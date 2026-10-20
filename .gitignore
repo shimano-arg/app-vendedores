@@ -132,3 +132,7 @@ apps/*/next-env.d.ts
 # Claude config local de cada app (settings con permisos de agente, no secrets).
 apps/*/.claude/
 
+# v1283 (2026-10-20): backups de collections antes del cleanup
+# (seguimiento_notes/status). Son dumps JSON con data operativa — no publicar.
+backups/
+

@@ -758,19 +758,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /seguimiento_notes/{noteId} {
-      allow read: if isSeguimientoUser();
-      allow create: if isSeguimientoUser()
-                     && request.resource.data.authorUid == request.auth.uid;
-      allow update, delete: if isAdminOrGerente()
-                             || (request.auth != null
-                                 && resource.data.authorUid == request.auth.uid);
-    }
+    // v1283 (2026-10-20): collections seguimiento_notes + seguimiento_status
+    // tiradas junto con el reemplazo del modal Seguimiento por Analisis de Cartera.
+    // Backup en ./backups/seguimiento_backup_YYYY-MM-DD.json antes del delete.
 
-    match /seguimiento_status/{statusId} {
+    // v1283 (2026-10-20): snapshot nightly del dashboard "Analisis de Cartera".
+    // Solo lectura (admin/gerente/interno). Writes exclusivos de la CF
+    // syncCarteraVendorScheduled via Admin SDK (bypassa rules).
+    match /cartera_vendor/{vendorKey} {
       allow read: if isSeguimientoUser();
-      allow write: if isSeguimientoUser()
-                    && request.resource.data.authorUid == request.auth.uid;
+      allow write: if false;  // only CF via Admin SDK
     }
 
     match /product_catalog/{docId} {
