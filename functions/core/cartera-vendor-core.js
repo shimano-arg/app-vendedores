@@ -65,3 +65,45 @@ export function computeCounts(clientes) {
   }
   return { total, baseActiva90d, dormidosVisita30d, dormidosCompra90d, nuncaVisitados, nuncaCompraron };
 }
+
+/**
+ * Traduce una fila BQ (snake_case source-of-truth) al schema del doc Firestore
+ * (camelCase + espanol). Ver spec section "Naming: BQ view -> Firestore doc".
+ *
+ * BigQuery Node client puede devolver DATE como string ISO, como { value: 'YYYY-MM-DD' },
+ * o Date. Normalizamos a string ISO YYYY-MM-DD.
+ *
+ * @param {any} bqRow
+ * @returns {Object}
+ */
+export function normalizeClienteRow(bqRow) {
+  return {
+    clientId: bqRow.client_id,
+    cardCode: bqRow.card_code ?? null,
+    clientName: bqRow.client_name ?? null,
+    provincia: bqRow.province ?? null,
+    localidad: bqRow.loc_name ?? null,
+    cliTipo: bqRow.cli_tipo ?? null,
+    ultimaVisitaPresencial: toIsoDate(bqRow.ultima_visita_presencial),
+    diasSinVisitaPresencial: bqRow.dias_sin_visita_presencial ?? null,
+    ultimoContacto: toIsoDate(bqRow.ultimo_contacto),
+    diasSinContacto: bqRow.dias_sin_contacto ?? null,
+    ultimaCompra: toIsoDate(bqRow.ultima_compra),
+    diasSinCompra: bqRow.dias_sin_compra ?? null,
+    facturado12M: Number(bqRow.facturado_12m) || 0,
+    deudaAbierta: Number(bqRow.deuda_abierta) || 0,
+  };
+}
+
+/**
+ * Normaliza DATE BigQuery a ISO YYYY-MM-DD o null.
+ * @param {any} v
+ * @returns {string|null}
+ */
+function toIsoDate(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string') return v;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'object' && typeof v.value === 'string') return v.value;
+  return null;
+}
