@@ -4717,6 +4717,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1377 (2026-10-20) — Modal Pedido en espera · fix color texto hover en columnas Libre para la venta + Pedido Final
+
+**Antes**: en el modal "Pedido en espera", al pasar el cursor sobre una fila, las celdas de "LIBRE PARA LA VENTA" y "PEDIDO FINAL" aparecían **vacías** — el valor "0" (u otro) no se veía. Reporte Mariano 2026-10-20 (screenshot ORDEN 447 FERNANDO NADIR PERALTA, SKU EXGC66MHBAR).
+
+**Problema**: colisión entre dos reglas CSS:
+1. `styles/apple-design.css:5288-5293` (v674, 2026-08-26) pone `background:#1e3a8a` a TODAS las `td` en hover del modal (azul marino).
+2. `index.html:2639,2643` (v1369, 2026-10-19) ponía `color:#1e3a8a !important` al valor de `disp-sap-col` y `pedido-final-col` en hover.
+
+**Texto azul marino sobre fondo azul marino = mismo color = invisible.** El resto de las celdas en hover son blancas (regla `apple-design.css:5296-5299` fuerza `color:#ffffff` al contenido), pero el `!important` de v1369 sobre `div` específico ganaba por specificity y pisaba el blanco heredado.
+
+**Cambio**: `index.html` líneas 2639 y 2643 — `color:#1e3a8a !important` → `color:#ffffff !important`. El valor pasa a blanco en hover, coherente con el resto del contenido de la row. APP_VERSION v1376 → v1377. CACHE_VERSION v1376 → v1377.
+
+**Por qué**: v1369 asumió que el fondo de `disp-sap-col` en hover quedaba verde (bg del `td.disp-sap-col` normal). Pero `apple-design.css` del v674 ya pisaba el fondo a azul marino desde hace meses — bug latente que se expuso ahora con el estado estable del CSS. El fix alinea con el patrón del resto de la row.
+
+**Verificación**: abrir modal "Pedido en espera" de cualquier cliente con backorder, pasar cursor sobre una fila con "Libre para la venta" > 0 → el número debe verse blanco sobre azul marino. Idem "Pedido Final".
+
+**Rollback**: revertir el commit. Si por alguna razón se prefiere mantener el texto en azul marino, habría que overridear el bg del td a verde (`var(--color-success-bg)`) en hover — más invasivo, no recomendado.
+
 ### v1376 (2026-10-20) — Campañas Activas · Detalle SKU: filtrar `detalle` por scope de campaña
 
 **Antes**: en v1373 el agregado por SKU usaba `CAMPANIA_SNAPSHOT[cid].detalle` tal cual (todas las ventas de los SKUs en el rango, sin aplicar scope). Resultado: para "MAURICIO OCTUBRE 2026" (scope=vendor, Mauricio) mostraba 208u vendidas / target 100u = 208%, mientras el card del Dashboard mostraba 54u / 100u = 54%. Inconsistencia reportada por Mariano (screenshot 2026-10-20).
