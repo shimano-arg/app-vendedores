@@ -23758,12 +23758,31 @@ function _renderWaitlistCard(){
     tr.className = cls;
     // v1284: agregar clase de merge (si corresponde) por encima de las otras.
     // El CSS tiene !important para que gane al warn-*/exceed.
-    if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet) {
-      const _mergeCls = _mergePure.getRowColorClass(
-        { code: r.code, importedFromOrder: r.importedFromOrder },
+    // v1284.1 (2026-10-20): fallback inline por bug reportado — si el bundle
+    // está cacheado viejo (SW stale-while-revalidate) y no tiene los helpers
+    // puros, igual pintamos la fila importada en amarillo con lógica mínima.
+    // Precedente: Mariano probó la unificación 396→447 y las filas quedaron sin
+    // pintar porque _mergePure.computeDuplicateCodes aún no estaba en memoria.
+    const _isImportedRow = typeof r.importedFromOrder === 'number';
+    if (_isImportedRow) {
+      // Default fallback: imported (sin check de duplicado). Siempre funciona.
+      let _mergeCls = 'imported';
+      // Upgrade con helper puro si está disponible (distingue duplicate-imported).
+      if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet instanceof Set) {
+        const _c = _mergePure.getRowColorClass(
+          { code: r.code, importedFromOrder: r.importedFromOrder },
+          _wcardDupSet
+        );
+        if (_c) _mergeCls = _c;
+      }
+      tr.classList.add('merge-' + _mergeCls);
+    } else if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet instanceof Set) {
+      // Fila original: solo relevante si es duplicada (requiere helper).
+      const _c = _mergePure.getRowColorClass(
+        { code: r.code, importedFromOrder: null },
         _wcardDupSet
       );
-      if (_mergeCls) tr.classList.add('merge-' + _mergeCls);
+      if (_c) tr.classList.add('merge-' + _c);
     }
     tr.appendChild(mk(r.code, 'mono'));
     // v817 (2026-09-07): si la desc es "(SKU no encontrado en catalogo)", el
