@@ -35,6 +35,7 @@
  * existente ni tiene side-effect en SAP. Safe para deploy directo.
  */
 
+import { computeStaleLineClosure } from './close-stale-lines-on-cobrado-core.js';
 import { sapGet, sapLogin, sapLogout } from './sap-sl-client.js';
 
 // v1048 (2026-09-23): aumentado 500 → 2000 por mismo motivo que
@@ -61,6 +62,8 @@ const DEFAULT_PAGE_SIZE = 20; // SL default; ignora $top mayor
  * @property {number} pedidosPaidPartial Pedidos con paidStatus='partial'
  * @property {number} invoicesMissedInWindow Invoices referenciadas pero fuera del rango scan
  * @property {number} errors
+ * @property {number} linesClosedStale v1255: lineas cerradas por paid+confirmed/ASIG colgadas (CUDC201XG bug)
+ * @property {number} pedidosWithStaleClosure v1255: pedidos distintos que tuvieron >=1 linea cerrada
  */
 
 /**
@@ -162,7 +165,7 @@ function pedidoNetForShare(data) {
  * @param {any} data
  * @param {Map<number, {docTotal: number, paidToDate: number}>} invoiceMap
  * @param {Map<number, Array<{id: string, net: number}>>} [invoiceShareMap] Optional. Si presente, splitea invoices compartidas.
- * @returns {Promise<{ updated: boolean, missedCount: number, invoicedAmount: number, paidAmount: number, paidStatus: 'paid'|'partial'|null }>}
+ * @returns {Promise<{ updated: boolean, missedCount: number, invoicedAmount: number, paidAmount: number, paidStatus: 'paid'|'partial'|null, linesClosedStale: number }>}
  */
 export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap, invoiceShareMap) {
   const applied = data.sapLinkage?.appliedInvoiceDocEntries || [];
@@ -198,28 +201,124 @@ export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap, invoi
   const currInvoiced = typeof data.invoicedAmount === 'number' ? data.invoicedAmount : null;
   const currPaid = typeof data.paidAmount === 'number' ? data.paidAmount : null;
   const currStatus = data.paidStatus || null;
-  const changed =
+  const amountsChanged =
     currInvoiced !== invoicedAmount || currPaid !== paidAmount || currStatus !== paidStatus;
-  if (!changed) {
-    return { updated: false, missedCount, invoicedAmount, paidAmount, paidStatus };
+
+  // v1281 (2026-10-19): cerrar lineas "colgadas" cuando pedido queda paid=full.
+  // Corre SIEMPRE que paidStatus proyectado sea 'paid' (incluso si amounts no
+  // cambiaron) para que pedidos ya cobrados pero con lineas state=confirmed/ASIG
+  // qtyOpen>0 (incidente CUDC201XG 2026-10-19) se limpien en la proxima pasada.
+  // Idempotente: si no hay nada que cerrar, newLines=null y skipeamos.
+  //
+  // Defensa: envolver en try/catch (silent-failure hunter #2 2026-10-19). Si el
+  // helper tira por lines corruptas, logueamos y seguimos con amounts-only
+  // update — nunca bloquear el update de amounts por un bug en closure.
+  /** @type {{closedLines: Array<any>, newLines: any}} */
+  let closure = { closedLines: [], newLines: null };
+  try {
+    const projectedForClosure = { ...data, paidStatus };
+    closure = computeStaleLineClosure(projectedForClosure);
+  } catch (e) {
+    if (deps.log) {
+      try {
+        deps.log('syncSapPayments: closure helper failed', { pedidoId, err: String(e) });
+      } catch (_logErr) {
+        /* silent — logger inyectado no es contractualmente safe */
+      }
+    }
+  }
+  const hasClosure = closure.newLines !== null;
+
+  if (!amountsChanged && !hasClosure) {
+    return {
+      updated: false,
+      missedCount,
+      invoicedAmount,
+      paidAmount,
+      paidStatus,
+      linesClosedStale: 0,
+    };
   }
 
   const nowIso = new Date().toISOString();
-  /** @type {Record<string, any>} */
-  const patch = {
+
+  // Writes separados (silent-failure hunter #2): si el write de lines falla
+  // por una linea corrupta >1MiB, no perdemos el update de amounts. El de
+  // amounts corre primero porque es el critical path (planner column).
+  const docRef = deps.fbDb.collection('pedidos').doc(pedidoId);
+
+  if (amountsChanged) {
+    /** @type {Record<string, any>} */
+    const amountsPatch = {
+      invoicedAmount,
+      paidAmount,
+      paidStatus,
+      paidSyncedAt: nowIso,
+    };
+    // Planner Kanban timestamp (Bug #2a — "cuánto tiempo lleva en Cobrado"):
+    // registrar la primera vez que detectamos pago (paid|partial). Preserva la
+    // primera fecha aunque haya ajustes posteriores (nunca se sobrescribe).
+    if ((paidStatus === 'paid' || paidStatus === 'partial') && !data.cobradoAt) {
+      amountsPatch.cobradoAt = nowIso;
+    }
+    await docRef.update(amountsPatch);
+  }
+
+  let linesClosedStale = 0;
+  if (hasClosure) {
+    const prevLog = Array.isArray(data.staleLinesLog) ? data.staleLinesLog : [];
+    /** @type {Record<string, any>} */
+    const closurePatch = {
+      lines: closure.newLines,
+      staleLinesClosedAt: nowIso,
+      staleLinesLog: [
+        ...prevLog.slice(-9), // retener solo las últimas 10 entradas
+        {
+          at: nowIso,
+          closed: closure.closedLines,
+          reason: 'pedido_paid_full_line_stale',
+        },
+      ],
+    };
+    try {
+      await docRef.update(closurePatch);
+      linesClosedStale = closure.closedLines.length;
+      if (deps.log) {
+        try {
+          deps.log('syncSapPayments: closed stale lines', {
+            pedidoId,
+            count: closure.closedLines.length,
+            skus: closure.closedLines.map((c) => c.code).filter(Boolean),
+          });
+        } catch (_logErr) {
+          /* silent — logger inyectado no es contractualmente safe */
+        }
+      }
+    } catch (e) {
+      // No propagamos: el amounts update ya se completo. El closure se re-intentara
+      // en la proxima pasada (idempotente). Logueamos para visibility.
+      if (deps.log) {
+        try {
+          deps.log('syncSapPayments: closure write failed', {
+            pedidoId,
+            err: String(e),
+            closedCount: closure.closedLines.length,
+          });
+        } catch (_logErr) {
+          /* silent */
+        }
+      }
+    }
+  }
+
+  return {
+    updated: true,
+    missedCount,
     invoicedAmount,
     paidAmount,
     paidStatus,
-    paidSyncedAt: nowIso,
+    linesClosedStale,
   };
-  // Planner Kanban timestamp (Bug #2a — "cuánto tiempo lleva en Cobrado"):
-  // registrar la primera vez que detectamos pago (paid|partial). Preserva la
-  // primera fecha aunque haya ajustes posteriores (nunca se sobrescribe).
-  if ((paidStatus === 'paid' || paidStatus === 'partial') && !data.cobradoAt) {
-    patch.cobradoAt = nowIso;
-  }
-  await deps.fbDb.collection('pedidos').doc(pedidoId).update(patch);
-  return { updated: true, missedCount, invoicedAmount, paidAmount, paidStatus };
 }
 
 /**
@@ -243,6 +342,8 @@ export async function handleSyncSapPayments(deps) {
       pedidosPaidPartial: 0,
       invoicesMissedInWindow: 0,
       errors: 0,
+      linesClosedStale: 0,
+      pedidosWithStaleClosure: 0,
     };
   }
 
@@ -295,6 +396,8 @@ export async function handleSyncSapPayments(deps) {
   let pedidosPaidPartial = 0;
   let invoicesMissedInWindow = 0;
   let errors = 0;
+  let linesClosedStale = 0;
+  let pedidosWithStaleClosure = 0;
   for (const { id, data } of pedidos) {
     try {
       const r = await applyPaymentUpdate(deps, id, data, invoiceMap, invoiceShareMap);
@@ -302,6 +405,10 @@ export async function handleSyncSapPayments(deps) {
       if (r.paidStatus === 'paid') pedidosPaidFull++;
       if (r.paidStatus === 'partial') pedidosPaidPartial++;
       invoicesMissedInWindow += r.missedCount;
+      if (r.linesClosedStale > 0) {
+        linesClosedStale += r.linesClosedStale;
+        pedidosWithStaleClosure++;
+      }
     } catch (e) {
       errors++;
       log('syncSapPayments: pedido update failed', { pedidoId: id, err: String(e) });
@@ -316,5 +423,7 @@ export async function handleSyncSapPayments(deps) {
     pedidosPaidPartial,
     invoicesMissedInWindow,
     errors,
+    linesClosedStale,
+    pedidosWithStaleClosure,
   };
 }

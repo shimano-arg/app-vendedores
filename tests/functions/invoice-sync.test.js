@@ -1087,4 +1087,98 @@ describe('applyInvoiceMatch (E5 active mode)', () => {
     expect(p.closedAt).toBe(closedAt);
     expect(p.closedReason).toBe('manual');
   });
+
+  // v1281 (2026-10-19): SKIP_STATES += ['closed_stale','legacy']. Precedente
+  // CUDC201XG + silent-failure hunter HIGH #1: nota de credito tardia sobre
+  // linea cerrada por computeStaleLineClosure NO debe pisar state='closed_stale'
+  // ni sumar qtyInvoiced incorrectamente.
+  it('v1281: invoice tardio sobre linea closed_stale → la saltea (NO pisa state)', async () => {
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_STALE',
+          data: {
+            transferidoSAP: { docEntry: 8001 },
+            closedAt: null,
+            paidStatus: 'paid',
+            lines: [
+              {
+                code: 'CUDC201XG',
+                qty: 6,
+                qtyInvoiced: 3,
+                qtyOpen: 0,
+                qtyCancelled: 3,
+                qtyRecycled: 0,
+                state: 'closed_stale',
+                closedStaleAt: '2026-10-19T18:00:00.000Z',
+                closedStaleReason: 'pedido_paid_full_line_stale',
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 8101,
+      invoiceDocNum: 42,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P_STALE',
+      // Nota de credito tardia por 3u del mismo SKU que la linea cerrada
+      lines: [{ itemCode: 'CUDC201XG', qty: 3, lineNum: 0 }],
+    };
+    const r = await applyInvoiceMatch(deps, match);
+    const p = fbDb._store.pedidos[0].data;
+    // La linea closed_stale debe quedar INTACTA (state preservado, qtyInvoiced NO sube)
+    expect(p.lines[0].state).toBe('closed_stale');
+    expect(p.lines[0].qtyInvoiced).toBe(3);
+    expect(p.lines[0].qtyCancelled).toBe(3);
+    expect(p.lines[0].closedStaleReason).toBe('pedido_paid_full_line_stale');
+    // applyInvoiceMatch deberia haber retornado null (no changed) o un update que no toca lines
+    if (r && r.lines) {
+      expect(r.lines[0].state).toBe('closed_stale');
+    }
+  });
+
+  it('v1281: invoice sobre linea legacy → la saltea igual (SKIP_STATES extendido)', async () => {
+    const fbDb = makeFakeFbDb({
+      pedidos: [
+        {
+          id: 'P_LEG',
+          data: {
+            transferidoSAP: { docEntry: 8002 },
+            closedAt: null,
+            lines: [
+              {
+                code: 'OLD-SKU',
+                qty: 10,
+                qtyInvoiced: 0,
+                qtyOpen: 0,
+                state: 'legacy',
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const deps = { fbDb, log: vi.fn() };
+    const match = {
+      invoiceDocEntry: 8201,
+      invoiceDocNum: 55,
+      invoiceDocDate: '',
+      cardCode: 'C001',
+      sqDocEntry: 999,
+      soDocEntry: 888,
+      pedidoAppId: 'P_LEG',
+      lines: [{ itemCode: 'OLD-SKU', qty: 2, lineNum: 0 }],
+    };
+    await applyInvoiceMatch(deps, match);
+    const p = fbDb._store.pedidos[0].data;
+    // Legacy intocable (regla pre-migracion ratificada por silent-failure hunter)
+    expect(p.lines[0].state).toBe('legacy');
+    expect(p.lines[0].qtyInvoiced).toBe(0);
+  });
 });

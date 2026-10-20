@@ -403,6 +403,108 @@ describe('handleSyncSapPayments', () => {
     expect(stored.cobradoAt).toBeUndefined();
   });
 
+  // v1255 (2026-10-19): bug CUDC201XG. Al pasar paidStatus=paid, lineas
+  // state=confirmed/ASIG con qtyOpen>0 deben cerrarse (SAP ya terminó, app
+  // tenía linea colgada que inflaba el modal Backorder del CRM).
+  it('v1255: paid=full con 1 linea state=confirmed qtyOpen>0 → la cierra y queda registrada', async () => {
+    const pedidos = [
+      {
+        id: 'ped-fatechi-mock',
+        data: {
+          closedAt: null,
+          sapLinkage: { appliedInvoiceDocEntries: [55555] },
+          lines: [
+            {
+              code: 'CUDC201XG',
+              state: 'confirmed',
+              qty: 6,
+              qtyOpen: 3,
+              qtyInvoiced: 3,
+              qtyCancelled: 0,
+            },
+            {
+              code: 'OTRO',
+              state: 'invoiced',
+              qty: 10,
+              qtyOpen: 0,
+              qtyInvoiced: 10,
+              qtyCancelled: 0,
+            },
+          ],
+        },
+      },
+    ];
+    const invoices = { 55555: { docTotal: 100000, paidToDate: 100000 } };
+    const deps = makeDeps(pedidos, invoices);
+    const r = await handleSyncSapPayments(deps);
+    expect(r.pedidosPaidFull).toBe(1);
+    expect(r.linesClosedStale).toBe(1);
+    expect(r.pedidosWithStaleClosure).toBe(1);
+    const stored = deps.fbDb._store.get('ped-fatechi-mock');
+    expect(stored.paidStatus).toBe('paid');
+    expect(stored.lines[0].state).toBe('closed_stale');
+    expect(stored.lines[0].qtyOpen).toBe(0);
+    expect(stored.lines[0].qtyCancelled).toBe(3);
+    expect(stored.lines[0].qty).toBe(6); // qty original preservada
+    expect(stored.lines[0].qtyInvoiced).toBe(3); // facturadas preservadas
+    expect(stored.lines[1].state).toBe('invoiced'); // otra linea intacta
+    expect(stored.staleLinesClosedAt).toBeDefined();
+    expect(stored.staleLinesLog).toHaveLength(1);
+    expect(stored.staleLinesLog[0].closed[0].code).toBe('CUDC201XG');
+  });
+
+  it('v1255: pedido YA cobrado (paid) con lineas colgadas → cleanup en segunda pasada (sin cambio amounts)', async () => {
+    // Pedido ya tiene paidStatus='paid', amounts no van a cambiar.
+    // Sin la fix: changed=false → skip → lineas quedan colgadas para siempre.
+    // Con la fix: closure corre igual → cierra las lineas.
+    const pedidos = [
+      {
+        id: 'ped-ya-paid-pero-colgado',
+        data: {
+          closedAt: null,
+          paidStatus: 'paid',
+          invoicedAmount: 100000,
+          paidAmount: 100000,
+          cobradoAt: '2026-09-01T00:00:00.000Z',
+          sapLinkage: { appliedInvoiceDocEntries: [66666] },
+          lines: [{ code: 'X', state: 'confirmed', qty: 2, qtyOpen: 2, qtyCancelled: 0 }],
+        },
+      },
+    ];
+    const invoices = { 66666: { docTotal: 100000, paidToDate: 100000 } };
+    const deps = makeDeps(pedidos, invoices);
+    const r = await handleSyncSapPayments(deps);
+    expect(r.linesClosedStale).toBe(1);
+    const stored = deps.fbDb._store.get('ped-ya-paid-pero-colgado');
+    expect(stored.lines[0].state).toBe('closed_stale');
+    expect(stored.lines[0].qtyOpen).toBe(0);
+    // cobradoAt NO se re-escribe (preserva fecha original)
+    expect(stored.cobradoAt).toBe('2026-09-01T00:00:00.000Z');
+    // paidStatus permanece
+    expect(stored.paidStatus).toBe('paid');
+  });
+
+  it('v1255: paid=full + state=BO qtyOpen>0 → NO cierra el BO (backorder legitimo)', async () => {
+    const pedidos = [
+      {
+        id: 'ped-with-bo-real',
+        data: {
+          closedAt: null,
+          sapLinkage: { appliedInvoiceDocEntries: [77777] },
+          lines: [{ code: 'X-BO-REAL', state: 'BO', qty: 5, qtyOpen: 5, qtyCancelled: 0 }],
+        },
+      },
+    ];
+    const invoices = { 77777: { docTotal: 50000, paidToDate: 50000 } };
+    const deps = makeDeps(pedidos, invoices);
+    const r = await handleSyncSapPayments(deps);
+    expect(r.pedidosPaidFull).toBe(1);
+    expect(r.linesClosedStale).toBe(0);
+    const stored = deps.fbDb._store.get('ped-with-bo-real');
+    expect(stored.lines[0].state).toBe('BO'); // BO intacto
+    expect(stored.lines[0].qtyOpen).toBe(5);
+  });
+
   it('case 13 (v1042): invoice NO compartida sigue funcionando 1:1 sin fracción', async () => {
     const pedidos = [
       {

@@ -303,7 +303,14 @@ export async function applyInvoiceMatch(deps, match) {
     // lineas del mismo SKU: {qty:70, state:'confirmed'} + {qty:30, state:'BO'}.
     // Sin este skip, un invoice por 70 se aplicaria a AMBAS lineas duplicando
     // qtyInvoiced (bug latente pre-split, unmasked por E2/E3).
-    const SKIP_STATES = new Set(['BO', 'ASIG', 'cancelled', 'recycled']);
+    //
+    // v1281 (2026-10-19): sumar 'closed_stale' (helper computeStaleLineClosure
+    // post-pago full) y 'legacy' (pre-migracion, intocable). Sin este fix, una
+    // nota de credito tardia sobre un pedido ya cobrado con linea cerrada por
+    // v1281 entraba al pass 2 y pisaba state='closed_stale' con 'invoiced' →
+    // perdia trazabilidad y rompia idempotencia del helper (HIGH silent-failure
+    // hunter 2026-10-19).
+    const SKIP_STATES = new Set(['BO', 'ASIG', 'cancelled', 'recycled', 'closed_stale', 'legacy']);
 
     const lines = Array.isArray(data.lines) ? [...data.lines] : [];
     /** @type {Map<string, number>} */
