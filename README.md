@@ -4717,6 +4717,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1374 (2026-10-20) — Campañas Activas · Detalle SKU: label "Stock whs 11" → "Stock"
+
+**Antes**: header de la tabla del tab "Detalle SKU" decía "Stock whs 11" (incluía el detalle técnico del almacén).
+
+**Cambio**: `index.html` línea ~31932 — array del header: `'Stock whs 11'` → `'Stock'`. APP_VERSION v1373 → v1374. CACHE_VERSION v1373 → v1374.
+
+**Por qué**: feedback Mariano 2026-10-20 (screenshot). El dato sigue siendo whs 11 (único vendible, regla CLAUDE §26), solo cambia el label visual porque el detalle técnico ensucia la lectura rápida.
+
+**Verificación**: visual en el modal — header de la columna ahora muestra "Stock" sin el "whs 11".
+
+**Rollback**: revertir el commit, único archivo con lógica tocado es index.html.
+
 ### v1373 (2026-10-20) — Campañas Activas: tab "Detalle SKU" admin+gerente con vendidas vs stock
 
 **Antes**: el modal "Campañas Activas" tenía solo 2 tabs (Activas / Históricas) + botón Gráficos. Para saber cuánto se vendió de cada SKU de una campaña había que entrar al modal Gráficos y después cruzar manualmente contra stock del Master. No había una tabla que mostrara el contraste "vendido desde inicio de campaña vs lo que queda disponible" en una sola vista.
