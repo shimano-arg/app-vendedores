@@ -3,10 +3,46 @@ import { describe, expect, it } from 'vitest';
 import { applyChipFilter, sortClientes } from '../../src/pure/cartera-vendor-filter.js';
 
 const SAMPLE = [
-  { clientId: 'a', clientName: 'ALPHA S.A.',   ultimaVisitaPresencial: '2026-10-15', diasSinVisitaPresencial: 5,  ultimaCompra: '2026-10-10', diasSinCompra: 10,  facturado12M: 100, deudaAbierta: 0 },
-  { clientId: 'b', clientName: 'BETA S.R.L.',  ultimaVisitaPresencial: null,         diasSinVisitaPresencial: null, ultimaCompra: null,       diasSinCompra: null, facturado12M: 0,   deudaAbierta: 0 },
-  { clientId: 'c', clientName: 'GAMMA LTDA.',  ultimaVisitaPresencial: '2026-08-01', diasSinVisitaPresencial: 80, ultimaCompra: '2026-06-01', diasSinCompra: 141, facturado12M: 500, deudaAbierta: 1000 },
-  { clientId: 'd', clientName: 'DELTA PESCA',  ultimaVisitaPresencial: null,         diasSinVisitaPresencial: null, ultimaCompra: '2026-10-01', diasSinCompra: 19,  facturado12M: 200, deudaAbierta: 0 },
+  {
+    clientId: 'a',
+    clientName: 'ALPHA S.A.',
+    ultimaVisitaPresencial: '2026-10-15',
+    diasSinVisitaPresencial: 5,
+    ultimaCompra: '2026-10-10',
+    diasSinCompra: 10,
+    facturado12M: 100,
+    deudaAbierta: 0,
+  },
+  {
+    clientId: 'b',
+    clientName: 'BETA S.R.L.',
+    ultimaVisitaPresencial: null,
+    diasSinVisitaPresencial: null,
+    ultimaCompra: null,
+    diasSinCompra: null,
+    facturado12M: 0,
+    deudaAbierta: 0,
+  },
+  {
+    clientId: 'c',
+    clientName: 'GAMMA LTDA.',
+    ultimaVisitaPresencial: '2026-08-01',
+    diasSinVisitaPresencial: 80,
+    ultimaCompra: '2026-06-01',
+    diasSinCompra: 141,
+    facturado12M: 500,
+    deudaAbierta: 1000,
+  },
+  {
+    clientId: 'd',
+    clientName: 'DELTA PESCA',
+    ultimaVisitaPresencial: null,
+    diasSinVisitaPresencial: null,
+    ultimaCompra: '2026-10-01',
+    diasSinCompra: 19,
+    facturado12M: 200,
+    deudaAbierta: 0,
+  },
 ];
 
 describe('applyChipFilter', () => {

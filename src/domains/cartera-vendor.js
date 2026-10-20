@@ -66,7 +66,7 @@ async function populateVendorDropdown() {
   if (!sel) return;
   if (sel.options.length > 1) return;
   try {
-    // @ts-ignore
+    // @ts-expect-error
     const snap = await firebase.firestore().collection('cartera_vendor').get();
     /** @type {string[]} */
     const vendors = [];
@@ -104,7 +104,7 @@ window.onCarteraVendorChange = async function onCarteraVendorChange() {
   try {
     let doc = carteraDocCache.get(selectedVendor);
     if (!doc) {
-      // @ts-ignore
+      // @ts-expect-error
       const snap = await firebase
         .firestore()
         .collection('cartera_vendor')
@@ -217,7 +217,11 @@ function renderTable(clientes) {
   if (!table) return;
   const filtered = applyChipFilter(clientes, activeChip);
   const searched = searchQuery
-    ? filtered.filter((c) => String(c.clientName || '').toLowerCase().includes(searchQuery))
+    ? filtered.filter((c) =>
+        String(c.clientName || '')
+          .toLowerCase()
+          .includes(searchQuery)
+      )
     : filtered;
   const sorted = sortClientes(searched, sortBy, sortDir);
   while (table.firstChild) table.removeChild(table.firstChild);
@@ -276,7 +280,7 @@ function buildClienteRow(c) {
     tr.style.background = '';
   });
   tr.addEventListener('click', () => {
-    // @ts-ignore
+    // @ts-expect-error
     if (typeof window.openFichaCliente === 'function') window.openFichaCliente(c.clientId);
   });
 
@@ -351,7 +355,13 @@ function fmtMoney(n) {
 
 // === UI state helpers ===
 function hideAll() {
-  const ids = ['cartera-loading', 'cartera-table', 'cartera-kpis', 'cartera-chips', 'cartera-empty'];
+  const ids = [
+    'cartera-loading',
+    'cartera-table',
+    'cartera-kpis',
+    'cartera-chips',
+    'cartera-empty',
+  ];
   for (const id of ids) {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -415,7 +425,11 @@ window.exportCarteraToExcel = async function exportCarteraToExcel() {
   }
   const filtered = applyChipFilter(doc.clientes, activeChip);
   const searched = searchQuery
-    ? filtered.filter((c) => String(c.clientName || '').toLowerCase().includes(searchQuery))
+    ? filtered.filter((c) =>
+        String(c.clientName || '')
+          .toLowerCase()
+          .includes(searchQuery)
+      )
     : filtered;
   const sorted = sortClientes(searched, sortBy, sortDir);
 

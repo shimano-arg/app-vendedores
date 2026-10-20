@@ -18,8 +18,7 @@ export function applyChipFilter(clientes, chip) {
   switch (chip) {
     case 'baseActiva90d':
       return clientes.filter(
-        (c) =>
-          c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra <= 90
+        (c) => c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra <= 90
       );
     case 'dormidosVisita30d':
       return clientes.filter(
