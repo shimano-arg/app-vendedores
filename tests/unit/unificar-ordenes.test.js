@@ -13,7 +13,10 @@ import {
 
 describe('mergeLinesFromOrders', () => {
   it('0 other orders → devuelve baseLines idéntico (sin importedFromOrder flags)', () => {
-    const baseLines = [{ code: 'A', qty: 2 }, { code: 'B', qty: 3 }];
+    const baseLines = [
+      { code: 'A', qty: 2 },
+      { code: 'B', qty: 3 },
+    ];
     const r = mergeLinesFromOrders(baseLines, []);
     expect(r.mergedLines).toHaveLength(2);
     expect(r.mergedLines[0].importedFromOrder).toBeUndefined();
@@ -22,7 +25,10 @@ describe('mergeLinesFromOrders', () => {
   });
 
   it('2 orders sin SKUs duplicados → lines concatenadas, imported con flag', () => {
-    const baseLines = [{ code: 'A', qty: 2 }, { code: 'B', qty: 3 }];
+    const baseLines = [
+      { code: 'A', qty: 2 },
+      { code: 'B', qty: 3 },
+    ];
     const otherOrders = [
       { orderNumber: 332, lines: [{ code: 'C', qty: 5 }] },
       { orderNumber: 335, lines: [{ code: 'D', qty: 1 }] },
@@ -39,7 +45,10 @@ describe('mergeLinesFromOrders', () => {
   });
 
   it('2 orders con 1 SKU duplicado → ambas filas quedan + duplicateCodes incluye el SKU', () => {
-    const baseLines = [{ code: 'A', qty: 2 }, { code: 'X', qty: 3 }];
+    const baseLines = [
+      { code: 'A', qty: 2 },
+      { code: 'X', qty: 3 },
+    ];
     const otherOrders = [{ orderNumber: 332, lines: [{ code: 'X', qty: 5 }] }];
     const r = mergeLinesFromOrders(baseLines, otherOrders);
     expect(r.mergedLines).toHaveLength(3);
@@ -54,10 +63,25 @@ describe('mergeLinesFromOrders', () => {
   });
 
   it('3 orders en cascada con mix de duplicados', () => {
-    const baseLines = [{ code: 'A', qty: 1 }, { code: 'B', qty: 2 }];
+    const baseLines = [
+      { code: 'A', qty: 1 },
+      { code: 'B', qty: 2 },
+    ];
     const otherOrders = [
-      { orderNumber: 100, lines: [{ code: 'A', qty: 10 }, { code: 'C', qty: 3 }] },
-      { orderNumber: 200, lines: [{ code: 'B', qty: 20 }, { code: 'D', qty: 4 }] },
+      {
+        orderNumber: 100,
+        lines: [
+          { code: 'A', qty: 10 },
+          { code: 'C', qty: 3 },
+        ],
+      },
+      {
+        orderNumber: 200,
+        lines: [
+          { code: 'B', qty: 20 },
+          { code: 'D', qty: 4 },
+        ],
+      },
     ];
     const r = mergeLinesFromOrders(baseLines, otherOrders);
     expect(r.mergedLines).toHaveLength(6);
@@ -116,11 +140,7 @@ describe('computeDuplicateCodes', () => {
     expect(computeDuplicateCodes([]).size).toBe(0);
   });
   it('sin duplicados → Set vacío', () => {
-    const codes = computeDuplicateCodes([
-      { code: 'A' },
-      { code: 'B' },
-      { code: 'C' },
-    ]);
+    const codes = computeDuplicateCodes([{ code: 'A' }, { code: 'B' }, { code: 'C' }]);
     expect(codes.size).toBe(0);
   });
   it('1 duplicado → set con 1', () => {
@@ -147,7 +167,9 @@ describe('getRowColorClass', () => {
     expect(getRowColorClass({ code: 'X' }, dupSet)).toBe('duplicate-original');
   });
   it('línea importada DUPLICADA → duplicate-imported', () => {
-    expect(getRowColorClass({ code: 'X', importedFromOrder: 332 }, dupSet)).toBe('duplicate-imported');
+    expect(getRowColorClass({ code: 'X', importedFromOrder: 332 }, dupSet)).toBe(
+      'duplicate-imported'
+    );
   });
   it('line null → null (defensive)', () => {
     // @ts-expect-error forzamos input invalido
@@ -168,7 +190,11 @@ describe('buildUnifiedFromAudit', () => {
       { orderNumber: 332, pedidoId: 'abc', lines: [{ code: 'A' }, { code: 'B' }] },
       { orderNumber: 335, pedidoId: 'def', lines: [{ code: 'C' }] },
     ];
-    const r = buildUnifiedFromAudit(otherOrders, 'mariano@shimano.com.ar', '2026-10-20T18:00:00.000Z');
+    const r = buildUnifiedFromAudit(
+      otherOrders,
+      'mariano@shimano.com.ar',
+      '2026-10-20T18:00:00.000Z'
+    );
     expect(r).toHaveLength(2);
     expect(r[0]).toEqual({
       orderNumber: 332,

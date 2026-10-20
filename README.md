@@ -5672,6 +5672,36 @@ Mariano reportó inconsistencia visual: SKU EXGS70HB2AR tiene 64u en depósito 1
 
 ---
 
+### v1284 (2026-10-20) — Unificar órdenes en lista de espera (mismo cliente)
+
+**Qué cambió**: botón nuevo `🔗 Unificar orden` en el footer del modal "Pedido en espera". Detecta otras órdenes del mismo cliente en lista de espera (match por `clientCardCode`) y las absorbe dentro de la más nueva. Las órdenes viejas desaparecen de la lista espera (quedan en Firestore con `stage='consumed' + closedReason='unified_into'` para audit). Los SKUs importados se pintan **amarillo `#d97706`**. Si un SKU se duplica entre órdenes, ambas filas quedan: la original en **rojo `#991b1b`**, la importada en amarillo — el VDE decide manualmente qué hacer (sumar, dejar, quitar).
+
+**Motivación**: VDEs confirmaban 2+ órdenes separadas del mismo cliente (ej. 1 pedido real + 1 "Stock Asig") generando 2 ofertas distintas en SAP. Ahora unifican en una sola oferta antes de pasar a Pendientes.
+
+**Decisiones de product** (brainstorming 2026-10-20, 8 preguntas con opciones):
+- Scope: solo waitlist ↔ waitlist, mismo `cardCode`.
+- Universo: unifica TODAS las candidatas más viejas en la nueva, un click.
+- Botón oculto si no hay candidatos.
+- SKUs duplicados: ambas filas quedan separadas visualmente (sin suma automática).
+- Persistencia color: `line.importedFromOrder: <orderNumber>` guardado en Firestore. Visible siempre tras reload.
+- Vendor final: el de la más nueva. Vendor vieja queda en `unifiedFrom[].mergedBy` para audit indirecto.
+- Permisos: owner o admin/gerente (mismo gate que `waitlistEditOrden`).
+
+**Archivos**:
+- `src/pure/unificar-ordenes.js` (nuevo) — `mergeLinesFromOrders` + `computeDuplicateCodes` + `getRowColorClass` + `buildUnifiedFromAudit`.
+- `tests/unit/unificar-ordenes.test.js` (nuevo) — 22 tests TDD.
+- `src/main.js` — expone helpers via `window.__phase0.pure`.
+- `index.html` — botón `wcard-unificar-btn` en footer, CSS para `.merge-imported` / `.merge-duplicate-original` / `.merge-duplicate-imported`, handler `waitlistUnificarOrden`, pintado de filas según flag.
+
+**Schema cambios**:
+- `revision_waitlist.items[].importedFromOrder`: `<orderNumber>` | ausente.
+- `revision_waitlist.unifiedFrom[]` (en la nueva): audit trail con `{orderNumber, pedidoId, mergedAt, mergedBy, lineCount}`.
+- `revision_waitlist.{stage='consumed', closedAt, closedReason='unified_into', unifiedInto, unifiedIntoOrderNumber}` (en las viejas).
+
+**Tests**: 840/840 pass (818 + 22 nuevos v1284). Typecheck + biome clean.
+
+**Spec**: `docs/superpowers/specs/2026-10-20-unificar-ordenes-waitlist-design.md`
+
 ### v1283 (2026-10-20) — Rediseño modal Seguimiento → Análisis de Cartera por Vendedor
 
 **Qué cambió**: el modal "Seguimiento" (6 tabs con visitas/pedidos/pendientes/oportunidades/duplas, ~1174 LOC) se reemplazó por un dashboard enfocado en **análisis de cobertura comercial por VDE**. Un gerente selecciona un vendedor del dropdown y ve en vista única: 6 KPIs cards (total cartera / base activa 90d / dormidos visita 30d / dormidos compra 90d / nunca visitados / nunca compraron) + tabla filtrable con chips rápidos (click en chip o card = aplica filtro) + search por cliente + click row → Ficha Cliente + export Excel que respeta chip + search activos.

@@ -35,7 +35,9 @@
  * @returns {string}
  */
 function normCode(code) {
-  return String(code || '').toUpperCase().trim();
+  return String(code || '')
+    .toUpperCase()
+    .trim();
 }
 
 /**
@@ -100,9 +102,8 @@ export function mergeLinesFromOrders(baseLines, otherOrders) {
 export function getRowColorClass(line, duplicateCodes) {
   if (!line) return null;
   const isImported = line.importedFromOrder != null;
-  const isDuplicate = duplicateCodes instanceof Set
-    ? duplicateCodes.has(normCode(line.code))
-    : false;
+  const isDuplicate =
+    duplicateCodes instanceof Set ? duplicateCodes.has(normCode(line.code)) : false;
   if (isDuplicate && isImported) return 'duplicate-imported';
   if (isDuplicate && !isImported) return 'duplicate-original';
   if (!isDuplicate && isImported) return 'imported';
