@@ -1787,7 +1787,11 @@ function _buildUpcomingRow(row, isDisc) {
   label.appendChild(badge);
   const content = _makeEl('div', 'flex:1;min-width:0');
   content.appendChild(
-    _makeEl('div', 'font-family:monospace;font-weight:700;color:var(--text-primary);font-size:12px', row.sku)
+    _makeEl(
+      'div',
+      'font-family:monospace;font-weight:700;color:var(--text-primary);font-size:12px',
+      row.sku
+    )
   );
   if (row.description) {
     content.appendChild(
@@ -1818,7 +1822,9 @@ function _renderUpcomingDiscontinuedListOnly() {
     const empty = _makeEl(
       'div',
       'padding:30px;text-align:center;color:var(--text-muted)',
-      q ? 'Sin resultados para "' + _upcomingSearchText + '".' : 'No hay SKUs cargados en el sales plan.'
+      q
+        ? 'Sin resultados para "' + _upcomingSearchText + '".'
+        : 'No hay SKUs cargados en el sales plan.'
     );
     listEl.appendChild(empty);
     return;
@@ -1848,7 +1854,13 @@ function _renderUpcomingDiscontinuedModal() {
     'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;flex-shrink:0'
   );
   const headLeft = _makeEl('div');
-  headLeft.appendChild(_makeEl('div', 'font-size:18px;font-weight:800;color:var(--text-primary)', 'Próximas descontinuaciones'));
+  headLeft.appendChild(
+    _makeEl(
+      'div',
+      'font-size:18px;font-weight:800;color:var(--text-primary)',
+      'Próximas descontinuaciones'
+    )
+  );
   headLeft.appendChild(
     _makeEl(
       'div',
@@ -1956,7 +1968,9 @@ window.saveUpcomingDiscontinuedChanges = async function () {
   const seenInDom = new Set();
   const checkedInDom = new Set();
   allInDom.forEach((cb) => {
-    const sku = String(cb.getAttribute('data-upcoming-sku') || '').trim().toUpperCase();
+    const sku = String(cb.getAttribute('data-upcoming-sku') || '')
+      .trim()
+      .toUpperCase();
     if (!sku) return;
     seenInDom.add(sku);
     if (cb.checked) checkedInDom.add(sku);
