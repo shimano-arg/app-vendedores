@@ -4717,6 +4717,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1373 (2026-10-20) — Campañas Activas: tab "Detalle SKU" admin+gerente con vendidas vs stock
+
+**Antes**: el modal "Campañas Activas" tenía solo 2 tabs (Activas / Históricas) + botón Gráficos. Para saber cuánto se vendió de cada SKU de una campaña había que entrar al modal Gráficos y después cruzar manualmente contra stock del Master. No había una tabla que mostrara el contraste "vendido desde inicio de campaña vs lo que queda disponible" en una sola vista.
+
+**Problema**: Mariano pidió una tabla en el Dashboard donde ver rápido, por cada campaña vigente, cuántas unidades se vendieron entre todos los vendedores desde que arrancó la campaña y cuánto queda en stock disponible venta (whs 11). Para contraste rápido sin saltar entre modales.
+
+**Cambio**:
+- `index.html` HTML (línea ~4823): nuevo botón `#mc-tab-detalle` en el header del modal, oculto por default (`display:none`).
+- `index.html` JS `window.setMisCampsTab` (línea ~31688): maneja el nuevo valor `'detalle'`, hace visible el botón solo si `userRole === 'admin' || userRole === 'gerente'`.
+- `index.html` JS `renderMisCamps` (línea ~31711): si `tab === 'detalle'` delega a `renderMisCampsDetalle`. Defensive fallback: si llega al handler con rol no autorizado, redirige a `'active'`.
+- `index.html` JS `renderMisCampsDetalle` (nueva, línea ~31847): para cada campaña vigente (filtra `startDate <= hoy <= endDate && !archivedManually`), arma una card con header + tabla SKU × campaña. Agrega `CAMPANIA_SNAPSHOT[cid].detalle[]` por `sku` sumando `cantidad` (fuente: v_ventas_lineas vía BQ snapshot, ignora scope → total nacional como pidió Mariano). Para cada SKU del catálogo de la campaña (`camp.skus`, incluso los que no se vendieron) muestra: código, descripción (`PRODUCTS`), vendidas (verde si > 0, gris si 0), stock whs 11 (`getStockDisponibleVenta(sku)`, rojo si 0). Chips en header: `Xu vendidas`, target si `target_type='units'` con % semaforizado, cantidad de SKUs. Construcción con DOM API + `textContent` para campos dinámicos (XSS-safe, zero `innerHTML` con contenido user-controlled).
+- `index.html` APP_VERSION: v1372 → v1373.
+- `sw.js` CACHE_VERSION: v1372 → v1373.
+
+**Por qué**:
+- Alcance "campañas vigentes" + "entre todos los vendedores" = scope nacional, consistente con el pedido textual de Mariano.
+- Facturado SAP (vía `v_campanias_progreso` → snapshot Firestore `detalle[]`) y no "pedidos confirmed en la app": el precedente de v481/v482/v532 ya demostró que confirmed da $0 porque los pedidos van directo a SAP. Mismo criterio que PBI y que la card existente de Campañas Activas.
+- Stock whs 11 (regla CLAUDE §26): único depósito vendible. No sumar 12 (tránsito), 07 (muestras), etc.
+- Admin + gerente only: patrón de otras vistas "nacionales" (PANEL DE CONTROL, FORECAST). Vendedor sigue viendo sus 2 tabs sin ruido.
+- DOM API + textContent (no innerHTML): hook de seguridad del repo + regla de higiene XSS. Los demás `innerHTML` del modal eran templates estáticos, pero este tenía demasiado contenido variable (nombres de campaña, SKUs, descripciones).
+
+**Verificación**:
+- Smoke manual al abrir modal Campañas Activas como admin: el tab "Detalle SKU" aparece junto a Activas/Históricas.
+- Click en "Detalle SKU": renderiza una card por cada campaña vigente, header + tabla ordenada por qty vendida desc, SKUs sin ventas con qty 0 en gris.
+- Como vendedor: el tab no aparece (display:none).
+- Zero red flags en `biome check` ni en `npm run typecheck` sobre index.html.
+
+**Rollback**: revertir el commit (único archivo tocado es index.html + sw.js + README.md). No toca Firestore, Cloud Functions, ni BigQuery.
+
 ### v1371 (2026-10-19) — Modal CPST: ocultar ASIG ya cubiertas por waitlist CPST abiertos
 
 **Archivos**:
