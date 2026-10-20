@@ -6747,7 +6747,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1374';
+const APP_VERSION = 'v1375';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -31859,7 +31859,7 @@ function renderMisCampsDetalle(){
   const titleEl = document.getElementById('mis-camps-title');
   const subtEl = document.getElementById('mis-camps-subt');
   if (titleEl) titleEl.textContent = 'Campañas Activas · Detalle SKU';
-  if (subtEl) subtEl.textContent = 'Unidades facturadas desde el inicio de cada campaña vs stock disponible (whs 11).';
+  if (subtEl) subtEl.textContent = 'Unidades facturadas desde el inicio de cada campaña (respetando el scope) vs stock disponible.';
   const todayISO = new Date().toISOString().slice(0, 10);
   const actives = (campaignsCache || [])
     .filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= todayISO && c.endDate >= todayISO)
@@ -31893,8 +31893,22 @@ function renderMisCampsDetalle(){
   for (const camp of actives) {
     const cid = camp.id || camp._fsId;
     const snap = (typeof CAMPANIA_SNAPSHOT !== 'undefined' && CAMPANIA_SNAPSHOT) ? (CAMPANIA_SNAPSHOT[cid] || {}) : {};
+    // v1375 fix: snap.detalle viene SIN filtrar por scope (sync bypassea scope
+    // para que el modal Graficos matchee PBI "Top 10 productos" sin scope).
+    // Para que las qty coincidan con el card del Dashboard — que SI respeta scope
+    // via v_campanias_progreso.realizadoQty — hay que filtrar aca en el frontend.
+    const campScope = camp.scope || 'all';
+    const campScopeVals = Array.isArray(camp.scopeValues) ? camp.scopeValues : [];
+    let detalleScoped = snap.detalle || [];
+    if (campScope === 'vendor' && campScopeVals.length) {
+      const vendorSet = new Set(campScopeVals.map(v => String(v || '').trim().toUpperCase()));
+      detalleScoped = detalleScoped.filter(d => vendorSet.has(String(d.vendor || '').trim().toUpperCase()));
+    } else if (campScope === 'province' && campScopeVals.length) {
+      const provSet = new Set(campScopeVals.map(v => String(v || '').trim().toUpperCase()));
+      detalleScoped = detalleScoped.filter(d => provSet.has(String(d.provincia || '').trim().toUpperCase()));
+    }
     const porSku = {};
-    (snap.detalle || []).forEach(d => {
+    detalleScoped.forEach(d => {
       const sku = String(d.sku || '').toUpperCase();
       if (!sku) return;
       porSku[sku] = (porSku[sku] || 0) + Number(d.cantidad || 0);
