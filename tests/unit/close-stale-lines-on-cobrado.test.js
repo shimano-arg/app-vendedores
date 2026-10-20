@@ -183,6 +183,64 @@ describe('computeStaleLineClosure — idempotencia + edge cases', () => {
     expect(computeStaleLineClosure(p)).toEqual({ closedLines: [], newLines: null });
   });
 
+  it('v1285: línea asigReserva=true NUNCA se cierra (bug ANDRILI ORDEN 446)', () => {
+    // Precedente: v1281 cerró 78 líneas con asigReserva=true en el backfill
+    // 2026-10-20, liberando stock reservado firme por reparto manual.
+    const p = {
+      paidStatus: 'paid',
+      lines: [
+        {
+          code: 'CU301HGK',
+          state: 'ASIG',
+          qty: 1,
+          qtyOpen: 1,
+          qtyCancelled: 0,
+          asigReserva: true,
+        },
+      ],
+    };
+    expect(computeStaleLineClosure(p)).toEqual({ closedLines: [], newLines: null });
+  });
+
+  it('v1285: línea confirmed con asigReserva=true tampoco se cierra', () => {
+    const p = {
+      paidStatus: 'paid',
+      lines: [
+        {
+          code: 'X',
+          state: 'confirmed',
+          qty: 2,
+          qtyOpen: 2,
+          qtyCancelled: 0,
+          asigReserva: true,
+        },
+      ],
+    };
+    expect(computeStaleLineClosure(p)).toEqual({ closedLines: [], newLines: null });
+  });
+
+  it('v1285: línea ASIG con asigReserva=false SÍ se cierra (reserva no-firme)', () => {
+    const p = {
+      paidStatus: 'paid',
+      lines: [
+        { code: 'X', state: 'ASIG', qty: 1, qtyOpen: 1, qtyCancelled: 0, asigReserva: false },
+      ],
+    };
+    const r = computeStaleLineClosure(p);
+    expect(r.closedLines).toHaveLength(1);
+    expect(r.newLines[0].state).toBe('closed_stale');
+  });
+
+  it('v1285: línea ASIG sin field asigReserva (undefined) SÍ se cierra (comportamiento existente)', () => {
+    const p = {
+      paidStatus: 'paid',
+      lines: [{ code: 'X', state: 'ASIG', qty: 1, qtyOpen: 1, qtyCancelled: 0 }],
+    };
+    const r = computeStaleLineClosure(p);
+    expect(r.closedLines).toHaveLength(1);
+    expect(r.newLines[0].state).toBe('closed_stale');
+  });
+
   it('v1282: qtyOpen = Infinity (dato sucio) → no-op (guard Number.isFinite)', () => {
     const p = {
       paidStatus: 'paid',
