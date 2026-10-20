@@ -63,6 +63,12 @@ import {
   getStockRealmenteDisponible,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
+import {
+  buildUnifiedFromAudit,
+  computeDuplicateCodes,
+  getRowColorClass,
+  mergeLinesFromOrders,
+} from './pure/unificar-ordenes.js';
 import { computeVirtualAsigFifo } from './pure/virtual-asig-fifo.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { createSapClient } from './sap-client.js';
@@ -229,6 +235,10 @@ const phase0 = {
     suggestForSku,
     passesTypeFilter,
     shouldIncludeWaitlistDoc,
+    mergeLinesFromOrders,
+    computeDuplicateCodes,
+    getRowColorClass,
+    buildUnifiedFromAudit,
     splitPedidoLine,
     reenrichPedidoLine,
     redistributeAsigLine,

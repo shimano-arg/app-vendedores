@@ -2597,6 +2597,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   background:#fef2f2;
   color:var(--color-danger-strong);
 }
+/* v1284 (2026-10-20): clases de merge por "Unificar orden".
+   - merge-imported: fila importada de orden vieja (sin duplicado) — AMARILLO #d97706.
+   - merge-duplicate-original: SKU duplicado, fila original del pedido nuevo — ROJO #991b1b.
+   - merge-duplicate-imported: SKU duplicado, fila que vino de orden vieja — AMARILLO #d97706.
+   Prioridad sobre warn-*/exceed porque el merge color es información clave post-unificación. */
+#wcard-rows tr.merge-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
+#wcard-rows tr.merge-duplicate-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
+#wcard-rows tr.merge-duplicate-original td{background:#991b1b !important;color:#fff !important;font-weight:800}
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
 /* v1322 (2026-10-15): sticky al nivel de TH individual (más confiable que
@@ -6481,6 +6489,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         </div>
       </div>
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap;flex-shrink:0">
+        <!-- v1284 (2026-10-20): "Unificar orden" absorbe otras ordenes del
+             mismo cliente en lista de espera dentro de esta (la mas nueva).
+             Oculto por default; se muestra cuando _wcardFindUnificarCandidates()
+             encuentra >=1 candidata. Ver src/pure/unificar-ordenes.js. -->
+        <button class="stock-action-btn publish" id="wcard-unificar-btn" onclick="waitlistUnificarOrden()" style="background:#7c3aed;color:#fff;display:none" title="Unificar otras ordenes del mismo cliente en lista de espera dentro de esta">🔗 Unificar orden</button>
         <button class="stock-action-btn cancel" onclick="closeWaitlistCardModal()">Cerrar</button>
         <button class="stock-action-btn publish" id="wcard-edit-orden-btn" onclick="waitlistEditOrden()" style="background:#0f172a;color:#fff">Editar orden</button>
         <!-- v1159 (2026-10-06): removidos "Exportar pedido original" (#wcard-export-todo-btn)
@@ -6747,7 +6760,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1374';
+const APP_VERSION = 'v1375';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23642,6 +23655,8 @@ function _renderWaitlistCard(){
       backorderUnidades: qtySinApp,
       backorderCliente: boCliente,
       warnQuiebra, warnDuplicado,
+      // v1284: flag para pintar fila post-"Unificar orden" (ver src/pure/unificar-ordenes.js).
+      importedFromOrder: (it && typeof it.importedFromOrder === 'number') ? it.importedFromOrder : null,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
@@ -23718,6 +23733,15 @@ function _renderWaitlistCard(){
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
   const mk = (text, cls) => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
   const safeId = escapeAttr(w._id);
+  // v1284: pre-computar codes duplicados sobre todas las lines (base + importadas).
+  // Si un code aparece 2+ veces (porque dos ordenes unificadas tenian el mismo SKU),
+  // ambas filas se pintan con roles distintos (duplicate-original rojo + duplicate-imported amarillo).
+  const _mergePure = (window.__phase0 && window.__phase0.pure) || null;
+  const _wcardDupSet = _mergePure && typeof _mergePure.computeDuplicateCodes === 'function'
+    ? _mergePure.computeDuplicateCodes(w.items || [])
+    : null;
+  // v1284: refrescar visibilidad del boton "Unificar orden" (async, no bloquea render).
+  try { _wcardRefreshUnificarButton(w); } catch(_e){}
   rows.slice(0, 500).forEach(r => {
     const tr = document.createElement('tr');
     // v479: prioridad de clases (mas urgente arriba):
@@ -23732,6 +23756,15 @@ function _renderWaitlistCard(){
     else if (r.warnQuiebra) cls = 'warn-quiebra';
     else if (!r.hasData) cls = 'no-data';
     tr.className = cls;
+    // v1284: agregar clase de merge (si corresponde) por encima de las otras.
+    // El CSS tiene !important para que gane al warn-*/exceed.
+    if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet) {
+      const _mergeCls = _mergePure.getRowColorClass(
+        { code: r.code, importedFromOrder: r.importedFromOrder },
+        _wcardDupSet
+      );
+      if (_mergeCls) tr.classList.add('merge-' + _mergeCls);
+    }
     tr.appendChild(mk(r.code, 'mono'));
     // v817 (2026-09-07): si la desc es "(SKU no encontrado en catalogo)", el
     // producto está en SAP (tiene stock/precio) pero no en PRODUCTS local.
@@ -24451,6 +24484,129 @@ window.waitlistExportToExcel = function(){
   } catch(e) {
     console.error('waitlistExportToExcel', e);
     alert('Error al generar el Excel: ' + (e.message || e));
+  }
+};
+
+// v1284 (2026-10-20): "Unificar orden" absorbe otras ordenes del mismo cliente
+// en lista de espera dentro de esta (la mas nueva). Spec:
+// docs/superpowers/specs/2026-10-20-unificar-ordenes-waitlist-design.md
+// Flow: query async candidates por cardCode → confirm modal → writeBatch
+// atomico (nueva: items mergeados + unifiedFrom[]; viejas: stage='consumed'
+// + closedAt + unifiedInto).
+function _wcardFindUnificarCandidates(w) {
+  if (!w || !w.clientCardCode) return [];
+  if (typeof revisionWaitlist === 'undefined' || !Array.isArray(revisionWaitlist)) return [];
+  const ccUp = String(w.clientCardCode).trim().toUpperCase();
+  const currentId = w._id;
+  const currentOrderNum = Number(w.orderNumber) || 0;
+  const candidates = [];
+  for (const other of revisionWaitlist) {
+    if (!other || other._id === currentId) continue;
+    const otherCc = String(other.clientCardCode || '').trim().toUpperCase();
+    if (!otherCc || otherCc !== ccUp) continue;
+    const otherOrderNum = Number(other.orderNumber) || 0;
+    // Solo mas viejas que la actual (actual = mas nueva absorbe).
+    if (otherOrderNum >= currentOrderNum) continue;
+    candidates.push(other);
+  }
+  // Ordenar ASC por orderNumber (mas vieja primero) para que el audit sea cronologico.
+  candidates.sort((a, b) => (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0));
+  return candidates;
+}
+function _wcardRefreshUnificarButton(w) {
+  const btn = document.getElementById('wcard-unificar-btn');
+  if (!btn) return;
+  const candidates = _wcardFindUnificarCandidates(w);
+  if (candidates.length === 0) {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
+  btn.textContent = '🔗 Unificar orden (' + candidates.length + ')';
+  btn.title = 'Unificar ' + candidates.length + ' orden(es) mas viejas del mismo cliente en esta';
+}
+window.waitlistUnificarOrden = async function(){
+  const w = _wcardCurrent;
+  if (!w || !w._id) return;
+  const canEdit = (currentUser && (
+    w.ownerUid === currentUser.uid ||
+    userRole === 'admin' || userRole === 'gerente'
+  ));
+  if (!canEdit) { alert('Solo el dueño o admin/gerente puede unificar ordenes.'); return; }
+  const candidates = _wcardFindUnificarCandidates(w);
+  if (candidates.length === 0) {
+    alert('No hay otras ordenes de "' + w.clientName + '" en lista de espera para unificar.');
+    return;
+  }
+  // Build mensaje confirm con summary de cada candidata.
+  const msgLines = candidates.map((c) => {
+    const n = (c.items || []).length;
+    const u = (c.items || []).reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
+    return '  • ORDEN ' + (c.orderNumber || '?') + ': ' + n + ' SKU · ' + u + ' u';
+  });
+  const msg = '¿Unificar las siguientes ordenes dentro de la ORDEN ' + (w.orderNumber || '?') + '?\n\n' +
+    msgLines.join('\n') + '\n\n' +
+    'Las ordenes viejas se van a cerrar (quedan en Firestore para audit, invisibles en lista de espera).\n' +
+    'Los SKU importados aparecen en AMARILLO. Los duplicados: original en ROJO + importada en AMARILLO.';
+  if (!confirm(msg)) return;
+  const btn = document.getElementById('wcard-unificar-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Unificando...'; }
+  try {
+    // Helpers puros expuestos via window.__phase0.pure.
+    const pure = (window.__phase0 && window.__phase0.pure) || null;
+    if (!pure || typeof pure.mergeLinesFromOrders !== 'function') {
+      throw new Error('Helper mergeLinesFromOrders no disponible (bundle no cargo).');
+    }
+    const otherOrders = candidates.map((c) => ({
+      orderNumber: Number(c.orderNumber) || 0,
+      pedidoId: c._id,
+      lines: Array.isArray(c.items) ? c.items : [],
+    }));
+    const { mergedLines } = pure.mergeLinesFromOrders(w.items || [], otherOrders);
+    const nowIso = new Date().toISOString();
+    const userEmail = (currentUser && currentUser.email) || '';
+    const unifiedFromAudit = pure.buildUnifiedFromAudit(otherOrders, userEmail, nowIso);
+    // writeBatch atomico: nueva + N viejas.
+    const batch = fbDb.batch();
+    batch.update(fbDb.collection('revision_waitlist').doc(w._id), {
+      items: mergedLines,
+      unifiedFrom: firebase.firestore.FieldValue.arrayUnion(...unifiedFromAudit),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    for (const c of candidates) {
+      batch.update(fbDb.collection('revision_waitlist').doc(c._id), {
+        stage: 'consumed',
+        closedAt: nowIso,
+        closedReason: 'unified_into',
+        unifiedInto: w._id,
+        unifiedIntoOrderNumber: w.orderNumber || null,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+    // Audit log.
+    try {
+      if (typeof logOp === 'function') {
+        logOp('unificar_orden', 'revision_waitlist/' + w._id, w.clientName, {
+          unificoLasOrdenes: candidates.map((c) => c.orderNumber),
+          hoy: w.orderNumber,
+          lineCount: mergedLines.length,
+        });
+      }
+    } catch (_e) {}
+    // Optimistic: update local cache + re-render del modal.
+    if (_wcardCurrent && _wcardCurrent._id === w._id) {
+      _wcardCurrent.items = mergedLines;
+      const prevAudit = Array.isArray(_wcardCurrent.unifiedFrom) ? _wcardCurrent.unifiedFrom : [];
+      _wcardCurrent.unifiedFrom = [...prevAudit, ...unifiedFromAudit];
+    }
+    showSyncTag('Unificado: ' + candidates.length + ' orden(es) absorbidas en ORDEN ' + (w.orderNumber || '?'));
+    _renderWaitlistCard();
+  } catch (e) {
+    console.error('waitlistUnificarOrden', e);
+    alert('Error unificando: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔗 Unificar orden'; }
   }
 };
 
