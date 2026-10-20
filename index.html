@@ -2648,6 +2648,75 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr:focus-within td.pedido-final-col,
 #wcard-rows tr.highlighted td.pedido-final-col,
 #wcard-rows tr.selected td.pedido-final-col{color:#ffffff !important}
+/* v1378 (2026-10-20): fix regresion de v1377. En warning rows (repeat-sku,
+   warn-quiebra, warn-duplicado) el bg de td.disp-sap-col y td.pedido-final-col
+   NO pasa a azul marino en hover — reglas 2663-2672 .CLASS + !important ganan
+   por specificity sobre apple-design.css:5290. Entonces mi texto blanco (v1377)
+   sobre bg claro queda invisible. Override por warning class con el color
+   oscuro acorde. Reporte Mariano 2026-10-20 post-v1377 (ORDEN 448 ADRIAN
+   HORACIO VALIÑA, SKU EXGTVS70MH4AR en repeat-sku con bg naranja pastel). */
+#wcard-rows tr.repeat-sku:hover td.disp-sap-col,
+#wcard-rows tr.repeat-sku:focus-within td.disp-sap-col,
+#wcard-rows tr.repeat-sku.highlighted td.disp-sap-col,
+#wcard-rows tr.repeat-sku.selected td.disp-sap-col,
+#wcard-rows tr.repeat-sku:hover td.disp-sap-col div,
+#wcard-rows tr.repeat-sku:focus-within td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.highlighted td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.selected td.disp-sap-col div,
+#wcard-rows tr.repeat-sku:hover td.pedido-final-col,
+#wcard-rows tr.repeat-sku:focus-within td.pedido-final-col,
+#wcard-rows tr.repeat-sku.highlighted td.pedido-final-col,
+#wcard-rows tr.repeat-sku.selected td.pedido-final-col{color:#9a3412 !important}
+#wcard-rows tr.warn-quiebra:hover td.disp-sap-col,
+#wcard-rows tr.warn-quiebra:focus-within td.disp-sap-col,
+#wcard-rows tr.warn-quiebra.highlighted td.disp-sap-col,
+#wcard-rows tr.warn-quiebra.selected td.disp-sap-col,
+#wcard-rows tr.warn-quiebra:hover td.disp-sap-col div,
+#wcard-rows tr.warn-quiebra:focus-within td.disp-sap-col div,
+#wcard-rows tr.warn-quiebra.highlighted td.disp-sap-col div,
+#wcard-rows tr.warn-quiebra.selected td.disp-sap-col div,
+#wcard-rows tr.warn-quiebra:hover td.pedido-final-col,
+#wcard-rows tr.warn-quiebra:focus-within td.pedido-final-col,
+#wcard-rows tr.warn-quiebra.highlighted td.pedido-final-col,
+#wcard-rows tr.warn-quiebra.selected td.pedido-final-col{color:#78350f !important}
+#wcard-rows tr.warn-duplicado:hover td.disp-sap-col,
+#wcard-rows tr.warn-duplicado:focus-within td.disp-sap-col,
+#wcard-rows tr.warn-duplicado.highlighted td.disp-sap-col,
+#wcard-rows tr.warn-duplicado.selected td.disp-sap-col,
+#wcard-rows tr.warn-duplicado:hover td.disp-sap-col div,
+#wcard-rows tr.warn-duplicado:focus-within td.disp-sap-col div,
+#wcard-rows tr.warn-duplicado.highlighted td.disp-sap-col div,
+#wcard-rows tr.warn-duplicado.selected td.disp-sap-col div,
+#wcard-rows tr.warn-duplicado:hover td.pedido-final-col,
+#wcard-rows tr.warn-duplicado:focus-within td.pedido-final-col,
+#wcard-rows tr.warn-duplicado.highlighted td.pedido-final-col,
+#wcard-rows tr.warn-duplicado.selected td.pedido-final-col{color:#7f1d1d !important}
+/* Combinaciones repeat-sku.exceed y repeat-sku.warn-duplicado tienen bg
+   #fef2f2 (rosa pastel) con !important (regla 2669-2672). Mismo issue. */
+#wcard-rows tr.repeat-sku.exceed:hover td.disp-sap-col,
+#wcard-rows tr.repeat-sku.exceed:focus-within td.disp-sap-col,
+#wcard-rows tr.repeat-sku.exceed.highlighted td.disp-sap-col,
+#wcard-rows tr.repeat-sku.exceed.selected td.disp-sap-col,
+#wcard-rows tr.repeat-sku.exceed:hover td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.exceed:focus-within td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.exceed.highlighted td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.exceed.selected td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.exceed:hover td.pedido-final-col,
+#wcard-rows tr.repeat-sku.exceed:focus-within td.pedido-final-col,
+#wcard-rows tr.repeat-sku.exceed.highlighted td.pedido-final-col,
+#wcard-rows tr.repeat-sku.exceed.selected td.pedido-final-col,
+#wcard-rows tr.repeat-sku.warn-duplicado:hover td.disp-sap-col,
+#wcard-rows tr.repeat-sku.warn-duplicado:focus-within td.disp-sap-col,
+#wcard-rows tr.repeat-sku.warn-duplicado.highlighted td.disp-sap-col,
+#wcard-rows tr.repeat-sku.warn-duplicado.selected td.disp-sap-col,
+#wcard-rows tr.repeat-sku.warn-duplicado:hover td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.warn-duplicado:focus-within td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.warn-duplicado.highlighted td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.warn-duplicado.selected td.disp-sap-col div,
+#wcard-rows tr.repeat-sku.warn-duplicado:hover td.pedido-final-col,
+#wcard-rows tr.repeat-sku.warn-duplicado:focus-within td.pedido-final-col,
+#wcard-rows tr.repeat-sku.warn-duplicado.highlighted td.pedido-final-col,
+#wcard-rows tr.repeat-sku.warn-duplicado.selected td.pedido-final-col{color:var(--color-danger-strong) !important}
 #wcard-rows tr td.mono{font-family:monospace;font-size:10px;text-align:center}
 #wcard-rows tr td.num{text-align:center;font-weight:600}
 #wcard-rows tr td.left-align{text-align:left}
@@ -6767,7 +6836,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1377';
+const APP_VERSION = 'v1378';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

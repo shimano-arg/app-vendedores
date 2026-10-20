@@ -4717,6 +4717,26 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1378 (2026-10-20) — Modal Pedido en espera · fix regresión v1377 en rows con warning (texto invisible sobre bg claro)
+
+**Antes**: v1377 puso `color:#ffffff !important` al valor de "Libre para la venta" + "Pedido Final" en hover. Funcionaba OK en rows normales (bg azul marino + texto blanco = legible). **Pero rompía las rows con warning class** (`repeat-sku`, `warn-quiebra`, `warn-duplicado`): en esas, el bg del `td.disp-sap-col` y `td.pedido-final-col` **mantiene el color claro** (naranja/amarillo/rojo pastel) en hover porque las reglas 2663-2672 tienen specificity `.CLASS` + `!important` que gana sobre `apple-design.css:5290` → texto blanco sobre bg claro = invisible. Reporte Mariano 2026-10-20 post-v1377 (ORDEN 448 ADRIAN HORACIO VALIÑA, SKU EXGTVS70MH4AR en `repeat-sku`).
+
+**Cambio**: `index.html` → después de la regla v1377, agrego 4 bloques CSS con override por warning class:
+- `tr.repeat-sku` → `color:#9a3412` (naranja oscuro, matchea el bg naranja pastel)
+- `tr.warn-quiebra` → `color:#78350f` (marrón oscuro, matchea bg amarillo pastel)
+- `tr.warn-duplicado` → `color:#7f1d1d` (rojo oscuro, matchea bg rojo pastel)
+- `tr.repeat-sku.exceed` + `tr.repeat-sku.warn-duplicado` → `color:var(--color-danger-strong)` (matchea bg rosa pastel)
+
+Cada bloque cubre los 4 estados (`:hover`, `:focus-within`, `.highlighted`, `.selected`) × 2 columnas (`td.disp-sap-col`, `td.pedido-final-col`) × 2 niveles (td + div interno). Specificity `.CLASS.CLASS` o `.CLASS` gana sobre v1377 single `.CLASS` (todas con !important).
+
+APP_VERSION v1377 → v1378. CACHE_VERSION v1377 → v1378.
+
+**Por qué**: v1377 fue un fix 1-línea asumiendo que todas las rows en hover tenían bg azul marino. Falso: 3 warning classes mantienen bg claro. Fix completo mantiene legibilidad en TODOS los estados preservando la señal visual del warning.
+
+**Verificación**: abrir modal "Pedido en espera" con cliente que tenga SKUs repetidos (warning repeat-sku, bg naranja pastel) + hover sobre fila → valor "Libre para la venta" debe verse en naranja oscuro. Idem con `warn-quiebra` (amarillo → marrón) y `warn-duplicado` (rojo pastel → rojo oscuro).
+
+**Rollback**: revertir el commit. Reintroduce el bug de celda vacía en warning rows pero mantiene v1377 para rows normales. Alternativa drástica: revertir v1377+v1378 juntos y volver al color azul marino #1e3a8a de v1369 (vuelve el bug original pero más leve, azul marino sobre azul marino ligeramente discernible al mover el cursor).
+
 ### v1377 (2026-10-20) — Modal Pedido en espera · fix color texto hover en columnas Libre para la venta + Pedido Final
 
 **Antes**: en el modal "Pedido en espera", al pasar el cursor sobre una fila, las celdas de "LIBRE PARA LA VENTA" y "PEDIDO FINAL" aparecían **vacías** — el valor "0" (u otro) no se veía. Reporte Mariano 2026-10-20 (screenshot ORDEN 447 FERNANDO NADIR PERALTA, SKU EXGC66MHBAR).
