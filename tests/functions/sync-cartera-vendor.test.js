@@ -43,10 +43,74 @@ function makeFakeBqClient(rows) {
 describe('handleSyncCarteraVendor', () => {
   it('2 vendors + 3 clientes cada uno -> 2 docs', async () => {
     const rows = [
-      { vendor_key: 'VDE_A', client_id: 'a1', card_code: 'C1', client_name: 'Cli A1', province: null, loc_name: null, cli_tipo: null, ultima_visita_presencial: '2026-10-15', ultimo_contacto: null, ultima_compra: '2026-10-10', facturado_12m: 100, deuda_abierta: 0, dias_sin_visita_presencial: 5, dias_sin_contacto: null, dias_sin_compra: 10 },
-      { vendor_key: 'VDE_A', client_id: 'a2', card_code: 'C2', client_name: 'Cli A2', province: null, loc_name: null, cli_tipo: null, ultima_visita_presencial: null, ultimo_contacto: null, ultima_compra: null, facturado_12m: 0, deuda_abierta: 0, dias_sin_visita_presencial: null, dias_sin_contacto: null, dias_sin_compra: null },
-      { vendor_key: 'VDE_A', client_id: 'a3', card_code: null, client_name: 'Cli A3', province: null, loc_name: null, cli_tipo: null, ultima_visita_presencial: '2026-08-01', ultimo_contacto: null, ultima_compra: '2026-05-01', facturado_12m: 50, deuda_abierta: 0, dias_sin_visita_presencial: 80, dias_sin_contacto: null, dias_sin_compra: 172 },
-      { vendor_key: 'VDE_B', client_id: 'b1', card_code: 'C10', client_name: 'Cli B1', province: null, loc_name: null, cli_tipo: null, ultima_visita_presencial: '2026-10-18', ultimo_contacto: null, ultima_compra: '2026-10-19', facturado_12m: 500, deuda_abierta: 1000, dias_sin_visita_presencial: 2, dias_sin_contacto: null, dias_sin_compra: 1 },
+      {
+        vendor_key: 'VDE_A',
+        client_id: 'a1',
+        card_code: 'C1',
+        client_name: 'Cli A1',
+        province: null,
+        loc_name: null,
+        cli_tipo: null,
+        ultima_visita_presencial: '2026-10-15',
+        ultimo_contacto: null,
+        ultima_compra: '2026-10-10',
+        facturado_12m: 100,
+        deuda_abierta: 0,
+        dias_sin_visita_presencial: 5,
+        dias_sin_contacto: null,
+        dias_sin_compra: 10,
+      },
+      {
+        vendor_key: 'VDE_A',
+        client_id: 'a2',
+        card_code: 'C2',
+        client_name: 'Cli A2',
+        province: null,
+        loc_name: null,
+        cli_tipo: null,
+        ultima_visita_presencial: null,
+        ultimo_contacto: null,
+        ultima_compra: null,
+        facturado_12m: 0,
+        deuda_abierta: 0,
+        dias_sin_visita_presencial: null,
+        dias_sin_contacto: null,
+        dias_sin_compra: null,
+      },
+      {
+        vendor_key: 'VDE_A',
+        client_id: 'a3',
+        card_code: null,
+        client_name: 'Cli A3',
+        province: null,
+        loc_name: null,
+        cli_tipo: null,
+        ultima_visita_presencial: '2026-08-01',
+        ultimo_contacto: null,
+        ultima_compra: '2026-05-01',
+        facturado_12m: 50,
+        deuda_abierta: 0,
+        dias_sin_visita_presencial: 80,
+        dias_sin_contacto: null,
+        dias_sin_compra: 172,
+      },
+      {
+        vendor_key: 'VDE_B',
+        client_id: 'b1',
+        card_code: 'C10',
+        client_name: 'Cli B1',
+        province: null,
+        loc_name: null,
+        cli_tipo: null,
+        ultima_visita_presencial: '2026-10-18',
+        ultimo_contacto: null,
+        ultima_compra: '2026-10-19',
+        facturado_12m: 500,
+        deuda_abierta: 1000,
+        dias_sin_visita_presencial: 2,
+        dias_sin_contacto: null,
+        dias_sin_compra: 1,
+      },
     ];
     const fbDb = makeFakeFbDb();
     const bqClient = makeFakeBqClient(rows);
@@ -72,11 +136,27 @@ describe('handleSyncCarteraVendor', () => {
 
   it('vendor huerfano -> se borra', async () => {
     const rows = [
-      { vendor_key: 'VDE_LIVE', client_id: 'x1', card_code: 'C1', client_name: 'X', province: null, loc_name: null, cli_tipo: null, ultima_visita_presencial: null, ultimo_contacto: null, ultima_compra: null, facturado_12m: 0, deuda_abierta: 0, dias_sin_visita_presencial: null, dias_sin_contacto: null, dias_sin_compra: null },
+      {
+        vendor_key: 'VDE_LIVE',
+        client_id: 'x1',
+        card_code: 'C1',
+        client_name: 'X',
+        province: null,
+        loc_name: null,
+        cli_tipo: null,
+        ultima_visita_presencial: null,
+        ultimo_contacto: null,
+        ultima_compra: null,
+        facturado_12m: 0,
+        deuda_abierta: 0,
+        dias_sin_visita_presencial: null,
+        dias_sin_contacto: null,
+        dias_sin_compra: null,
+      },
     ];
     const fbDb = makeFakeFbDb({
-      'VDE_LIVE': { vendorKey: 'VDE_LIVE', clientes: [] },
-      'VDE_ZOMBIE': { vendorKey: 'VDE_ZOMBIE', clientes: [{ clientId: 'z1' }] },
+      VDE_LIVE: { vendorKey: 'VDE_LIVE', clientes: [] },
+      VDE_ZOMBIE: { vendorKey: 'VDE_ZOMBIE', clientes: [{ clientId: 'z1' }] },
     });
     const bqClient = makeFakeBqClient(rows);
     const r = await handleSyncCarteraVendor({ fbDb, bqClient, log: vi.fn() });
@@ -87,7 +167,23 @@ describe('handleSyncCarteraVendor', () => {
 
   it('idempotencia: correr 2x produce el mismo state', async () => {
     const rows = [
-      { vendor_key: 'V1', client_id: 'c1', card_code: 'CC1', client_name: 'Cli', province: null, loc_name: null, cli_tipo: null, ultima_visita_presencial: '2026-10-15', ultimo_contacto: null, ultima_compra: '2026-10-10', facturado_12m: 100, deuda_abierta: 0, dias_sin_visita_presencial: 5, dias_sin_contacto: null, dias_sin_compra: 10 },
+      {
+        vendor_key: 'V1',
+        client_id: 'c1',
+        card_code: 'CC1',
+        client_name: 'Cli',
+        province: null,
+        loc_name: null,
+        cli_tipo: null,
+        ultima_visita_presencial: '2026-10-15',
+        ultimo_contacto: null,
+        ultima_compra: '2026-10-10',
+        facturado_12m: 100,
+        deuda_abierta: 0,
+        dias_sin_visita_presencial: 5,
+        dias_sin_contacto: null,
+        dias_sin_compra: 10,
+      },
     ];
     const fbDb = makeFakeFbDb();
     const bqClient = makeFakeBqClient(rows);
@@ -95,13 +191,33 @@ describe('handleSyncCarteraVendor', () => {
     const after1 = JSON.stringify(fbDb._store.get('V1'));
     await handleSyncCarteraVendor({ fbDb, bqClient, log: vi.fn() });
     const after2 = JSON.stringify(fbDb._store.get('V1'));
-    const parse = (s) => { const o = JSON.parse(s); delete o.snapshotAt; return o; };
+    const parse = (s) => {
+      const o = JSON.parse(s);
+      delete o.snapshotAt;
+      return o;
+    };
     expect(parse(after1)).toEqual(parse(after2));
   });
 
   it('cliente sin cardCode se incluye con facturado12M=0 y deudaAbierta=0', async () => {
     const rows = [
-      { vendor_key: 'V1', client_id: 'no_sap', card_code: null, client_name: 'Nuevo', province: 'BA', loc_name: 'CABA', cli_tipo: null, ultima_visita_presencial: '2026-10-15', ultimo_contacto: null, ultima_compra: null, facturado_12m: 0, deuda_abierta: 0, dias_sin_visita_presencial: 5, dias_sin_contacto: null, dias_sin_compra: null },
+      {
+        vendor_key: 'V1',
+        client_id: 'no_sap',
+        card_code: null,
+        client_name: 'Nuevo',
+        province: 'BA',
+        loc_name: 'CABA',
+        cli_tipo: null,
+        ultima_visita_presencial: '2026-10-15',
+        ultimo_contacto: null,
+        ultima_compra: null,
+        facturado_12m: 0,
+        deuda_abierta: 0,
+        dias_sin_visita_presencial: 5,
+        dias_sin_contacto: null,
+        dias_sin_compra: null,
+      },
     ];
     const fbDb = makeFakeFbDb();
     const bqClient = makeFakeBqClient(rows);
@@ -114,7 +230,7 @@ describe('handleSyncCarteraVendor', () => {
   });
 
   it('0 rows BQ -> 0 docs escritos, pero si borra huerfanos existentes', async () => {
-    const fbDb = makeFakeFbDb({ 'VDE_OLD': { vendorKey: 'VDE_OLD', clientes: [] } });
+    const fbDb = makeFakeFbDb({ VDE_OLD: { vendorKey: 'VDE_OLD', clientes: [] } });
     const bqClient = makeFakeBqClient([]);
     const r = await handleSyncCarteraVendor({ fbDb, bqClient, log: vi.fn() });
     expect(r.vendorsProcessed).toBe(0);

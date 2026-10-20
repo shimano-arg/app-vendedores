@@ -5,14 +5,23 @@ import { computeCounts, normalizeClienteRow } from '../../functions/core/cartera
 describe('computeCounts', () => {
   it('array vacio -> todos los counts en 0', () => {
     expect(computeCounts([])).toEqual({
-      total: 0, baseActiva90d: 0, dormidosVisita30d: 0,
-      dormidosCompra90d: 0, nuncaVisitados: 0, nuncaCompraron: 0,
+      total: 0,
+      baseActiva90d: 0,
+      dormidosVisita30d: 0,
+      dormidosCompra90d: 0,
+      nuncaVisitados: 0,
+      nuncaCompraron: 0,
     });
   });
 
   it('cliente nunca visito ni compro -> nuncaVisitados + nuncaCompraron', () => {
     const r = computeCounts([
-      { ultimaVisitaPresencial: null, diasSinVisitaPresencial: null, ultimaCompra: null, diasSinCompra: null },
+      {
+        ultimaVisitaPresencial: null,
+        diasSinVisitaPresencial: null,
+        ultimaCompra: null,
+        diasSinCompra: null,
+      },
     ]);
     expect(r.total).toBe(1);
     expect(r.nuncaVisitados).toBe(1);
@@ -24,7 +33,12 @@ describe('computeCounts', () => {
 
   it('cliente base activa (diasSinCompra <= 90) -> baseActiva90d', () => {
     const r = computeCounts([
-      { ultimaVisitaPresencial: '2026-10-01', diasSinVisitaPresencial: 20, ultimaCompra: '2026-10-05', diasSinCompra: 15 },
+      {
+        ultimaVisitaPresencial: '2026-10-01',
+        diasSinVisitaPresencial: 20,
+        ultimaCompra: '2026-10-05',
+        diasSinCompra: 15,
+      },
     ]);
     expect(r.baseActiva90d).toBe(1);
     expect(r.dormidosCompra90d).toBe(0);
@@ -33,7 +47,12 @@ describe('computeCounts', () => {
 
   it('cliente dormido visita + dormido compra simultaneo', () => {
     const r = computeCounts([
-      { ultimaVisitaPresencial: '2026-08-01', diasSinVisitaPresencial: 80, ultimaCompra: '2026-06-01', diasSinCompra: 141 },
+      {
+        ultimaVisitaPresencial: '2026-08-01',
+        diasSinVisitaPresencial: 80,
+        ultimaCompra: '2026-06-01',
+        diasSinCompra: 141,
+      },
     ]);
     expect(r.dormidosVisita30d).toBe(1);
     expect(r.dormidosCompra90d).toBe(1);
@@ -43,14 +62,24 @@ describe('computeCounts', () => {
 
   it('exactamente 30d visita -> NO cuenta como dormido (umbral estricto >30)', () => {
     const r = computeCounts([
-      { ultimaVisitaPresencial: '2026-09-20', diasSinVisitaPresencial: 30, ultimaCompra: null, diasSinCompra: null },
+      {
+        ultimaVisitaPresencial: '2026-09-20',
+        diasSinVisitaPresencial: 30,
+        ultimaCompra: null,
+        diasSinCompra: null,
+      },
     ]);
     expect(r.dormidosVisita30d).toBe(0);
   });
 
   it('exactamente 90d compra -> base activa (umbral <=90)', () => {
     const r = computeCounts([
-      { ultimaVisitaPresencial: null, diasSinVisitaPresencial: null, ultimaCompra: '2026-07-22', diasSinCompra: 90 },
+      {
+        ultimaVisitaPresencial: null,
+        diasSinVisitaPresencial: null,
+        ultimaCompra: '2026-07-22',
+        diasSinCompra: 90,
+      },
     ]);
     expect(r.baseActiva90d).toBe(1);
     expect(r.dormidosCompra90d).toBe(0);
@@ -58,7 +87,12 @@ describe('computeCounts', () => {
 
   it('91d compra -> dormido 90d, no base activa', () => {
     const r = computeCounts([
-      { ultimaVisitaPresencial: null, diasSinVisitaPresencial: null, ultimaCompra: '2026-07-21', diasSinCompra: 91 },
+      {
+        ultimaVisitaPresencial: null,
+        diasSinVisitaPresencial: null,
+        ultimaCompra: '2026-07-21',
+        diasSinCompra: 91,
+      },
     ]);
     expect(r.baseActiva90d).toBe(0);
     expect(r.dormidosCompra90d).toBe(1);
@@ -66,11 +100,36 @@ describe('computeCounts', () => {
 
   it('mix de 5 clientes con breakdown esperado', () => {
     const clientes = [
-      { ultimaVisitaPresencial: '2026-10-15', diasSinVisitaPresencial: 5,  ultimaCompra: '2026-10-10', diasSinCompra: 10 },
-      { ultimaVisitaPresencial: '2026-09-10', diasSinVisitaPresencial: 40, ultimaCompra: '2026-07-01', diasSinCompra: 111 },
-      { ultimaVisitaPresencial: null,         diasSinVisitaPresencial: null, ultimaCompra: null,       diasSinCompra: null },
-      { ultimaVisitaPresencial: null,         diasSinVisitaPresencial: null, ultimaCompra: '2026-10-01', diasSinCompra: 19 },
-      { ultimaVisitaPresencial: '2026-10-18', diasSinVisitaPresencial: 2,  ultimaCompra: null,         diasSinCompra: null },
+      {
+        ultimaVisitaPresencial: '2026-10-15',
+        diasSinVisitaPresencial: 5,
+        ultimaCompra: '2026-10-10',
+        diasSinCompra: 10,
+      },
+      {
+        ultimaVisitaPresencial: '2026-09-10',
+        diasSinVisitaPresencial: 40,
+        ultimaCompra: '2026-07-01',
+        diasSinCompra: 111,
+      },
+      {
+        ultimaVisitaPresencial: null,
+        diasSinVisitaPresencial: null,
+        ultimaCompra: null,
+        diasSinCompra: null,
+      },
+      {
+        ultimaVisitaPresencial: null,
+        diasSinVisitaPresencial: null,
+        ultimaCompra: '2026-10-01',
+        diasSinCompra: 19,
+      },
+      {
+        ultimaVisitaPresencial: '2026-10-18',
+        diasSinVisitaPresencial: 2,
+        ultimaCompra: null,
+        diasSinCompra: null,
+      },
     ];
     const r = computeCounts(clientes);
     expect(r.total).toBe(5);
@@ -121,11 +180,21 @@ describe('normalizeClienteRow', () => {
 
   it('preserva nulls en fechas y dias (cliente nunca compro ni visito)', () => {
     const bqRow = {
-      vendor_key: 'X', client_id: 'id1', card_code: null, client_name: 'C1',
-      province: null, loc_name: null, cli_tipo: null,
-      ultima_visita_presencial: null, ultimo_contacto: null, ultima_compra: null,
-      facturado_12m: 0, deuda_abierta: 0,
-      dias_sin_visita_presencial: null, dias_sin_contacto: null, dias_sin_compra: null,
+      vendor_key: 'X',
+      client_id: 'id1',
+      card_code: null,
+      client_name: 'C1',
+      province: null,
+      loc_name: null,
+      cli_tipo: null,
+      ultima_visita_presencial: null,
+      ultimo_contacto: null,
+      ultima_compra: null,
+      facturado_12m: 0,
+      deuda_abierta: 0,
+      dias_sin_visita_presencial: null,
+      dias_sin_contacto: null,
+      dias_sin_compra: null,
     };
     const r = normalizeClienteRow(bqRow);
     expect(r.cardCode).toBe(null);
@@ -137,13 +206,21 @@ describe('normalizeClienteRow', () => {
 
   it('BQ date values como Date object se stringifican a YYYY-MM-DD', () => {
     const bqRow = {
-      vendor_key: 'X', client_id: 'id1', card_code: 'C1', client_name: 'C1',
-      province: 'X', loc_name: 'X', cli_tipo: 'X',
+      vendor_key: 'X',
+      client_id: 'id1',
+      card_code: 'C1',
+      client_name: 'C1',
+      province: 'X',
+      loc_name: 'X',
+      cli_tipo: 'X',
       ultima_visita_presencial: { value: '2026-09-15' },
       ultimo_contacto: new Date('2026-10-02T00:00:00Z'),
       ultima_compra: '2026-10-05',
-      facturado_12m: 0, deuda_abierta: 0,
-      dias_sin_visita_presencial: 35, dias_sin_contacto: 18, dias_sin_compra: 15,
+      facturado_12m: 0,
+      deuda_abierta: 0,
+      dias_sin_visita_presencial: 35,
+      dias_sin_contacto: 18,
+      dias_sin_compra: 15,
     };
     const r = normalizeClienteRow(bqRow);
     expect(r.ultimaVisitaPresencial).toBe('2026-09-15');
@@ -153,11 +230,21 @@ describe('normalizeClienteRow', () => {
 
   it('facturado12M y deudaAbierta sin valor BQ -> 0', () => {
     const bqRow = {
-      vendor_key: 'X', client_id: 'id1', card_code: null, client_name: 'C1',
-      province: null, loc_name: null, cli_tipo: null,
-      ultima_visita_presencial: null, ultimo_contacto: null, ultima_compra: null,
-      facturado_12m: null, deuda_abierta: undefined,
-      dias_sin_visita_presencial: null, dias_sin_contacto: null, dias_sin_compra: null,
+      vendor_key: 'X',
+      client_id: 'id1',
+      card_code: null,
+      client_name: 'C1',
+      province: null,
+      loc_name: null,
+      cli_tipo: null,
+      ultima_visita_presencial: null,
+      ultimo_contacto: null,
+      ultima_compra: null,
+      facturado_12m: null,
+      deuda_abierta: undefined,
+      dias_sin_visita_presencial: null,
+      dias_sin_contacto: null,
+      dias_sin_compra: null,
     };
     const r = normalizeClienteRow(bqRow);
     expect(r.facturado12M).toBe(0);

@@ -38,6 +38,7 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
+import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
@@ -365,6 +366,33 @@ export const syncSapPaymentsToApp = onSchedule(
       log: (msg, extra) => console.log(msg, extra || {}),
     });
     console.log('syncSapPaymentsToApp summary', result);
+  }
+);
+
+/**
+ * syncCarteraVendorScheduled (v1283, 2026-10-20).
+ * Snapshot nightly 04:00 ART desde v_cartera_vendor BQ -> cartera_vendor/{vendorKey}.
+ * Spec: docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md
+ */
+export const syncCarteraVendorScheduled = onSchedule(
+  {
+    schedule: '0 4 * * *',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    region: 'southamerica-east1',
+    memory: '512MiB',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const { BigQuery } = await import('@google-cloud/bigquery');
+    const bqClient = new BigQuery({ projectId: 'app-vendedores-shimano' });
+    const fbDb = getFirestore();
+    try {
+      const r = await handleSyncCarteraVendor({ bqClient, fbDb, log: console.log });
+      console.log('syncCarteraVendorScheduled summary', r);
+    } catch (e) {
+      console.error('syncCarteraVendorScheduled failed', e);
+      throw e;
+    }
   }
 );
 

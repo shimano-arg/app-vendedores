@@ -50,7 +50,11 @@ export function computeCounts(clientes) {
     if (c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra <= 90) {
       baseActiva90d++;
     }
-    if (c.diasSinVisitaPresencial !== null && c.diasSinVisitaPresencial !== undefined && c.diasSinVisitaPresencial > 30) {
+    if (
+      c.diasSinVisitaPresencial !== null &&
+      c.diasSinVisitaPresencial !== undefined &&
+      c.diasSinVisitaPresencial > 30
+    ) {
       dormidosVisita30d++;
     }
     if (c.diasSinCompra !== null && c.diasSinCompra !== undefined && c.diasSinCompra > 90) {
@@ -63,7 +67,14 @@ export function computeCounts(clientes) {
       nuncaCompraron++;
     }
   }
-  return { total, baseActiva90d, dormidosVisita30d, dormidosCompra90d, nuncaVisitados, nuncaCompraron };
+  return {
+    total,
+    baseActiva90d,
+    dormidosVisita30d,
+    dormidosCompra90d,
+    nuncaVisitados,
+    nuncaCompraron,
+  };
 }
 
 /**
@@ -132,21 +143,30 @@ export async function handleSyncCarteraVendor(deps) {
   const [rows] = await deps.bqClient.query(BQ_QUERY);
   log('syncCarteraVendor: BQ rows fetched', { count: rows.length });
 
-  /** @type {Map<string, Array<Object>>} */
+  /** @type {Map<string, Array<any>>} */
   const byVendor = new Map();
   for (const row of rows) {
     const key = row.vendor_key;
     if (!key) continue;
-    if (!byVendor.has(key)) byVendor.set(key, []);
-    byVendor.get(key).push(normalizeClienteRow(row));
+    let list = byVendor.get(key);
+    if (!list) {
+      list = [];
+      byVendor.set(key, list);
+    }
+    list.push(normalizeClienteRow(row));
   }
 
   const col = deps.fbDb.collection('cartera_vendor');
   const writeBatch = deps.fbDb.batch();
   for (const [vendorKey, clientes] of byVendor) {
-    const counts = computeCounts(clientes);
+    const counts = computeCounts(/** @type {any} */ (clientes));
     writeBatch.set(col.doc(vendorKey), {
-      vendorKey, vendorNameDisplay: vendorKey, snapshotAt, snapshotDate, counts, clientes,
+      vendorKey,
+      vendorNameDisplay: vendorKey,
+      snapshotAt,
+      snapshotDate,
+      counts,
+      clientes,
     });
   }
   await writeBatch.commit();
@@ -155,7 +175,7 @@ export async function handleSyncCarteraVendor(deps) {
   const existingSnap = await col.get();
   const deleteBatch = deps.fbDb.batch();
   let deletedOrphans = 0;
-  existingSnap.forEach((doc) => {
+  existingSnap.forEach((/** @type {any} */ doc) => {
     if (!byVendor.has(doc.id)) {
       deleteBatch.delete(doc.ref);
       deletedOrphans++;
@@ -166,7 +186,13 @@ export async function handleSyncCarteraVendor(deps) {
     log('syncCarteraVendor: deleted orphans', { count: deletedOrphans });
   }
 
-  return { vendorsProcessed: byVendor.size, totalClientes: rows.length, deletedOrphans, snapshotAt, snapshotDate };
+  return {
+    vendorsProcessed: byVendor.size,
+    totalClientes: rows.length,
+    deletedOrphans,
+    snapshotAt,
+    snapshotDate,
+  };
 }
 
 /**
@@ -177,10 +203,12 @@ export async function handleSyncCarteraVendor(deps) {
 function toArtDate(d) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Argentina/Buenos_Aires',
-    year: 'numeric', month: '2-digit', day: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).formatToParts(d);
-  const y = parts.find((p) => p.type === 'year').value;
-  const m = parts.find((p) => p.type === 'month').value;
-  const dd = parts.find((p) => p.type === 'day').value;
+  const y = parts.find((p) => p.type === 'year')?.value ?? '0000';
+  const m = parts.find((p) => p.type === 'month')?.value ?? '00';
+  const dd = parts.find((p) => p.type === 'day')?.value ?? '00';
   return `${y}-${m}-${dd}`;
 }
