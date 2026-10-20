@@ -229,7 +229,16 @@ export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap, invoi
   }
   const hasClosure = closure.newLines !== null;
 
-  if (!amountsChanged && !hasClosure) {
+  // v1282 (2026-10-20): detectar cobradoAt faltante incluso cuando amounts
+  // no cambiaron. Agent #3 post-deploy v1281 reporto 155 pedidos paid=full
+  // sin cobradoAt (cobrados antes de v1035 cuando se agrego el campo).
+  // Sin este fix, applyPaymentUpdate solo escribia cobradoAt dentro del
+  // bloque `if (amountsChanged)` que NUNCA se evaluaba true para pedidos
+  // que ya tenian paidStatus='paid' y amounts estables.
+  const needsCobradoAtBackfill =
+    (paidStatus === 'paid' || paidStatus === 'partial') && !data.cobradoAt;
+
+  if (!amountsChanged && !hasClosure && !needsCobradoAtBackfill) {
     return {
       updated: false,
       missedCount,
@@ -247,18 +256,21 @@ export async function applyPaymentUpdate(deps, pedidoId, data, invoiceMap, invoi
   // amounts corre primero porque es el critical path (planner column).
   const docRef = deps.fbDb.collection('pedidos').doc(pedidoId);
 
-  if (amountsChanged) {
+  if (amountsChanged || needsCobradoAtBackfill) {
     /** @type {Record<string, any>} */
-    const amountsPatch = {
-      invoicedAmount,
-      paidAmount,
-      paidStatus,
-      paidSyncedAt: nowIso,
-    };
+    const amountsPatch = {};
+    if (amountsChanged) {
+      amountsPatch.invoicedAmount = invoicedAmount;
+      amountsPatch.paidAmount = paidAmount;
+      amountsPatch.paidStatus = paidStatus;
+      amountsPatch.paidSyncedAt = nowIso;
+    }
     // Planner Kanban timestamp (Bug #2a — "cuánto tiempo lleva en Cobrado"):
     // registrar la primera vez que detectamos pago (paid|partial). Preserva la
     // primera fecha aunque haya ajustes posteriores (nunca se sobrescribe).
-    if ((paidStatus === 'paid' || paidStatus === 'partial') && !data.cobradoAt) {
+    // v1282: tambien corre cuando amounts no cambiaron pero cobradoAt falta
+    // (pedidos paid pre-v1035 que nunca tuvieron el timestamp seteado).
+    if (needsCobradoAtBackfill) {
       amountsPatch.cobradoAt = nowIso;
     }
     await docRef.update(amountsPatch);

@@ -83,6 +83,12 @@ export function computeStaleLineClosure(pedido, opts = {}) {
     if (!CLOSEABLE_STATES.has(state)) return line;
     const qtyOpen = Number(line.qtyOpen) || 0;
     if (qtyOpen <= 0) return line;
+    // v1282 (2026-10-20): guard contra Infinity/NaN. Firestore no acepta
+    // Infinity; sin este guard un dato corrupto (qtyOpen=Infinity por bug
+    // de upstream) propaga Infinity a qtyCancelled y revienta el write
+    // batch. El try/catch del caller lo captura, pero mejor filtrar aca.
+    // Precedente: silent-failure hunter LOW #6 (2026-10-19).
+    if (!Number.isFinite(qtyOpen)) return line;
 
     closedLines.push({
       idx,

@@ -183,6 +183,46 @@ describe('computeStaleLineClosure — idempotencia + edge cases', () => {
     expect(computeStaleLineClosure(p)).toEqual({ closedLines: [], newLines: null });
   });
 
+  it('v1282: qtyOpen = Infinity (dato sucio) → no-op (guard Number.isFinite)', () => {
+    const p = {
+      paidStatus: 'paid',
+      lines: [
+        {
+          code: 'X',
+          state: 'confirmed',
+          qty: 1,
+          qtyOpen: Number.POSITIVE_INFINITY,
+          qtyCancelled: 0,
+        },
+      ],
+    };
+    expect(computeStaleLineClosure(p)).toEqual({ closedLines: [], newLines: null });
+  });
+
+  it('v1282: qtyOpen = -Infinity (dato sucio) → no-op (ya fallaba por <=0, pero verificamos)', () => {
+    const p = {
+      paidStatus: 'paid',
+      lines: [
+        {
+          code: 'X',
+          state: 'confirmed',
+          qty: 1,
+          qtyOpen: Number.NEGATIVE_INFINITY,
+          qtyCancelled: 0,
+        },
+      ],
+    };
+    expect(computeStaleLineClosure(p)).toEqual({ closedLines: [], newLines: null });
+  });
+
+  it('v1282: qtyOpen = NaN (dato sucio) → no-op (Number(NaN)||0 = 0, pero verificamos guard)', () => {
+    const p = {
+      paidStatus: 'paid',
+      lines: [{ code: 'X', state: 'confirmed', qty: 1, qtyOpen: Number.NaN, qtyCancelled: 0 }],
+    };
+    expect(computeStaleLineClosure(p)).toEqual({ closedLines: [], newLines: null });
+  });
+
   it('qtyOpen negativo (dato sucio) → no-op (no cerramos negativos)', () => {
     const p = {
       paidStatus: 'paid',
