@@ -611,4 +611,27 @@ Antes de `gh pr merge` a `main` o `firebase deploy` a prod:
 
 **Si falta cualquier item → NO commit. Completar primero.**
 
+## 31. AUDITORIA != correccion -- tareas de auditoria solo producen informe/tests (2026-10-20)
+
+**Regla fuerte**: cuando la sesion arranca con "auditoria" o "audit" explicito, los **unicos** archivos nuevos permitidos son:
+
+1. Informe de auditoria: `docs/auditoria/*.md` o `docs/AUDIT_*.md`.
+2. Tests o scripts de reproduccion: `tests/unit/audit/*.test.js`, `scripts/audit/*.{cjs,py,mjs}`.
+3. Reglas durables en `CLAUDE.md` (como esta).
+4. Plan de la auditoria en `docs/superpowers/plans/*.md`.
+
+**Prohibido** durante una auditoria:
+- Modificar `src/**`, `functions/**`, `index.html`, `firestore.rules`, `firebase.json`, bundles, service worker.
+- Reescribir codigo "mientras documento el bug". El fix va en otra tarea, con su propio buy-in y su propio PR.
+- Correr queries contra base real sin **gate humano explicito** (STOP, pedir OK a Mariano, pegar el output de `--dry-run` primero).
+
+**Que si se puede**:
+- Agregar tests que **fallan a proposito** reproduciendo el bug. Esos tests son evidencia; cuando se haga el fix, pasan a verde.
+- Agregar scripts `--dry-run` que imprimen la query sin ejecutarla.
+- Dejar propuestas de fix en el informe (con archivo:linea + impacto + riesgo) **sin implementarlas**.
+
+**Si durante una auditoria encontras un bug que "es un oneliner"**: NO lo arregles. Documentalo en el informe y segui. El fix va en otra tarea para que Mariano lo revise aparte.
+
+**Precedente**: auditoria flujo stock CRM 2026-10-20 (`docs/superpowers/plans/2026-10-20-auditoria-stock-crm.md`). El prompt original definia 7 entregables; mezclar fix y auditoria en el mismo PR enmascara que cosa es evidencia y que cosa es cambio de comportamiento.
+
 **Ejemplo de referencia**: `docs/AUDIT_SHIMANO_2026-10-07.md` — 13 fixes documentados en 4 rounds con el formato completo. Usar como calco.
