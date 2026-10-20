@@ -3870,7 +3870,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     <button class="btn-rendiciones-top" id="rendiciones-top-btn" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span id="tab-rend-count-btn" style="display:none;background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px">0</span></button>
     <button class="btn-analisis" id="analisis-btn" onclick="openExportAnalisis()" style="display:none" title="Formatos avanzados (Power BI / ML / ZIP fotos) - requiere PIN">Exportar para An&aacute;lisis</button>
     <button class="btn-export" onclick="_safeOpenExportFormatModal()" title="Elegir formato: Reportes Excel (uso operativo) o Dataset ZIP para pipelines de ML (solo admin/gerente)">Exportar a Excel</button>
-    <button class="btn-seguimiento" id="seguimiento-btn" onclick="openSeguimientoModal()" style="display:none" title="Panel de gestion comercial para vendedores internos">Seguimiento</button>
+    <button class="btn-cartera" id="seguimiento-btn" onclick="openCarteraModal()" style="display:none" title="Analisis de cartera por vendedor">📊 Cartera</button>
     <!-- v420 (2026-08-06): Backorders + Asignacion Backorder ambos gated a admin
          (pedido del user - probamos con Mariano, si va bien lo abrimos a vendedores).
          `display:none` default; applyRolePermissions() los muestra si userRole === 'admin'. -->
@@ -4840,77 +4840,43 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       <div class="users-wrap" id="mis-camps-graficos-content" style="overflow-y:auto"></div>
     </div>
   </div>
-  <!-- SEGUIMIENTO: panel para vendedores internos (Santiago / Ioannis) y admin/gerente.
-       Backend de permisos: openSeguimientoModal valida canViewSeguimiento(); cada
-       render adicional filtra usando getSeguimientoExternalSet(). El frontend NO
-       puede forzar visibilidad de otro VDE: aunque se manipule el dropdown via
-       devtools, los reducers descartan filas cuyo vendor no esta en el scope. -->
-  <div class="modal-overlay" id="seguimiento-modal" onclick="if(event.target===this)closeSeguimientoModal()">
-    <div class="modal-box" style="width:min(1100px,98vw);max-height:92vh;display:flex;flex-direction:column">
-      <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
+  <!-- v1283 (2026-10-20): modal "Analisis de Cartera por Vendedor".
+       Reemplaza el modal "Seguimiento" viejo. Shell minimo — el render
+       dinamico lo hace src/domains/cartera-vendor.js (chunk lazy).
+       Datos desde cartera_vendor/{vendorKey} Firestore (snapshot nightly
+       04:00 ART). Spec: docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md -->
+  <div class="modal-overlay" id="cartera-modal" onclick="if(event.target===this)closeCarteraModal()">
+    <div class="modal-box" style="width:min(1200px,98vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-head" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)">
         <div>
-          <h2>Seguimiento</h2>
-          <div class="subt" id="seg-subt">Panel de gestion comercial: visitas, pedidos, pendientes y oportunidades por vendedor externo asignado.</div>
+          <h2>📊 An&aacute;lisis de Cartera por Vendedor</h2>
+          <div class="subt" id="cartera-subtitle">Seleccion&aacute; un vendedor para ver su cartera.</div>
         </div>
-        <button class="modal-close" onclick="closeSeguimientoModal()">&times;</button>
+        <button class="modal-close" onclick="closeCarteraModal()">&times;</button>
       </div>
-      <div style="padding:14px 20px;overflow-y:auto;flex:1">
-        <!-- Filtros -->
-        <div class="seg-filters">
-          <label>Vendedor externo
-            <select id="seg-fvendor"><option value="ALL">Todos</option></select>
-          </label>
-          <label>Desde
-            <input type="date" id="seg-fdesde">
-          </label>
-          <label>Hasta
-            <input type="date" id="seg-fhasta">
-          </label>
-          <label>Cliente / tienda
-            <input type="text" id="seg-fcliente" placeholder="Buscar nombre...">
-          </label>
-          <label>Estado
-            <select id="seg-festado">
-              <option value="ALL">Todos</option>
-              <option value="green">Normal</option>
-              <option value="yellow">Requiere revisi&oacute;n</option>
-              <option value="red">Cr&iacute;tico</option>
-            </select>
-          </label>
-          <label class="chk">
-            <input type="checkbox" id="seg-fpend" onchange="renderSeguimientoTab()"> Solo pendientes / oportunidades
-          </label>
-        </div>
-        <div class="seg-aplicar-wrap">
-          <button class="seg-aplicar-btn" onclick="renderSeguimientoTab()">Aplicar</button>
-        </div>
-        <!-- Stats cards arriba -->
-        <div class="seg-stats" id="seg-stats"></div>
-        <!-- Tabs -->
-        <div class="seg-tabs" id="seg-tabs">
-          <button class="seg-tab active" data-seg-tab="resumen" onclick="setSeguimientoTab('resumen')">Resumen</button>
-          <button class="seg-tab" data-seg-tab="visitas" onclick="setSeguimientoTab('visitas')">Visitas <span class="count" id="seg-count-visitas">0</span></button>
-          <button class="seg-tab" data-seg-tab="pedidos" onclick="setSeguimientoTab('pedidos')">Pedidos <span class="count" id="seg-count-pedidos">0</span></button>
-          <button class="seg-tab" data-seg-tab="pendientes" onclick="setSeguimientoTab('pendientes')">Pendientes <span class="count" id="seg-count-pendientes">0</span></button>
-          <button class="seg-tab" data-seg-tab="dead" onclick="setSeguimientoTab('dead')">Sin movimiento <span class="count" id="seg-count-dead">0</span></button>
-          <button class="seg-tab" data-seg-tab="opp" onclick="setSeguimientoTab('opp')">Oportunidades <span class="count" id="seg-count-opp">0</span></button>
-          <button class="seg-tab" data-seg-tab="duplas" onclick="setSeguimientoTab('duplas')">M&eacute;tricas duplas</button>
-        </div>
-        <div id="seg-content"></div>
+
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border-light);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:13px;color:var(--text-primary);font-weight:600">Vendedor:</label>
+        <select id="cartera-vendor-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-size:13px;min-width:240px" onchange="window.onCarteraVendorChange && window.onCarteraVendorChange()">
+          <option value="">— Elegir vendedor —</option>
+        </select>
+        <span id="cartera-snapshot-info" style="font-size:11px;color:var(--text-muted)"></span>
       </div>
-    </div>
-  </div>
-  <!-- Timeline modal: se abre al click de cualquier cliente desde Seguimiento -->
-  <div class="modal-overlay" id="seg-timeline-modal" onclick="if(event.target===this)closeSegTimeline()">
-    <div class="modal-box" style="width:min(720px,96vw);max-height:90vh;display:flex;flex-direction:column">
-      <div class="modal-head" style="background:linear-gradient(135deg,#0d9488,#5eead4)">
-        <div>
-          <h2 id="seg-tl-title">Timeline cliente</h2>
-          <div class="subt" id="seg-tl-sub"></div>
-        </div>
-        <button class="modal-close" onclick="closeSegTimeline()">&times;</button>
+
+      <div id="cartera-kpis" style="padding:12px 16px;display:none;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border-light)"></div>
+
+      <div id="cartera-chips" style="padding:8px 16px;display:none;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border-light)"></div>
+
+      <div style="padding:8px 16px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border-light)">
+        <input type="search" id="cartera-search" placeholder="Buscar cliente..." style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-size:13px" oninput="window.onCarteraSearchChange && window.onCarteraSearchChange()" />
+        <button id="cartera-export-btn" style="padding:6px 12px;background:#166534;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600" onclick="window.exportCarteraToExcel && window.exportCarteraToExcel()">📥 Exportar</button>
       </div>
-      <div style="padding:14px 20px;overflow-y:auto;flex:1" id="seg-tl-content"></div>
+
+      <div id="cartera-table-wrap" style="flex:1;overflow:auto;padding:0 16px">
+        <div id="cartera-loading" style="padding:40px;text-align:center;color:var(--text-muted);display:none">Cargando cartera...</div>
+        <div id="cartera-empty" style="padding:40px;text-align:center;color:var(--text-muted)">Eleg&iacute; un vendedor para ver su cartera.</div>
+        <table id="cartera-table" style="width:100%;border-collapse:collapse;font-size:13px;display:none"></table>
+      </div>
     </div>
   </div>
   <div class="modal-overlay" id="dashboard-modal" onclick="if(event.target===this)closeDashboardModal()">
