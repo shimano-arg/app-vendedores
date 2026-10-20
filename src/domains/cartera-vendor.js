@@ -402,8 +402,105 @@ function showTable() {
   if (chips) chips.style.display = 'flex';
 }
 
-// === Export Excel (stub — Task 12 completa) ===
-// @ts-ignore
-window.exportCarteraToExcel = function exportCarteraToExcel() {
-  alert('Exportar: pendiente de implementación en Task 12.');
+// === Export Excel ===
+window.exportCarteraToExcel = async function exportCarteraToExcel() {
+  if (!selectedVendor) {
+    alert('Elegí un vendedor primero.');
+    return;
+  }
+  const doc = carteraDocCache.get(selectedVendor);
+  if (!doc) {
+    alert('Sin data cargada.');
+    return;
+  }
+  const filtered = applyChipFilter(doc.clientes, activeChip);
+  const searched = searchQuery
+    ? filtered.filter((c) => String(c.clientName || '').toLowerCase().includes(searchQuery))
+    : filtered;
+  const sorted = sortClientes(searched, sortBy, sortDir);
+
+  const chipLabel = (CHIPS.find((c) => c.id === activeChip) || { label: 'Todos' }).label;
+  const title = `Cartera de ${selectedVendor} — ${chipLabel} — Snapshot ${doc.snapshotDate}`;
+
+  try {
+    if (typeof window.loadExcelJS === 'function') {
+      await window.loadExcelJS();
+    }
+    const ExcelJS = window.ExcelJS;
+    if (!ExcelJS) throw new Error('ExcelJS no disponible');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Cartera');
+
+    // Fila 1: titulo banda verde Shimano
+    ws.mergeCells('A1:L1');
+    const titleCell = ws.getCell('A1');
+    titleCell.value = title;
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF22C55E' } };
+    titleCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 30;
+
+    // Fila 2: headers
+    const headers = [
+      'Cliente',
+      'Provincia',
+      'Localidad',
+      'Tipo',
+      'Última visita presencial',
+      'Último contacto',
+      'Última compra',
+      'Fact 12M (ARS)',
+      'Deuda abierta (ARS)',
+      'Días sin visita',
+      'Días sin compra',
+      'CardCode SAP',
+    ];
+    const headerRow = ws.getRow(2);
+    headers.forEach((h, i) => {
+      const cell = headerRow.getCell(i + 1);
+      cell.value = h;
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.alignment = { horizontal: 'center' };
+    });
+
+    // Filas 3+: data
+    sorted.forEach((c, i) => {
+      const row = ws.getRow(3 + i);
+      row.getCell(1).value = c.clientName || '';
+      row.getCell(2).value = c.provincia || '';
+      row.getCell(3).value = c.localidad || '';
+      row.getCell(4).value = c.cliTipo || '';
+      row.getCell(5).value = c.ultimaVisitaPresencial || '';
+      row.getCell(6).value = c.ultimoContacto || '';
+      row.getCell(7).value = c.ultimaCompra || '';
+      row.getCell(8).value = c.facturado12M || 0;
+      row.getCell(8).numFmt = '"$"#,##0';
+      row.getCell(9).value = c.deudaAbierta || 0;
+      row.getCell(9).numFmt = '"$"#,##0';
+      row.getCell(10).value = c.diasSinVisitaPresencial;
+      row.getCell(11).value = c.diasSinCompra;
+      row.getCell(12).value = c.cardCode || '';
+    });
+
+    ws.columns.forEach((col, i) => {
+      col.width = i === 0 ? 30 : i === 4 || i === 5 || i === 6 ? 18 : 14;
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Cartera_${String(selectedVendor).replace(/\s+/g, '_')}_${activeChip}_${doc.snapshotDate}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error('exportCarteraToExcel failed', e);
+    alert('Error exportando: ' + String(e));
+  }
 };
