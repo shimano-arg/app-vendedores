@@ -1972,25 +1972,29 @@
   background: rgba(255, 59, 48, 0.03) !important;
   box-shadow: 0 2px 8px rgba(255, 59, 48, 0.10);
 }
-/* v1224 (2026-10-09): cards STOCK ASIG (source=stock-asignado-batch) deben
-   pintarse amarillo. El inline define .source-cpst pero el !important del
-   apple-design base pisaba el fondo. Override explicito con !important para
-   ganar la cascada. */
-.slft-wl-item.source-cpst {
-  background: #fde68a !important;
+/* v1396 (2026-10-21): cards STOCK ASIG tienen UN SOLO background (#fdba74
+   naranja) en todos los estados — con/sin has-exceed, con/sin hover, con
+   cualquier badge de vencimiento. La señal de excedente va EXCLUSIVAMENTE en
+   el border-left-color rojo. Reportó Mariano 2026-10-21 que al abrir la app
+   todas las cards STOCK ASIG se veían naranja y a los 3-4s algunas pasaban a
+   "amarillo" (#fde68a — pre-v1396) porque has-exceed se recalculaba al llegar
+   el snapshot de stock. Fix: UN solo background, cualquiera sea el render. */
+.slft-wl-item.source-cpst,
+.slft-wl-item.source-cpst:hover,
+.slft-wl-item.source-cpst.has-exceed,
+.slft-wl-item.source-cpst.has-exceed:hover {
+  background: #fdba74 !important;
+  color: #78350f !important;
   border: 2px solid #f59e0b !important;
   border-left: 6px solid #d97706 !important;
-  color: #78350f !important;
 }
-.slft-wl-item.source-cpst:hover {
-  background: #fcd34d !important;
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.15);
-}
-.slft-wl-item.source-cpst.has-exceed {
-  background: #fdba74 !important;
-}
+.slft-wl-item.source-cpst.has-exceed,
 .slft-wl-item.source-cpst.has-exceed:hover {
-  background: #fb923c !important;
+  border-left-color: #ff3b30 !important;
+}
+.slft-wl-item.source-cpst:hover,
+.slft-wl-item.source-cpst.has-exceed:hover {
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.15);
 }
 /* v1226 (2026-10-09): textos interiores en blanco para que se lean bien sobre
    el fondo amarillo (Mariano). Nombre bold en blanco puro + loc y meta tambien
