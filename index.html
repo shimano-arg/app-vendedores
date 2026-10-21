@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1398';
+const APP_VERSION = 'v1399';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24512,6 +24512,24 @@ function _renderWaitlistCard(){
     inp.setAttribute('data-idx', String(r.idx));
     inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, parseInt(inp.value, 10) || 0);
     tdQty.appendChild(inp);
+    // v1399 §40.7: aviso "se liberan N al enviar" cuando qty editada < reserva.
+    try {
+      const _collectItemFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.collectAsigRefsForItemCancel;
+      if (_collectItemFn) {
+        const _itemRefs = _collectItemFn(w, r.idx);
+        const _qtyReservada = _itemRefs.reduce((s, rr) => s + (Number(rr.qtyAsignada) || 0), 0);
+        const _qtyEditada = Number(r.qty) || 0;
+        if (_qtyReservada > 0 && _qtyEditada < _qtyReservada) {
+          const _liberar = _qtyReservada - _qtyEditada;
+          const _hint = document.createElement('div');
+          _hint.style.cssText = 'margin-top:2px;font-size:9.5px;color:#92400e;background:#fef3c7;padding:1px 5px;border-radius:3px;font-weight:700;letter-spacing:.2px;white-space:nowrap';
+          _hint.textContent = 'se liberan ' + _liberar + ' al enviar';
+          _hint.title = 'La reserva original era ' + _qtyReservada + 'u. Al confirmar y enviar a SAP, ' + _liberar +
+            'u se cancelan en el pedido de origen (closedReason=recorte_vendedor_cpst) y vuelven a libre.';
+          tdQty.appendChild(_hint);
+        }
+      }
+    } catch (_eHint) { /* ignore */ }
     tr.appendChild(tdQty);
     // v716 (2026-08-28): Pedido Final = min(Pedido, Libre para la venta).
     // Es la qty efectiva que va a SAP como confirmed. El resto cae en BO.
@@ -25432,13 +25450,118 @@ window.waitlistUpdateItemQty = async function(docId, idx, newQty){
 
 // v467: quitar un item del pedido en espera. Si queda vacio, offer borrar
 // todo el doc.
+// v1399 §40.7 (2026-10-21): si la línea tiene reserva (asigRefs o
+// pedidosOrigenes por SKU), confirm pregunta explícitamente por la liberación
+// y al aceptar cancela las ASIG referenciadas (state=cancelled,
+// closedReason=quitado_por_vendedor_cpst). Reutiliza
+// collectAsigRefsForItemCancel + lógica de cancelación simétrica a §40.6.
 window.waitlistRemoveItem = async function(docId, idx){
   const w = (revisionWaitlist || []).find(x => x._id === docId);
   if (!w) return;
   const it = (w.items || [])[idx];
   if (!it) return;
-  if (!confirm('Quitar ' + it.code + ' (' + it.qty + ' unidades) del pedido en espera?')) return;
+  // v1399 §40.7: detectar si la línea tiene reserva asociada.
+  const _collectItemFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.collectAsigRefsForItemCancel;
+  const refsItem = _collectItemFn ? _collectItemFn(w, idx) : [];
+  const unitsToFree = refsItem.reduce((s, r) => s + (Number(r.qtyAsignada) || 0), 0);
+  if (refsItem.length > 0 && unitsToFree > 0) {
+    const msg =
+      'Se quita el SKU ' + it.code + ' y se liberan ' + unitsToFree +
+      ' unidad(es) reservadas para el cliente.\n\n' +
+      'Las unidades vuelven a libre; si hay back order del SKU, aparecerán en Reparto cuando ingrese stock.\n\n' +
+      'Confirmar?';
+    if (!confirm(msg)) return;
+  } else {
+    if (!confirm('Quitar ' + it.code + ' (' + it.qty + ' unidades) del pedido en espera?')) return;
+  }
   const items = (w.items || []).filter((_, i) => i !== idx);
+  const _userEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
+  const _nowIso = new Date().toISOString();
+  // v1399 §40.7: si la línea tiene reserva, batch delete + cancel.
+  // Caso borde: si era el último item Y había reserva, borrar doc entero
+  // (equivalente a §40.6 opción "rechazo_cpst" pero con reason distinto).
+  if (refsItem.length > 0 && unitsToFree > 0) {
+    const batch = fbDb.batch();
+    if (items.length === 0) {
+      batch.delete(fbDb.collection('revision_waitlist').doc(docId));
+    } else {
+      batch.update(fbDb.collection('revision_waitlist').doc(docId), {
+        items,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    /** @type {Map<string, any[]>} */
+    const modifiedLines = new Map();
+    for (const r of refsItem) {
+      let p = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos))
+        ? globalPedidos.find(x => x && x._fsId === r.pedidoId)
+        : null;
+      if (!p || !Array.isArray(p.lines)) {
+        try {
+          const snap = await fbDb.collection('pedidos').doc(r.pedidoId).get();
+          if (!snap.exists) continue;
+          p = Object.assign({ _fsId: r.pedidoId }, snap.data() || {});
+        } catch (e) {
+          console.warn('waitlistRemoveItem: fetch pedido fallo', r.pedidoId, e);
+          continue;
+        }
+      }
+      let newLines = modifiedLines.get(r.pedidoId);
+      if (!newLines) {
+        newLines = p.lines.map(l => Object.assign({}, l));
+        modifiedLines.set(r.pedidoId, newLines);
+      }
+      const line = newLines[r.lineIndex];
+      if (!line) continue;
+      // Idempotencia: ya cancelled con closedReason set → skip.
+      if (line.state === 'cancelled' && (line.closedReason === 'quitado_por_vendedor_cpst' || line.closedReason === 'cliente_rechazo_cpst')) {
+        continue;
+      }
+      if (line.state !== 'ASIG') continue;
+      const prevQo = Number(line.qtyOpen) || 0;
+      line.state = 'cancelled';
+      line.qtyOpen = 0;
+      line.qtyCancelled = (Number(line.qtyCancelled) || 0) + prevQo;
+      line.closedReason = 'quitado_por_vendedor_cpst';
+      line.cancelledAt = _nowIso;
+      line.cancelledBy = _userEmail;
+      line.asigReserva = false;
+    }
+    for (const [pedidoId, newLines] of modifiedLines.entries()) {
+      batch.update(fbDb.collection('pedidos').doc(pedidoId), {
+        lines: newLines,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    // Optimistic update local.
+    const wLocal = revisionWaitlist.find(x => x._id === docId);
+    if (items.length === 0) {
+      if (wLocal) revisionWaitlist.splice(revisionWaitlist.indexOf(wLocal), 1);
+    } else {
+      if (wLocal) wLocal.items = items;
+      if (_wcardCurrent && _wcardCurrent._id === docId) {
+        _wcardCurrent.items = items;
+        try { _renderWaitlistCard(); } catch(e){}
+      }
+    }
+    try {
+      await batch.commit();
+      showSyncTag('Producto quitado · ' + unitsToFree + 'u liberadas');
+      try {
+        if (typeof logOp === 'function') logOp('cpst_item_removed_release', 'revision_waitlist/' + docId, w.clientName, {
+          cliente: w.clientName, sku: it.code, unidadesLiberadas: unitsToFree,
+          lineasAfectadas: refsItem.length,
+        });
+      } catch (_e) {}
+      if (items.length === 0) closeWaitlistCardModal();
+      try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
+    } catch (e) {
+      console.error('waitlistRemoveItem (release)', e);
+      alert('Error guardando: ' + (e.message || e));
+    }
+    return;
+  }
+  // Flow histórico para líneas sin reserva.
   if (!items.length) {
     if (!confirm('Este era el ultimo producto del pedido. Se va a borrar el pedido entero de la lista de espera. Confirmar?')) {
       _renderWaitlistCard();
@@ -35609,11 +35732,39 @@ window.doConfirmPedido = async function(){
       if (_origenesACancelar && _origenesACancelar.length > 0) {
         (async () => {
           const _nowCancelIso = new Date().toISOString();
+          const _userEmailCancel = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
           /** @type {Map<string, {newLines: any[], originalPedido: any}>} */
           const _updatesByPedido = new Map();
           const _cancelErrors = [];
+          // v1399 §40.7: decompose qty consumida vs recortada por SKU.
+          // Si el VDE editó qty por debajo de la reservada, lo consumido va
+          // con closedReason='waitlist-confirm' y lo recortado con
+          // 'recorte_vendedor_cpst' (split de línea original en 2 cancelled).
+          const _sumQtyBySkuFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.sumQtyBySku;
+          const _computeRecorteFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeRecorteVendedorPlan;
+          const _qtyConsumedBySku = _sumQtyBySkuFn
+            ? _sumQtyBySkuFn(docData.lines || [])
+            : (function () {
+                const o = {};
+                for (const l of (docData.lines || [])) {
+                  if (!l || !l.code) continue;
+                  const sku = String(l.code).toUpperCase();
+                  o[sku] = (o[sku] || 0) + (Number(l.qty) || 0);
+                }
+                return o;
+              })();
+          const _recortePlan = _computeRecorteFn
+            ? _computeRecorteFn(_origenesACancelar, _qtyConsumedBySku)
+            : _origenesACancelar.map((org) => ({
+                pedidoId: org.pedidoId,
+                lineIndex: Number(org.lineIndex),
+                sku: String(org.sku || '').toUpperCase(),
+                qtyAsignada: Number(org.qtyAsignada) || 0,
+                qtyConsumed: Number(org.qtyAsignada) || 0,
+                qtyRecortado: 0,
+              }));
           // Agrupar por pedidoId para hacer un solo update por pedido.
-          for (const org of _origenesACancelar) {
+          for (const org of _recortePlan) {
             const pid = org.pedidoId;
             if (!pid) continue;
             if (!_updatesByPedido.has(pid)) {
@@ -35644,34 +35795,117 @@ window.doConfirmPedido = async function(){
               continue;
             }
             if (linea.state !== 'ASIG') {
-              // Alguien ya la movio (recycle/cancel). No pisar.
               _cancelErrors.push('pedido ' + pid + ' linea ' + li + ': state=' + linea.state + ' (no es ASIG, skip)');
               continue;
             }
             const qo = Number(linea.qtyOpen) || 0;
-            const qty = Number(org.qtyAsignada) || 0;
-            if (qty <= 0 || qty > qo) {
-              _cancelErrors.push('pedido ' + pid + ' linea ' + li + ': qtyAsignada=' + qty + ' invalido (qtyOpen=' + qo + ')');
+            const qtyAsig = Number(org.qtyAsignada) || 0;
+            const qtyConsumed = Number(org.qtyConsumed) || 0;
+            const qtyRecortado = Number(org.qtyRecortado) || 0;
+            if (qtyAsig <= 0 || qtyAsig > qo) {
+              _cancelErrors.push('pedido ' + pid + ' linea ' + li + ': qtyAsignada=' + qtyAsig + ' invalido (qtyOpen=' + qo + ')');
               continue;
             }
-            if (qty === qo) {
+            // Case A: toda la reserva fue consumida (comportamiento histórico).
+            if (qtyRecortado === 0) {
+              if (qtyAsig === qo) {
+                u.newLines[li] = Object.assign({}, linea, {
+                  qtyOpen: 0,
+                  qtyCancelled: (Number(linea.qtyCancelled) || 0) + qtyAsig,
+                  state: 'cancelled',
+                  cancelledAt: _nowCancelIso,
+                  cancelledFrom: 'waitlist-confirm',
+                  cancelledIntoPedidoId: ref.id,
+                });
+              } else {
+                u.newLines[li] = Object.assign({}, linea, {
+                  qtyOpen: qo - qtyAsig,
+                  qtyCancelled: (Number(linea.qtyCancelled) || 0) + qtyAsig,
+                  partialCancelAt: _nowCancelIso,
+                  partialCancelFrom: 'waitlist-confirm',
+                  partialCancelQty: (Number(linea.partialCancelQty) || 0) + qtyAsig,
+                  partialCancelIntoPedidoId: ref.id,
+                });
+              }
+              continue;
+            }
+            // Case B §40.7: VDE recortó. Split línea original: part consumed
+            // (closedReason=waitlist-confirm) + part recortado (closedReason=
+            // recorte_vendedor_cpst). Ambas quedan en state='cancelled'.
+            if (qtyAsig !== qo) {
+              // Línea original con qtyOpen != qtyAsig + recorte parcial →
+              // caso complejo; preservar la parte open sobrante y aplicar
+              // partialCancel para consumed + append nueva línea para recortado.
+              const partialDelta = qtyAsig;
               u.newLines[li] = Object.assign({}, linea, {
+                qtyOpen: qo - partialDelta,
+                qtyCancelled: (Number(linea.qtyCancelled) || 0) + partialDelta,
+                partialCancelAt: _nowCancelIso,
+                partialCancelFrom: 'waitlist-confirm',
+                partialCancelQty: (Number(linea.partialCancelQty) || 0) + partialDelta,
+                partialCancelIntoPedidoId: ref.id,
+              });
+              if (qtyRecortado > 0) {
+                const _boLineRec = Object.assign({}, linea, {
+                  qty: qtyRecortado,
+                  qtyOpen: 0,
+                  qtyInvoiced: 0,
+                  qtyCancelled: qtyRecortado,
+                  qtyRecycled: 0,
+                  state: 'cancelled',
+                  closedReason: 'recorte_vendedor_cpst',
+                  cancelledAt: _nowCancelIso,
+                  cancelledBy: _userEmailCancel,
+                  cancelledIntoPedidoId: ref.id,
+                  splitFromLineIndex: li,
+                  asigReserva: false,
+                });
+                delete _boLineRec.asigRefs;
+                u.newLines.push(_boLineRec);
+              }
+              continue;
+            }
+            // qtyAsig === qo: split límpio.
+            if (qtyConsumed > 0) {
+              u.newLines[li] = Object.assign({}, linea, {
+                qty: qtyConsumed,
                 qtyOpen: 0,
-                qtyCancelled: (Number(linea.qtyCancelled) || 0) + qty,
+                qtyCancelled: qtyConsumed,
                 state: 'cancelled',
+                closedReason: 'waitlist-confirm',
                 cancelledAt: _nowCancelIso,
                 cancelledFrom: 'waitlist-confirm',
                 cancelledIntoPedidoId: ref.id,
               });
             } else {
               u.newLines[li] = Object.assign({}, linea, {
-                qtyOpen: qo - qty,
-                qtyCancelled: (Number(linea.qtyCancelled) || 0) + qty,
-                partialCancelAt: _nowCancelIso,
-                partialCancelFrom: 'waitlist-confirm',
-                partialCancelQty: (Number(linea.partialCancelQty) || 0) + qty,
-                partialCancelIntoPedidoId: ref.id,
+                qtyOpen: 0,
+                qtyCancelled: (Number(linea.qtyCancelled) || 0) + qtyAsig,
+                state: 'cancelled',
+                closedReason: 'recorte_vendedor_cpst',
+                cancelledAt: _nowCancelIso,
+                cancelledBy: _userEmailCancel,
+                cancelledIntoPedidoId: ref.id,
+                asigReserva: false,
               });
+            }
+            if (qtyConsumed > 0 && qtyRecortado > 0) {
+              const _recLine = Object.assign({}, linea, {
+                qty: qtyRecortado,
+                qtyOpen: 0,
+                qtyInvoiced: 0,
+                qtyCancelled: qtyRecortado,
+                qtyRecycled: 0,
+                state: 'cancelled',
+                closedReason: 'recorte_vendedor_cpst',
+                cancelledAt: _nowCancelIso,
+                cancelledBy: _userEmailCancel,
+                cancelledIntoPedidoId: ref.id,
+                splitFromLineIndex: li,
+                asigReserva: false,
+              });
+              delete _recLine.asigRefs;
+              u.newLines.push(_recLine);
             }
           }
           // Aplicar updates.
