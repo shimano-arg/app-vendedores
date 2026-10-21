@@ -996,3 +996,47 @@ const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 **Shape**: `_version` 3 → 4. Mismo shape (sin campos nuevos).
 
 **Efecto en prod @ merge v1394**: cero unidades liberadas (es cambio de **representación**, no de reglas de reserva). Solo cambia lo que se muestra en Reservado — útiles para el VDE que ve números más honestos.
+
+### §40.3 (2026-10-21, v1395): sobre-asignadas como estado nombrado + FIFO por `asigAt`
+
+Extensión de §40.2 para propagar la noción de **sobre-asignación** más allá del total agregado — a cada línea individual.
+
+**Shape nuevo** de `asignadas` en `getStockBreakdown`:
+
+```js
+asignadas: {
+  total: 6,                      // nominal (sin cambio — compat)
+  totalEntregable: 2,            // nuevo: suma qtyEntregable FIFO
+  totalSobreAsignada: 4,         // nuevo: nominal - entregable
+  porCliente: [...],             // existente (nominal)
+  detalle: [                     // nuevo: FIFO por asigAt ASC
+    { pedidoId, lineIndex, cardCode, clientName, asigAt,
+      qtyNominal: 6, qtyEntregable: 2, sobreAsignada: 4 }
+  ],
+}
+```
+
+**Algoritmo FIFO**:
+1. `confirmadasSinFacturar` consume físico primero (FIFO por `confirmedAt` ASC).
+2. ASIG consume el restante (FIFO por `asigAt` ASC — nulos al final).
+3. Para cada ASIG: `qtyEntregable = min(qtyNominal, físicoRestante)`, `sobreAsignada = qtyNominal - qtyEntregable`.
+
+**`_version` 4 → 5**.
+
+**Es computed, no persiste**. Si entra stock que cubre el nominal, `sobreAsignada` vuelve a 0 al próximo read. **Nunca** guardar en Firestore — eso crearía divergencia con el físico actual.
+
+**Reconciliación** (`scanSobreAsignadas` en `functions/core/reparto-core.js`): recorre pedidos abiertos + stock snapshot, computa el breakdown por SKU, loguea en Cloud Logging cada línea con `sobreAsignada > 0`. Corre inline en `onDep11IncreaseCreateReparto`. NO recorta nada automático — es diagnóstico.
+
+**UI Stock Asignado**: en el modal matricial, cada fila cliente ASIG con sobre-asignada muestra badge amarillo "prometidas N" bajo el número principal. El label del número principal pasa de "unid" a "entregables" solo cuando hay sobre-asignación.
+
+**CPST** (`Crear Pedido Desde Stock Asignado`): el preview ya aplica `qtyAjustada = min(sk.qty, disp)` desde v1198, y `_cpstConfirmar` usa `qtyAjustada` para armar el waitlist. Las unidades recortadas quedan ASIG vivas en el pedido original (bloque v1280). No requiere cambio adicional en v1395 — el flow ya respeta "arma el pedido con las entregables".
+
+**Script audit**: `scripts/audit/J_sobre_asignadas_prod.cjs` genera tabla en `docs/auditoria/29_SOBRE_ASIGNADAS_PROD.md`. Correr cuando Pablo quiera revisar backlog de sobre-asignaciones y decidir recortes manuales.
+
+**Caso emblemático BENGOCHEA 597151** (2026-10-21): ASIG qty=6 / físico=2.
+- Breakdown v1395: `asignadas.detalle[0] = { qtyNominal: 6, qtyEntregable: 2, sobreAsignada: 4 }`.
+- Modal Stock Asignado: "2 entregables / prometidas 6" (badge amarillo).
+- Si Pablo recorta 4u con el botón `[−]`, la línea vuelve a `qtyOpen=2` y la sobre-asignada desaparece.
+- Si entra stock y físico sube a 6, el próximo read del breakdown devuelve `sobreAsignada=0` sin acción manual.
+
+**Precedente**: `feat-sobre-asignadas` 2026-10-21 (v1395). Tests `tests/unit/audit/asignadas-fifo.test.js` + `tests/functions/scan-sobre-asignadas.test.js` cubren los 3 casos pedidos (T1 nominal == físico, T2 nominal > físico, T3 entra stock que limpia solo) + FIFO con 2 ASIGs + ASIG sin asigAt.

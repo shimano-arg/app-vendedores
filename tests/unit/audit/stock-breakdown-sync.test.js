@@ -35,9 +35,9 @@ describe('stock-breakdown sync src/pure vs functions/core', () => {
     }
   });
 
-  it('ambos tienen _version=4 (v1394 §40.2)', () => {
-    expect(SRC).toMatch(/_version:\s*4/);
-    expect(CF).toMatch(/_version:\s*4/);
+  it('ambos tienen _version=5 (v1395 §40.3)', () => {
+    expect(SRC).toMatch(/_version:\s*5/);
+    expect(CF).toMatch(/_version:\s*5/);
   });
 
   it('ambos aplican §40: reservadasTotal NO incluye backorderApp', () => {

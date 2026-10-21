@@ -7023,7 +7023,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1394';
+const APP_VERSION = 'v1395';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16435,10 +16435,29 @@ window.renderBackordersTab = function(){
             + 'style="width:16px;height:16px;accent-color:#0891b2;cursor:pointer" />'
             + '</label>';
         }
+        // v1395 §40.3: badge sobre-asignada. Si c.qtyBackorder > 0 en modo
+        // asignacion sobre linea ASIG (reservada), significa que Pablo prometio
+        // mas unidades que el fisico actual. Mostrar "prometidas N" para que
+        // decida: recortar o esperar mas stock. "Entregable" es _cur.
+        const _sobreAsig = (_isAsigMode && !c.sinReserva && c.state === 'ASIG')
+          ? Math.round(Number(c.qtyBackorder) || 0)
+          : 0;
+        const _promet = _sobreAsig > 0 ? Math.round(Number(c.pendiente) || 0) : 0;
+        const _promTitle = _sobreAsig > 0
+          ? ('Prometidas ' + _promet + ' pero fisico solo cubre ' + _cur + '. '
+             + _sobreAsig + 'u sobre-asignadas: entraran cuando llegue stock. '
+             + 'Opciones: esperar reposicion, o recortar las sobrantes con el boton [−].')
+          : '';
         html += '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
           + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', -1)" title="' + escapeAttr(_titMinus) + '" '
             + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">−</button>'
-          + '<div style="min-width:36px;text-align:center"><div style="font-size:14px;font-weight:800;color:#c2410c">' + _cur + '</div><div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">unid</div></div>'
+          + '<div style="min-width:36px;text-align:center">'
+          +   '<div style="font-size:14px;font-weight:800;color:#c2410c">' + _cur + '</div>'
+          +   '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">' + (_sobreAsig > 0 ? 'entregables' : 'unid') + '</div>'
+          +   (_sobreAsig > 0
+                ? '<div title="' + escapeAttr(_promTitle) + '" style="margin-top:2px;font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-weight:700;letter-spacing:.2px;white-space:nowrap">prometidas ' + _promet + '</div>'
+                : '')
+          + '</div>'
           + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', 1)" title="' + escapeAttr(_titPlus) + '" '
             + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">+</button>'
           + '</div>';
