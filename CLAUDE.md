@@ -696,7 +696,9 @@ const _entryIsExAsig = entry.source === 'stock-asignado-batch'
 
 ## 34. BO reserva stock por diseño; el reparto convierte BO en ASIG, no crea la reserva (2026-10-20)
 
-**Regla fuerte**: `lineReservesStock(line, nowMs, pedido)` devuelve `true` para `state='BO'` dentro del TTL (7d). Esto es **por diseño**, no un bug. **No cambiarlo** sin autorización explícita de Mariano, y recién después de construir alternativa.
+**⚠️ REEMPLAZADA POR §40 (2026-10-21, v1392)**. Mantener texto por histórico; la regla vigente es §40 (BO NO reserva).
+
+**Regla fuerte** (histórica, invalidada): `lineReservesStock(line, nowMs, pedido)` devuelve `true` para `state='BO'` dentro del TTL (7d). Esto es **por diseño**, no un bug. **No cambiarlo** sin autorización explícita de Mariano, y recién después de construir alternativa.
 
 **Por que**:
 - Entre que entra stock en dep 11 y Pablo abre modal Reparto puede pasar horas o días (Pablo puede estar fuera, con muchos ingresos acumulados, o simplemente no ser prioridad en el día).
@@ -903,3 +905,51 @@ Son de 2-20 lineas y delegan al breakdown. **NO reimplementar logica dentro** �
 **Labels de UI**: usar `STOCK_LABELS` (export) para que todas las pantallas digan lo mismo. Fuente unica.
 
 **Precedente**: `feat-stock-breakdown-unico` 2026-10-21 (v1391). FINDING-04 auditoria 20/10: el mismo SKU mostraba 5 numeros distintos en 5 pantallas (26, 11, 17, 0, 1 u para CUDC201HG). Loop E0-E5 (`docs/auditoria/17_CINCO_NUMEROS_CUDC201HG.md`, `18_VERIFICACION_V1391_BREAKDOWN.md`, `19_INFORME_COWORK_V1391.md`). 41 tests nuevos.
+
+## 40. BO no reserva stock. Reservan ASIG + confirmed + reparto abierto (2026-10-21, reemplaza §34)
+
+**Regla fuerte**: el back order (`state=’BO’`) ES una cola de clientes esperando reparto + base de forecast. **No reserva stock.**
+
+Reservan stock SOLO:
+- Asignaciones (`state=’ASIG’`) con TTL 7d.
+- Confirmadas sin facturar (`state=’confirmed’`) con TTL soft 7d + hard 60d.
+- Waitlist CPST (`source=’stock-asignado-batch’`).
+
+**Reparto abierto** (`ingresos_reparto` con `status in [pending, in_progress]`) es un bucket INFORMATIVO en el breakdown (campo `repartoAbierto: {qty, repartoId, status}`). NO suma a `reservadasTotal`. Es solo una señal visual: "Pablo tiene algo que atender".
+
+`lineReservesStock(’BO’)` devuelve false. El TTL §37 90d se mantiene para el bucket `backorderApp` del breakdown (cola + forecast) pero NO para reservas.
+
+**Cuando Pablo cierra un reparto con sobrante** (botón "Cerrar reparto"): lo asignado pasa a ASIG, lo no asignado queda libre por construcción (el bucket repartoAbierto desaparece). `applyRepartoManualCF` acepta `allowSobrante=true` + `assignments=[] + eliminations=[]` y marca `status=’done’` con `closedReason=’admin_cerrado_con_sobrante_<N>_libres’`.
+
+**reconcileRepartosFaltantes** crea reparto con `qty = min(fisico - asig - conf, BO_vigente)`. Si un reparto abierto tiene qty > BO vigente actual, reconcile lo ajusta sin tocar las assignments ya aplicadas. Fix v1392: antes de §40 podía repartir 6 unidades entre pedidos de BO 2 — ya no.
+
+**applyRepartoManualCore** valida contra `stockFisicoDep11` del momento. Si otro VDE vendió entre que Pablo abrió el modal y aplicó, el cap rechaza con mensaje claro.
+
+**Shape v2 getStockBreakdown**:
+```js
+{
+  sku, fisicoDep11, transitoDep12,
+  backorderApp,            // cola + forecast (TTL §37 90d). NO reserva.
+  confirmadasSinFacturar,  // reserva (TTL §38).
+  asignadas,               // reserva (TTL 7d).
+  waitlistCpst,            // reserva (sin TTL).
+  repartoAbierto: {qty, repartoId, status},  // INFORMATIVO, NO reserva.
+  reservadasTotal,         // = asignadas + confirmed + waitlistCpst (SIN BO, SIN reparto).
+  libre,                   // = max(0, fisicoDep11 - reservadasTotal).
+  utilizablePara,          // libre + reservas propias (ASIG+conf+CPST del cliente; NO BO).
+  pendienteReparto,        // alias compat de repartoAbierto.
+  _version: 2,
+}
+```
+
+**Caso emblemático CUDC201HG** (21/10 14:11): antes libre 4 con reparto abierto (bug: cualquiera lleva las 4 mientras Pablo decide). Después §40: libre 6 hasta que Pablo cierre. Reparto NO protege — el stock físico queda disponible hasta que Pablo asigne o cierre. Pablo decide rápido para no perder la asignación a clientes BO priorizados.
+
+**Efecto en prod @ merge v1392** (`docs/auditoria/21_EFECTO_BO_NO_RESERVA.md`): 37 SKUs / 289 unidades pasaron a libre. Todos con reparto abierto activo. Mariano aprobó el merge sabiendo este trade-off.
+
+**Precedente**: `feat-reserva-por-reparto` 2026-10-21 (v1392 ✓ bc9a451 ➔ 908a615). CF deploys: applyRepartoManualCF + onDep11IncreaseCreateReparto ambos 15:42 UTC.
+
+**Qué cambia para los consumidores del breakdown**:
+- Call-sites que miran `reservadasTotal` ven el bajar los números (BO ya no cuenta).
+- Call-sites que muestran `backorderApp.total` ven lo mismo (cola legible).
+- `pendienteReparto` queda como alias de `repartoAbierto` (compat v1391).
+- `demandaSapSinCubrir` ahora siempre null (DEPRECATED, eliminar en v1393).
