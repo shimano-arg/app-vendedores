@@ -116,7 +116,8 @@ describe('v1398 §40.6 CPST delete-choice flow', () => {
       { now }
     );
     expect(b.asignadas.total).toBe(0);
-    expect(b.asignadas.totalEntregable).toBe(0);
+    // v1403 §40.11: shape no expone totalEntregable (asignadas.total === entregable).
+    // Verificamos directamente que total=0 (línea cancelada, breakdown no cuenta).
     expect(b.libre).toBe(2);
   });
 

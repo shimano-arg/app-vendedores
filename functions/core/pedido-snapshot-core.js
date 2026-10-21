@@ -321,8 +321,6 @@ export function getStockBreakdown(sku, deps, opts) {
   }
   const asignadas = {
     total: asignadasBase.total,
-    totalEntregable: asigTotalEntregable,
-    totalSobreAsignada: asigTotalSobre,
     porCliente: asignadasBase.porCliente,
     detalle: asigDetalle,
   };
@@ -380,7 +378,7 @@ export function getStockBreakdown(sku, deps, opts) {
     libre,
     utilizablePara,
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 6,
+    _version: 7,
   };
 }
 

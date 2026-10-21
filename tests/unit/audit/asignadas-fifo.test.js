@@ -1,11 +1,13 @@
 // @ts-check
 /**
- * v1395 §40.3 — asignadas.detalle FIFO con qtyEntregable + sobreAsignada.
+ * v1395 §40.3 → v1403 §40.11 — asignadas.detalle FIFO.
  *
- * Confirmed consume físico primero (FIFO por confirmedAt), después ASIG FIFO
- * por asigAt ASC. Las ASIGs sin físico restante tienen qtyEntregable=0 y
- * sobreAsignada=qtyNominal. El flag se "limpia solo" al próximo read cuando
- * entra stock (es computed, no persistido).
+ * Pre-v1403: shape público exponía `asignadas.totalEntregable` + `totalSobreAsignada`.
+ * Post-v1403: eliminados del shape top-level porque la CF `revertSobreAsignadas`
+ * garantiza `total === entregable` siempre. Los campos per-línea
+ * (`detalle[].qtyEntregable`, `detalle[].sobreAsignada`) se preservan como
+ * uso INTERNO de la CF — post-reconcile son 0, pre-reconcile sirven para
+ * decidir cuánto revertir.
  */
 import { describe, expect, it } from 'vitest';
 import { getStockBreakdown as getStockBreakdownCF } from '../../../functions/core/pedido-snapshot-core.js';
@@ -35,56 +37,48 @@ function pedASIG({ pedidoId = 'p1', cardCode = 'CA', clientName = 'CA', qty, asi
   };
 }
 
-describe('v1395 §40.3 asignadas FIFO + qtyEntregable + sobreAsignada', () => {
-  it('T1 nominal == fisico: qtyEntregable=nominal, sobreAsignada=0', () => {
+describe('v1403 §40.11 asignadas FIFO (detalle interno, sin top-level totalSobre/Entregable)', () => {
+  it('T1 nominal == fisico: detalle[0].qtyEntregable=nominal, sobreAsignada=0', () => {
     const deps = makeDeps({ fisico: 2, pedidos: [pedASIG({ qty: 2 })] });
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.asignadas.total).toBe(2);
-    expect(b.asignadas.totalEntregable).toBe(2);
-    expect(b.asignadas.totalSobreAsignada).toBe(0);
     expect(b.asignadas.detalle).toHaveLength(1);
     expect(b.asignadas.detalle[0].qtyEntregable).toBe(2);
     expect(b.asignadas.detalle[0].sobreAsignada).toBe(0);
   });
 
-  it('T2 nominal > fisico (BENGOCHEA): qtyEntregable=fisico, sobreAsignada=diff', () => {
+  it('T2 nominal > fisico (BENGOCHEA): detalle[0].qtyEntregable=fisico, sobreAsignada=diff', () => {
     const deps = makeDeps({
       fisico: 2,
       pedidos: [pedASIG({ cardCode: 'C20293164852', clientName: 'BENGOCHEA', qty: 6 })],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.asignadas.total).toBe(6);
-    expect(b.asignadas.totalEntregable).toBe(2);
-    expect(b.asignadas.totalSobreAsignada).toBe(4);
     expect(b.asignadas.detalle[0].qtyNominal).toBe(6);
     expect(b.asignadas.detalle[0].qtyEntregable).toBe(2);
     expect(b.asignadas.detalle[0].sobreAsignada).toBe(4);
     expect(b.asignadas.detalle[0].cardCode).toBe('C20293164852');
   });
 
-  it('T3 entra stock que cubre nominal → sobreAsignada se limpia solo', () => {
+  it('T3 entra stock que cubre nominal → detalle[].sobreAsignada=0', () => {
     const ped = pedASIG({ qty: 6 });
     const bAntes = getStockBreakdown('X', makeDeps({ fisico: 2, pedidos: [ped] }), { now: NOW });
-    expect(bAntes.asignadas.totalSobreAsignada).toBe(4);
+    expect(bAntes.asignadas.detalle[0].sobreAsignada).toBe(4);
     const bDespues = getStockBreakdown('X', makeDeps({ fisico: 10, pedidos: [ped] }), { now: NOW });
-    expect(bDespues.asignadas.totalSobreAsignada).toBe(0);
-    expect(bDespues.asignadas.totalEntregable).toBe(6);
     expect(bDespues.asignadas.detalle[0].sobreAsignada).toBe(0);
+    expect(bDespues.asignadas.detalle[0].qtyEntregable).toBe(6);
   });
 
   it('T4 FIFO: dos ASIGs sobre mismo SKU, la más vieja (asigAt menor) consume físico primero', () => {
     const deps = makeDeps({
       fisico: 4,
       pedidos: [
-        pedASIG({ pedidoId: 'nueva', cardCode: 'CB', clientName: 'B', qty: 3, asigAt: asigIso }), // 2d
-        pedASIG({ pedidoId: 'vieja', cardCode: 'CA', clientName: 'A', qty: 3, asigAt: asigIsoOld }), // 5d
+        pedASIG({ pedidoId: 'nueva', cardCode: 'CB', clientName: 'B', qty: 3, asigAt: asigIso }),
+        pedASIG({ pedidoId: 'vieja', cardCode: 'CA', clientName: 'A', qty: 3, asigAt: asigIsoOld }),
       ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.asignadas.total).toBe(6);
-    expect(b.asignadas.totalEntregable).toBe(4);
-    expect(b.asignadas.totalSobreAsignada).toBe(2);
-    // FIFO: vieja (CA) primero → entregable=3; nueva (CB) → entregable=1 sobre=2.
     expect(b.asignadas.detalle).toHaveLength(2);
     expect(b.asignadas.detalle[0].cardCode).toBe('CA');
     expect(b.asignadas.detalle[0].qtyEntregable).toBe(3);
@@ -114,17 +108,15 @@ describe('v1395 §40.3 asignadas FIFO + qtyEntregable + sobreAsignada', () => {
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.confirmadasSinFacturar.total).toBe(2);
     expect(b.asignadas.total).toBe(2);
-    // confirmed consume 2 primero → fisicoRestante=1 → ASIG entregable=1 sobre=1.
-    expect(b.asignadas.totalEntregable).toBe(1);
-    expect(b.asignadas.totalSobreAsignada).toBe(1);
+    expect(b.asignadas.detalle[0].qtyEntregable).toBe(1);
+    expect(b.asignadas.detalle[0].sobreAsignada).toBe(1);
   });
 
-  it('fisico 0: todas las ASIG están sobre-asignadas', () => {
+  it('fisico 0: todas las ASIG están sobre-asignadas (detalle)', () => {
     const deps = makeDeps({ fisico: 0, pedidos: [pedASIG({ qty: 5 })] });
     const b = getStockBreakdown('X', deps, { now: NOW });
-    expect(b.asignadas.totalEntregable).toBe(0);
-    expect(b.asignadas.totalSobreAsignada).toBe(5);
     expect(b.asignadas.detalle[0].qtyEntregable).toBe(0);
+    expect(b.asignadas.detalle[0].sobreAsignada).toBe(5);
   });
 
   it('ASIG sin asigAt va al final del FIFO', () => {
@@ -136,25 +128,33 @@ describe('v1395 §40.3 asignadas FIFO + qtyEntregable + sobreAsignada', () => {
       ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
-    expect(b.asignadas.detalle[0].cardCode).toBe('C_OK'); // con asigAt primero
+    expect(b.asignadas.detalle[0].cardCode).toBe('C_OK');
     expect(b.asignadas.detalle[0].qtyEntregable).toBe(2);
     expect(b.asignadas.detalle[1].cardCode).toBe('C_NULL');
     expect(b.asignadas.detalle[1].qtyEntregable).toBe(0);
     expect(b.asignadas.detalle[1].sobreAsignada).toBe(2);
   });
 
-  it('_version = 5', () => {
+  it('v1403 §40.11: shape top-level NO expone totalEntregable ni totalSobreAsignada', () => {
+    const b = getStockBreakdown('X', makeDeps({ fisico: 2, pedidos: [pedASIG({ qty: 6 })] }), {
+      now: NOW,
+    });
+    expect(b.asignadas).not.toHaveProperty('totalEntregable');
+    expect(b.asignadas).not.toHaveProperty('totalSobreAsignada');
+  });
+
+  it('_version = 7', () => {
     const b = getStockBreakdown('X', makeDeps({}), { now: NOW });
-    expect(b._version).toBe(6);
+    expect(b._version).toBe(7);
   });
 
   it('sync src/pure vs functions/core: mismo detalle FIFO', () => {
     const deps = makeDeps({ fisico: 2, pedidos: [pedASIG({ qty: 6 })] });
     const bSrc = getStockBreakdown('X', deps, { now: NOW });
     const bCF = getStockBreakdownCF('X', deps, { now: NOW });
-    expect(bSrc.asignadas.totalEntregable).toBe(bCF.asignadas.totalEntregable);
-    expect(bSrc.asignadas.totalSobreAsignada).toBe(bCF.asignadas.totalSobreAsignada);
     expect(bSrc.asignadas.detalle.length).toBe(bCF.asignadas.detalle.length);
+    expect(bSrc.asignadas.detalle[0].qtyEntregable).toBe(bCF.asignadas.detalle[0].qtyEntregable);
+    expect(bSrc.asignadas.detalle[0].sobreAsignada).toBe(bCF.asignadas.detalle[0].sobreAsignada);
     expect(bSrc._version).toBe(bCF._version);
   });
 });

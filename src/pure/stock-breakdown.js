@@ -53,17 +53,23 @@ import { lineReservesStock } from './stock-realmente-disponible.js';
  * @property {string} clientName
  * @property {string|null} asigAt
  * @property {number} qtyNominal
- * @property {number} qtyEntregable
- * @property {number} sobreAsignada
+ * @property {number} qtyEntregable  Interno — usado por CF revertSobreAsignadas.
+ * @property {number} sobreAsignada  Interno — post-reconcile siempre 0.
  */
 
 /**
+ * v1403 §40.11: eliminados `totalEntregable` + `totalSobreAsignada` del shape
+ * público. La CF `revertSobreAsignadas` revierte el excedente a BO
+ * proactivamente en cada tick, por lo que `asignadas.total === entregable`.
+ *
+ * Los campos `qtyEntregable` + `sobreAsignada` en `detalle[]` se preservan
+ * como uso INTERNO de la CF reconcile — post-reconcile son siempre 0 para
+ * líneas vigentes. No usar en UI; el modal Stock Asignado ya los ignora.
+ *
  * @typedef {Object} AsignadasBucket
- * @property {number} total  Nominal (suma qtyNominal) — compat.
- * @property {number} totalEntregable  Suma qtyEntregable FIFO.
- * @property {number} totalSobreAsignada  Suma sobreAsignada FIFO.
- * @property {PorClienteItem[]} porCliente  Por cliente nominal — compat.
- * @property {AsigDetalleItem[]} detalle  FIFO por asigAt ASC.
+ * @property {number} total  Total de qty asignada (= entregable post-reconcile).
+ * @property {PorClienteItem[]} porCliente
+ * @property {AsigDetalleItem[]} detalle  FIFO por asigAt ASC (uso interno CF).
  */
 
 /**
@@ -276,8 +282,6 @@ export function getStockBreakdown(sku, deps, opts) {
   /** @type {AsignadasBucket} */
   const asignadas = {
     total: asignadasBase.total,
-    totalEntregable: asigTotalEntregable,
-    totalSobreAsignada: asigTotalSobre,
     porCliente: asignadasBase.porCliente,
     detalle: asigDetalle,
   };
@@ -348,6 +352,6 @@ export function getStockBreakdown(sku, deps, opts) {
     utilizablePara,
     // Alias compat v1391 — mismo info que repartoAbierto.
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 6,
+    _version: 7,
   };
 }

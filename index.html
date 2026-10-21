@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1402';
+const APP_VERSION = 'v1403';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16392,28 +16392,16 @@ window.renderBackordersTab = function(){
         // la línea entera con closedReason='quitado_por_admin'). Pre-v1402 el
         // checkbox seteaba asigReserva=false; ese flag ya no se honra en
         // lineReservesStock('ASIG') — ASIG siempre reserva (§40).
-        // v1395 §40.3: badge sobre-asignada. Si c.qtyBackorder > 0 en modo
-        // asignacion sobre linea ASIG (reservada), significa que Pablo prometio
-        // mas unidades que el fisico actual. Mostrar "prometidas N" para que
-        // decida: recortar o esperar mas stock. "Entregable" es _cur.
-        const _sobreAsig = (_isAsigMode && c.state === 'ASIG')
-          ? Math.round(Number(c.qtyBackorder) || 0)
-          : 0;
-        const _promet = _sobreAsig > 0 ? Math.round(Number(c.pendiente) || 0) : 0;
-        const _promTitle = _sobreAsig > 0
-          ? ('Prometidas ' + _promet + ' pero fisico solo cubre ' + _cur + '. '
-             + _sobreAsig + 'u sobre-asignadas: entraran cuando llegue stock. '
-             + 'Opciones: esperar reposicion, o recortar las sobrantes con el boton [−].')
-          : '';
+        // v1403 §40.11: badge "prometidas N" ELIMINADO. La reconciliación CF
+        // (revertSobreAsignadas) revierte el excedente a BO automáticamente —
+        // ya no existen líneas ASIG con nominal > entregable. El bucket
+        // sobreAsignada del breakdown se mantiene en 0 siempre.
         html += '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0">'
           + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', -1)" title="' + escapeAttr(_titMinus) + '" '
             + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">−</button>'
           + '<div style="min-width:36px;text-align:center">'
           +   '<div style="font-size:14px;font-weight:800;color:#c2410c">' + _cur + '</div>'
-          +   '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">' + (_sobreAsig > 0 ? 'entregables' : 'unid') + '</div>'
-          +   (_sobreAsig > 0
-                ? '<div title="' + escapeAttr(_promTitle) + '" style="margin-top:2px;font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-weight:700;letter-spacing:.2px;white-space:nowrap">prometidas ' + _promet + '</div>'
-                : '')
+          +   '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">unid</div>'
           + '</div>'
           + '<button onclick="window._adjustAsigQty(' + _argsAdj + ', 1)" title="' + escapeAttr(_titPlus) + '" '
             + 'style="width:26px;height:26px;border-radius:50%;border:1px solid #d1d5db;background:#fff;color:#374151;font-size:14px;font-weight:700;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center">+</button>'
@@ -30884,20 +30872,19 @@ window.queryStockLive = function(code, btn){
         }
       }
       if (_bk) {
+        // v1403 §40.11: popup con 5 líneas en orden fijo. "Stock asignado"
+        // muestra el total nominal (post-reconcile = entregable) — la CF
+        // revertSobreAsignadas garantiza que ASIG.qty <= físico - confirmed.
+        // Sacados "Confirmadas sin facturar" y "Reservadas" (siguen vivos en
+        // el breakdown + tooltip de la lista de espera).
         const _line = (label, qty) => label + ': ' + qty + ' unidades';
         const _lines = [
-          _line(_labels.fisicoDep11 || 'Stock físico (dep 11)', _bk.fisicoDep11),
-          _line(_labels.transitoDep12 || 'En tránsito (dep 12)', _bk.transitoDep12),
-          _line(_labels.backorderApp || 'Back order (app)', _bk.backorderApp.total),
-          _line(_labels.confirmadasSinFacturar || 'Confirmadas sin facturar', _bk.confirmadasSinFacturar.total),
-          _line(_labels.asignadas || 'Asignadas', _bk.asignadas.total),
-          _line(_labels.reservadasTotal || 'Reservadas', _bk.reservadasTotal),
-          _line(_labels.libre || 'Libre para la venta', _bk.libre),
+          _line('Stock físico (dep 11)', _bk.fisicoDep11),
+          _line('En tránsito (dep 12)', _bk.transitoDep12),
+          _line('Back order (app)', _bk.backorderApp.total),
+          _line('Stock asignado', _bk.asignadas.total),
+          _line('Libre para la venta', _bk.libre),
         ];
-        const _pendRep = (_bk.pendienteReparto && Number(_bk.pendienteReparto.qty)) || 0;
-        if (_pendRep > 0) {
-          _lines.push(_line(_labels.pendienteReparto || 'Pendientes de reparto', _pendRep));
-        }
         status = _lines.join('\n');
       } else {
         // Fallback si el bundle no está cargado (edge case; no debería pasar).

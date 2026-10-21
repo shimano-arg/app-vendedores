@@ -109,6 +109,7 @@ describe('scanSobreAsignadas v1395 §40.3', () => {
     });
     const d = { fbDb, now: () => NOW, log: (msg, extra) => logs.push({ msg, extra }) };
     await scanSobreAsignadas(d, snap({ X: { 11: 2 } }));
-    expect(logs.filter((l) => l.msg === 'sobre_asignada')).toHaveLength(1);
+    // v1403: nombre del log cambió a 'asig_revertida_auto' (reconciliación automática).
+    expect(logs.filter((l) => l.msg === 'asig_revertida_auto')).toHaveLength(1);
   });
 });

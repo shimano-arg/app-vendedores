@@ -57,7 +57,7 @@ describe('v1400 §40.8 schema shape (demandaSapSinCubrir eliminado)', () => {
         'waitlistCpst',
       ].sort()
     );
-    expect(b._version).toBe(6);
+    expect(b._version).toBe(7);
     expect(b).not.toHaveProperty('demandaSapSinCubrir');
   });
 

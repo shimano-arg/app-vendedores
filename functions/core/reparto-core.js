@@ -1034,24 +1034,40 @@ function _buildAsigLine(origLine, qty, nowIso, ingresoId, splitFromIdx) {
 }
 
 /**
- * v1395 §40.3: scanSobreAsignadas — recorre pedidos abiertos + stock snapshot,
- * computa `getStockBreakdown` por SKU y loguea cada línea con `sobreAsignada > 0`.
+ * v1403 §40.11: revertSobreAsignadas — reconciliación automática.
  *
- * NO escribe nada en Firestore. El flag es computed en el breakdown; se "limpia
- * solo" al próximo read cuando entra stock. Este scan existe para dejar log
- * auditable en Cloud Logging + array de retorno para scripts/dashboards.
+ * Antes (v1395 §40.3 scanSobreAsignadas): leía líneas con `sobreAsignada > 0`
+ * y SOLO loguéaba. El estado "ASIG con qtyNominal > físico" quedaba vivo hasta
+ * que el VDE pasara por CPST (§40.5).
+ *
+ * Ahora (v1403 §40.11): la CF corre en cada tick de `onDep11IncreaseCreateReparto`
+ * y revierte proactivamente el excedente a BO. Para cada línea ASIG con
+ * `sobreAsignada > 0`:
+ *   - Mutar línea original a `qty = qtyEntregable`, `qtyOpen = qtyEntregable`.
+ *   - Appendar nueva línea `state='BO'` con `qty = sobreAsignada`,
+ *     `closedReason='asig_sin_stock_revertida_a_bo'`, `asigRevertidaAt`,
+ *     `asigRevertidaBy='system:reconcile'`, `splitFromLineIndex`.
+ *
+ * Idempotente: una línea ya revertida tiene `qty=qtyEntregable`, por lo que
+ * `sobreAsignada` del próximo scan es 0 → no se re-revierte.
+ *
+ * El cliente conserva lugar en cola (el BO nuevo tiene el mismo cardCode) —
+ * cuando entre stock, aparece en Reparto por las unidades revertidas.
  *
  * @param {RepartoDeps} deps
  * @param {any} snapshot - stock_snapshot.warehouseBreakdown
- * @returns {Promise<{sobreAsignadas: Array<{sku:string, pedidoId:string, lineIndex:number, cardCode:string, clientName:string, asigAt:string|null, qtyNominal:number, qtyEntregable:number, sobreAsignada:number}>, errors: string[]}>}
+ * @param {{dryRun?: boolean}} [opts] - dryRun=true no escribe en Firestore.
+ * @returns {Promise<{revertidas: Array<{sku:string, pedidoId:string, lineIndex:number, cardCode:string, clientName:string, qtyEntregable:number, qtyRevertida:number}>, errors: string[]}>}
  */
-export async function scanSobreAsignadas(deps, snapshot) {
+export async function revertSobreAsignadas(deps, snapshot, opts) {
+  const dryRun = !!(opts && opts.dryRun);
   const log = deps.log || (() => {});
   const now = (deps.now || (() => new Date()))();
   const nowMs = now.getTime();
+  const nowIso = now.toISOString();
   const whsBreakdown = _parseWarehouseBreakdown(snapshot);
   /** @type {Array<any>} */
-  const sobreAsignadas = [];
+  const revertidas = [];
   /** @type {string[]} */
   const errors = [];
 
@@ -1060,9 +1076,9 @@ export async function scanSobreAsignadas(deps, snapshot) {
     openPedidos = await loadOpenPedidos(deps);
   } catch (e) {
     errors.push(
-      'scanSobreAsignadas: loadOpenPedidos fallo: ' + (e && e.message ? e.message : String(e))
+      'revertSobreAsignadas: loadOpenPedidos fallo: ' + (e && e.message ? e.message : String(e))
     );
-    return { sobreAsignadas, errors };
+    return { revertidas, errors };
   }
   const pedidosData = openPedidos.map((d) => Object.assign({ _fsId: d.id }, d.data() || {}));
 
@@ -1078,6 +1094,10 @@ export async function scanSobreAsignadas(deps, snapshot) {
     }
   }
 
+  // Agrupar updates por pedidoId para hacer 1 update por doc.
+  /** @type {Map<string, any[]>} */
+  const modifiedLines = new Map();
+
   for (const sku of skuSet) {
     try {
       const fisico = Number((whsBreakdown[sku] && whsBreakdown[sku]['11']) || 0);
@@ -1086,8 +1106,7 @@ export async function scanSobreAsignadas(deps, snapshot) {
         { getStockFisico: () => fisico, pedidos: pedidosData },
         { now: nowMs }
       );
-      const totalSobre = breakdown.asignadas.totalSobreAsignada || 0;
-      if (totalSobre <= 0) continue;
+      // v1403 §40.11: iteramos directo sobre detalle[] (totalSobreAsignada eliminado del shape).
       for (const d of breakdown.asignadas.detalle || []) {
         if (d.sobreAsignada <= 0) continue;
         const row = {
@@ -1096,19 +1115,93 @@ export async function scanSobreAsignadas(deps, snapshot) {
           lineIndex: d.lineIndex,
           cardCode: d.cardCode,
           clientName: d.clientName,
-          asigAt: d.asigAt,
-          qtyNominal: d.qtyNominal,
           qtyEntregable: d.qtyEntregable,
-          sobreAsignada: d.sobreAsignada,
+          qtyRevertida: d.sobreAsignada,
         };
-        sobreAsignadas.push(row);
-        log('sobre_asignada', row);
+        // Encontrar la línea original en el pedido.
+        const ped = pedidosData.find((p) => p._fsId === d.pedidoId);
+        if (!ped || !Array.isArray(ped.lines)) continue;
+        /** @type {any[]} */
+        let _newLinesTyped;
+        const _existing = modifiedLines.get(d.pedidoId);
+        if (_existing) {
+          _newLinesTyped = _existing;
+        } else {
+          _newLinesTyped = ped.lines.map((/** @type {any} */ l) => Object.assign({}, l));
+          modifiedLines.set(d.pedidoId, _newLinesTyped);
+        }
+        const origLine = _newLinesTyped[d.lineIndex];
+        if (!origLine || origLine.state !== 'ASIG') continue;
+        const origQo = Number(origLine.qtyOpen) || 0;
+        // Mutar la ASIG original a qty=entregable.
+        origLine.qty = d.qtyEntregable;
+        origLine.qtyOpen = Math.min(origQo, d.qtyEntregable);
+        // Appendar línea BO revertida con audit.
+        const boLine = Object.assign({}, origLine, {
+          qty: d.sobreAsignada,
+          qtyOpen: d.sobreAsignada,
+          qtyInvoiced: 0,
+          qtyCancelled: 0,
+          qtyRecycled: 0,
+          state: 'BO',
+          asigReserva: false,
+          asigAt: null,
+          asigRevertidaAt: nowIso,
+          asigRevertidaBy: 'system:reconcile',
+          asigRevertidaReason: 'asig_sin_stock_revertida_a_bo',
+          splitFromLineIndex: d.lineIndex,
+        });
+        delete boLine.asigRefs;
+        _newLinesTyped.push(boLine);
+        revertidas.push(row);
+        log('asig_revertida_auto', row);
       }
     } catch (e) {
       errors.push(
-        'scanSobreAsignadas sku=' + sku + ': ' + (e && e.message ? e.message : String(e))
+        'revertSobreAsignadas sku=' + sku + ': ' + (e && e.message ? e.message : String(e))
       );
     }
   }
-  return { sobreAsignadas, errors };
+
+  // Aplicar updates por pedido (salvo dryRun).
+  if (!dryRun) {
+    for (const [pedidoId, newLines] of modifiedLines.entries()) {
+      try {
+        await deps.fbDb.collection('pedidos').doc(pedidoId).update({
+          lines: newLines,
+          updatedAt: nowIso,
+        });
+      } catch (e) {
+        errors.push(
+          'revertSobreAsignadas update pedidoId=' +
+            pedidoId +
+            ': ' +
+            (e && e.message ? e.message : String(e))
+        );
+      }
+    }
+  }
+
+  return { revertidas, errors };
+}
+
+// Compat alias — el export viejo scanSobreAsignadas sigue existiendo como
+// read-only (sin escribir) por si algún caller/test externo lo usa.
+/**
+ * @deprecated v1403 §40.11. Usar revertSobreAsignadas (sin opts para producción;
+ * `{ dryRun: true }` para test/audit).
+ * @param {RepartoDeps} deps
+ * @param {any} snapshot
+ */
+export async function scanSobreAsignadas(deps, snapshot) {
+  const r = await revertSobreAsignadas(deps, snapshot, { dryRun: true });
+  return {
+    sobreAsignadas: r.revertidas.map((x) =>
+      Object.assign(
+        { qtyNominal: x.qtyEntregable + x.qtyRevertida, sobreAsignada: x.qtyRevertida },
+        x
+      )
+    ),
+    errors: r.errors,
+  };
 }
