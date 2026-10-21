@@ -665,3 +665,31 @@ const disp = Math.min(r.fisico, r.reservadasPorCliente + residual);
 - Doble perdida: cliente pide, Pablo asigna, VDE confirma, SAP no recibe → el cliente queda en BO + Pablo tiene que repartir de nuevo la misma unidad.
 
 **Ejemplo de referencia**: `docs/AUDIT_SHIMANO_2026-10-07.md` — 13 fixes documentados en 4 rounds con el formato completo. Usar como calco.
+
+## 33. Fix de disponibilidad por cliente va SIEMPRE acotado por `source` del pedido (2026-10-20)
+
+**Regla fuerte**: cuando el fix cambia la formula de disponibilidad para favorecer al cliente (ej. `getStockUtilizableParaClienteExAsig` que NO cuenta la reserva propia como "comprometida"), el fix DEBE aplicarse condicionalmente, solo si el pedido tiene `source='stock-asignado-batch'` o `pedidosOrigenes[]` populated. **Nunca** generalizarlo a pedidos normales.
+
+**Por que**: la formula por cliente deja al propio cliente consumir su ASIG. Esto es correcto para pedidos CPST porque el bloque v1280 (`index.html:34881`) cancela la ASIG original despues del `pedidos.add` → la unidad pasa del pedido A al B, sin dobles reservas.
+
+En **pedidos normales** (lista de espera manual, botón "Agregar", edit de pending no-CPST), **NO existe** ese bloque de cancelacion. Si el fix se filtrara ahi:
+- El pedido normal tomaria el stock como "disponible para mi".
+- La ASIG original seguiria viva.
+- Resultado: la unidad quedaria dos veces comprometida (ASIG original + pedido normal nuevo). Bug H2 "reserva fantasma" fabricado por el fix.
+
+**Donde aplicar la condicion**:
+```js
+const _isExAsig = window._pendingPedidoSource === 'stock-asignado-batch'
+  || (Array.isArray(window._pendingPedidoOrigenes) && window._pendingPedidoOrigenes.length > 0);
+// en persistPendingEntry sobre entry (ya persistido):
+const _entryIsExAsig = entry.source === 'stock-asignado-batch'
+  || (Array.isArray(entry.pedidosOrigenes) && entry.pedidosOrigenes.length > 0);
+```
+
+**Donde NO aplicar la condicion**:
+- Cualquier flow que NO cancele la ASIG propia tras crear el pedido nuevo.
+- Pedidos "Generar Backorder" / cargas Excel / etc. — si no hay `source` CPST, es pedido normal.
+
+**Precedente**: fix H1 (`fix-stock-cardcode-h1` 2026-10-20). Diseño confirmado por Mariano explicitamente en el prompt que origino la tarea.
+
+**Test T1 (`tests/unit/audit/fix-h1.test.js`)**: verifica que un pedido normal con ASIG propia NO se filtra al fix (sigue BO). Si T1 falla, el fix se generalizo a pedidos normales — bug H2.
