@@ -611,4 +611,57 @@ Antes de `gh pr merge` a `main` o `firebase deploy` a prod:
 
 **Si falta cualquier item → NO commit. Completar primero.**
 
+## 31. AUDITORIA != correccion -- tareas de auditoria solo producen informe/tests (2026-10-20)
+
+**Regla fuerte**: cuando la sesion arranca con "auditoria" o "audit" explicito, los **unicos** archivos nuevos permitidos son:
+
+1. Informe de auditoria: `docs/auditoria/*.md` o `docs/AUDIT_*.md`.
+2. Tests o scripts de reproduccion: `tests/unit/audit/*.test.js`, `scripts/audit/*.{cjs,py,mjs}`.
+3. Reglas durables en `CLAUDE.md` (como esta).
+4. Plan de la auditoria en `docs/superpowers/plans/*.md`.
+
+**Prohibido** durante una auditoria:
+- Modificar `src/**`, `functions/**`, `index.html`, `firestore.rules`, `firebase.json`, bundles, service worker.
+- Reescribir codigo "mientras documento el bug". El fix va en otra tarea, con su propio buy-in y su propio PR.
+- Correr queries contra base real sin **gate humano explicito** (STOP, pedir OK a Mariano, pegar el output de `--dry-run` primero).
+
+**Que si se puede**:
+- Agregar tests que **fallan a proposito** reproduciendo el bug. Esos tests son evidencia; cuando se haga el fix, pasan a verde.
+- Agregar scripts `--dry-run` que imprimen la query sin ejecutarla.
+- Dejar propuestas de fix en el informe (con archivo:linea + impacto + riesgo) **sin implementarlas**.
+
+**Si durante una auditoria encontras un bug que "es un oneliner"**: NO lo arregles. Documentalo en el informe y segui. El fix va en otra tarea para que Mariano lo revise aparte.
+
+**Precedente**: auditoria flujo stock CRM 2026-10-20 (`docs/superpowers/plans/2026-10-20-auditoria-stock-crm.md`). El prompt original definia 7 entregables; mezclar fix y auditoria en el mismo PR enmascara que cosa es evidencia y que cosa es cambio de comportamiento.
+
+## 32. "disp" para pedidos ex-ASIG DEBE pasar cardCode (bug H1 confirmado 2026-10-20)
+
+**Regla fuerte**: cualquier call-site que calcule `disp` para un pedido ORIGINADO en Stock Asignado (CPST, `source='stock-asignado-batch'`, `pedidosOrigenes[]` populated) DEBE usar una formula POR CLIENTE, no `getStockRealmenteDisponible` global.
+
+**Formula correcta** (replicada del preview CPST `_cpstRenderPreview` v1362, `index.html:16872-16898`):
+```js
+const r = window.getStockPorCliente(sku, cardCode);
+const residual = Math.max(r.fisico - r.reservadasPorCliente - r.reservadasPorOtros, 0);
+const disp = Math.min(r.fisico, r.reservadasPorCliente + residual);
+```
+
+**Por que**: la propia reserva del cliente (ASIG/confirmed activas) NO cuenta como "comprometido ajeno". Si Oeste tiene ASIG=1 y fisico=1, Oeste puede consumir esa unidad porque le pertenece — no es stock que haya que proteger contra el. La formula global `getStockRealmenteDisponible(sku)` cuenta TODAS las reservas (incluida la propia del cliente) y devuelve 0, mandando el pedido a BO + `app_only` → SAP nunca lo recibe → sintoma reportado 3u disponibles → 100% BO.
+
+**Precedente concreto**: `doConfirmPedido getDisp` (`index.html:34720-34722`, v1208 2026-10-08) usa la formula global. Afecta a todos los pedidos ex-ASIG donde `qty <= Reservado(propio cliente)`. Fix propuesto en `docs/auditoria/06_PROPUESTAS_FIX.md > P1`.
+
+**Donde aplicar la regla**:
+- `index.html:34720` (`doConfirmPedido`) — por fix.
+- `index.html:26963-26972` (`persistPendingEntry`) — mismo bug con formula v802 ("dep11 - ASIG").
+- Cualquier nuevo call-site que calcule disp para pedidos con `source` heredado de un waitlist CPST.
+
+**Como aplicar**:
+1. Antes de llamar `splitPedidoLine`, verificar si el pedido es ex-ASIG. Para esto, el pedido padre heredo `source='stock-asignado-batch'` (ver v1209) o `window._pendingPedidoOrigenes` tiene elementos.
+2. Si es ex-ASIG, usar la formula por cliente (arriba). Si no, el global sigue siendo correcto.
+3. Agregar test en `tests/unit/audit/` que replique el escenario (fisico == reservadasPorCliente) y verifique state='confirmed'.
+
+**Riesgo si no aplicas la regla**:
+- Pedido ex-ASIG con qty exacta a la ASIG propia → 100% BO.
+- Las ASIG originales se cancelan (bloque v1280) → stock queda "libre" en dep 11 pero el BO sigue vivo en app.
+- Doble perdida: cliente pide, Pablo asigna, VDE confirma, SAP no recibe → el cliente queda en BO + Pablo tiene que repartir de nuevo la misma unidad.
+
 **Ejemplo de referencia**: `docs/AUDIT_SHIMANO_2026-10-07.md` — 13 fixes documentados en 4 rounds con el formato completo. Usar como calco.
