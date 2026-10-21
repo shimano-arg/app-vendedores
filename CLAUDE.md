@@ -1312,3 +1312,40 @@ Extensión de §40. Regla fuerte: `lineReservesStock('ASIG')` **ignora** el flag
 **Contador "unidades para asignar"**: refleja solo líneas que reservan (regla implícita — como ya no hay ASIG sin reserva, el contador coincide con `asignadas.total` del breakdown).
 
 **Precedente**: `feat-asig-sin-reserva-eliminada` 2026-10-21 (v1402). Reporte Mariano explícito: "una línea en Stock Asignado reserva, sin excepción (§40)". Caso MARCELO BOSCHETTO LDM64TE2020030G 2u.
+
+### §40.11 (2026-10-21, v1403): sobre-asignación auto-revertida en reconciliación + popup 5 líneas
+
+**Reconciliación automática**: la CF `onDep11IncreaseCreateReparto` ahora llama a `revertSobreAsignadas` (reemplaza al legacy `scanSobreAsignadas`). Para cada línea ASIG con `nominal > entregable` (FIFO físico-first):
+
+- Línea original muta a `qty = qtyEntregable`, `qtyOpen = min(prev, qtyEntregable)`.
+- Nueva línea appendada: `state='BO'`, `qty = sobreAsignada`, `qtyOpen = sobreAsignada`, `closedReason='asig_sin_stock_revertida_a_bo'`, `asigRevertidaAt`, `asigRevertidaBy='system:reconcile'`, `splitFromLineIndex`.
+
+Mismo patrón que §40.5 (reversión CPST sin stock) pero **automático en cada snapshot change**. Idempotente: una línea ya revertida tiene `qty=qtyEntregable`, por lo que `sobreAsignada=0` al próximo scan → no se re-revierte.
+
+El cliente conserva lugar en cola: el nuevo BO queda en `backorderApp.porCliente` del breakdown. Cuando entre stock, `reconcileRepartosFaltantes` lo pescar y crea `ingresos_reparto` → aparece en Reparto para que Pablo reasigne.
+
+**Shape del breakdown**: eliminados `asignadas.totalEntregable` y `asignadas.totalSobreAsignada` del top-level. Los campos per-línea `detalle[].qtyEntregable` + `detalle[].sobreAsignada` se preservan como uso interno de la CF — post-reconcile son 0 para líneas vigentes. `_version` 6 → 7.
+
+**UI modal Stock Asignado**: badge "prometidas N" eliminado del render (ya no existen líneas con nominal > entregable).
+
+**Popup "Stock del SKU"** (`openStockModal`): simplificado a 5 líneas en orden fijo:
+1. Stock físico (dep 11)
+2. En tránsito (dep 12)
+3. Back order (app)
+4. **Stock asignado** = `asignadas.total` (post-reconcile = entregable)
+5. Libre para la venta
+
+Sacadas "Confirmadas sin facturar" + "Reservadas" (siguen vivos en el breakdown + tooltip de la lista de espera).
+
+Caso 597151 BENGOCHEA post-reconcile: `Stock asignado = 2` (no 6). Las 4 unidades sobre-asignadas van al bucket `backorderApp` del mismo cliente.
+
+**Hallazgo pre-deploy** (script `J_sobre_asignadas_prod.cjs` 2026-10-21):
+- 32 unidades totales a revertir, 19 líneas, 12 SKUs. BAJO el umbral de 50 → mergeado sin pausa.
+- Caso emblemático: 597151 BENGOCHEA ASIG 6 fisico 2 → sobre 4 → se revierten las 4 a BO.
+
+**Tests**:
+- `tests/unit/audit/asignadas-fifo.test.js` (10, actualizados): shape no expone top-level totales; `detalle[].qtyEntregable/sobreAsignada` sigue para uso interno; FIFO; `_version=7`.
+- `tests/functions/scan-sobre-asignadas.test.js` (4): alias deprecated delega a `revertSobreAsignadas({dryRun:true})`.
+- Suite completa: 1843 PASS, 0 FAIL.
+
+**Precedente**: `feat-popup-5-lineas-reconcile-sobreasig` 2026-10-21 (v1403). Reporte Mariano: popup 597151 con "Stock asignado 2 no 6" + "la reconciliación revierte el excedente proactivamente, el cliente conserva lugar en cola".
