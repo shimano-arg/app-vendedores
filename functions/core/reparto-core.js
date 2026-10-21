@@ -34,6 +34,9 @@
  * destildar despues desde el modal Stock Asignado (v1268).
  */
 
+// v1384 (2026-10-21): import lineReservesStock para la reconciliación de reparto.
+import { lineReservesStock } from './pedido-snapshot-core.js';
+
 const INGRESOS_REPARTO_COLLECTION = 'ingresos_reparto';
 const REPARTO_LOG_COLLECTION = 'reparto_log';
 
@@ -294,6 +297,172 @@ export async function createIngresosRepartoFromDelta(deps, beforeSnap, afterSnap
       const msg = sku + ': ' + (e && e.message ? e.message : String(e));
       errors.push(msg);
       log('ingreso_reparto error', { sku, err: msg });
+    }
+  }
+  return { created, skipped, errors };
+}
+
+/**
+ * v1384 (2026-10-21): Reconciliación retrospectiva. Crea `ingresos_reparto`
+ * para SKUs que cumplen todas las condiciones:
+ *   - Físico dep 11 > 0.
+ *   - BO vigente (dentro TTL 7d) > 0 en pedidos abiertos.
+ *   - Sin reparto abierto (status pending|in_progress) para ese SKU.
+ *
+ * Diferencia con createIngresosRepartoFromDelta:
+ *   - Ese responde a aumentos del físico (dep11 subió → nuevo stock → reparto).
+ *   - Este responde a huecos: físico estable pero reparto nunca disparó porque
+ *     no hubo delta. Caso típico: BO viejos + stock físico tapado por otras
+ *     reservas; cuando esas reservas se liberan (TTL, cancel), queda stock
+ *     disponible pero el delta no se mueve → nadie crea el reparto.
+ *
+ * Dedupe: `dedupeKey = sku + '|reconciliation|' + fisico`. Combinado con la
+ * verificación "sin reparto activo", evita duplicar.
+ *
+ * `qtyARepartir = max(0, fisico - ASIG_vigentes - confirmed_vigentes)`.
+ * Si qtyARepartir <= 0 → skip (nada libre para repartir, aunque haya BO).
+ *
+ * @param {RepartoDeps} deps
+ * @param {any} snapshot - stock_snapshot.warehouseBreakdown
+ * @returns {Promise<{created: string[], skipped: Array<{sku:string, reason:string}>, errors: string[]}>}
+ */
+export async function reconcileRepartosFaltantes(deps, snapshot) {
+  const log = deps.log || (() => {});
+  const now = (deps.now || (() => new Date()))();
+  const nowIso = now.toISOString();
+  const nowMs = now.getTime();
+  const whsBreakdown = _parseWarehouseBreakdown(snapshot);
+  /** @type {string[]} */
+  const created = [];
+  /** @type {Array<{sku: string, reason: string}>} */
+  const skipped = [];
+  /** @type {string[]} */
+  const errors = [];
+
+  // 1. SKUs con reparto activo (dedupe).
+  const skusConReparto = new Set();
+  try {
+    const activosSnap = await deps.fbDb
+      .collection(INGRESOS_REPARTO_COLLECTION)
+      .where('status', 'in', ['pending', 'in_progress'])
+      .get();
+    activosSnap.forEach((/** @type {any} */ d) => {
+      const data = d.data();
+      if (data && data.sku) skusConReparto.add(String(data.sku).toUpperCase());
+    });
+  } catch (e) {
+    errors.push(
+      'reconcile: query ingresos_reparto activos fallo: ' + (e && e.message ? e.message : String(e))
+    );
+    return { created, skipped, errors };
+  }
+
+  // 2. Pedidos abiertos (una sola vez).
+  let openPedidos;
+  try {
+    openPedidos = await loadOpenPedidos(deps);
+  } catch (e) {
+    errors.push('reconcile: loadOpenPedidos fallo: ' + (e && e.message ? e.message : String(e)));
+    return { created, skipped, errors };
+  }
+
+  // 3. Para cada SKU con fisico > 0 → agregar demanda vigente (reusando lineReservesStock).
+  for (const [skuRaw, whs] of Object.entries(whsBreakdown)) {
+    const sku = String(skuRaw).toUpperCase();
+    try {
+      const fisico = Number(whs['11']) || 0;
+      if (fisico <= 0) continue;
+      if (skusConReparto.has(sku)) {
+        skipped.push({ sku, reason: 'reparto_activo_existe' });
+        continue;
+      }
+      let asigVig = 0;
+      let confVig = 0;
+      let boVig = 0;
+      /** @type {Array<ClienteBO & { _createdMs: number }>} */
+      const preClientesBO = [];
+      for (const doc of openPedidos) {
+        const data = doc.data() || {};
+        const lines = Array.isArray(data.lines) ? data.lines : [];
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i];
+          if (!l || !l.code) continue;
+          if (String(l.code).toUpperCase() !== sku) continue;
+          const qo = Number(l.qtyOpen) || 0;
+          if (qo <= 0) continue;
+          if (!lineReservesStock(l, nowMs, data)) continue;
+          if (l.state === 'ASIG') asigVig += qo;
+          else if (l.state === 'confirmed') confVig += qo;
+          else if (l.state === 'BO') {
+            boVig += qo;
+            let createdMs = 0;
+            let createdIso = null;
+            if (data.createdAt) {
+              if (typeof data.createdAt.toMillis === 'function') {
+                try {
+                  createdMs = data.createdAt.toMillis();
+                } catch {
+                  createdMs = 0;
+                }
+                createdIso = toIsoSafe(data.createdAt);
+              } else if (typeof data.createdAt === 'string') {
+                createdMs = Date.parse(data.createdAt) || 0;
+                createdIso = data.createdAt;
+              }
+            }
+            preClientesBO.push({
+              pedidoId: doc.id,
+              lineIndex: i,
+              clientCardCode: String(data.clientCardCode || '').trim(),
+              clientName: String(data.clientName || '').trim(),
+              clientProvince: String(data.province || data.clientProvince || '').trim(),
+              clientLocality: String(data.locName || data.clientLocality || '').trim(),
+              pedidoCreatedAt: createdIso,
+              qtyBackorder: qo,
+              _createdMs: createdMs,
+            });
+          }
+        }
+      }
+      if (boVig <= 0) {
+        skipped.push({ sku, reason: 'sin_bo_vigente' });
+        continue;
+      }
+      const qtyARepartir = Math.max(0, fisico - asigVig - confVig);
+      if (qtyARepartir <= 0) {
+        skipped.push({
+          sku,
+          reason: 'libre_cero (fisico=' + fisico + ' asig=' + asigVig + ' conf=' + confVig + ')',
+        });
+        continue;
+      }
+      preClientesBO.sort(
+        (a, b) => a._createdMs - b._createdMs || a.pedidoId.localeCompare(b.pedidoId)
+      );
+      /** @type {ClienteBO[]} */
+      const clientesBO = preClientesBO.map(({ _createdMs: _unused, ...rest }) => rest);
+      const dedupeKey = sku + '|reconciliation|' + fisico;
+      const docData = {
+        sku,
+        qtyIngresada: qtyARepartir,
+        detectedAt: nowIso,
+        status: 'pending',
+        clientesBO,
+        qtyBackorderTotal: boVig,
+        clientesCount: clientesBO.length,
+        appliedAt: null,
+        appliedBy: null,
+        assignments: null,
+        source: 'reconciliation', // v1384
+        dedupeKey,
+      };
+      const ref = await deps.fbDb.collection(INGRESOS_REPARTO_COLLECTION).add(docData);
+      created.push(ref.id);
+      log('reparto_reconciliado creado', { sku, qtyARepartir, boVig, id: ref.id });
+    } catch (e) {
+      const msg = sku + ': ' + (e && e.message ? e.message : String(e));
+      errors.push(msg);
+      log('reparto_reconciliado error', { sku, err: msg });
     }
   }
   return { created, skipped, errors };

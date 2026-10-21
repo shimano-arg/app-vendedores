@@ -5,16 +5,21 @@ import {
 } from '../../src/pure/stock-realmente-disponible.js';
 
 function makePedidos() {
+  // v1384 (2026-10-21): agregar confirmedAt/asigAt recientes para que las
+  // lineas confirmed/ASIG no caigan en el guard "sin fecha → no reserva".
+  const nowIso = new Date().toISOString();
   return [
     {
       _fsId: 'p1',
       clientCardCode: 'C001',
+      confirmedAt: nowIso,
       lines: [{ code: 'SKU1', state: 'confirmed', qtyOpen: 5 }],
     },
     {
       _fsId: 'p2',
       clientCardCode: 'C002',
-      lines: [{ code: 'SKU1', state: 'ASIG', qtyOpen: 3 }],
+      confirmedAt: nowIso,
+      lines: [{ code: 'SKU1', state: 'ASIG', qtyOpen: 3, asigAt: nowIso, asigReserva: true }],
     },
   ];
 }

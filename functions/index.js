@@ -59,7 +59,11 @@ import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 // v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
 // FIFO automatico (que queda en paralelo durante Fase 1 para safety net).
-import { applyRepartoManualCore, createIngresosRepartoFromDelta } from './core/reparto-core.js';
+import {
+  applyRepartoManualCore,
+  createIngresosRepartoFromDelta,
+  reconcileRepartosFaltantes,
+} from './core/reparto-core.js';
 // v1278 (2026-10-14): migracion ASIG → BO + create ingresos_reparto para
 // SKUs con stock libre. Switchover al reparto manual.
 import { migrateAsigToBOAndCreateReparto } from './core/reparto-migration-core.js';
@@ -930,15 +934,25 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
     const after = event.data?.after?.data() ?? null;
     if (!after) return;
     const db = getFirestore();
-    const r = await createIngresosRepartoFromDelta(
-      { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
-      before,
-      after
-    );
+    const deps = {
+      fbDb: db,
+      /** @param {string} msg @param {Record<string, unknown>} [extra] */
+      log: (msg, extra) => console.log(msg, extra || {}),
+    };
+    const r = await createIngresosRepartoFromDelta(deps, before, after);
+    // v1384 (2026-10-21): segunda pasada — reconciliación retrospectiva.
+    // Crea repartos para SKUs con fisico>0 + BO vigente>0 + sin reparto abierto
+    // que nunca disparó el delta (porque el fisico estaba estable tapado por
+    // otras reservas). Ejemplo CUDC201HG: fisico 7 estable, 10 clientes en BO
+    // pero nunca se creó reparto porque dep11 nunca subió.
+    const r2 = await reconcileRepartosFaltantes(deps, after);
     console.log('onDep11IncreaseCreateReparto done', {
-      created: r.created.length,
-      skipped: r.skipped.length,
-      errors: r.errors.length,
+      deltaCreated: r.created.length,
+      deltaSkipped: r.skipped.length,
+      deltaErrors: r.errors.length,
+      reconcileCreated: r2.created.length,
+      reconcileSkipped: r2.skipped.length,
+      reconcileErrors: r2.errors.length,
     });
   }
 );

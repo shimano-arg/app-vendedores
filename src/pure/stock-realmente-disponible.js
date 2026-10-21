@@ -167,17 +167,18 @@ export function lineReservesStock(line, nowMs, pedido) {
     // Explicito con 0/false (SAP serializa booleanos como 0/1; `0===false` es
     // false en JS). undefined/null mantienen "default true" historicamente.
     if (line.asigReserva === false || line.asigReserva === 0) return false;
-    // v963: expiracion 15d desde confirmedAt del pedido (no de la linea).
-    // Si el caller no pasa pedido, mantener comportamiento pre-v963 (siempre reserva).
-    if (pedido && pedido.confirmedAt) {
-      const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
-      if (confirmedAtMs !== null) {
-        const now = typeof nowMs === 'number' ? nowMs : Date.now();
-        const ageDays = (now - confirmedAtMs) / DAY_MS;
-        if (ageDays > RESERVA_TTL_DAYS) return false;
-      }
-    }
-    return true;
+    // v963: expiracion 15d (bajada a 7d en v1198) desde confirmedAt del pedido.
+    // v1384 (2026-10-21): guard defensivo — si no hay NINGUNA fecha de
+    // referencia (confirmedAt faltante y pedido indefinido), tratar la linea
+    // como data corrupta y NO reservar. En prod hoy (2026-10-21) este caso
+    // no existe (verificado con grep sobre 542 SKUs = 0 hits), pero el guard
+    // previene bugs futuros si entra data corrupta. CLAUDE.md §36.
+    if (!pedido || !pedido.confirmedAt) return false;
+    const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
+    if (confirmedAtMs === null) return false;
+    const now = typeof nowMs === 'number' ? nowMs : Date.now();
+    const ageDays = (now - confirmedAtMs) / DAY_MS;
+    return ageDays <= RESERVA_TTL_DAYS;
   }
   if (state === 'ASIG') {
     // Bug fix auditor 2026-10-02: SAP/legacy serializa booleanos como 0/1

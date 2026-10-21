@@ -4717,6 +4717,41 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1387 (2026-10-21) — Fix TTL reservas + reparto por reconciliación
+
+Loop E0-E4 sobre reporte "reservas fantasma de cotizaciones muertas y reparto que nunca se dispara" (CUDC201HG). Rama `fix-ttl-reservas-y-reparto` → `main`.
+
+**Antes**:
+- `lineReservesStock('confirmed')` sin `pedido.confirmedAt` devolvía `true` como fallback pre-v963 → confirmed sin fecha reservaba stock "para siempre".
+- CF `onDep11IncreaseCreateReparto` solo creaba `ingresos_reparto` ante **delta positivo** de físico dep 11. SKUs con BO vigente + físico estable nunca disparaban reparto. CUDC201HG caso emblemático: físico 7 estable, 10 clientes BO, nunca hubo delta.
+- Columna "Reservadas (ASIG)" del modal pedido mostraba solo ASIG firme con backing físico → ocultaba BO + confirmed que también comprometen stock.
+
+**Cambio**:
+- `src/pure/stock-realmente-disponible.js` + `functions/core/pedido-snapshot-core.js`: guard defensivo. Si state='confirmed' y no hay `pedido.confirmedAt` → `return false`. Regla CLAUDE.md §36.
+- `functions/core/reparto-core.js`: nueva función `reconcileRepartosFaltantes(deps, snapshot)`. Segunda pasada post `createIngresosRepartoFromDelta` que crea `ingresos_reparto` con `source='reconciliation'` para SKUs con físico>0 + BO vigente>0 + sin reparto activo. Dedupe por `(sku, 'reconciliation', fisico)`.
+- `functions/index.js`: hook en handler `onDep11IncreaseCreateReparto` llama ambas pasadas y loggea `deltaCreated` + `reconcileCreated` por separado.
+- `index.html`: header "Reservadas (ASIG)" → "Reservadas". Celda muestra `desg.comprometido`. Tooltip con breakdown confirmed/BO/ASIG/WAITLIST_CPST. Badge amarillo "⚠ N en BO" cuando BO vigente >0 + físico >0.
+
+**Tests nuevos (15 PASS)**:
+- `tests/unit/audit/ttl-guard-sin-fecha.test.js` (5)
+- `tests/functions/reparto-reconciliation.test.js` (6)
+- `tests/unit/audit/getStockDesglose-breakdown.test.js` (4)
+
+Suite: 1459 PASS + 1 FAIL (pre-existente `reparto.test.js`).
+
+**Por qué**: 3 oneliners defensivos + 1 CF nueva pequeña que destraba el caso emblemático. 0 unidades liberadas en prod por el guard (verificación empírica en E0), pero previene regresión futura. Reconcile sí destraba CUDC201HG + los 14 SKUs trabados.
+
+APP_VERSION v1386 → v1387. CACHE_VERSION v1386 → v1387.
+
+**Verificación post-deploy**:
+- `firebase deploy --only functions:onDep11IncreaseCreateReparto` → nueva revision activa.
+- Re-correr `scripts/audit/G_reservas_vencidas.cjs --prod` → mismo resultado 0 confirmed sin fecha (fix defensivo).
+- Re-correr `scripts/audit/B_bo_con_fisico_positivo.cjs --prod` → SKUs trabados ahora deberían tener reparto abierto (via reconcile).
+
+**Rollback**: `git revert <sha>` + `firebase deploy --only functions:onDep11IncreaseCreateReparto`. El guard §36 estaba inerte en prod, el rollback no libera nada.
+
+**Gate humano pendiente E5** (sin implementar): D3 doble conteo SAP, D4 TTL duro 60d, D5 `orderNumber` undefined.
+
 ### v1386 (2026-10-21) — Modal Backorder · quitar badge "VENCIDA Xd" también en filas state=confirmed (completa v1385)
 
 **Antes**: v1385 removió el badge "VENCIDA Xd" solo para `state=BO`. Mariano re-reportó 2026-10-21 (screenshot v1385 confirmado en DevTools "Shimano App v1385") que sigue viendo "VENCIDA 25d" y "VENCIDA 58d" en los mismos clientes — porque esas filas son `state=confirmed` con `sqDocDate>7d`, y v1385 mantuvo ese bloque pensando que era útil para admin.
