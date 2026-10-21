@@ -1601,7 +1601,7 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .mc-prov-btn:hover{background:#6d28d9;box-shadow:0 2px 6px rgba(124,58,237,.45)}
 .mc-prov-btn.active{background:#5b21b6;box-shadow:inset 0 2px 4px rgba(0,0,0,.25)}
 .mc-prov-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 6px;background:var(--bg-elevated);color:var(--color-accent-violet);border-radius:9px;font-size:10px;font-weight:900}
-.mc-prov-btn.active .mc-prov-count{background:#fde68a;color:#78350f}
+.mc-prov-btn.active .mc-prov-count{background:#fdba74;color:#78350f}
 .mc-tag.prov{background:#ede9fe;color:var(--color-accent-violet)}
 .mc-toolbar select,.mc-toolbar input{padding:7px 10px;border:1.5px solid var(--border-default);border-radius:5px;font-size:12px;font-family:inherit;background:var(--bg-elevated);outline:none;min-width:0;width:100%;box-sizing:border-box}
 .mc-toolbar select:focus,.mc-toolbar input:focus{border-color:#7f1d1d}
@@ -2395,16 +2395,16 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-wl-item.source-cpst{
   border:2px solid #f59e0b;
   border-left:6px solid #d97706;
-  background:#fde68a;
+  background:#fdba74;
   color:#78350f;
 }
 /* v1241 (2026-10-13): hover sin cambio de color (pedido Mariano). Antes
    pasaba a naranja fuerte y confundia. Hover mantiene bg del idle. */
-.slft-wl-item.source-cpst:hover{background:#fde68a}
+.slft-wl-item.source-cpst:hover{background:#fdba74}
 .slft-wl-item.source-cpst .slft-wl-cli-name{color:#78350f;font-weight:800}
 .slft-wl-item.source-cpst .slft-wl-loc{color:#92400e}
 .slft-wl-item.source-cpst .slft-wl-meta{color:#92400e}
-.slft-wl-item.source-cpst.has-exceed{background:#fdba74}
+.slft-wl-item.source-cpst.has-exceed{border-left-color:var(--color-danger)}
 .slft-wl-item.source-cpst.has-exceed:hover{background:#fdba74}
 /* v501: cliente a la izq, chip ORDEN empujado al costado derecho. */
 .slft-wl-cli{font-weight:800;color:var(--text-primary);font-size:11.5px;margin-bottom:2px;display:flex;align-items:center;gap:6px;min-width:0}
@@ -11437,7 +11437,7 @@ function renderClients(pts){
       const isProvisorioCard = !!(a.manualSapPending && !a.cardCodeSap);
       const cardBg = isPrec ? '#fde68a' : (isProvisorioCard ? '#e0f2fe' : '#dcfce7');
       const cardStyle = isPrec
-        ? 'border-left:5px solid #b45309;border-color:#f59e0b;background:#fde68a;cursor:pointer'
+        ? 'border-left:5px solid #b45309;border-color:#f59e0b;background:#fdba74;cursor:pointer'
         : ('border-left-color:' + sapLeft + ';background:' + cardBg + ';cursor:pointer');
       html += '<div class="client-card estado-sap"';
       html += ' style="' + cardStyle + '"';
