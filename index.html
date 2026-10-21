@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1400';
+const APP_VERSION = 'v1401';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18465,8 +18465,20 @@ window._gbConfirmar = async function(){
       createdByDisplayName: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.displayName || currentUser.email || '') : '',
       onBehalfOf: false,
       stage: 'confirmed',
-      key: '',
-      tipo: '', province: r.provincia || '', locName: r.localidad || '',
+      // v1401 (2026-10-21): key canónica `tipo|province|locName|clientName` igual
+      // que un pedido normal (index.html:19656). Antes se guardaba `key: ''` y
+      // el listener de pedidos (index.html:35091) agrupaba por d.key → caía en
+      // confirmed[''] → renderConfirmadosList hacía k.split('|')[1..3] = undefined
+      // → la card mostraba "undefined - BACKORDER / cliente undefined".
+      // tipo='C' si hay cardCode SAP, 'P' si es prospecto (alta aprobada sin SAP).
+      key: ((r.cardCode ? 'C' : 'P') + '|' + (r.provincia || '') + '|' + (r.localidad || '') + '|' + String(r.nombre || '').trim()),
+      tipo: r.cardCode ? 'C' : 'P',
+      province: r.provincia || '',
+      locName: r.localidad || '',
+      // v1401 (2026-10-21): también guardar shape "cliente*" para compat con
+      // otros consumidores (modal de detalle via clientProvince/clientLocality).
+      clientProvince: r.provincia || '',
+      clientLocality: r.localidad || '',
       // v1400 §40.8: coerción defensiva — nunca persistir clientName undefined/null.
       clientName: String(r.nombre || '').trim(),
       clientCardCode: r.cardCode || '',
