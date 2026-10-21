@@ -38,9 +38,14 @@ const OPEN_STATES = new Set(['BO', 'ASIG']);
 // alla, cambiar aca tambien. Se copia inline porque la CF vive en functions/
 // y no puede importar de src/ (build de Firebase Functions es aislado).
 // Bug #2 (post v1126): TTL_DAYS en functions/core/asig-ttl-core.js tambien
-// debe mantenerse igual a este valor (15) — la CF TTL marca lineas 'expired'
+// debe mantenerse igual a este valor — la CF TTL marca lineas 'expired'
 // en el mismo boundary donde dejan de reservar stock.
-const RESERVA_TTL_DAYS = 15;
+//
+// v1380 (2026-10-20, fix D2): bajado 15 -> 7 para alinear con src/pure/
+// (v1198 2026-10-08) y eliminar drift. Decidido por Mariano explicito tras
+// medir prod (153/153 ASIG vivas <= 7d, drift puramente teorico pero
+// sistemico). Test anti-divergencia en tests/unit/audit/ttl-sync.test.js.
+const RESERVA_TTL_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**

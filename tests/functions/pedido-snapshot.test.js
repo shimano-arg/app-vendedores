@@ -250,7 +250,7 @@ describe('aggregateForSku', () => {
     const now = new Date('2026-09-17T12:00:00Z').getTime();
     const isoDaysAgo = (d) => new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
 
-    it('ASIG con asigAt >15d NO cuenta (v959 vencida)', () => {
+    it('ASIG con asigAt >7d NO cuenta (v1380 vencida, antes v959 era 15d)', () => {
       const pedidos = [
         {
           clientCardCode: 'C1',
@@ -265,13 +265,13 @@ describe('aggregateForSku', () => {
       expect(r.asigByClient.get('C1')).toBeUndefined();
     });
 
-    it('ASIG con asigAt <15d cuenta (fresco)', () => {
+    it('ASIG con asigAt <7d cuenta (fresco, v1380 alineado con src/pure)', () => {
       const pedidos = [
         {
           clientCardCode: 'C1',
           closedAt: null,
           transferidoSAP: { via: 'service_layer_auto' },
-          lines: [{ code: 'X', qtyOpen: 5, state: 'ASIG', asigAt: isoDaysAgo(10) }],
+          lines: [{ code: 'X', qtyOpen: 5, state: 'ASIG', asigAt: isoDaysAgo(5) }],
         },
       ];
       const r = aggregateForSku(pedidos, 'X', now);
@@ -293,7 +293,7 @@ describe('aggregateForSku', () => {
       expect(r.asig).toBe(0);
     });
 
-    it('BO con pedido.createdAt >15d NO cuenta (v969 vencido)', () => {
+    it('BO con pedido.createdAt >7d NO cuenta (v1380 vencido, antes v969 era 15d)', () => {
       const pedidos = [
         {
           clientCardCode: 'C1',
@@ -307,13 +307,13 @@ describe('aggregateForSku', () => {
       expect(r.bo).toBe(0);
     });
 
-    it('BO con pedido.createdAt <15d cuenta', () => {
+    it('BO con pedido.createdAt <7d cuenta (v1380 alineado con src/pure)', () => {
       const pedidos = [
         {
           clientCardCode: 'C1',
           closedAt: null,
           transferidoSAP: { via: 'service_layer_auto' },
-          createdAt: isoDaysAgo(10),
+          createdAt: isoDaysAgo(5),
           lines: [{ code: 'X', qtyOpen: 8, state: 'BO' }],
         },
       ];

@@ -693,3 +693,29 @@ const _entryIsExAsig = entry.source === 'stock-asignado-batch'
 **Precedente**: fix H1 (`fix-stock-cardcode-h1` 2026-10-20). Diseño confirmado por Mariano explicitamente en el prompt que origino la tarea.
 
 **Test T1 (`tests/unit/audit/fix-h1.test.js`)**: verifica que un pedido normal con ASIG propia NO se filtra al fix (sigue BO). Si T1 falla, el fix se generalizo a pedidos normales — bug H2.
+
+## 34. BO reserva stock por diseño; el reparto convierte BO en ASIG, no crea la reserva (2026-10-20)
+
+**Regla fuerte**: `lineReservesStock(line, nowMs, pedido)` devuelve `true` para `state='BO'` dentro del TTL (7d). Esto es **por diseño**, no un bug. **No cambiarlo** sin autorización explícita de Mariano, y recién después de construir alternativa.
+
+**Por que**:
+- Entre que entra stock en dep 11 y Pablo abre modal Reparto puede pasar horas o días (Pablo puede estar fuera, con muchos ingresos acumulados, o simplemente no ser prioridad en el día).
+- Si BO dejara de reservar, otros clientes podrían cargar pedidos normales que lleven el stock físico recién ingresado antes de que Pablo lo asigne al cliente que lo pidió en BO.
+- Esto violaría O1 ("proteger stock con dueño") — la unidad "tiene dueño" desde que el cliente la pidió, no desde que Pablo la reparte.
+
+**El reparto NO crea la reserva. La convierte**:
+- BO (reserva genérica cliente-SKU) → ASIG (reserva nominada cliente-SKU con `asigAt` + `asigFromReparto` opcional).
+- La diferencia es semántica: BO es "cliente la pidió sin stock", ASIG es "stock físico ya reservado para el cliente".
+- Para efectos de `getStockRealmenteDisponible`, ambos cuentan igual.
+
+**Donde NO cambiar sin OK Mariano**:
+- `src/pure/stock-realmente-disponible.js:146-202` (`lineReservesStock`): la rama `state === 'BO'` debe seguir retornando `true` dentro del TTL.
+- `functions/core/pedido-snapshot-core.js:91-136` (copia inline): idem.
+- `functions/core/reparto-core.js:582-612` (`applyRepartoManualCore`): la mutación `state='BO' → state='ASIG'` no crea reserva nueva, solo renombra la existente.
+
+**Precedente**: decisión D1 de Mariano 2026-10-20 (gate humano post-fix H1). Analizados los 11 pasos end-to-end con las 2 semánticas — mantener BO como reserva protege la ventana PASO 5 (ingreso→reparto) sin construir nada nuevo. Ver `docs/auditoria/09_DECISIONES_PENDIENTES.md > D1`.
+
+**Si en el futuro se decide quitar la reserva de BO**:
+- Debe venir con panel admin "Reparto urgente" + alertas al admin cuando ingresa stock con BO pendiente.
+- Debe venir con bloqueo transitorio UX (ej. SKU "en reparto" por N minutos post-ingreso).
+- Es feature grande, no un oneliner. No lo arregles como "mejora menor".
