@@ -6180,7 +6180,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div class="modal-head" id="backorders-modal-head" style="background:linear-gradient(135deg,#7c2d12,#c2410c)">
           <div style="flex:1;min-width:0">
             <h2 id="backorders-modal-title">Backorders</h2>
-            <div class="subt" id="backorders-modal-subt">SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.</div>
+            <div class="subt" id="backorders-modal-subt">Cola de clientes esperando reparto. No reserva stock (§40). Si hay mercadería, Pablo reparte desde el modal "Reparto".</div>
           </div>
           <!-- v1275 (2026-10-14): slot con el total $ representado por los
                SKUs filtrados actualmente. Se popula desde renderBackordersTab.
@@ -15297,8 +15297,9 @@ function _applyBackordersMode(mode){
   } else {
     backordersStockFilter = 'sin';
     if (head) head.style.background = 'linear-gradient(135deg,#7c2d12,#c2410c)';
-    if (title) title.innerHTML = 'Backorder';
-    if (subt) subt.textContent = 'SKUs con demanda pendiente que no podemos cubrir - urgentes de importar. Datos SAP cada 30 min. Solo pesca.';
+    // v1392 §40: nuevo título "Backorder (app)" + subtítulo claro. BO ya no reserva.
+    if (title) title.textContent = 'Backorder (app)';
+    if (subt) subt.textContent = 'Cola de clientes esperando reparto. No reserva stock (§40). Si hay mercadería, Pablo reparte desde el modal "Reparto".';
   }
   // v1225 (2026-10-09): botones de export unificados. En modo backorder el
   // boton "Exportar" dispara export flat directo (no muestra el chooser porque
@@ -20599,9 +20600,23 @@ function _repartoBuildCard(ing){
   // Footer con total asignado + boton aplicar.
   const foot = document.createElement('div');
   foot.style.cssText = 'padding:14px 18px;background:#fafafa;border-top:0.5px solid rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
+  // v1392 §40: "Libre ahora" lee breakdown.libre del momento. Si Pablo no
+  // asigna nada y cierra, esas N unidades quedan libres.
+  const _bkNow = (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(ing.sku) : null;
+  const libreAhora = _bkNow ? _bkNow.libre : stockFisico;
   const totals = document.createElement('div');
   totals.style.cssText = 'font-size:12.5px;color:#6e6e73;letter-spacing:-0.1px';
-  totals.innerHTML = 'Asignado: <b style="color:#1d1d1f;font-weight:600" data-reparto-total="' + _escAttr(ing._id) + '">0</b> / ' + _repartoFmtQty(stockFisico) + ' · Libre: <b style="color:#1d1d1f;font-weight:600" data-reparto-libre="' + _escAttr(ing._id) + '">' + _repartoFmtQty(stockFisico) + '</b>';
+  totals.appendChild(document.createTextNode('Asignado: '));
+  const bTot = document.createElement('b');
+  bTot.style.cssText = 'color:#1d1d1f;font-weight:600';
+  bTot.setAttribute('data-reparto-total', ing._id);
+  bTot.textContent = '0';
+  totals.appendChild(bTot);
+  totals.appendChild(document.createTextNode(' / ' + _repartoFmtQty(stockFisico) + ' · '));
+  const spanLibre = document.createElement('span');
+  spanLibre.style.cssText = 'color:#2563eb;font-weight:600';
+  spanLibre.textContent = 'Libre ahora: ' + _repartoFmtQty(libreAhora);
+  totals.appendChild(spanLibre);
   foot.appendChild(totals);
   // v1328: siempre mostrar "Aplicar reparto" (Mariano decide uno por uno).
   // Si no hay clientes en el snapshot (edge case), mantener "Marcar procesado".
@@ -20621,10 +20636,55 @@ function _repartoBuildCard(ing){
     btn.setAttribute('data-reparto-apply', ing._id);
     btn.onclick = () => _repartoApply(ing._id);
     foot.appendChild(btn);
+    // v1392 §40: botón "Cerrar reparto" con sobrante. Habilitado siempre;
+    // confirm muestra cuántas unidades quedan libres si se cierra sin asignar.
+    const btnCerrar = document.createElement('button');
+    btnCerrar.type = 'button';
+    btnCerrar.className = 'reparto-apple-btn reparto-apple-btn-gray';
+    btnCerrar.textContent = 'Cerrar reparto';
+    btnCerrar.title = 'Cierra el reparto con lo asignado hasta ahora. Las unidades no asignadas quedan libres para la venta.';
+    btnCerrar.onclick = () => _repartoCerrarConSobrante(ing._id);
+    foot.appendChild(btnCerrar);
   }
   card.appendChild(foot);
   return card;
 }
+
+// v1392 §40: cerrar reparto con sobrante (acción explícita de Pablo).
+// Llama applyRepartoManualCF con allowSobrante=true + assignments=[] y
+// eliminations=[]. Backend marca status='done' + closedReason + sobranteLibre.
+window._repartoCerrarConSobrante = async function(ingresoId){
+  if (!ingresoId) return;
+  const ing = (_repartoIngresos || []).find((x) => x._id === ingresoId);
+  if (!ing) return alert('Reparto no encontrado.');
+  // Calcular N unidades que quedarán libres (lo que no se asignó manual aún).
+  const qtyIng = Number(ing.qtyIngresada) || 0;
+  const assignmentsExistentes = Array.isArray(ing.assignments) ? ing.assignments : [];
+  const asignadoYa = assignmentsExistentes.reduce((s, a) => s + (Number(a && a.qtyAsignada) || 0), 0);
+  const libresPost = Math.max(0, qtyIng - asignadoYa);
+  const msg = 'Cerrar este reparto con ' + libresPost + ' u sin asignar?\n\n'
+    + 'Las ' + libresPost + ' unidades no asignadas quedan LIBRES para la venta '
+    + '(§40: BO ya no las reserva). Si querés mantenerlas protegidas, asignalas antes.';
+  if (!window.confirm(msg)) return;
+  try {
+    const callable = firebase.app().functions('southamerica-east1').httpsCallable('applyRepartoManualCF');
+    const resp = await callable({
+      ingresoId,
+      assignments: [],
+      eliminations: [],
+      allowSobrante: true,
+    });
+    const data = resp && resp.data;
+    if (data && data.ok) {
+      if (typeof showSyncTag === 'function') showSyncTag('Reparto cerrado. ' + libresPost + ' u libres.');
+    } else {
+      alert('Error al cerrar: ' + ((data && (data.errors || []).join('\n')) || 'desconocido'));
+    }
+  } catch (e) {
+    console.error('[reparto] cerrar con sobrante err', e);
+    alert('Error cerrando el reparto: ' + (e.message || e));
+  }
+};
 
 // v1317: marcar un ingreso como procesado (status='done') sin aplicar reparto.
 // Util cuando el ingreso quedo huerfano (clientes del snapshot se fueron a SAP
@@ -24272,23 +24332,29 @@ function _renderWaitlistCard(){
         tdReserv.style.background = '#e0e7ff';
         tdReserv.style.color = '#3730a3';
       }
-      // v1384: badge "pendientes de reparto" si hay BO vigente + fisico > 0.
-      // Semantica: hay demanda que no esta en SAP esperando mercaderia + hay
-      // mercaderia fisica. El reparto deberia estar abierto. Si el CF
-      // reconcileRepartosFaltantes ya corrio, va a aparecer en el modal Reparto.
-      if (_bdBO > 0 && (stockDep11Only || 0) > 0) {
+      // v1392 §40: badge informativo. Prioriza reparto abierto (hay doc activo
+      // que Pablo tiene que atender) sobre "N clientes en back order" (sin
+      // reparto creado todavía). Ambos NO restan de libre — solo informan.
+      const _bk = (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(r.code) : null;
+      const _repartoQty = _bk && _bk.repartoAbierto ? _bk.repartoAbierto.qty : 0;
+      if (_repartoQty > 0) {
         const subR = document.createElement('div');
-        subR.textContent = '⚠ ' + _bdBO + ' en BO';
+        subR.textContent = _repartoQty + ' en reparto pendiente (no reserva)';
         subR.style.cssText = 'font-size:9px;color:#9a3412;font-weight:700;margin-top:1px;line-height:1.1';
-        subR.title = 'Hay ' + _bdBO + ' u en BO (esperando mercaderia) y ' + stockDep11Only + ' u de stock fisico. Deberia haber un reparto abierto para repartir el fisico a los clientes en BO. Si no aparece, revisar modal Reparto.';
+        subR.title = 'Pablo tiene un reparto abierto con ' + _repartoQty + ' u. No reserva stock por §40 — el libre sigue siendo real.';
+        tdReserv.appendChild(subR);
+      } else if (_bdBO > 0) {
+        const subR = document.createElement('div');
+        subR.textContent = _bdBO + ' clientes en back order';
+        subR.style.cssText = 'font-size:9px;color:#6b7280;font-weight:600;margin-top:1px;line-height:1.1';
+        subR.title = 'Demanda sin cubrir (' + _bdBO + ' u) en back order. No reserva stock (§40). Mientras haya físico, el reparto aparecerá para Pablo.';
         tdReserv.appendChild(subR);
       }
-      tdReserv.title = 'Unidades Reservadas (TOTAL comprometido): ' + _desgTotal + ' u\\n' +
-        '= Confirmed ' + _bdConfirmed + ' (en SAP, sin facturar) + BO ' + _bdBO +
-        ' (esperando mercaderia) + ASIG ' + _bdASIG + ' (asignado por Pablo)' +
+      tdReserv.title = 'Reservadas (§40 — solo ASIG + Confirmed + Waitlist CPST): ' + _desgTotal + ' u\\n' +
+        '= Confirmed ' + _bdConfirmed + ' + ASIG ' + _bdASIG +
         (_bdWCPST > 0 ? ' + Waitlist CPST ' + _bdWCPST : '') + '\\n' +
-        'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u\\n' +
-        'ASIG firme con backing fisico: ' + reservadasBacked + ' u (lo que descuenta del Libre)';
+        'Back order (' + _bdBO + ' u) NO reserva (regla §40 — es la cola de clientes esperando).\\n' +
+        'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
     }
     tr.appendChild(tdReserv);
     // v919 (2026-09-14): Libre para la venta = stk.disponible via
