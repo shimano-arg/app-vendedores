@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1397';
+const APP_VERSION = 'v1398';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -25232,17 +25232,170 @@ window.waitlistEditOrden = async function(){
 };
 
 // Borrar pedido en espera (con confirmacion).
+// v1398 §40.6: branchear por tipo de waitlist. CPST (source=stock-asignado-batch
+// o pedidosOrigenes/items[].asigRefs populated) abre modal con 2 opciones. Normal
+// mantiene el flujo histórico (confirm nativo + delete directo).
 window.waitlistDeleteCurrent = async function(){
   const w = _wcardCurrent;
   if (!w || !w._id) return;
-  if (!confirm('Borrar este pedido en espera de ' + w.clientName + '?\n\nEsta accion es irreversible.')) return;
+  const _isCpstFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.isWaitlistCpst;
+  const isCpst = _isCpstFn ? _isCpstFn(w) : (w.source === 'stock-asignado-batch');
+  if (!isCpst) {
+    // Flow histórico para órdenes normales.
+    if (!confirm('Borrar este pedido en espera de ' + w.clientName + '?\n\nEsta accion es irreversible.')) return;
+    try {
+      await fbDb.collection('revision_waitlist').doc(w._id).delete();
+      showSyncTag('Pedido en espera borrado');
+      closeWaitlistCardModal();
+    } catch(e) {
+      console.error('waitlistDelete', e);
+      alert('Error borrando: ' + (e.message || e));
+    }
+    return;
+  }
+  // CPST: abrir modal 2-opciones. No borra nada aún — espera el pick.
+  const _collectFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.collectAsigRefsForCancel;
+  const _sumFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.sumUnitsToFreeOnCancel;
+  const refs = _collectFn ? _collectFn(w) : (Array.isArray(w.pedidosOrigenes) ? w.pedidosOrigenes : []);
+  const unitsToFree = _sumFn ? _sumFn(refs) : refs.reduce((s, r) => s + (Number(r.qtyAsignada) || 0), 0);
+  const unitsReserved = unitsToFree;
+  const expMsStr = (() => {
+    try {
+      if (w.expiresAt) return new Date(w.expiresAt).toLocaleDateString('es-AR');
+      if (w.createdAt) {
+        const d = typeof w.createdAt.toDate === 'function' ? w.createdAt.toDate() : new Date(w.createdAt);
+        return new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('es-AR');
+      }
+    } catch (_e) {}
+    return 'desconocida';
+  })();
+  const title = document.getElementById('wcard-delete-choice-title');
+  const subt = document.getElementById('wcard-delete-choice-subt');
+  const rechDetail = document.getElementById('wcard-delete-choice-rechazo-detail');
+  const borrDetail = document.getElementById('wcard-delete-choice-borrador-detail');
+  if (title) title.textContent = 'Borrar pedido ORDEN ' + (w.orderNumber || '?') + ' - ' + (w.clientName || '');
+  if (subt) subt.textContent = 'El pedido se generó desde Stock Asignado. Elegí qué hacer con las unidades reservadas.';
+  if (rechDetail) {
+    rechDetail.textContent = 'Se borra el pedido y las ' + unitsToFree +
+      ' unidad(es) ASIG de origen se cancelan (cliente_rechazo_cpst). Vuelven a libre; si hay back order del SKU, aparecerán en Reparto cuando ingrese stock.';
+  }
+  if (borrDetail) {
+    borrDetail.textContent = 'Se borra el pedido y las ' + unitsReserved +
+      ' unidad(es) siguen reservadas para el cliente (ASIG). Vencen el ' + expMsStr + ' (7 días).';
+  }
+  // Cache del waitlist para el pick.
+  window._wcardDeleteChoicePending = { waitlist: w, refs: refs };
+  const modal = document.getElementById('wcard-delete-choice-modal');
+  if (modal) modal.classList.add('open');
+};
+
+// v1398 §40.6: cerrar modal sin elegir (equivalente a "cancel" — no pasa nada).
+window._wcardDeleteChoiceClose = function(){
+  const modal = document.getElementById('wcard-delete-choice-modal');
+  if (modal) modal.classList.remove('open');
+  window._wcardDeleteChoicePending = null;
+};
+
+// v1398 §40.6: pick de opción. 'rechazo_cpst' cancela ASIG, 'solo_borrador' no.
+window._wcardDeleteChoicePick = async function(choice){
+  const pending = window._wcardDeleteChoicePending;
+  if (!pending || !pending.waitlist || !pending.waitlist._id) {
+    _wcardDeleteChoiceClose();
+    return;
+  }
+  const w = pending.waitlist;
+  const refs = pending.refs || [];
+  const modal = document.getElementById('wcard-delete-choice-modal');
+  const _userEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
+  const nowIso = new Date().toISOString();
+  const batch = fbDb.batch();
+  batch.delete(fbDb.collection('revision_waitlist').doc(w._id));
+  let unitsCancelled = 0;
+  let linesCancelled = 0;
+  if (choice === 'rechazo_cpst' && refs.length > 0) {
+    /** @type {Map<string, any[]>} */
+    const modifiedLines = new Map();
+    // Para cada ref: fetch pedido (cache local → firestore fallback) → mutar línea.
+    for (const r of refs) {
+      let p = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos))
+        ? globalPedidos.find(x => x && x._fsId === r.pedidoId)
+        : null;
+      if (!p || !Array.isArray(p.lines)) {
+        try {
+          const snap = await fbDb.collection('pedidos').doc(r.pedidoId).get();
+          if (!snap.exists) continue;
+          p = Object.assign({ _fsId: r.pedidoId }, snap.data() || {});
+        } catch (e) {
+          console.warn('_wcardDeleteChoicePick: fetch pedido fallo', r.pedidoId, e);
+          continue;
+        }
+      }
+      let newLines = modifiedLines.get(r.pedidoId);
+      if (!newLines) {
+        newLines = p.lines.map(l => Object.assign({}, l));
+        modifiedLines.set(r.pedidoId, newLines);
+      }
+      const line = newLines[r.lineIndex];
+      if (!line) continue;
+      // Idempotencia: línea ya cancelled con el mismo closedReason → skip.
+      if (line.state === 'cancelled' && line.closedReason === 'cliente_rechazo_cpst') continue;
+      // Solo cancelar si está ASIG vigente. Si ya pasó a otro estado por otro
+      // flow (BO revertida v1397, invoiced, etc.), no la toco.
+      if (line.state !== 'ASIG') continue;
+      const prevQo = Number(line.qtyOpen) || 0;
+      const prevQty = Number(line.qty) || prevQo;
+      unitsCancelled += prevQo;
+      linesCancelled += 1;
+      line.state = 'cancelled';
+      line.qtyOpen = 0;
+      line.qtyCancelled = (Number(line.qtyCancelled) || 0) + prevQo;
+      line.closedReason = 'cliente_rechazo_cpst';
+      line.cancelledAt = nowIso;
+      line.cancelledBy = _userEmail;
+      line.asigReserva = false;
+      // Preservar qty histórico; prevQty se queda igual.
+    }
+    for (const [pedidoId, newLines] of modifiedLines.entries()) {
+      batch.update(fbDb.collection('pedidos').doc(pedidoId), {
+        lines: newLines,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
   try {
-    await fbDb.collection('revision_waitlist').doc(w._id).delete();
-    showSyncTag('Pedido en espera borrado');
+    await batch.commit();
+    if (choice === 'rechazo_cpst') {
+      if (typeof showSyncTag === 'function') showSyncTag('Pedido borrado · ' + unitsCancelled + 'u ASIG canceladas');
+      try {
+        if (typeof logOp === 'function') logOp('cpst_cancel_asig_cliente_rechazo', 'revision_waitlist/' + w._id, w.clientName, {
+          cliente: w.clientName,
+          cardCode: w.clientCardCode,
+          orderNumber: w.orderNumber,
+          unidadesCanceladas: unitsCancelled,
+          lineasCanceladas: linesCancelled,
+          refsReferenciadas: refs.length,
+        });
+      } catch (_e) {}
+    } else {
+      if (typeof showSyncTag === 'function') showSyncTag('Pedido borrado · ASIG sigue reservada');
+      try {
+        if (typeof logOp === 'function') logOp('cpst_delete_solo_borrador', 'revision_waitlist/' + w._id, w.clientName, {
+          cliente: w.clientName,
+          cardCode: w.clientCardCode,
+          orderNumber: w.orderNumber,
+          unidadesReservadasSiguenVigentes: refs.reduce((s, r) => s + (Number(r.qtyAsignada) || 0), 0),
+        });
+      } catch (_e) {}
+    }
+    if (modal) modal.classList.remove('open');
+    window._wcardDeleteChoicePending = null;
     closeWaitlistCardModal();
-  } catch(e) {
-    console.error('waitlistDelete', e);
-    alert('Error borrando: ' + (e.message || e));
+    try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
+  } catch (e) {
+    console.error('_wcardDeleteChoicePick commit', e);
+    alert('Error aplicando el cambio: ' + (e.message || e));
+    if (modal) modal.classList.remove('open');
+    window._wcardDeleteChoicePending = null;
   }
 };
 
@@ -36459,6 +36612,32 @@ if ('serviceWorker' in navigator) {
 
 <!-- v1166 (2026-10-06): chooser que aparece al clicar Visita/Contactado.
      Pide elegir entre Clásica (form completo) y Rápida (solo cliente+mes). -->
+<!-- v1398 §40.6: modal 2-opciones al borrar un waitlist CPST. Sin opción
+     peligrosa por defecto — el user debe elegir explícitamente qué hace con
+     las ASIG de origen. Si cierra sin elegir, no pasa nada. -->
+<div class="modal-overlay" id="wcard-delete-choice-modal" onclick="if(event.target===this)_wcardDeleteChoiceClose()">
+  <div class="modal-box" style="width:min(540px,96vw);display:flex;flex-direction:column">
+    <div class="modal-head" style="background:linear-gradient(135deg,#9f1239,#e11d48)">
+      <div>
+        <h2 id="wcard-delete-choice-title">Borrar pedido en espera</h2>
+        <div class="subt" id="wcard-delete-choice-subt">Elegí qué hacer con las unidades reservadas en Stock Asignado.</div>
+      </div>
+      <button class="modal-close" onclick="_wcardDeleteChoiceClose()">&times;</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:12px">
+      <button id="wcard-delete-choice-rechazo" onclick="_wcardDeleteChoicePick('rechazo_cpst')" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:16px 18px;border:2px solid #dc2626;background:#fef2f2;border-radius:10px;cursor:pointer;font-family:inherit;text-align:left">
+        <span style="font-size:15px;font-weight:800;color:#991b1b">El cliente no quiere la mercadería</span>
+        <span id="wcard-delete-choice-rechazo-detail" style="font-size:12.5px;color:#7f1d1d;line-height:1.4">Se borra el pedido y se cancelan las asignaciones de origen. Las unidades vuelven a libre.</span>
+      </button>
+      <button id="wcard-delete-choice-borrador" onclick="_wcardDeleteChoicePick('solo_borrador')" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:16px 18px;border:2px solid #64748b;background:var(--bg-elevated);border-radius:10px;cursor:pointer;font-family:inherit;text-align:left">
+        <span style="font-size:15px;font-weight:800;color:var(--text-primary)">Solo borro el borrador</span>
+        <span id="wcard-delete-choice-borrador-detail" style="font-size:12.5px;color:var(--text-muted);line-height:1.4">Se borra el pedido y la asignación sigue reservada para el cliente.</span>
+      </button>
+      <button onclick="_wcardDeleteChoiceClose()" style="margin-top:4px;padding:10px 16px;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;align-self:flex-end">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="visita-choice-modal" onclick="if(event.target===this)closeVisitaChoice()">
   <div class="modal-box" style="width:min(480px,96vw);display:flex;flex-direction:column">
     <div class="modal-head" id="visita-choice-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">

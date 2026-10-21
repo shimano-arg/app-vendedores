@@ -12,6 +12,7 @@
 // E3 (e2b-perf 2026-07-28): loader para chunks lazy.
 import { installChunkStubs } from './loader.js';
 import { computeBackorderRawLines, computeBackorderSkuMap } from './pure/backorder-sku-map.js';
+import { collectAsigRefsForCancel, sumUnitsToFreeOnCancel } from './pure/cpst-cancel-asig-plan.js';
 import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
@@ -246,6 +247,8 @@ const phase0 = {
     isWaitlistCpst,
     computeCpstRevertPlan,
     sumRevertUnits,
+    collectAsigRefsForCancel,
+    sumUnitsToFreeOnCancel,
     mergeLinesFromOrders,
     computeDuplicateCodes,
     getRowColorClass,
