@@ -4717,7 +4717,42 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
-### v1388 (2026-10-21) — Cards source-cpst · unificar naranja + has-exceed correcto (fix H1 visto desde sidebar)
+### v1390 (2026-10-21) — BO sin TTL 7d (red seguridad 90d) + confirmed hard cap 60d + legacy orderNumber UI + fix B1
+
+Decisiones Mariano post-v1387 (B1 cerrar fantasmas migration-v1278 + D-nueva §37 BO sin TTL 7d + D4 §38 confirmed hard cap 60d + D5 legacy orderNumber UI). Rama `feat-bo-sin-ttl-v2`.
+
+**Antes**:
+- BO con `pedido.createdAt > 7d` dejaba de reservar stock (v1198). Resultado: SKUs con BO vigente + físico llegaba quedaban sin reparto porque `reconcileRepartosFaltantes` filtraba por `lineReservesStock` que los expiraba.
+- confirmed solo tenía TTL soft 7d, sin red de seguridad en caso de que mañana se suba.
+- Pedidos pre-v913 con `orderNumber === undefined` renderizaban "ORDEN undefined" o chip oculto en la UI.
+- 38 docs `ingresos_reparto source='migration-v1278'` con `clientesCount=0` sin assignments bloqueaban reconcile por dedupe.
+
+**Cambio**:
+- `src/pure/stock-realmente-disponible.js` + `functions/core/pedido-snapshot-core.js`:
+  - `BO_TTL_DAYS = 90` (red de seguridad). BO reserva hasta 90d desde `createdAt`. CLAUDE.md §37.
+  - `CONFIRMED_HARD_CAP_DAYS = 60`. confirmed además de soft 7d, hard cap 60d sobre `confirmedAt`. CLAUDE.md §38.
+  - ASIG no cambia (sigue con TTL 7d).
+- `functions/core/reparto-core.js:reconcileRepartosFaltantes` usa `lineReservesStock` directamente → toma BO 30/60/89d como válido.
+- `index.html` 3 call-sites: chip "ORDEN legacy" en gris cuando `orderNumber === undefined`. D5.
+- `scripts/audit/H_cerrar_repartos_fantasma.cjs` (dry-run + --apply) ejecutado → 38 docs cerrados `status=cancelled`.
+- `scripts/audit/_close_cudc_migration.cjs` → doc `XqBxRRu78WLwm...` (CUDC201HG `in_progress` con 4u ya asignadas por Pablo) cerrado `status=done` sin tocar assignments.
+
+**Tests nuevos (9 PASS, `tests/unit/audit/bo-sin-ttl-7d.test.js`)**:
+- BO 30d / 89d reserva + BO 91d NO reserva (red seguridad).
+- confirmed 3d reserva + confirmed 30d / 61d NO reserva (soft + hard cap).
+- ASIG 30d NO reserva (invariante preservado).
+
+**Tests actualizados** (regla cambiada BO 7d → 90d): 7 tests en 5 archivos (`stock-realmente-disponible`, `pedido-snapshot`, `reparto-reconciliation`, `backorder-sku-map`, `virtual-asig-fifo`). Suite: 1491 PASS + 1 FAIL pre-existente.
+
+**Impacto prod verificado 2026-10-21 13:28 UTC**:
+- Reconcile creó 13 `ingresos_reparto source='reconciliation'` post-touch snapshot.
+- CUDC201HG recibió `kBIQuz7yqUsCCeD5nnr1` qty=6 clientesCount=5 (destrabó caso emblemático).
+
+APP_VERSION v1389 → v1390. CACHE_VERSION v1389 → v1390.
+
+**Rollback**: `git revert` + redeploy functions. Vuelve TTL BO 7d. Repartos ya creados post-fix NO retroceden.
+
+### v1389 (2026-10-21) — Cards source-cpst · unificar naranja + has-exceed correcto (fix H1 visto desde sidebar)
 
 **Antes**: en el sidebar "Pedidos en espera" del mapa, las cards generadas desde Stock Asignado (badge "STOCK ASIG", clase `source-cpst`) tenían dos backgrounds según computed `has-exceed`: amarillo pastel `#fde68a` por default, naranja `#fdba74` cuando alguna línea excedía el disponible. Reporte Mariano 21/10/2026 09:50: ORDEN 444-447 naranja, 448+472 amarillo — pedido explícito: "todas en el mismo naranja, sin excepción".
 
@@ -4738,7 +4773,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 5. **Tests** `tests/unit/waitlist-has-exceed.test.js` — 12 tests: los 2 casos exigidos por Mariano (cpst qty=1 físico=1 ASIG propia=1 → `false`; normal qty=1 disp=0 → `true`) + edge cases (cpst sin cardCode, inputs defectuosos, múltiples items). **12/12 pass**.
 
-Bundle regenerado. APP_VERSION/CACHE_VERSION v1387 → v1388. Branch original pedida `fix-card-stock-asig-color` (push como `fix-card-stock-asig-color-v2` por workflow del sandbox).
+Bundle regenerado. APP_VERSION/CACHE_VERSION v1388 → v1389. Branch original pedida `fix-card-stock-asig-color` (push como `fix-card-stock-asig-color-v2` por workflow del sandbox).
 
 **Verificación**:
 - Suite unit: `12/12 waitlist-has-exceed` pass, `1471/1472 total` (único failing es pre-existente de `reparto.test.js` que Mariano advirtió, no relacionado).

@@ -797,3 +797,66 @@ if (state === 'confirmed') {
 - Cualquier test que llame `lineReservesStock(line, now)` sin 3er arg para state='confirmed' ahora devuelve `false` (antes era `true`).
 
 **Precedente**: `fix-ttl-reservas-y-reparto` 2026-10-21 (`docs/auditoria/14_RESERVAS_VENCIDAS.md`). El reporte original de Cowork atribuía reservas fantasma al bucket "sin confirmedAt" sobre CUDC201HG, pero verificación directa contra Firestore mostró que **ninguna** de las 6 líneas confirmed caía en ese bucket (todas tenían `confirmedAt` presente). El guard es defensivo contra data que no existe hoy.
+
+## 37. BO reserva stock sin TTL de 7 días (red de seguridad 90 días, 2026-10-21)
+
+**Regla fuerte**: `lineReservesStock('BO')` devuelve `true` para cualquier BO con `pedido.createdAt` dentro de los últimos **90 días**. No usa el TTL soft de 7 días que aplica a ASIG y confirmed. BO con `createdAt > 90d` deja de reservar (red de seguridad para no acumular BOs olvidados indefinidamente).
+
+**Por qué**:
+- Un BO es demanda legitima que aún no tiene stock. Si el stock llega a los 10, 20 o 60 días, hay que respetarle la unidad al cliente que ya la pidió (via reparto).
+- v969 (2026-09-17) bajó el TTL BO a 15d y v1198 (2026-10-08) a 7d. Resultado: SKUs con BO + físico quedaban sin reparto porque los BO expiraban antes de llegar la mercadería. Reporte Mariano 2026-10-21: "el back order no vence".
+- La red de 90d existe para que un BO olvidado por 3+ meses no quede bloqueando stock para siempre (admin lo puede revisar aparte).
+
+**Código** (`src/pure/stock-realmente-disponible.js:146-162` + copia `functions/core/pedido-snapshot-core.js:96-108`):
+```js
+const BO_TTL_DAYS = 90;
+// ...
+if (state === "BO") {
+  if (pedido && pedido.createdAt) {
+    const createdAtMs = toMillisSafe(pedido.createdAt);
+    if (createdAtMs !== null) {
+      const now = typeof nowMs === "number" ? nowMs : Date.now();
+      const ageDays = (now - createdAtMs) / DAY_MS;
+      if (ageDays > BO_TTL_DAYS) return false;
+    }
+  }
+  return true;
+}
+```
+
+**Impacto reconciliación** (`functions/core/reparto-core.js:reconcileRepartosFaltantes`): usa `lineReservesStock` directamente, por lo que **automáticamente** toma BO de 30, 60, 89 días como válido y crea reparto si hay físico libre. Precedente v1388: destrabamos 13 SKUs con BO 15-80 días que antes del fix quedaban sin reparto porque el reconcile los filtraba por TTL 7d.
+
+**ASIG no cambia**: `asigAt > 7d` sigue liberando stock. Rationale: una ASIG asignada por Pablo que el VDE no confirma en 7d indica abandono, no espera.
+
+**Precedente**: `feat-bo-sin-ttl-conf-hard-cap` 2026-10-21 (v1388). Tests `tests/unit/audit/bo-sin-ttl-7d.test.js` cubren los 3 escenarios críticos (BO 30d reserva, BO 91d no reserva, ASIG 30d no reserva).
+
+**Precaución**: antes de bajar o eliminar `BO_TTL_DAYS = 90`, revisar que no quedan BOs legacy pre-reparto con `createdAt` muy viejo que queden latentes.
+
+## 38. confirmed tiene TTL soft 7 días y hard cap 60 días (red de seguridad, 2026-10-21)
+
+**Regla fuerte**: una línea con `state='confirmed'` deja de reservar stock cuando `pedido.confirmedAt` superó los **7 días** (TTL soft) **o** los **60 días** desde confirmedAt como hard cap (incluso si en el futuro se sube el TTL soft).
+
+**Por qué**:
+- v1198 (2026-10-08) bajó el TTL confirmed a 7d. Si Santi (o el flujo automático SAP) no factura en 7d, el stock se libera.
+- Red de 60d: si en el futuro alguien sube `RESERVA_TTL_DAYS` (ej. 30d, 45d), 60d sigue siendo el techo duro. Una SQ que SAP tarda 60+ días en facturar es casi seguramente un olvido administrativo, no una venta en curso.
+
+**Código** (`src/pure/stock-realmente-disponible.js:163-193` + copia `functions/core/pedido-snapshot-core.js:109-128`):
+```js
+const RESERVA_TTL_DAYS = 7;
+const CONFIRMED_HARD_CAP_DAYS = 60;
+// ...
+if (state === "confirmed") {
+  if (line.asigReserva === false || line.asigReserva === 0) return false;
+  if (!pedido || !pedido.confirmedAt) return false; // regla §36
+  const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
+  if (confirmedAtMs === null) return false;
+  const ageDays = (now - confirmedAtMs) / DAY_MS;
+  if (ageDays > RESERVA_TTL_DAYS) return false;
+  if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
+  return true;
+}
+```
+
+**Nota**: hoy `RESERVA_TTL_DAYS (7) < CONFIRMED_HARD_CAP_DAYS (60)` entonces el primer `if` corta todo. El segundo `if` es defensivo para el día que el TTL soft suba.
+
+**Precedente**: `feat-bo-sin-ttl-conf-hard-cap` 2026-10-21 (v1388). Decisión D4 Mariano. Tests `tests/unit/audit/bo-sin-ttl-7d.test.js` cubren los 3 escenarios: confirmed 3d reserva, confirmed 30d no reserva (soft), confirmed 61d no reserva (hard cap).
