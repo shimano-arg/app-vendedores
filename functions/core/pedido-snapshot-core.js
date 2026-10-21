@@ -293,8 +293,8 @@ export function getStockBreakdown(sku, deps, opts) {
     }
   }
 
-  // v1392 §40: reservadasTotal = ASIG + confirmed + waitlistCpst (SIN BO, SIN reparto).
-  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
+  // v1393 §40.1: reservadasTotal = ASIG + confirmed (SIN waitlistCpst). Mirror.
+  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total;
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
   // demandaSapSinCubrir DEPRECATED v1392 — queda null.
@@ -305,8 +305,8 @@ export function getStockBreakdown(sku, deps, opts) {
     if (!cardCode) return libre;
     const key = String(cardCode).trim();
     let reservasPropias = 0;
-    // v1392 §40: BO no reserva — no cuenta en reservasPropias.
-    for (const map of [buckets.confirmed, buckets.ASIG, bucketWaitlist]) {
+    // v1393 §40.1: waitlist no reserva (draft VDE). Solo ASIG + confirmed propios.
+    for (const map of [buckets.confirmed, buckets.ASIG]) {
       const own = map.get(key);
       if (own) reservasPropias += own.qty;
     }
@@ -327,7 +327,7 @@ export function getStockBreakdown(sku, deps, opts) {
     libre,
     utilizablePara,
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 2,
+    _version: 3,
   };
 }
 

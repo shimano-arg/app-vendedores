@@ -58,7 +58,7 @@ describe('v1392 §40 schema shape', () => {
         'waitlistCpst',
       ].sort()
     );
-    expect(b._version).toBe(2);
+    expect(b._version).toBe(3);
     expect(b.demandaSapSinCubrir).toBe(null);
   });
 

@@ -57,7 +57,7 @@ describe('getStockDesglose invariant v1392 §40', () => {
     expect(desg.real).toBe(5); // 10 - 5
   });
 
-  it('WAITLIST_CPST se suma al breakdown y al comprometido', () => {
+  it('v1393 §40.1: WAITLIST_CPST aparece en breakdown pero NO suma a comprometido', () => {
     const deps = _makeDeps({
       fisico: 10,
       pedidos: [],
@@ -69,9 +69,9 @@ describe('getStockDesglose invariant v1392 §40', () => {
       ],
     });
     const desg = getStockDesglose('X', deps, { now: NOW });
-    expect(desg.breakdown.WAITLIST_CPST).toBe(4);
-    expect(desg.comprometido).toBe(4);
-    expect(desg.real).toBe(6);
+    expect(desg.breakdown.WAITLIST_CPST).toBe(4); // informativo
+    expect(desg.comprometido).toBe(0); // waitlist NO cuenta
+    expect(desg.real).toBe(10);
   });
 
   it('v1392 §40: BO no suma a comprometido — real = fisico', () => {

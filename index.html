@@ -7023,7 +7023,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1392';
+const APP_VERSION = 'v1393';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24324,36 +24324,25 @@ function _renderWaitlistCard(){
     if (!r.hasData) {
       tdReserv.textContent = '-';
     } else {
-      const mainR = document.createElement('div');
-      mainR.textContent = String(_desgTotal);
-      mainR.style.cssText = 'font-weight:800';
-      tdReserv.appendChild(mainR);
+      // v1393: solo el número; desglose en tooltip. Sin sub-líneas.
+      tdReserv.textContent = String(_desgTotal);
+      tdReserv.style.fontWeight = '800';
       if (_desgTotal > 0) {
         tdReserv.style.background = '#e0e7ff';
         tdReserv.style.color = '#3730a3';
       }
-      // v1392 §40: badge informativo. Prioriza reparto abierto (hay doc activo
-      // que Pablo tiene que atender) sobre "N clientes en back order" (sin
-      // reparto creado todavía). Ambos NO restan de libre — solo informan.
       const _bk = (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(r.code) : null;
       const _repartoQty = _bk && _bk.repartoAbierto ? _bk.repartoAbierto.qty : 0;
-      if (_repartoQty > 0) {
-        const subR = document.createElement('div');
-        subR.textContent = _repartoQty + ' en reparto pendiente (no reserva)';
-        subR.style.cssText = 'font-size:9px;color:#9a3412;font-weight:700;margin-top:1px;line-height:1.1';
-        subR.title = 'Pablo tiene un reparto abierto con ' + _repartoQty + ' u. No reserva stock por §40 — el libre sigue siendo real.';
-        tdReserv.appendChild(subR);
-      } else if (_bdBO > 0) {
-        const subR = document.createElement('div');
-        subR.textContent = _bdBO + ' clientes en back order';
-        subR.style.cssText = 'font-size:9px;color:#6b7280;font-weight:600;margin-top:1px;line-height:1.1';
-        subR.title = 'Demanda sin cubrir (' + _bdBO + ' u) en back order. No reserva stock (§40). Mientras haya físico, el reparto aparecerá para Pablo.';
-        tdReserv.appendChild(subR);
-      }
-      tdReserv.title = 'Reservadas (§40 — solo ASIG + Confirmed + Waitlist CPST): ' + _desgTotal + ' u\\n' +
-        '= Confirmed ' + _bdConfirmed + ' + ASIG ' + _bdASIG +
-        (_bdWCPST > 0 ? ' + Waitlist CPST ' + _bdWCPST : '') + '\\n' +
-        'Back order (' + _bdBO + ' u) NO reserva (regla §40 — es la cola de clientes esperando).\\n' +
+      const _repartoLine = _repartoQty > 0
+        ? ('Reparto abierto: ' + _repartoQty + ' u (no reserva)\\n')
+        : '';
+      const _boLine = _bdBO > 0
+        ? ('Back order (no reserva): ' + _bdBO + ' u — cola de clientes esperando\\n')
+        : '';
+      tdReserv.title = 'Reservadas (§40.1 — solo ASIG + Confirmed): ' + _desgTotal + ' u\\n' +
+        '= Confirmed ' + _bdConfirmed + ' + ASIG ' + _bdASIG + '\\n' +
+        _boLine + _repartoLine +
+        (_bdWCPST > 0 ? 'Waitlist CPST (no reserva): ' + _bdWCPST + ' u\\n' : '') +
         'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
     }
     tr.appendChild(tdReserv);
@@ -24377,25 +24366,10 @@ function _renderWaitlistCard(){
       // caso SKU 597144: Stock=6, Reservadas=6, Libre=2 → confuso visualmente.
       // Ahora muestra "2 tuyas" para que sea obvio que las 4 restantes son
       // reservas de otros clientes.
+      // v1393: solo el número; desglose en tooltip. Sin sub-líneas.
       const libreVal = r.disponible || 0;
-      const mainSpan = document.createElement('div');
-      mainSpan.textContent = String(libreVal);
-      mainSpan.style.cssText = 'font-weight:700';
-      tdLibre.appendChild(mainSpan);
-      // Sub-linea solo cuando aritmetica simple (stock - reservadas) != libre y
-      // libre > 0 (si libre=0 la UX ya es clara: "no tenes nada").
-      const _esperadoSimple = Math.max((stockDep11Only || 0) - reservadasBacked, 0);
-      if (libreVal > 0 && libreVal !== _esperadoSimple) {
-        const subSpan = document.createElement('div');
-        subSpan.textContent = libreVal + ' tuyas';
-        subSpan.style.cssText = 'font-size:9px;color:var(--text-muted);font-weight:600;margin-top:1px;line-height:1.1';
-        const _resOtros = Number(porCli.reservadasPorOtros) || 0;
-        subSpan.title = 'LIBRE es lo que vos (' + (w.clientName || 'este cliente') +
-          ') podes tomar HOY. RESERVADAS = total ASIG del SKU en TODOS los clientes (' +
-          reservadasBacked + '). De eso, ' + libreVal + ' son firmes tuyas (ASIG+confirmed activos). ' +
-          _resOtros + ' u son reservas de otros clientes y no estan disponibles para vos.';
-        tdLibre.appendChild(subSpan);
-      }
+      tdLibre.textContent = String(libreVal);
+      tdLibre.style.fontWeight = '700';
       tdLibre.title = 'Libre para la venta: ' + libreVal + ' u\\n' +
         '= firmes TUYAS (ASIG+confirmed de ' + (w.clientName || 'este cliente') + ') + sobrante del stock general despues de descontar todas las reservas\\n' +
         'Stock fisico dep 11: ' + stockDep11Only + '\\n' +

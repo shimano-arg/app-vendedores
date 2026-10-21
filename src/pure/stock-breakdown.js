@@ -228,8 +228,12 @@ export function getStockBreakdown(sku, deps, opts) {
     }
   }
 
-  // v1392 §40: reservadasTotal = ASIG + confirmed + waitlistCpst (SIN BO, SIN repartoAbierto).
-  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
+  // v1393 §40.1: reservadasTotal = ASIG + confirmed (SIN BO, SIN reparto, SIN waitlistCpst).
+  // waitlistCpst sigue en el shape como INFORMATIVO. Es draft del VDE desde
+  // Stock Asignado — la ASIG original ya reserva, contar waitlist = doble conteo.
+  // Precedente: BENGOCHEA 597151 ORDEN 467 (2026-10-21) ASIG 6 + waitlist 6
+  // mismo cliente/SKU → breakdown contaba 12 u reservadas con fisico 2.
+  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total;
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
   // demandaSapSinCubrir DEPRECATED v1392 — queda null para no romper
@@ -242,8 +246,9 @@ export function getStockBreakdown(sku, deps, opts) {
     if (!cardCode) return libre;
     const key = String(cardCode).trim();
     let reservasPropias = 0;
-    // v1392 §40: BO no reserva, no contribuye a reservasPropias. Solo ASIG + confirmed + CPST.
-    for (const map of [buckets.confirmed, buckets.ASIG, bucketWaitlist]) {
+    // v1393 §40.1: BO no reserva + waitlistCpst no reserva (draft VDE).
+    // Solo ASIG + confirmed del cliente cuentan como reserva propia.
+    for (const map of [buckets.confirmed, buckets.ASIG]) {
       const own = map.get(key);
       if (own) reservasPropias += own.qty;
     }
@@ -267,6 +272,6 @@ export function getStockBreakdown(sku, deps, opts) {
     utilizablePara,
     // Alias compat v1391 — mismo info que repartoAbierto.
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 2,
+    _version: 3,
   };
 }
