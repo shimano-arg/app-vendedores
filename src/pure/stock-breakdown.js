@@ -1,17 +1,21 @@
 // @ts-check
 /**
- * v1391 (2026-10-21) — Fuente única de verdad para el stock de un SKU.
+ * v1392 (2026-10-21, §40 reemplaza §34) — El back order NO reserva stock.
+ * Reservan solo ASIG + confirmed + waitlistCpst. Reparto abierto es
+ * informativo (bucket repartoAbierto no suma a reservadasTotal).
+ *
+ * v1391 base: una sola fuente de verdad.
  *
  * Regla CLAUDE.md §39: ninguna pantalla calcula disponibilidad por su
  * cuenta. Toda lectura pasa por getStockBreakdown(sku, deps, opts).
  *
- * TTL centralizado — reusa lineReservesStock() de stock-realmente-disponible.js:
- *   - BO: §37 red seguridad 90d.
+ * TTL centralizado — reusa lineReservesStock():
+ *   - BO: §37 red seguridad 90d — PARA FILTRADO DEL BUCKET (cola + forecast).
+ *     NO para reservas (lineReservesStock('BO') devuelve false en v1392).
  *   - confirmed: §38 soft 7d + hard cap 60d. §36 guard sin confirmedAt.
  *   - ASIG: 7d.
  *
- * `demandaSapSinCubrir` (opt-in con opts.includeStale=true): suma BO +
- * confirmed SIN TTL. Es lo que ve el Modal Backorder (fuente de verdad E0).
+ * `demandaSapSinCubrir` — DEPRECATED en v1392. Siempre null. Eliminar en v1393.
  */
 
 import { lineReservesStock } from './stock-realmente-disponible.js';
@@ -46,29 +50,29 @@ import { lineReservesStock } from './stock-realmente-disponible.js';
  * @property {string} sku
  * @property {number} fisicoDep11
  * @property {number} transitoDep12
- * @property {{total:number, porCliente:PorClienteItem[]}|null} demandaSapSinCubrir
- * @property {BucketTotal} backorderApp
- * @property {BucketTotal} confirmadasSinFacturar
- * @property {BucketTotal} asignadas
- * @property {BucketTotal} waitlistCpst  // v1198+ revision_waitlist source='stock-asignado-batch'
- * @property {number} reservadasTotal
+ * @property {{total:number, porCliente:PorClienteItem[]}|null} demandaSapSinCubrir  DEPRECATED v1392
+ * @property {BucketTotal} backorderApp  Cola BO con TTL §37 90d. NO reserva (v1392).
+ * @property {BucketTotal} confirmadasSinFacturar  Reserva (TTL §38).
+ * @property {BucketTotal} asignadas  Reserva (TTL 7d).
+ * @property {BucketTotal} waitlistCpst  Reserva (sin TTL).
+ * @property {{qty:number, repartoId:string|null, status:string|null}} repartoAbierto  v1392 informativo, NO reserva.
+ * @property {number} reservadasTotal  = asignadas + confirmed + waitlistCpst (SIN BO, SIN repartoAbierto).
  * @property {number} libre
  * @property {(cardCode:string) => number} utilizablePara
- * @property {{qty:number, repartoId:string|null}} pendienteReparto
+ * @property {{qty:number, repartoId:string|null}} pendienteReparto  Alias de repartoAbierto (compat v1391).
  * @property {number} _version
  */
 
 export const STOCK_LABELS = Object.freeze({
-  demandaSapSinCubrir: 'Demanda SAP sin cubrir',
   backorderApp: 'Back order (app)',
   confirmadasSinFacturar: 'Confirmadas sin facturar',
   asignadas: 'Asignadas',
   waitlistCpst: 'En lista de espera (CPST)',
+  repartoAbierto: 'En reparto pendiente (no reserva)',
   reservadasTotal: 'Reservadas',
   fisicoDep11: 'Stock físico (dep 11)',
   transitoDep12: 'En tránsito (dep 12)',
   libre: 'Libre para la venta',
-  pendienteReparto: 'Pendientes de reparto',
 });
 
 /**
@@ -135,15 +139,33 @@ export function getStockBreakdown(sku, deps, opts) {
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) continue;
       const st = l.state;
-      const vig = lineReservesStock(l, now, p);
       if (st === 'BO' || st === 'confirmed' || st === 'ASIG') {
-        if (vig) {
+        // v1392 §40: BO va al bucket backorderApp filtrado por TTL §37 90d
+        //            (para cola + forecast), pero lineReservesStock('BO')=false.
+        // Confirmed/ASIG usan lineReservesStock como filtro de reserva real.
+        let incluir = false;
+        if (st === 'BO') {
+          // TTL §37 90d sobre createdAt — para el bucket, no para reserva.
+          if (p.createdAt) {
+            const createdMs = (typeof p.createdAt === 'string') ? Date.parse(p.createdAt) : null;
+            if (createdMs !== null && (now - createdMs) / (24 * 60 * 60 * 1000) <= 90) {
+              incluir = true;
+            } else if (createdMs === null) {
+              incluir = true; // edge compat
+            }
+          } else {
+            incluir = true;
+          }
+        } else {
+          incluir = lineReservesStock(l, now, p);
+        }
+        if (incluir) {
           const _map = /** @type {Map<string, PorClienteItem>} */ (
             buckets[/** @type {'BO'|'confirmed'|'ASIG'} */ (st)]
           );
           _push(_map, p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
         }
-        // stale (sin TTL) solo para BO y confirmed (lo que ve Modal Backorder).
+        // stale (sin TTL) solo para BO y confirmed (DEPRECATED v1392).
         if (includeStale && (st === 'BO' || st === 'confirmed')) {
           const _staleMap = /** @type {Map<string, PorClienteItem>} */ (
             bucketsStale[/** @type {'BO'|'confirmed'} */ (st)]
@@ -180,58 +202,45 @@ export function getStockBreakdown(sku, deps, opts) {
   const confirmadasSinFacturar = _toBucket(buckets.confirmed);
   const asignadas = _toBucket(buckets.ASIG);
   const waitlistCpst = _toBucket(bucketWaitlist);
-  const reservadasTotal =
-    backorderApp.total + confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
-  const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
-  // demandaSapSinCubrir: alias del concepto "demanda nominal cruda" del
-  // Modal Backorder (sin TTL). Opt-in con includeStale=true.
-  /** @type {{total:number, porCliente:PorClienteItem[]}|null} */
-  let demandaSapSinCubrir = null;
-  if (includeStale) {
-    const combined = new Map();
-    for (const map of [bucketsStale.BO, bucketsStale.confirmed]) {
-      for (const [k, v] of map.entries()) {
-        const existing = combined.get(k);
-        if (existing) {
-          existing.qty += v.qty;
-          existing.origins = (existing.origins || []).concat(v.origins || []);
-        } else {
-          combined.set(k, Object.assign({}, v, { origins: (v.origins || []).slice() }));
-        }
-      }
-    }
-    const porCliente = Array.from(combined.values()).sort((a, b) => b.qty - a.qty);
-    const total = porCliente.reduce((s, c) => s + c.qty, 0);
-    demandaSapSinCubrir = { total, porCliente };
-  }
-  if (!includeStale && deps.sapBackorderSnapshot) {
-    // Futuro: feed real SAP si existe. Hoy ignorado por diseño (E0 confirmó
-    // que no hay fuente externa; sapBackorderSnapshot queda como extension point).
-    const _snap = /** @type {Record<string, any>} */ (deps.sapBackorderSnapshot);
-    demandaSapSinCubrir = _snap[skuUp] || null;
-  }
-
-  // pendienteReparto: cuánto quedaría libre para repartir a BO vigentes
-  // si todas las asignadas + confirmadas ya se consumieron.
-  const _pendQty =
-    backorderApp.total > 0
-      ? Math.max(0, fisicoDep11 - asignadas.total - confirmadasSinFacturar.total)
-      : 0;
-  let _pendRepartoId = null;
-  if (_pendQty > 0 && Array.isArray(deps.ingresosRepartoActivos)) {
+  // v1392 §40: repartoAbierto es INFORMATIVO (NO suma a reservadasTotal).
+  // Lo único que reserva: ASIG + confirmed + waitlistCpst.
+  /** @type {{qty:number, repartoId:string|null, status:string|null}} */
+  let repartoAbierto = { qty: 0, repartoId: null, status: null };
+  if (Array.isArray(deps.ingresosRepartoActivos)) {
     const match = deps.ingresosRepartoActivos.find(
       (r) => r && String(r.sku || '').toUpperCase() === skuUp
     );
-    if (match) _pendRepartoId = match._fsId || match.id || null;
+    if (match) {
+      // qty = qtyIngresada - sum(assignments ya aplicadas)
+      const qtyIng = Number(match.qtyIngresada) || 0;
+      const assignments = Array.isArray(match.assignments) ? match.assignments : [];
+      const asignadoYa = assignments.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
+      repartoAbierto = {
+        qty: Math.max(0, qtyIng - asignadoYa),
+        repartoId: match._fsId || match.id || null,
+        status: match.status || null,
+      };
+    }
   }
+
+  // v1392 §40: reservadasTotal = ASIG + confirmed + waitlistCpst (SIN BO, SIN repartoAbierto).
+  const reservadasTotal =
+    confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
+  const libre = Math.max(0, fisicoDep11 - reservadasTotal);
+
+  // demandaSapSinCubrir DEPRECATED v1392 — queda null para no romper
+  // consumidores que lo lean. Eliminar del shape en v1393.
+  /** @type {{total:number, porCliente:PorClienteItem[]}|null} */
+  const demandaSapSinCubrir = null;
 
   /** @param {string} cardCode */
   const utilizablePara = (cardCode) => {
     if (!cardCode) return libre;
     const key = String(cardCode).trim();
     let reservasPropias = 0;
-    for (const map of [buckets.BO, buckets.confirmed, buckets.ASIG, bucketWaitlist]) {
+    // v1392 §40: BO no reserva, no contribuye a reservasPropias. Solo ASIG + confirmed + CPST.
+    for (const map of [buckets.confirmed, buckets.ASIG, bucketWaitlist]) {
       const own = map.get(key);
       if (own) reservasPropias += own.qty;
     }
@@ -244,15 +253,17 @@ export function getStockBreakdown(sku, deps, opts) {
     sku: skuUp,
     fisicoDep11,
     transitoDep12,
-    demandaSapSinCubrir,
+    demandaSapSinCubrir,  // DEPRECATED v1392 — siempre null
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
     waitlistCpst,
+    repartoAbierto,  // v1392 informativo
     reservadasTotal,
     libre,
     utilizablePara,
-    pendienteReparto: { qty: _pendQty, repartoId: _pendRepartoId },
-    _version: 1,
+    // Alias compat v1391 — mismo info que repartoAbierto.
+    pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
+    _version: 2,
   };
 }

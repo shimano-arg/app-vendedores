@@ -165,15 +165,7 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
   // =========================================================================
   // PASO 5 — Ingresa 1u al dep 11, hay BO=2 pendiente
   // =========================================================================
-  it('PASO 5: fisico pasa de 0 a 1 con BO=2 (Sur+Oeste); codigo actual Disp=0 (BO cuenta como reserva)', () => {
-    const depsPre = makeDeps({
-      fisicoBySku: { [SKU_STRADIC]: 0 },
-      pedidos: [
-        pedidoOpen('p-sur', SUR, [lineBO(SKU_STRADIC, 1)]),
-        pedidoOpen('p-oeste', OESTE, [lineBO(SKU_STRADIC, 1)]),
-      ],
-    });
-    // Simular ingreso: fisico pasa a 1.
+  it('v1392 §40: PASO 5 fisico 0→1 con BO=2; BO ya NO reserva → Disp=1 (cuarto cliente puede llevarselo)', () => {
     const depsPost = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [
@@ -181,15 +173,10 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
         pedidoOpen('p-oeste', OESTE, [lineBO(SKU_STRADIC, 1)]),
       ],
     });
-    const s = observableState(depsPost);
-    // Prompt: Disp=1 (porque BO no reserva). Codigo: disp=0 (BO si reserva).
-    expect(s.dispPrompt).toBe(1); // segun semantica prompt
-    expect(s.disp).toBe(0); // codigo: BO reserva
-    expect(getStockRealmenteDisponible(SKU_STRADIC, depsPost, AT_NOW)).toBe(0);
-    // Hallazgo: la ventana H6 del prompt NO existe en el codigo (DESCARTADA).
-    // CUARTO cliente no puede llevarse esa unidad.
+    // v1392: BO no reserva, disp = fisico.
+    expect(getStockRealmenteDisponible(SKU_STRADIC, depsPost, AT_NOW)).toBe(1);
     const rCuarto = getStockPorCliente(SKU_STRADIC, CUARTO, depsPost, AT_NOW);
-    expect(rCuarto.libreParaCliente).toBe(0); // cuarto cliente ve 0 (protegido)
+    expect(rCuarto.libreParaCliente).toBe(1); // v1392: cuarto cliente ve 1 (BO no bloquea)
   });
 
   // =========================================================================
@@ -210,11 +197,11 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
     expect(s.bo).toBe(1); // Sur
     expect(s.dispPrompt).toBe(0); // 1-1=0
 
-    // Para Oeste: reservadasPorCliente=1, libreParaCliente=fisico-otros=1-1(SurBO)=0
+    // v1392 §40: Sur BO ya NO cuenta como reserva de otros.
     const rOeste = getStockPorCliente(SKU_STRADIC, OESTE, depsPost, AT_NOW);
     expect(rOeste.reservadasPorCliente).toBe(1);
-    expect(rOeste.reservadasPorOtros).toBe(1); // Sur BO cuenta
-    expect(rOeste.libreParaCliente).toBe(0);
+    expect(rOeste.reservadasPorOtros).toBe(0); // Sur BO NO cuenta más
+    expect(rOeste.libreParaCliente).toBe(1); // fisico - 0 = 1
   });
 
   // =========================================================================
@@ -279,7 +266,8 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
     expect(s.bo).toBe(1); // Sur
     // Prompt: Disp=2 (BO no cuenta). Codigo: disp=1 (BO cuenta).
     expect(s.dispPrompt).toBe(2);
-    expect(getStockRealmenteDisponible(SKU_STRADIC, depsPost, AT_NOW)).toBe(1);
+    // v1392 §40: BO ya no cuenta como reserva → disp = fisico.
+    expect(getStockRealmenteDisponible(SKU_STRADIC, depsPost, AT_NOW)).toBe(2);
   });
 
   // =========================================================================

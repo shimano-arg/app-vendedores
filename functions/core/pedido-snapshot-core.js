@@ -101,14 +101,10 @@ export function lineReservesStock(line, nowMs, pedido) {
   if (!line) return false;
   const state = line.state;
   if (state === 'BO') {
-    // v1388 (2026-10-21, CLAUDE.md §37): BO NO vence a 7d. Red 90d.
-    if (pedido && pedido.createdAt) {
-      const createdAtMs = toMillisSafe(pedido.createdAt);
-      if (createdAtMs !== null && (nowMs - createdAtMs) / DAY_MS > BO_TTL_DAYS) {
-        return false;
-      }
-    }
-    return true;
+    // v1392 (2026-10-21, CLAUDE.md §40 reemplaza §34): BO NO reserva stock.
+    // Mirror src/pure. TTL §37 90d queda en el bucket backorderApp del
+    // breakdown (cola + forecast), NO en reservas.
+    return false;
   }
   if (state === 'confirmed') {
     // v1269 (2026-10-14): asigReserva=false libera reserva tambien para
@@ -215,9 +211,25 @@ export function getStockBreakdown(sku, deps, opts) {
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) continue;
       const st = l.state;
-      const vig = lineReservesStock(l, now, p);
       if (st === 'BO' || st === 'confirmed' || st === 'ASIG') {
-        if (vig) {
+        // v1392 §40 mirror: BO al bucket por TTL 90d (cola+forecast), no reserva.
+        let incluir = false;
+        if (st === 'BO') {
+          if (p.createdAt) {
+            const createdMs =
+              typeof p.createdAt === 'string' ? Date.parse(p.createdAt) : null;
+            if (createdMs !== null && (now - createdMs) / DAY_MS <= 90) {
+              incluir = true;
+            } else if (createdMs === null) {
+              incluir = true;
+            }
+          } else {
+            incluir = true;
+          }
+        } else {
+          incluir = lineReservesStock(l, now, p);
+        }
+        if (incluir) {
           const _map = /** @type {Map<string, any>} */ (
             buckets[/** @type {'BO'|'confirmed'|'ASIG'} */ (st)]
           );
@@ -259,51 +271,40 @@ export function getStockBreakdown(sku, deps, opts) {
   const confirmadasSinFacturar = _toBucket(buckets.confirmed);
   const asignadas = _toBucket(buckets.ASIG);
   const waitlistCpst = _toBucket(bucketWaitlist);
-  const reservadasTotal =
-    backorderApp.total + confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
-  const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
-  let demandaSapSinCubrir = null;
-  if (includeStale) {
-    const combined = new Map();
-    for (const map of [bucketsStale.BO, bucketsStale.confirmed]) {
-      for (const [k, v] of map.entries()) {
-        const existing = combined.get(k);
-        if (existing) {
-          existing.qty += v.qty;
-          existing.origins = (existing.origins || []).concat(v.origins || []);
-        } else {
-          combined.set(k, Object.assign({}, v, { origins: (v.origins || []).slice() }));
-        }
-      }
-    }
-    const porCliente = Array.from(combined.values()).sort((a, b) => b.qty - a.qty);
-    const total = porCliente.reduce((s, c) => s + c.qty, 0);
-    demandaSapSinCubrir = { total, porCliente };
-  }
-  if (!includeStale && deps.sapBackorderSnapshot) {
-    const _snap = /** @type {Record<string, any>} */ (deps.sapBackorderSnapshot);
-    demandaSapSinCubrir = _snap[skuUp] || null;
-  }
-
-  const _pendQty =
-    backorderApp.total > 0
-      ? Math.max(0, fisicoDep11 - asignadas.total - confirmadasSinFacturar.total)
-      : 0;
-  let _pendRepartoId = null;
-  if (_pendQty > 0 && Array.isArray(deps.ingresosRepartoActivos)) {
+  // v1392 §40 mirror: repartoAbierto informativo (NO reserva).
+  let repartoAbierto = { qty: 0, repartoId: null, status: null };
+  if (Array.isArray(deps.ingresosRepartoActivos)) {
     const match = deps.ingresosRepartoActivos.find(
       (r) => r && String(r.sku || '').toUpperCase() === skuUp
     );
-    if (match) _pendRepartoId = match._fsId || match.id || null;
+    if (match) {
+      const qtyIng = Number(match.qtyIngresada) || 0;
+      const assignments = Array.isArray(match.assignments) ? match.assignments : [];
+      const asignadoYa = assignments.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
+      repartoAbierto = {
+        qty: Math.max(0, qtyIng - asignadoYa),
+        repartoId: match._fsId || match.id || null,
+        status: match.status || null,
+      };
+    }
   }
+
+  // v1392 §40: reservadasTotal = ASIG + confirmed + waitlistCpst (SIN BO, SIN reparto).
+  const reservadasTotal =
+    confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
+  const libre = Math.max(0, fisicoDep11 - reservadasTotal);
+
+  // demandaSapSinCubrir DEPRECATED v1392 — queda null.
+  const demandaSapSinCubrir = null;
 
   /** @param {string} cardCode */
   const utilizablePara = (cardCode) => {
     if (!cardCode) return libre;
     const key = String(cardCode).trim();
     let reservasPropias = 0;
-    for (const map of [buckets.BO, buckets.confirmed, buckets.ASIG, bucketWaitlist]) {
+    // v1392 §40: BO no reserva — no cuenta en reservasPropias.
+    for (const map of [buckets.confirmed, buckets.ASIG, bucketWaitlist]) {
       const own = map.get(key);
       if (own) reservasPropias += own.qty;
     }
@@ -314,25 +315,26 @@ export function getStockBreakdown(sku, deps, opts) {
     sku: skuUp,
     fisicoDep11,
     transitoDep12,
-    demandaSapSinCubrir,
+    demandaSapSinCubrir,  // DEPRECATED v1392
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
     waitlistCpst,
+    repartoAbierto,  // v1392 informativo
     reservadasTotal,
     libre,
     utilizablePara,
-    pendienteReparto: { qty: _pendQty, repartoId: _pendRepartoId },
-    _version: 1,
+    pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
+    _version: 2,
   };
 }
 
 export const STOCK_LABELS_SERVER = Object.freeze({
-  demandaSapSinCubrir: 'Demanda SAP sin cubrir',
   backorderApp: 'Back order (app)',
   confirmadasSinFacturar: 'Confirmadas sin facturar',
   asignadas: 'Asignadas',
   waitlistCpst: 'En lista de espera (CPST)',
+  repartoAbierto: 'En reparto pendiente (no reserva)',
   reservadasTotal: 'Reservadas',
   fisicoDep11: 'Stock físico (dep 11)',
   transitoDep12: 'En tránsito (dep 12)',
@@ -435,12 +437,21 @@ export function aggregateForSku(pedidos, sku, nowMs) {
       // Bug reportado: STOCK_ASIG_APP contaba todo state='ASIG' sin filtrar
       // -> alert Master mostraba "reservado" > realidad, doble descuento vs
       // getStockRealmenteDisponible que si filtra.
-      if (!lineReservesStock(l, now, p)) continue;
+      // v1392 §40: `lineReservesStock('BO')` ahora devuelve false. Para el
+      // snapshot informativo (STOCK_BACKORDER_APP + backorderByClientSkuApp),
+      // seguimos CONTANDO BO si está dentro de TTL §37 90d (cola + forecast).
+      // ASIG mantiene el filtro completo de `lineReservesStock` (reserva real).
       const cc = String(p.clientCardCode || '').trim();
       if (l.state === 'BO') {
+        // Filtro TTL §37 90d solo para el bucket informativo.
+        if (p.createdAt) {
+          const createdAtMs = toMillisSafe(p.createdAt);
+          if (createdAtMs !== null && (now - createdAtMs) / DAY_MS > 90) continue;
+        }
         bo += q;
         if (cc) boByClient.set(cc, (boByClient.get(cc) || 0) + q);
       } else if (l.state === 'ASIG') {
+        if (!lineReservesStock(l, now, p)) continue;
         asig += q;
         if (cc) asigByClient.set(cc, (asigByClient.get(cc) || 0) + q);
       }

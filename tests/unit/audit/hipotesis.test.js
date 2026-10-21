@@ -213,9 +213,7 @@ describe('H5 — Condición de carrera entre envíos simultáneos', () => {
 //      Es un hallazgo de glosario, no un bug.
 // =============================================================================
 describe('H6 — Ventana sin protección entre ingreso y reparto', () => {
-  it('DESCARTADA: con BO pendientes, un cuarto cliente NO ve stock disponible', () => {
-    // Escenario PASO 5 end-to-end: Fisico=1, Sur BO 1, Oeste BO 1 (ambos pendientes).
-    // Un cuarto cliente que intenta cargar un pedido NO deberia ver Disponible=1.
+  it('v1392 §40: con BO pendientes, cuarto cliente SI ve stock disponible (BO no reserva)', () => {
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [
@@ -223,12 +221,11 @@ describe('H6 — Ventana sin protección entre ingreso y reparto', () => {
         pedidoOpen('p-oeste', OESTE, [lineBO(SKU_STRADIC, 1)]),
       ],
     });
-    // Codigo actual (politica v701): BO reserva stock. Disp = 0.
+    // v1392 §40: BO ya no reserva. Disp = fisico = 1.
     const disp = getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW);
-    expect(disp).toBe(0);
-    // Para un cuarto cliente: libreParaCliente = fisico - reservasOtros = 1 - 2 = max(0, -1) = 0
+    expect(disp).toBe(1);
     const rCuarto = getStockPorCliente(SKU_STRADIC, CUARTO, deps, AT_NOW);
-    expect(rCuarto.libreParaCliente).toBe(0);
+    expect(rCuarto.libreParaCliente).toBe(1);
   });
 
   it('DESCARTADA (nota de glosario): el prompt describe un sistema donde BO NO reserva', () => {

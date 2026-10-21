@@ -49,7 +49,7 @@ describe('[audit fixtures smoke]', () => {
     expect(r.disponibleReal).toBe(0); // demanda total
   });
 
-  it('mix: Sur tiene BO 1u, Oeste tiene ASIG 1u, fisico 1 → el codigo trata BO como reserva (observacion AUDIT-01)', () => {
+  it('v1392 §40: mix Sur BO 1u + Oeste ASIG 1u, fisico 1 → BO NO reserva, Oeste tiene su ASIG', () => {
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [
@@ -57,16 +57,12 @@ describe('[audit fixtures smoke]', () => {
         pedidoOpen('p-oeste', OESTE, [lineASIG(SKU_STRADIC, 1)]),
       ],
     });
-    // Codigo real: BO + ASIG = 2, fisico 1, disp = max(0, 1-2) = 0
+    // v1392 §40: solo ASIG reserva. BO no. Disp = fisico - ASIG = 1-1 = 0.
     expect(getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW)).toBe(0);
     const rOeste = getStockPorCliente(SKU_STRADIC, OESTE, deps, AT_NOW);
     expect(rOeste.reservadasPorCliente).toBe(1); // Oeste ASIG
-    expect(rOeste.reservadasPorOtros).toBe(1); // Sur BO
-    // AUDIT-01: libreParaCliente(Oeste) = fisico - otros = 1 - 1 = 0.
-    // El prompt dice "Utilizable(Oeste) = 1" en PASO 7 porque considera BO
-    // como "no reserva fisica". El codigo considera BO como reserva.
-    // Documentar como divergencia semantica en el informe.
-    expect(rOeste.libreParaCliente).toBe(0);
+    expect(rOeste.reservadasPorOtros).toBe(0); // Sur BO ya NO cuenta (§40)
+    expect(rOeste.libreParaCliente).toBe(1); // v1392: 1 - 0 = 1 (BO no bloquea)
   });
 
   it('waitlist CPST source=stock-asignado-batch reserva stock', () => {
@@ -78,13 +74,12 @@ describe('[audit fixtures smoke]', () => {
     expect(getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW)).toBe(0);
   });
 
-  it('line BO sin pedido padre createdAt pasado reciente: reserva', () => {
-    // Sanity: TTL 7d, pedido creado hace 2 dias, nowMs al día 20
+  it('v1392 §40: line BO reciente NO reserva — libre = fisico', () => {
     const deps = makeDeps({
       fisicoBySku: { X: 10 },
       pedidos: [pedidoOpen('p1', NORTE, [lineBO('X', 5)])],
     });
-    expect(getStockRealmenteDisponible('X', deps, AT_NOW)).toBe(5);
+    expect(getStockRealmenteDisponible('X', deps, AT_NOW)).toBe(10);
   });
 
   it('line confirmed reserva', () => {

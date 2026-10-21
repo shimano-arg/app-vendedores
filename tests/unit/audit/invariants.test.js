@@ -38,7 +38,7 @@ describe('I1 — Disp = Fisico - Reservado, no negativo, Fisico solo dep 11', ()
     expect(getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW)).toBe(3);
   });
 
-  it('CUMPLE: 1 fisico, 2 reservas BO → disp max(0, 1-2) = 0 (nunca negativo)', () => {
+  it('v1392 §40: 1 fisico, 2 BO (no reservan) → disp = 1 (fisico libre)', () => {
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [
@@ -46,7 +46,7 @@ describe('I1 — Disp = Fisico - Reservado, no negativo, Fisico solo dep 11', ()
         pedidoOpen('p-oeste', OESTE, [lineBO(SKU_STRADIC, 1)]),
       ],
     });
-    expect(getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW)).toBe(0);
+    expect(getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW)).toBe(1);
   });
 
   it('CUMPLE: ignora pedidos con closedAt', () => {
@@ -198,9 +198,9 @@ describe('I4 — Una unidad no esta en 2 estados a la vez', () => {
         reserves: lineReservesStock(line, Date.parse('2026-10-20T00:00:00Z'), pedido),
       };
     });
-    // confirmed/BO/ASIG reservan; otros no.
+    // v1392 §40: BO ya NO reserva. confirmed/ASIG sí.
     expect(results.find((r) => r.state === 'confirmed').reserves).toBe(true);
-    expect(results.find((r) => r.state === 'BO').reserves).toBe(true);
+    expect(results.find((r) => r.state === 'BO').reserves).toBe(false);
     expect(results.find((r) => r.state === 'ASIG').reserves).toBe(true);
     expect(results.find((r) => r.state === 'invoiced').reserves).toBe(false);
     expect(results.find((r) => r.state === 'cancelled').reserves).toBe(false);
@@ -270,21 +270,19 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
     expect(lines[0].state).toBe('confirmed'); // Utilizable(Oeste)=1 cubre qty=1
   });
 
-  it('I6 (post-fix H4): parcial disp=5 qty=10 parte en 5+5 (flag OFF ignorado)', () => {
-    // Post-fix H4: rama legacy `if (!flagEnabled)` eliminada en pedido-split.js.
-    // El arg flagEnabled todavia se recibe pero ya no pisa el comportamiento.
+  it('v1392 §40: parcial post §40 — BO no reserva, disp=10 cubre todo', () => {
     const deps = makeDeps({
       fisicoBySku: { X: 10 },
       pedidos: [pedidoOpen('p1', SUR, [lineBO('X', 5)])],
     });
     const getDisp = (sku) => getStockRealmenteDisponible(sku, deps, AT_NOW);
-    expect(getDisp('X')).toBe(5);
+    expect(getDisp('X')).toBe(10); // BO ya no reserva
     const lines = splitPedidoLine(
       { code: 'X', qty: 10, precio: 100 },
       { getDisp, flagEnabled: false }
     );
-    // Post-fix: siempre splittea. 5 a SAP + 5 BO.
-    expect(lines).toHaveLength(2); // ← FALLA hoy (da 1 linea BO con flag OFF).
+    expect(lines).toHaveLength(1);
+    expect(lines[0].state).toBe('confirmed');
   });
 });
 

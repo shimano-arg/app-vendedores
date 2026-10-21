@@ -122,8 +122,16 @@ export function computeVirtualAsigFifo(pedidos, getStk, nowMs) {
         if (applyFreshness && !lineReservesStock(l, nowMs, pedidoShim)) continue;
         committedBySku.set(code, (committedBySku.get(code) || 0) + qo);
       } else if (l.state === 'BO') {
-        // v1124: skipear BO expirado (pedido.createdAt > 15d) — ya no es cola activa.
-        if (applyFreshness && !lineReservesStock(l, nowMs, pedidoShim)) continue;
+        // v1392 §40: lineReservesStock('BO') ahora devuelve false; usamos
+        // filtro TTL 90d directo para la cola FIFO (cola activa, no reserva).
+        if (applyFreshness && pedidoShim && pedidoShim.createdAt) {
+          const createdMs = typeof pedidoShim.createdAt === 'string'
+            ? Date.parse(pedidoShim.createdAt)
+            : (pedidoShim.createdAt && typeof pedidoShim.createdAt.getTime === 'function')
+                ? pedidoShim.createdAt.getTime()
+                : null;
+          if (createdMs !== null && (nowMs - createdMs) / (24 * 60 * 60 * 1000) > 90) continue;
+        }
         // Fix auditor 2026-10-02 (bug C1): sin id estable no agregamos este BO
         // como target de virtual ASIG (la Key `${pedidoId}:${lineIndex}` seria
         // '':i → el UI no podria resolver a que pedido pertenece). Las lineas

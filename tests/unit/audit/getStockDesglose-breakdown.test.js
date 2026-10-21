@@ -38,8 +38,8 @@ const _makeDeps = ({ fisico = 0, pedidos = [], waitlist = [] }) => ({
   waitlistEntries: waitlist,
 });
 
-describe('getStockDesglose invariant (E3 v1384)', () => {
-  it('breakdown suma == comprometido con mix de buckets', () => {
+describe('getStockDesglose invariant v1392 §40', () => {
+  it('v1392 §40: breakdown muestra BO en bucket pero NO suma a comprometido', () => {
     const deps = _makeDeps({
       fisico: 10,
       pedidos: [
@@ -49,17 +49,12 @@ describe('getStockDesglose invariant (E3 v1384)', () => {
       ],
     });
     const desg = getStockDesglose('X', deps, { now: NOW });
-    const sumBuckets =
-      desg.breakdown.confirmed +
-      desg.breakdown.BO +
-      desg.breakdown.ASIG +
-      desg.breakdown.WAITLIST_CPST;
-    expect(desg.comprometido).toBe(sumBuckets);
+    // BO sigue apareciendo en breakdown (informativo), pero NO suma a comprometido.
     expect(desg.breakdown.confirmed).toBe(3);
     expect(desg.breakdown.BO).toBe(5);
     expect(desg.breakdown.ASIG).toBe(2);
-    expect(desg.comprometido).toBe(10);
-    expect(desg.real).toBe(0);
+    expect(desg.comprometido).toBe(5); // 3 + 2 (BO no cuenta)
+    expect(desg.real).toBe(5); // 10 - 5
   });
 
   it('WAITLIST_CPST se suma al breakdown y al comprometido', () => {
@@ -79,13 +74,23 @@ describe('getStockDesglose invariant (E3 v1384)', () => {
     expect(desg.real).toBe(6);
   });
 
-  it('real = max(0, fisico - comprometido) con sobre-reserva', () => {
+  it('v1392 §40: BO no suma a comprometido — real = fisico', () => {
     const deps = _makeDeps({
       fisico: 3,
       pedidos: [_ped({ lines: [_lineBO('X', 10)] })],
     });
     const desg = getStockDesglose('X', deps, { now: NOW });
     expect(desg.fisico).toBe(3);
+    expect(desg.comprometido).toBe(0); // BO no cuenta
+    expect(desg.real).toBe(3); // libre completo
+  });
+
+  it('v1392 §40: sobre-reserva con confirmed+ASIG — real = 0', () => {
+    const deps = _makeDeps({
+      fisico: 3,
+      pedidos: [_ped({ lines: [_lineConfirmed('X', 10)] })],
+    });
+    const desg = getStockDesglose('X', deps, { now: NOW });
     expect(desg.comprometido).toBe(10);
     expect(desg.real).toBe(0);
   });

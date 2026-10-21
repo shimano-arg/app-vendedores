@@ -108,8 +108,8 @@ describe('getStockPorClienteMemo', () => {
     const deps2 = makeDeps(pedidos2);
     const second = getStockPorClienteMemo('SKU1', 'C001', deps2);
 
-    // Nueva ref → cache miss → re-computa con las 3 lines de C001.
-    expect(second.reservadasPorCliente).toBe(12); // 5 + 7
+    // Nueva ref v1392 → cache miss → re-computa con las 3 lines de C001.
+    expect(second.reservadasPorCliente).toBe(5); // v1392 §40 BO no cuenta
   });
 
   it('resultado idéntico a getStockPorCliente (no-cache) — misma API', () => {
