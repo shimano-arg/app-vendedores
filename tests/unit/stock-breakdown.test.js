@@ -37,8 +37,8 @@ const _makeDeps = ({ fisico = 0, transito = 0, pedidos = [], waitlist = [], ingr
   ingresosRepartoActivos: ingresos,
 });
 
-describe('v1392 §40 schema shape', () => {
-  it('expone bucket repartoAbierto + mantiene pendienteReparto alias', () => {
+describe('v1400 §40.8 schema shape (demandaSapSinCubrir eliminado)', () => {
+  it('expone bucket repartoAbierto + mantiene pendienteReparto alias, SIN demandaSapSinCubrir', () => {
     const b = getStockBreakdown('X', _makeDeps({}), { now: NOW });
     expect(Object.keys(b).sort()).toEqual(
       [
@@ -46,7 +46,6 @@ describe('v1392 §40 schema shape', () => {
         'asignadas',
         'backorderApp',
         'confirmadasSinFacturar',
-        'demandaSapSinCubrir',
         'fisicoDep11',
         'libre',
         'pendienteReparto',
@@ -58,8 +57,8 @@ describe('v1392 §40 schema shape', () => {
         'waitlistCpst',
       ].sort()
     );
-    expect(b._version).toBe(5);
-    expect(b.demandaSapSinCubrir).toBe(null);
+    expect(b._version).toBe(6);
+    expect(b).not.toHaveProperty('demandaSapSinCubrir');
   });
 
   it('STOCK_LABELS incluye repartoAbierto, NO incluye demandaSapSinCubrir', () => {

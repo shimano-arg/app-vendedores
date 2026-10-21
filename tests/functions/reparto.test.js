@@ -289,10 +289,16 @@ describe('validateRepartoPayload', () => {
     expect(r.valid).toBe(true);
   });
 
-  it('rechaza assignment que no matchea con ningun cliente BO', () => {
+  // v1343 (2026-10-15) removió la validación "assignment debe estar en boMap"
+  // porque `clientesBO` es un snapshot stale al momento de crear el ingreso.
+  // La validación real (line.state='BO' + line.code===sku + qtyOpen>0) ocurre
+  // ahora dentro del `runTransaction` de applyRepartoManualCore (ver core
+  // línea 616-622). El test anterior ("rechaza assignment que no matchea con
+  // ningun cliente BO") quedó obsoleto porque validateRepartoPayload YA NO
+  // rechaza eso — delega al transaction. Borrado 2026-10-21.
+  it('acepta assignment con pedidoId no presente en clientesBO snapshot (validación delegada a transaction v1343)', () => {
     const r = validateRepartoPayload(ingreso, [{ pedidoId: 'pZ', lineIndex: 9, qtyAsignada: 5 }]);
-    expect(r.valid).toBe(false);
-    expect(r.errors.some((e) => e.includes('no coincide'))).toBe(true);
+    expect(r.valid).toBe(true);
   });
 
   it('rechaza qtyAsignada <= 0', () => {

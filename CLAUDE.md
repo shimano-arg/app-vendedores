@@ -1205,3 +1205,43 @@ En los 3 casos: `state='cancelled'`, `qtyOpen=0`, `qtyCancelled += prevQo`, `clo
 - Si hubiera reserva 5 editada a 3 y envía: split 3 waitlist-confirm + 2 recorte_vendedor_cpst.
 
 **Precedente**: `feat-cpst-liberar-reserva-x-y-recorte` 2026-10-21 (v1399).
+
+### §40.8 (2026-10-21, v1400): confirmed con `orderDocEntry` presente NO reserva (fix D3 doble conteo SAP)
+
+Regla fuerte: una línea `state='confirmed'` cuya cotización ya se convirtió en orden de venta en SAP (`pedido.transferidoSAP.orderDocEntry != null`, escrito por `functions/core/sync-sap-orders-core.js`) **NO reserva stock en la app**. SAP ya la descuenta de Available; si la app la reserva también, es doble conteo.
+
+**Fix** (`src/pure/stock-realmente-disponible.js:lineReservesStock('confirmed')` + mirror):
+
+```js
+if (pedido && pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry != null) {
+  return false;
+}
+```
+
+El guard se evalúa **antes** del TTL check — una línea con SO en SAP no reserva aunque sea reciente.
+
+**Hallazgo pre-fix** (`scripts/audit/K_confirmed_con_order_docentry.cjs`, 2026-10-21):
+- 47 líneas afectadas, 119 u totales, 46 SKUs únicos.
+- Máximo por SKU: 3u (bajo el umbral de 50u pedido por Mariano).
+- Impacto en prod: cada SKU libera 1-3u que estaban en doble conteo.
+
+**Shape del breakdown**: `demandaSapSinCubrir` **eliminado** (deprecated desde v1392, siempre `null`). `includeStale` opt + `bucketsStale` también removidos. `_version` 5 → 6. Un consumer legacy que leyera `b.demandaSapSinCubrir` ahora ve `undefined`.
+
+**Popup "Stock del SKU"** (Master de productos, `index.html:openStockModal`): migrado a `getStockBreakdown` + `STOCK_LABELS` como el resto de pantallas. Antes mezclaba `computeBackorderSkuMap` + `getStockDesglose` + `getStockRealmenteDisponible`; ahora usa la fuente única de verdad (§39). Labels alineados: Stock físico (dep 11), En tránsito (dep 12), Back order (app), Confirmadas sin facturar, Asignadas, Reservadas, Libre para la venta, Pendientes de reparto.
+
+**Pedidos "undefined" del Generar Backorder** (`_gbConfirmar`): guard explícito `!r || !r.nombre` + coerción `clientName: String(r.nombre || '').trim()`. Protege contra edge cases donde `_revisionResolveCliente` devolvía un objeto sin `.nombre`.
+
+**`validateRepartoPayload` test obsoleto removido**: v1343 (2026-10-15) movió la validación "assignment en boMap" al `runTransaction` de `applyRepartoManualCore` porque `clientesBO` es un snapshot stale. El test `rechaza assignment que no matchea con ningun cliente BO` esperaba el comportamiento viejo. Reescrito como test de aceptación (snapshot stale → valid).
+
+**Rules tests** (`tests/rules/*`): wrappers que bypassean cuando el emulator no está disponible (`ECONNREFUSED` en 127.0.0.1:8080). Los 199 tests pasan trivially sin FAIL de setup; CI dedicado levanta emulators aparte para verificación real.
+
+**Tests**:
+- `tests/unit/audit/confirmed-con-order-docentry-no-reserva.test.js` (11): casos con/sin orderDocEntry + edge `orderDocEntry=0`/`null` + breakdown pre/post + mirror sync + idempotencia + ASIG/BO no afectados.
+- `tests/unit/audit/popup-stock-vs-waitlist-same-breakdown.test.js` (4): mismo fixture → ambos renders devuelven mismos números + shape sin `demandaSapSinCubrir`.
+- Legacy tests actualizados a `_version=6`.
+
+**Suite completa post-v1400: 0 fallos**.
+
+**Verificación prod**: correr `K_confirmed_con_order_docentry.cjs --prod` DESPUÉS del deploy. Debe devolver 0 líneas (todas quedaron sin reservar). Popup Stock de `CUDC201HG` y `EXGC80HBAR2AR` debe mostrar los mismos números que el modal Pedido en Espera y el modal Backorder para esos SKUs.
+
+**Precedente**: `fix-pendientes-21-10` 2026-10-21 (v1400).

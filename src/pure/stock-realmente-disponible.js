@@ -166,6 +166,13 @@ export function lineReservesStock(line, nowMs, pedido) {
     // Explicito con 0/false (SAP serializa booleanos como 0/1; `0===false` es
     // false en JS). undefined/null mantienen "default true" historicamente.
     if (line.asigReserva === false || line.asigReserva === 0) return false;
+    // v1400 §40.8 D3: si la SQ ya se convirtió en SO en SAP (orderDocEntry
+    // presente, escrito por sync-sap-orders-core.js v1102), SAP ya la descuenta
+    // de Available → la app NO debe reservarla también (doble conteo).
+    // Precedente: hallazgo pre-fix 2026-10-21 = 47 líneas / 119 u / 46 SKUs.
+    if (pedido && pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry != null) {
+      return false;
+    }
     // v963: expiracion 15d (bajada a 7d en v1198) desde confirmedAt del pedido.
     // v1384 (2026-10-21): guard defensivo — si no hay NINGUNA fecha de
     // referencia (confirmedAt faltante y pedido indefinido), tratar la linea

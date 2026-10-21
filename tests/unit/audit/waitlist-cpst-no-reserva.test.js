@@ -132,7 +132,7 @@ describe('v1393 §40.1 waitlistCpst NO reserva', () => {
 
   it('_version = 5 (v1395)', () => {
     const b = getStockBreakdown('X', makeDeps({}), { now: NOW });
-    expect(b._version).toBe(5);
+    expect(b._version).toBe(6);
   });
 
   it('sync: espejo functions/core también aplica §40.1', () => {
