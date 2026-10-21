@@ -4717,6 +4717,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1385 (2026-10-21) — Modal Backorder · quitar badge "VENCIDA Xd" en filas state=BO
+
+**Antes**: en el modal "Backorder", al expandir un SKU se veían las filas-cliente. Las filas con `state='BO'` y `pedidoCreatedAt > 15d` mostraban un badge amarillo "VENCIDA Xd" (regla v969 del 2026-09-17: BO viejo deja de reservar stock). Reporte Mariano 2026-10-21 (screenshot CVC66MH4SACO con "VENCIDA 25d" y "VENCIDA 58d" en 2 clientes).
+
+**Pedido Mariano** (textual): "el backorder no vence, quitale".
+
+**Cambio**: `index.html:16338-16351` — bloque de badge BO removido. Se mantiene el badge para `state='confirmed'` con `sqDocDate > 7d` (bloque anterior, info útil del admin para pedidos SAP sin facturar).
+
+APP_VERSION v1384 → v1385. CACHE_VERSION v1384 → v1385.
+
+**Por qué**: el BO vive indefinidamente — solo ASIG tiene TTL (60d, cron `expireAsigLinesTTLCF` 03:00 ART, bump v1274). Mostrar "VENCIDA" en BO era engañoso porque sugería un cutoff que no existe. Si el admin quiere limpiar BO viejos huérfanos, corre un audit manual (bucket C 2026-10-15 es el precedente del flujo).
+
+**Verificación**: abrir modal Backorder → expandir cualquier SKU con 148 clientes → ninguna fila BO muestra badge "VENCIDA". Las filas confirmed sin facturar >7d sí lo siguen mostrando.
+
+**Rollback**: revertir el commit. Vuelve el badge amarillo.
+
 ### v1384 (2026-10-21) — Modal Análisis de Cartera · quitar emoji del header + filtrar dropdown a 6 VDE whitelist
 
 **Cambios** (pedido Mariano 2026-10-21):
