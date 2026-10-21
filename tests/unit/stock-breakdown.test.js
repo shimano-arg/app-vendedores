@@ -58,6 +58,7 @@ describe('getStockBreakdown — schema shape fijo', () => {
         'sku',
         'transitoDep12',
         'utilizablePara',
+        'waitlistCpst',
       ].sort()
     );
     expect(b._version).toBe(1);
@@ -69,6 +70,7 @@ describe('getStockBreakdown — schema shape fijo', () => {
       backorderApp: expect.any(String),
       confirmadasSinFacturar: expect.any(String),
       asignadas: expect.any(String),
+      waitlistCpst: expect.any(String),
       reservadasTotal: expect.any(String),
       fisicoDep11: expect.any(String),
       transitoDep12: expect.any(String),

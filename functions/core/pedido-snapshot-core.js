@@ -225,10 +225,27 @@ export function getStockBreakdown(sku, deps, opts) {
     return { total, porCliente };
   };
 
+  // v1198+ revision_waitlist CPST (source='stock-asignado-batch') también reserva.
+  const bucketWaitlist = new Map();
+  const waitlist = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries : [];
+  for (const w of waitlist) {
+    if (!w || w.source !== 'stock-asignado-batch') continue;
+    const items = Array.isArray(w.items) ? w.items : [];
+    for (const it of items) {
+      if (!it || !it.code) continue;
+      if (String(it.code).toUpperCase() !== skuUp) continue;
+      const qty = Number(it.qty) || 0;
+      if (qty <= 0) continue;
+      _push(bucketWaitlist, w.clientCardCode, w.clientName, qty, w._id || w._fsId || '', 0);
+    }
+  }
+
   const backorderApp = _toBucket(buckets.BO);
   const confirmadasSinFacturar = _toBucket(buckets.confirmed);
   const asignadas = _toBucket(buckets.ASIG);
-  const reservadasTotal = backorderApp.total + confirmadasSinFacturar.total + asignadas.total;
+  const waitlistCpst = _toBucket(bucketWaitlist);
+  const reservadasTotal =
+    backorderApp.total + confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
   let demandaSapSinCubrir = null;
@@ -269,7 +286,7 @@ export function getStockBreakdown(sku, deps, opts) {
     if (!cardCode) return libre;
     const key = String(cardCode).trim();
     let reservasPropias = 0;
-    for (const map of [buckets.BO, buckets.confirmed, buckets.ASIG]) {
+    for (const map of [buckets.BO, buckets.confirmed, buckets.ASIG, bucketWaitlist]) {
       const own = map.get(key);
       if (own) reservasPropias += own.qty;
     }
@@ -284,6 +301,7 @@ export function getStockBreakdown(sku, deps, opts) {
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
+    waitlistCpst,
     reservadasTotal,
     libre,
     utilizablePara,
@@ -297,6 +315,7 @@ export const STOCK_LABELS_SERVER = Object.freeze({
   backorderApp: 'Back order (app)',
   confirmadasSinFacturar: 'Confirmadas sin facturar',
   asignadas: 'Asignadas',
+  waitlistCpst: 'En lista de espera (CPST)',
   reservadasTotal: 'Reservadas',
   fisicoDep11: 'Stock físico (dep 11)',
   transitoDep12: 'En tránsito (dep 12)',

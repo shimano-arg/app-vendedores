@@ -25,6 +25,7 @@ describe('stock-breakdown sync src/pure vs functions/core', () => {
       'backorderApp',
       'confirmadasSinFacturar',
       'asignadas',
+      'waitlistCpst',
       'reservadasTotal',
       'libre',
       'utilizablePara',

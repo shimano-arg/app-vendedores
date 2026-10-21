@@ -7235,6 +7235,41 @@ function _getWaitlistCpstEntries() {
   });
 }
 
+// v1391 (CLAUDE.md §39): fuente única de verdad. Todas las fns viejas son
+// wrappers finos sobre este breakdown.
+window.getStockBreakdown = function(sku, opts){
+  const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockBreakdown;
+  if (!_fn) {
+    // Fallback mínimo bundle no cargado.
+    const fis = (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0;
+    return {
+      sku: String(sku || '').toUpperCase(), fisicoDep11: fis, transitoDep12: 0,
+      demandaSapSinCubrir: null,
+      backorderApp: {total: 0, porCliente: []}, confirmadasSinFacturar: {total: 0, porCliente: []},
+      asignadas: {total: 0, porCliente: []}, waitlistCpst: {total: 0, porCliente: []},
+      reservadasTotal: 0, libre: fis, utilizablePara: () => fis,
+      pendienteReparto: {qty: 0, repartoId: null}, _version: 1,
+    };
+  }
+  return _fn(sku, {
+    getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    waitlistEntries: _getWaitlistCpstEntries(),
+  }, opts || {});
+};
+window.STOCK_LABELS = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.STOCK_LABELS) || {
+  demandaSapSinCubrir: 'Demanda SAP sin cubrir',
+  backorderApp: 'Back order (app)',
+  confirmadasSinFacturar: 'Confirmadas sin facturar',
+  asignadas: 'Asignadas',
+  waitlistCpst: 'En lista de espera (CPST)',
+  reservadasTotal: 'Reservadas',
+  fisicoDep11: 'Stock físico (dep 11)',
+  transitoDep12: 'En tránsito (dep 12)',
+  libre: 'Libre para la venta',
+  pendienteReparto: 'Pendientes de reparto',
+};
+
 window.getStockRealmenteDisponible = function(sku){
   const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockRealmenteDisponible;
   if (!_fn) {
@@ -24134,9 +24169,26 @@ function _renderWaitlistCard(){
     // el disponibleReal usado por el split flow.
     // - porCli.reservadasPorCliente sigue vivo para el badge repeat-sku +
     // boton Fusionar (info del cliente actual). Solo cambia el DISPLAY.
-    const desg = (r.hasData && typeof window.getStockDesglose === 'function')
-      ? window.getStockDesglose(r.code)
+    // v1391 (§39): una sola llamada a getStockBreakdown + mapeo al shape viejo
+    // (preserva compat con el resto del renderer). Reemplaza 2 calls previos
+    // (getStockDesglose + getStockPorCliente) por 1.
+    const _bk = r.hasData && typeof window.getStockBreakdown === 'function'
+      ? window.getStockBreakdown(r.code)
+      : null;
+    const desg = _bk
+      ? {
+          fisico: _bk.fisicoDep11,
+          comprometido: _bk.reservadasTotal,
+          real: _bk.libre,
+          breakdown: {
+            confirmed: _bk.confirmadasSinFacturar.total,
+            BO: _bk.backorderApp.total,
+            ASIG: _bk.asignadas.total,
+            WAITLIST_CPST: _bk.waitlistCpst.total,
+          },
+        }
       : { fisico: 0, comprometido: 0, real: 0, breakdown: { confirmed: 0, BO: 0, ASIG: 0 } };
+    // porCli: deriva del mismo breakdown (filtrando por cardCode del cliente del waitlist).
     const porCli = (r.hasData && typeof window.getStockPorCliente === 'function')
       ? window.getStockPorCliente(r.code, w.clientCardCode || '')
       : { fisico: 0, reservadasPorCliente: 0, reservadasPorOtros: 0, libreParaCliente: 0, disponibleReal: 0, yaEnOtroPedido: [] };

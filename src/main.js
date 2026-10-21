@@ -64,6 +64,7 @@ import {
   getStockUtilizableParaClienteExAsig,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
+import { STOCK_LABELS, getStockBreakdown } from './pure/stock-breakdown.js';
 import {
   buildAsigRefsForLine,
   buildUnifiedFromAudit,
@@ -258,6 +259,8 @@ const phase0 = {
     getStockPorCliente,
     getStockPorClienteMemo,
     getStockUtilizableParaClienteExAsig,
+    getStockBreakdown,
+    STOCK_LABELS,
     lineReservesStock,
     computeVirtualAsigFifo,
     computeBackorderSkuMap,
