@@ -310,7 +310,17 @@ function _buildSkuMapRaw(pedidos, mode, filters, deps) {
       // alinear con tablero PBI que no filtra lineas BO/ASIG por edad.
       // v1244 (2026-10-13): includeExpired tambien omite TTL — mismo efecto
       // que strict pero mantiene FIFO cap. Usado por modal + export.
-      if (!strictMode && !includeExpired && !lineReservesStock(l, now, p)) {
+      // v1392 §40: lineReservesStock('BO') ahora devuelve false. Para la cola
+      // Modal Backorder/Asignación, aplicamos TTL §37 90d directo sobre BO
+      // (así respetamos la cola + forecast sin tratar BO como reserva).
+      let _vigenteCola;
+      if (l.state === 'BO') {
+        const createdAtMs = p && p.createdAt ? toMillisSafe(p.createdAt) : null;
+        _vigenteCola = createdAtMs === null || (now - createdAtMs) / DAY_MS <= 90;
+      } else {
+        _vigenteCola = lineReservesStock(l, now, p);
+      }
+      if (!strictMode && !includeExpired && !_vigenteCola) {
         // v1072: en modo asignacion permitir ASIG sin reserva vigente (asigAt<=15d).
         // Fix auditor 2026-10-02: usar toMillisSafe para soportar Firestore
         // Timestamp (toMillis/seconds). Antes `new Date(timestampObj).getTime()`

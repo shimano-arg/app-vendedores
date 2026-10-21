@@ -63,7 +63,7 @@ const _STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 // de 90 dias como red de seguridad. confirmed sigue con 7 dias pero con hard
 // cap de 60 dias sobre confirmedAt (regla §38). ASIG no cambia.
 const RESERVA_TTL_DAYS = 7;
-const BO_TTL_DAYS = 90; // §37: BO no vence a 7d, red seguridad a 90d.
+const _BO_TTL_DAYS = 90; // §37: BO no vence a 7d, red seguridad a 90d.
 const CONFIRMED_HARD_CAP_DAYS = 60; // §38: aunque confirmedAt reciente, 60d es el tope duro.
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -152,19 +152,12 @@ export function lineReservesStock(line, nowMs, pedido) {
   if (!line) return false;
   const state = line.state;
   if (state === 'BO') {
-    // v1388 (2026-10-21, CLAUDE.md §37): BO NO vence a 7d. Red de seguridad
-    // 90d sobre pedido.createdAt para no acumular BOs olvidados indefinidamente.
-    // Si el pedido no tiene createdAt (edge data corrupta), BO sigue reservando
-    // (semantica historica pre-v969).
-    if (pedido && pedido.createdAt) {
-      const createdAtMs = toMillisSafe(pedido.createdAt);
-      if (createdAtMs !== null) {
-        const now = typeof nowMs === 'number' ? nowMs : Date.now();
-        const ageDays = (now - createdAtMs) / DAY_MS;
-        if (ageDays > BO_TTL_DAYS) return false;
-      }
-    }
-    return true;
+    // v1392 (2026-10-21, CLAUDE.md §40 reemplaza §34): BO NO reserva stock.
+    // El back order es cola de clientes esperando reparto + base de forecast.
+    // Reservan solo ASIG + confirmed + waitlistCpst.
+    // El TTL §37 90d sobre createdAt se mantiene en el bucket backorderApp
+    // (para filtrar cola y forecast) pero NO afecta reservas.
+    return false;
   }
   if (state === 'confirmed') {
     // v1269 (2026-10-14): asigReserva=false libera reserva tambien para
@@ -269,8 +262,9 @@ export function getStockPorCliente(sku, cardCode, deps, opts) {
   let reservadasPorCliente = 0;
   let reservadasPorOtros = 0;
   const yaEnOtroPedido = [];
+  // v1392 §40: BO NO reserva, no cuenta como "reserva ajena" ni propia.
+  // Las reservas son solo confirmed + ASIG + waitlistCpst.
   const buckets = [
-    { bk: b.backorderApp, state: 'BO' },
     { bk: b.confirmadasSinFacturar, state: 'confirmed' },
     { bk: b.asignadas, state: 'ASIG' },
     { bk: b.waitlistCpst, state: 'WAITLIST_CPST' },

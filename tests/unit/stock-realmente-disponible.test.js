@@ -53,12 +53,12 @@ describe('getStockRealmenteDisponible — casos base', () => {
 });
 
 describe('getStockRealmenteDisponible — resta compromisos', () => {
-  it('un pedido con BO 8u: 20 fisico - 8 comprometido = 12 real', () => {
+  it('v1392 §40: un pedido con BO 8u NO reserva — 20 fisico - 0 = 20 real', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 20,
       pedidos: [P({ lines: [L({ qtyOpen: 8, state: 'BO' })] })],
     });
-    expect(r).toBe(12);
+    expect(r).toBe(20);
   });
 
   it('confirmed cuenta como reservado', () => {
@@ -77,7 +77,7 @@ describe('getStockRealmenteDisponible — resta compromisos', () => {
     expect(r).toBe(15);
   });
 
-  it('mezcla confirmed + BO + ASIG en pedidos distintos suma toda la reserva', () => {
+  it('v1392 §40: mezcla confirmed + BO + ASIG: BO NO reserva, solo confirmed+ASIG', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 30,
       pedidos: [
@@ -86,7 +86,7 @@ describe('getStockRealmenteDisponible — resta compromisos', () => {
         P({ lines: [L({ qtyOpen: 3, state: 'ASIG' })] }),
       ],
     });
-    expect(r).toBe(14); // 30 - 8 - 5 - 3
+    expect(r).toBe(19); // 30 - 8 - 3 (BO no cuenta)
   });
 
   it('caso real Mariano: 20 dep 11 + Santiago confirma 8u → Mauricio ve 12', () => {
@@ -99,9 +99,7 @@ describe('getStockRealmenteDisponible — resta compromisos', () => {
 });
 
 describe('getStockRealmenteDisponible — no doble descuento', () => {
-  it('split v600 (confirmed + BO mismo SKU mismo pedido) cuenta ambas lineas', () => {
-    // Caso 100 pedidas / 70 disp: split en 70 confirmed + 30 BO.
-    // Total comprometido = 100.
+  it('v1392 §40: split v600 (confirmed+BO) solo cuenta confirmed (BO no reserva)', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 100,
       pedidos: [
@@ -113,12 +111,10 @@ describe('getStockRealmenteDisponible — no doble descuento', () => {
         }),
       ],
     });
-    expect(r).toBe(0); // 100 - 70 - 30 = 0
+    expect(r).toBe(30); // 100 - 70 (BO no cuenta)
   });
 
-  it('dups heredados: 2 pedidos-app distintos mismo cliente mismo SKU → suma ambos', () => {
-    // MUNDO ESTURION CAPSH2401 tiene 20u en 2 pedidos migrados (SQ oficina + SQ app).
-    // Los 40u totales quedan como demanda real (aunque sea duplicada).
+  it('v1392 §40: dups BO en 2 pedidos NO reservan (BO no cuenta)', () => {
     const r = getStockRealmenteDisponible('CAPSH2401', {
       getStockFisico: () => 50,
       pedidos: [
@@ -126,7 +122,7 @@ describe('getStockRealmenteDisponible — no doble descuento', () => {
         P({ lines: [L({ code: 'CAPSH2401', qtyOpen: 20, state: 'BO' })] }),
       ],
     });
-    expect(r).toBe(10); // 50 - 20 - 20
+    expect(r).toBe(50); // BO no reserva
   });
 });
 
@@ -193,32 +189,32 @@ describe('getStockRealmenteDisponible — clamp inferior', () => {
   it('si comprometido > fisico, devuelve 0 (no negativo)', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 5,
-      pedidos: [P({ lines: [L({ qtyOpen: 10, state: 'BO' })] })],
+      pedidos: [P({ lines: [L({ qtyOpen: 10, state: 'confirmed' })] })],
     });
     expect(r).toBe(0);
   });
 });
 
 describe('getStockRealmenteDisponible — case insensitive SKU', () => {
-  it('sku lowercase input matches uppercase code', () => {
+  it('sku lowercase input matches uppercase code (v1392: ASIG en vez de BO para test)', () => {
     const r = getStockRealmenteDisponible('sku1', {
       getStockFisico: () => 20,
-      pedidos: [P({ lines: [L({ code: 'SKU1', qtyOpen: 8, state: 'BO' })] })],
+      pedidos: [P({ lines: [L({ code: 'SKU1', qtyOpen: 8, state: 'ASIG', asigReserva: true })] })],
     });
     expect(r).toBe(12);
   });
 
-  it('sku uppercase input matches lowercase code (defensive)', () => {
+  it('sku uppercase input matches lowercase code (v1392: ASIG en vez de BO)', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 20,
-      pedidos: [P({ lines: [L({ code: 'sku1', qtyOpen: 8, state: 'BO' })] })],
+      pedidos: [P({ lines: [L({ code: 'sku1', qtyOpen: 8, state: 'ASIG', asigReserva: true })] })],
     });
     expect(r).toBe(12);
   });
 });
 
 describe('getStockDesglose — breakdown por state', () => {
-  it('separa fisico, comprometido, real + breakdown por state', () => {
+  it('v1392 §40: separa fisico, comprometido, real + breakdown por state (BO NO reserva)', () => {
     const d = getStockDesglose('SKU1', {
       getStockFisico: () => 30,
       pedidos: [
@@ -228,8 +224,8 @@ describe('getStockDesglose — breakdown por state', () => {
       ],
     });
     expect(d.fisico).toBe(30);
-    expect(d.comprometido).toBe(16);
-    expect(d.real).toBe(14);
+    expect(d.comprometido).toBe(11); // 8 + 3 (BO no cuenta)
+    expect(d.real).toBe(19); // 30 - 11
     expect(d.breakdown).toEqual({ confirmed: 8, BO: 5, ASIG: 3, WAITLIST_CPST: 0 });
   });
 
@@ -274,7 +270,7 @@ describe('getStockRealmenteDisponible — v957 asigReserva=false', () => {
     expect(r).toBe(15);
   });
 
-  it('mix: BO reserva, ASIG con reserva reserva, ASIG sin reserva NO', () => {
+  it('v1392 §40: mix: BO NO reserva, ASIG con reserva reserva, ASIG sin reserva NO', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 20,
       pedidos: [
@@ -283,8 +279,8 @@ describe('getStockRealmenteDisponible — v957 asigReserva=false', () => {
         P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: false })] }),
       ],
     });
-    // 20 - 3 - 4 - 0 = 13
-    expect(r).toBe(13);
+    // 20 - 0 (BO) - 4 - 0 (asigReserva=false) = 16
+    expect(r).toBe(16);
   });
 });
 
@@ -458,45 +454,31 @@ describe('lineReservesStock — v963 confirmed expira a 7d desde confirmedAt', (
     expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
-  // v969 (2026-09-17): BO expira a los 15d desde pedido.createdAt.
-  it('BO sin pedido sigue reservando (backwards-compat)', () => {
+  // v1392 §40: BO NO reserva stock. Tests invertidos.
+  it('v1392 §40: BO sin pedido NO reserva', () => {
     const line = { state: 'BO', qtyOpen: 5 };
-    expect(lineReservesStock(line, now)).toBe(true);
+    expect(lineReservesStock(line, now)).toBe(false);
   });
 
-  it('BO con pedido sin createdAt sigue reservando (backwards-compat)', () => {
+  it('v1392 §40: BO con pedido sin createdAt NO reserva', () => {
     const line = { state: 'BO', qtyOpen: 5 };
-    const pedido = {}; // sin createdAt
-    expect(lineReservesStock(line, now, pedido)).toBe(true);
+    const pedido = {};
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
-  it('BO con createdAt reciente (<7d) reserva', () => {
+  it('v1392 §40: BO con createdAt reciente NO reserva', () => {
     const line = { state: 'BO', qtyOpen: 5 };
     const pedido = { createdAt: isoDaysAgo(5) };
-    expect(lineReservesStock(line, now, pedido)).toBe(true);
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
-  it('BO con createdAt exactamente 7d (borde) todavia reserva', () => {
-    const line = { state: 'BO', qtyOpen: 5 };
-    const pedido = { createdAt: isoDaysAgo(7) };
-    expect(lineReservesStock(line, now, pedido)).toBe(true);
-  });
-
-  it('v1388 §37: BO con createdAt >7d SIGUE reservando (regla cambiada 2026-10-21)', () => {
-    const line = { state: 'BO', qtyOpen: 5 };
-    const pedido = { createdAt: isoDaysAgo(20) };
-    expect(lineReservesStock(line, now, pedido)).toBe(true);
-  });
-
-  it('v1388 §37: BO con createdAt >90d NO reserva (red de seguridad 90d)', () => {
+  it('v1392 §40: BO con createdAt >90d NO reserva (siempre false)', () => {
     const line = { state: 'BO', qtyOpen: 5 };
     const pedido = { createdAt: isoDaysAgo(91) };
     expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
-  it('v1388 §37: BO 30d sigue reservando — stock queda bloqueado por BO vigente', () => {
-    // Caso v1388: 20 en dep 11, dos BOs — uno reciente (5u, 5d) y otro viejo (7u, 30d).
-    // Ambos reservan (BO sin TTL 7d) → real = 20 - 5 - 7 = 8.
+  it('v1392 §40: BOs vigentes NO bloquean stock — libre completo', () => {
     const r = getStockRealmenteDisponible(
       'SKU1',
       {
@@ -508,7 +490,7 @@ describe('lineReservesStock — v963 confirmed expira a 7d desde confirmedAt', (
       },
       { now }
     );
-    expect(r).toBe(8);
+    expect(r).toBe(20); // Fisico completo, BO no reserva.
   });
 });
 
@@ -587,11 +569,11 @@ describe('lineReservesStock — fix auditor 2026-10-02 Timestamp + asigReserva=0
     expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
-  it('C1: BO con pedido.createdAt como {seconds} fresco -> si reserva', () => {
+  it('v1392 §40: BO con pedido.createdAt como {seconds} NO reserva', () => {
     const fresh = now - 5 * DAY_MS;
     const line = { state: 'BO', qtyOpen: 5 };
     const pedido = { createdAt: tsSeconds(fresh) };
-    expect(lineReservesStock(line, now, pedido)).toBe(true);
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
   it('C1: confirmed con pedido.confirmedAt como Firestore Timestamp expirado -> no reserva', () => {
