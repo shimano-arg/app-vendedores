@@ -4717,6 +4717,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1384 (2026-10-21) — Modal Análisis de Cartera · quitar emoji del header + filtrar dropdown a 6 VDE whitelist
+
+**Cambios** (pedido Mariano 2026-10-21):
+
+1. **Emoji 📊 removido** del `<h2>` del head. Queda solo el título limpio "Análisis de Cartera por Vendedor" en SF Pro bold.
+2. **Dropdown filtrado por whitelist** de los 6 VDE operativos:
+   - `FEDERICO CASTELANELLI`, `GONZALO DE LA ROSA`, `IOANNIS PALKOUDAKIS`, `MAURICIO GIL`, `PACHI`, `SANTIAGO ESTEBAN`.
+   - Excluidos (ruido): `ADMIN_LDOOG2F4MWVMXKQOD8YCBOIRU2O2` (admin uid que quedó como string), `EMPLEADO` (altas internas, 2 clientes), `DIEGO VALSI` (ex-VDE con 1 cliente histórico).
+
+**Implementación**: `src/domains/cartera-vendor.js` — `const VENDORS_WHITELIST = new Set([...])` + filtro en `populateVendorDropdown` antes de appendear option. Bundle regenerado (`app.bundle.js` + `chunks/cartera-vendor.js`).
+
+APP_VERSION v1383 → v1384. CACHE_VERSION v1383 → v1384.
+
+**Por qué whitelist y no filter en BQ**: la vista BQ sigue devolviendo las 9 vendor_keys que existen (útiles para auditoría + reporting). El filter solo oculta visualmente del dropdown de la UI. Si en algún momento DIEGO VALSI vuelve como VDE, basta con agregarlo al Set (una línea). Si se filtrara en BQ, perderíamos la trazabilidad del data debt.
+
+**Si en el futuro se incorpora un nuevo VDE**: agregarlo a `VENDORS_WHITELIST` en `src/domains/cartera-vendor.js:46` + verificar que la vista BQ `v_cartera_vendor` lo canonicalize igual.
+
+**Verificación**: abrir modal, dropdown muestra exactamente 6 opciones alfabéticamente. Elegir cualquiera → cartera carga igual que antes.
+
+**Rollback**: revertir el commit. Vuelven las 9 opciones del dropdown + emoji 📊.
+
 ### v1383 (2026-10-21) — Modal Análisis de Cartera · fix clientName vacío + rediseño Apple Design
 
 Dos cambios en el mismo PR:
