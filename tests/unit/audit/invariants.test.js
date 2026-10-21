@@ -183,11 +183,20 @@ describe('I3 — Reserva libera exactamente 1 vez al consumir el pedido', () => 
 // =============================================================================
 describe('I4 — Una unidad no esta en 2 estados a la vez', () => {
   it('CUMPLE: solo UN state activo por linea; estados exclusivos', () => {
-    // Enumeracion de states y veredicto de lineReservesStock
+    // Enumeracion de states y veredicto de lineReservesStock.
+    // v1384 (2026-10-21): pasar un pedido con confirmedAt/asigAt reciente
+    // para que el guard "sin fecha → no reserva" no interfiera. El test
+    // original asumia que no se filtraba por fecha para estados que SI
+    // deben reservar.
+    const refIso = '2026-10-19T00:00:00Z';
+    const pedido = { confirmedAt: refIso, createdAt: refIso };
     const states = ['confirmed', 'BO', 'ASIG', 'invoiced', 'cancelled', 'recycled', 'legacy'];
     const results = states.map((state) => {
-      const line = { state, qtyOpen: 1 };
-      return { state, reserves: lineReservesStock(line, Date.parse('2026-10-20T00:00:00Z'), null) };
+      const line = { state, qtyOpen: 1, asigAt: refIso, asigReserva: true };
+      return {
+        state,
+        reserves: lineReservesStock(line, Date.parse('2026-10-20T00:00:00Z'), pedido),
+      };
     });
     // confirmed/BO/ASIG reservan; otros no.
     expect(results.find((r) => r.state === 'confirmed').reserves).toBe(true);

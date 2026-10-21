@@ -767,3 +767,33 @@ El `pedidosOrigenes[]` del CPST original tiene shape `{pedidoId, lineIndex, sku,
 - Si el fix no acota por línea (solo mira documento) → regresión H1 en órdenes unificadas (P2 del plan v1382).
 
 **Precedente**: `feat-unificar-lineas-asig` 2026-10-20 (`docs/superpowers/plans/`...). Tests de regresión en `tests/unit/audit/unificar-cpst-regression.test.js` (T0-P2+P3, T2-T6). Si fallan post-refactor, el fix se filtró a pedidos normales o perdió la identidad por línea.
+
+## 36. `lineReservesStock('confirmed')` sin fecha de referencia = NO reserva (data corrupta, 2026-10-21)
+
+**Regla fuerte**: una línea `state='confirmed'` sin `pedido.confirmedAt` NO reserva stock. Antes de v1384 (comportamiento "backwards-compat pre-v963") devolvía `true` como fallback. Nuevo comportamiento: **sin fecha = data corrupta = no reserva**.
+
+**Fix v1384** (`src/pure/stock-realmente-disponible.js:163-180` + `functions/core/pedido-snapshot-core.js:109-121`):
+```js
+if (state === 'confirmed') {
+  if (line.asigReserva === false || line.asigReserva === 0) return false;
+  // Guard defensivo v1384:
+  if (!pedido || !pedido.confirmedAt) return false;
+  const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
+  if (confirmedAtMs === null) return false;
+  return (now - confirmedAtMs) / DAY_MS <= RESERVA_TTL_DAYS;
+}
+```
+
+**Por qué**: el fallback viejo "sin fecha = reserva siempre" era un leak defensivo (originalmente para compat con pedidos pre-v963 que no tenían `confirmedAt`). En prod (2026-10-21) el bucket `confirmed_sin_fecha` tiene **0 unidades** verificado con grep sobre 542 SKUs — ya no hace falta la compat.
+
+**Impacto en prod al deploy v1384**: 0 unidades liberadas (confirmación empírica). El fix es puramente defensivo:
+1. Invariante de código: una línea indatable no debería tener efecto sobre el stock.
+2. Red de seguridad: si entra data corrupta por un bug futuro, el stock no queda bloqueado "para siempre".
+3. Tests limpios: un test unitario que crea una línea sin pedido ahora refleja correctamente que no debe reservar.
+
+**Dónde actualizar al hacer el cambio**:
+- `tests/unit/stock-realmente-disponible.test.js`: el helper `P({...})` ahora debe setear `confirmedAt: new Date().toISOString()` por default. Tests que querían el bucket "sin fecha" lo pasan explícitamente.
+- `tests/unit/stock-por-cliente-memo.test.js`: `makePedidos()` incluye `confirmedAt` reciente.
+- Cualquier test que llame `lineReservesStock(line, now)` sin 3er arg para state='confirmed' ahora devuelve `false` (antes era `true`).
+
+**Precedente**: `fix-ttl-reservas-y-reparto` 2026-10-21 (`docs/auditoria/14_RESERVAS_VENCIDAS.md`). El reporte original de Cowork atribuía reservas fantasma al bucket "sin confirmedAt" sobre CUDC201HG, pero verificación directa contra Firestore mostró que **ninguna** de las 6 líneas confirmed caía en ese bucket (todas tenían `confirmedAt` presente). El guard es defensivo contra data que no existe hoy.

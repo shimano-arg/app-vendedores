@@ -6,9 +6,14 @@ import {
 } from '../../src/pure/stock-realmente-disponible.js';
 
 // Helper: crea un pedido-like
+// v1384 (2026-10-21): confirmedAt default = reciente ("ahora"), para que
+// lineas confirmed en tests no caigan en el guard "sin fecha → no reserva".
+// Tests que quieren probar TTL vencido/sin confirmedAt pasan `confirmedAt`
+// explícito en `opts`.
 const P = (opts = {}) => ({
   closedAt: null,
   lines: [],
+  confirmedAt: new Date().toISOString(),
   ...opts,
 });
 
@@ -439,15 +444,18 @@ describe('lineReservesStock — v963 confirmed expira a 7d desde confirmedAt', (
     expect(lineReservesStock(line, now, pedido)).toBe(true);
   });
 
-  it('confirmed sin pedido (backwards-compat pre-v963) sigue reservando', () => {
+  it('confirmed sin pedido (v1384): data corrupta → NO reserva', () => {
+    // v1384 (2026-10-21): guard defensivo. Antes (pre-v1384) devolvia true
+    // ("backwards-compat pre-v963"). Nuevo comportamiento: sin pedido o
+    // sin confirmedAt la linea no reserva. CLAUDE.md §36.
     const line = { state: 'confirmed', qtyOpen: 5 };
-    expect(lineReservesStock(line, now)).toBe(true);
+    expect(lineReservesStock(line, now)).toBe(false);
   });
 
-  it('confirmed sin confirmedAt en pedido sigue reservando', () => {
+  it('confirmed sin confirmedAt en pedido (v1384): data corrupta → NO reserva', () => {
     const line = { state: 'confirmed', qtyOpen: 5 };
     const pedido = {}; // sin confirmedAt
-    expect(lineReservesStock(line, now, pedido)).toBe(true);
+    expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
   // v969 (2026-09-17): BO expira a los 15d desde pedido.createdAt.
