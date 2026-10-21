@@ -408,6 +408,42 @@ export function getStockPorClienteMemo(sku, cardCode, deps, opts) {
 }
 
 /**
+ * v1380 (2026-10-20, fix H1): disponibilidad para pedido ORIGINADO en Stock
+ * Asignado (CPST). Replica exacta de la formula del preview CPST
+ * (`_cpstRenderPreview` v1362, `index.html:16872-16898`).
+ *
+ * Formula:
+ *   firmesPropias = reservadasPorCliente(C)  (ASIG+confirmed vivas del cliente C)
+ *   residual      = max(fisico - resPropias(C) - resOtros, 0)
+ *   disp          = min(fisico, firmesPropias + residual)
+ *
+ * Por que: para un pedido ex-ASIG del cliente C, la ASIG(C) ya reservo el
+ * stock para C. No tiene que restarse en su propia contra (como hace la
+ * formula global `getStockRealmenteDisponible`). Si lo hiciera, pedidos
+ * ex-ASIG con qty <= Reservado(propio) irian 100% a BO + app_only → SAP
+ * nunca recibe (bug H1 confirmado 2026-10-20, ver docs/auditoria/).
+ *
+ * REGLA (CLAUDE.md §32 + §33): usar SOLO cuando el pedido es ex-ASIG,
+ * identificado por `source='stock-asignado-batch'` o `pedidosOrigenes[]`
+ * populated. Aplicarlo a pedidos normales crea bug H2 (reservas fantasma).
+ *
+ * @param {string} sku
+ * @param {string} cardCode
+ * @param {StockRealDeps} deps
+ * @param {{now?: number}} [opts]
+ * @returns {number} Stock disponible >= 0 para el cliente C en pedido ex-ASIG.
+ */
+export function getStockUtilizableParaClienteExAsig(sku, cardCode, deps, opts) {
+  const r = getStockPorCliente(sku, cardCode, deps, opts);
+  const fisico = Number(r.fisico) || 0;
+  if (fisico <= 0) return 0;
+  const resPropias = Number(r.reservadasPorCliente) || 0;
+  const resOtros = Number(r.reservadasPorOtros) || 0;
+  const residual = Math.max(fisico - resPropias - resOtros, 0);
+  return Math.min(fisico, resPropias + residual);
+}
+
+/**
  * Reset del cache — solo para tests.
  */
 export function _resetStockPorClienteMemo() {

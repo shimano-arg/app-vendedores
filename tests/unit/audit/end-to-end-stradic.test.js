@@ -20,6 +20,7 @@ import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   getStockPorCliente,
   getStockRealmenteDisponible,
+  getStockUtilizableParaClienteExAsig,
 } from '../../../src/pure/stock-realmente-disponible.js';
 import {
   AT_NOW,
@@ -236,9 +237,10 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
   // PASO 8 — VDE Oeste confirma pedido ex-ASIG. Deberia enviar 1 a SAP.
   //         BUG: va a BO
   // =========================================================================
-  it('PASO 8 (RED): VDE Oeste confirma, SAP deberia recibir 1 pero bug H1 manda a BO', () => {
-    // IMPORTANTE: antes de doConfirmPedido, Sur BO sigue vivo + Oeste ASIG sigue viva.
-    // El getDisp del call-site LEE globalPedidos crudo → ambas cuentan como reserva.
+  it('PASO 8 (post-fix H1): VDE Oeste confirma pedido ex-ASIG → SAP recibe 1', () => {
+    // Antes del fix, Sur BO + Oeste ASIG hacian que getStockRealmenteDisponible
+    // devolviera 0 (ambas cuentan como reserva). El fix usa la formula por
+    // cliente que descuenta solo las reservas de OTROS clientes.
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [
@@ -246,17 +248,20 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
         pedidoOpen('p-oeste', OESTE, [lineASIG(SKU_STRADIC, 1)]),
       ],
     });
-    // Call-site de doConfirmPedido (index.html:34720).
-    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
-    expect(getDispCallSite(SKU_STRADIC)).toBe(0); // bug (deberia ser 1 segun I2)
+    // Call-site POST-FIX de doConfirmPedido (index.html:34720).
+    const getDispCallSite = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0);
+    // Para Oeste con pedido ex-ASIG:
+    //   fisico=1, firmesPropias(Oeste)=1 (su ASIG), resOtros=1 (Sur BO)
+    //   residual = max(1 - 1 - 1, 0) = 0
+    //   disp = min(1, 1 + 0) = 1
+    expect(getDispCallSite(SKU_STRADIC)).toBe(1);
 
     const lines = splitPedidoLine(
       { code: SKU_STRADIC, qty: 1, precio: 1000 },
       { getDisp: getDispCallSite, flagEnabled: true }
     );
-    // SEGUN I6: deberia ir a confirmed, SAP recibir 1.
-    // OBSERVED: va a BO. Encadenado con v607 → auto 'app_only', SAP NO recibe nada.
-    expect(lines[0].state).toBe('confirmed'); // ← FALLA (confirma H1 BUG).
+    expect(lines[0].state).toBe('confirmed');
   });
 
   // =========================================================================
@@ -314,18 +319,20 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
     // En PASO 11, fisico=2 y ASIG propia=1, hay 1u libre que absorbe el pedido.
   });
 
-  it('PASO 11 edge-case (RED): si fisico==ASIG propia, bug H1 reaparece', () => {
-    // Caso critico: fisico=1 y ASIG Sur=1 → disp global = 0 → BO (bug).
+  it('PASO 11 edge-case (post-fix H1): fisico==ASIG propia → confirmed', () => {
+    // Caso critico: fisico=1 y ASIG Sur=1. Pre-fix: disp global = 0 → BO.
+    // Post-fix: formula por cliente devuelve 1 → confirmed.
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [pedidoOpen('p-sur', SUR, [lineASIG(SKU_STRADIC, 1)])],
     });
-    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
-    expect(getDispCallSite(SKU_STRADIC)).toBe(0); // ← bug
+    const getDispCallSite = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, SUR, deps, AT_NOW), 0);
+    expect(getDispCallSite(SKU_STRADIC)).toBe(1); // formula por cliente OK
     const lines = splitPedidoLine(
       { code: SKU_STRADIC, qty: 1, precio: 1000 },
       { getDisp: getDispCallSite, flagEnabled: true }
     );
-    expect(lines[0].state).toBe('confirmed'); // ← FALLA (bug reaparece).
+    expect(lines[0].state).toBe('confirmed');
   });
 });

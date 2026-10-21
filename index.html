@@ -7102,6 +7102,27 @@ window.getStockPorCliente = function(sku, cardCode){
   });
 };
 
+// v1380 (2026-10-20, fix H1): disp para pedidos ex-ASIG (CPST). Pasa cardCode.
+// Formula replica del preview CPST (_cpstRenderPreview v1362).
+// REGLA (CLAUDE.md §32): usar SOLO cuando el pedido es ex-ASIG, identificado
+// por source='stock-asignado-batch' o pedidosOrigenes[] populated. Aplicar a
+// pedidos normales crea bug H2 (reservas fantasma).
+window.getStockUtilizableParaClienteExAsig = function(sku, cardCode){
+  const _fn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockUtilizableParaClienteExAsig;
+  if (!_fn || !sku || !cardCode) {
+    // Fallback: comportamiento global anterior (preserva compat).
+    if (typeof window.getStockRealmenteDisponible === 'function') {
+      return Math.max(Number(window.getStockRealmenteDisponible(sku) || 0), 0);
+    }
+    return 0;
+  }
+  return _fn(sku, cardCode, {
+    getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    waitlistEntries: _getWaitlistCpstEntries(),
+  });
+};
+
 // v417+ (2026-08-06): pintar version en el header apenas el DOM este listo.
 // Chip visible para no tener que abrir DevTools -> Console para leer que
 // version esta corriendo (util post-deploy y para diferenciar shell viejo
@@ -26955,12 +26976,23 @@ function persistPendingEntry(entry){
     const _reenrichFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.reenrichPedidoLine);
     let _linesEnriched;
     if (_reenrichFn) {
+      // v1380 (2026-10-20, FIX H1): si el entry es un pedido ex-ASIG (source
+      // CPST o pedidosOrigenes[] populated), usar formula por cliente (replica
+      // del preview CPST v1362). Para pedidos normales, mantener formula v802.
+      // CLAUDE.md §32 + §33.
+      const _entryIsExAsig = entry.source === 'stock-asignado-batch'
+        || (Array.isArray(entry.pedidosOrigenes) && entry.pedidosOrigenes.length > 0);
+      const _entryCardCode = String(entry.clientCardCode || '').trim();
       const _opts = {
         // v802 (2026-09-04): mismo criterio v797 aplicado a reenrichPedidoLine.
         // Formula liberal (dep11 - ASIG) alineada con el modal Revisar. Los
         // BO viejos no restan — la CF FIFO los promociona automaticamente al
         // proximo arribo. Ver comentario en el split principal (~line 24494).
         getDisp: function(sku){
+          if (_entryIsExAsig && _entryCardCode
+              && typeof window.getStockUtilizableParaClienteExAsig === 'function') {
+            return Math.max(Number(window.getStockUtilizableParaClienteExAsig(sku, _entryCardCode) || 0), 0);
+          }
           const _gsdvFn = (typeof window.getStockDisponibleVenta === 'function')
             ? window.getStockDisponibleVenta : null;
           if (!_gsdvFn) return 0;
@@ -34714,10 +34746,26 @@ window.doConfirmPedido = async function(){
           // "sin stock" (otros clientes las tenian como confirmed/BO)
           // quedaban state='confirmed' por el split y viajaban a SAP.
           // Fix: usar window.getStockRealmenteDisponible (mismo que el modal).
-          // Trade-off vs v802: ahora si otro cliente tiene lineas state=BO
-          // de este SKU, el split las trata como "comprometidas" y manda
-          // menos a SAP. Es coherente con lo que el VDE ve en el modal.
+          //
+          // v1380 (2026-10-20, FIX H1 auditoria 2026-10-20): para pedidos
+          // ex-ASIG (CPST, source='stock-asignado-batch' o pedidosOrigenes[]
+          // populated), usar formula POR CLIENTE (replica del preview CPST
+          // v1362). La ASIG propia del cliente YA reservo stock para el —
+          // no restarse en su propia contra. Si no es ex-ASIG, mantener la
+          // formula global (preserva compat con pedidos normales y evita
+          // bug H2 "reservas fantasma"). CLAUDE.md §32 + §33.
           getDisp: function(sku){
+            const _isExAsig = window._pendingPedidoSource === 'stock-asignado-batch'
+              || (Array.isArray(window._pendingPedidoOrigenes) && window._pendingPedidoOrigenes.length > 0);
+            if (_isExAsig && currentOrderClient && currentOrderClient.name
+                && typeof sapGetClienteCode === 'function'
+                && typeof window.getStockUtilizableParaClienteExAsig === 'function') {
+              const _cc = String(sapGetClienteCode(currentOrderClient.name) || '').trim();
+              if (_cc) {
+                return Math.max(Number(window.getStockUtilizableParaClienteExAsig(sku, _cc) || 0), 0);
+              }
+            }
+            // Pedido normal: formula global (preserva comportamiento v1208).
             if (typeof window.getStockRealmenteDisponible === 'function') {
               return Math.max(Number(window.getStockRealmenteDisponible(sku) || 0), 0);
             }

@@ -13,6 +13,7 @@ import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   getStockPorCliente,
   getStockRealmenteDisponible,
+  getStockUtilizableParaClienteExAsig,
   lineReservesStock,
 } from '../../../src/pure/stock-realmente-disponible.js';
 import {
@@ -118,30 +119,29 @@ describe('I2 — Utilizable(C) = Disp + Reservado(C) para pedidos ex-ASIG', () =
     expect(dispPreview).toBe(1);
   });
 
-  // VIOLA — tests que FALLAN hasta que se arregle (patron TDD red-to-green).
-  // Cuando el fix de H1 esté implementado, estos tests pasan a verde.
-  it('VIOLA I2 (RED): el call-site de doConfirmPedido deberia devolver utilizable(OESTE)=1', () => {
+  // v1380 (post-fix H1): tests que originalmente eran RED, ahora deben PASAR.
+  // El call-site simula doConfirmPedido POST-FIX: pasa cardCode via
+  // getStockUtilizableParaClienteExAsig (replica del preview CPST v1362).
+  it('I2 (post-fix H1): call-site ex-ASIG devuelve utilizable(OESTE)=1', () => {
     const deps = buildEscenarioOeste();
-    // Simula el call-site exacto de doConfirmPedido (index.html:34720-34722).
-    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    // Simula call-site POST-FIX (fórmula por cliente para pedido ex-ASIG).
+    const getDispCallSite = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0);
     const disp = getDispCallSite(SKU_STRADIC);
-    // SEGUN I2: Utilizable(Oeste) = Disp + Reservado(Oeste) = 0 + 1 = 1.
-    // OBSERVADO HOY: 0 (porque getStockRealmenteDisponible no considera cardCode).
-    expect(disp).toBe(1); // ← FALLA hoy; pasa cuando se arregle H1.
+    expect(disp).toBe(1); // Utilizable(Oeste) = Disp + Reservado(Oeste) = 0 + 1 = 1
   });
 
-  it('VIOLA I2 end-to-end (RED): splitPedidoLine deberia dar state=confirmed qty=1', () => {
-    // Fase final del PASO 8: con fix de H1, splitPedidoLine deberia recibir
-    // disp=1 y producir una linea confirmed.
+  it('I2 end-to-end (post-fix H1): splitPedidoLine da state=confirmed qty=1', () => {
     const deps = buildEscenarioOeste();
-    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    const getDispCallSite = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0);
     const rawLine = { code: SKU_STRADIC, qty: 1, precio: 1000 };
     const lines = splitPedidoLine(rawLine, {
       getDisp: getDispCallSite,
       flagEnabled: true,
     });
     expect(lines).toHaveLength(1);
-    expect(lines[0].state).toBe('confirmed'); // ← FALLA hoy (da 'BO'); pasa post-fix.
+    expect(lines[0].state).toBe('confirmed');
     expect(lines[0].qty).toBe(1);
   });
 });
@@ -246,18 +246,19 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
     expect(lines[0].state).toBe('confirmed');
   });
 
-  it('VIOLA I6 (RED, encadenado con H1): pedido ex-ASIG deberia ir a confirmed, no BO', () => {
+  it('I6 (post-fix H1): pedido ex-ASIG va a confirmed con formula por cliente', () => {
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [pedidoOpen('p-oeste', OESTE, [lineASIG(SKU_STRADIC, 1)])],
     });
-    const getDisp = (sku) => getStockRealmenteDisponible(sku, deps, AT_NOW);
+    // Post-fix: usa getStockUtilizableParaClienteExAsig cuando el pedido es ex-ASIG.
+    const getDisp = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0);
     const lines = splitPedidoLine(
       { code: SKU_STRADIC, qty: 1, precio: 100 },
       { getDisp, flagEnabled: true }
     );
-    // SEGUN I6: Utilizable(Oeste)=1 cubre qty=1 → state='confirmed'.
-    expect(lines[0].state).toBe('confirmed'); // ← FALLA hoy (da 'BO').
+    expect(lines[0].state).toBe('confirmed'); // Utilizable(Oeste)=1 cubre qty=1
   });
 
   it('VIOLA I6 (RED, flag OFF kill switch v600): parcial disp=5 qty=10 deberia partir en 5+5, no 0+10', () => {
