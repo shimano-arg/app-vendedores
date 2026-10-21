@@ -56,10 +56,13 @@
 const _STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 
 // v957/v959: constantes para expiracion de reserva.
-// v1198 (2026-10-08): bajado 15 -> 7 dias por pedido Mariano. "Si ese cliente
-// tiene esas 80 unidades por mas de 7 dias y no pasa nada dejan de bloquear
-// stock". Aplica a ASIG, BO y confirmed por consistencia.
+// v1198 (2026-10-08): bajado 15 -> 7 dias por pedido Mariano. Aplica ASIG + confirmed.
+// v1388 (2026-10-21): BO NO vence a los 7 dias (regla CLAUDE.md §37). Hard cap
+// de 90 dias como red de seguridad. confirmed sigue con 7 dias pero con hard
+// cap de 60 dias sobre confirmedAt (regla §38). ASIG no cambia.
 const RESERVA_TTL_DAYS = 7;
+const BO_TTL_DAYS = 90; // §37: BO no vence a 7d, red seguridad a 90d.
+const CONFIRMED_HARD_CAP_DAYS = 60; // §38: aunque confirmedAt reciente, 60d es el tope duro.
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -147,15 +150,16 @@ export function lineReservesStock(line, nowMs, pedido) {
   if (!line) return false;
   const state = line.state;
   if (state === 'BO') {
-    // v969: expiracion 15d desde pedido.createdAt (BOs olvidados dejan de
-    // reservar). Si el caller no pasa pedido o el pedido no tiene createdAt,
-    // BO nunca expira (comportamiento pre-v969).
+    // v1388 (2026-10-21, CLAUDE.md §37): BO NO vence a 7d. Red de seguridad
+    // 90d sobre pedido.createdAt para no acumular BOs olvidados indefinidamente.
+    // Si el pedido no tiene createdAt (edge data corrupta), BO sigue reservando
+    // (semantica historica pre-v969).
     if (pedido && pedido.createdAt) {
       const createdAtMs = toMillisSafe(pedido.createdAt);
       if (createdAtMs !== null) {
         const now = typeof nowMs === 'number' ? nowMs : Date.now();
         const ageDays = (now - createdAtMs) / DAY_MS;
-        if (ageDays > RESERVA_TTL_DAYS) return false;
+        if (ageDays > BO_TTL_DAYS) return false;
       }
     }
     return true;
@@ -178,7 +182,14 @@ export function lineReservesStock(line, nowMs, pedido) {
     if (confirmedAtMs === null) return false;
     const now = typeof nowMs === 'number' ? nowMs : Date.now();
     const ageDays = (now - confirmedAtMs) / DAY_MS;
-    return ageDays <= RESERVA_TTL_DAYS;
+    if (ageDays > RESERVA_TTL_DAYS) return false;
+    // v1388 (2026-10-21, CLAUDE.md §38): hard cap 60d como red de seguridad
+    // sobre confirmedAt (incluso si asigReserva=true). Si una SQ sigue sin
+    // facturar a los 60d, no reserva aunque el TTL soft (7d) este configurable.
+    // En practica RESERVA_TTL_DAYS <= CONFIRMED_HARD_CAP_DAYS => el check de
+    // arriba ya corta; este cap vive por si en el futuro se sube el TTL soft.
+    if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
+    return true;
   }
   if (state === 'ASIG') {
     // Bug fix auditor 2026-10-02: SAP/legacy serializa booleanos como 0/1

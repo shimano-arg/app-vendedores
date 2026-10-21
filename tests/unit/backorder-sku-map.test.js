@@ -94,10 +94,10 @@ describe('computeBackorderSkuMap — mode urgente (Backorder)', () => {
     expect(r.skus).toHaveLength(0);
   });
 
-  it('línea BO con pedido >15d atrás → excluida (v969 vencida)', () => {
+  it('v1388 §37: línea BO con pedido >90d atrás → excluida (red seguridad)', () => {
     const pedidos = [
       pedido({
-        createdAt: daysAgo(20),
+        createdAt: daysAgo(95),
         lines: [line({ qtyOpen: 5 })],
       }),
     ];
@@ -785,11 +785,11 @@ describe('computeBackorderSkuMap — v1137: strict incluye migrados SAP + sin TT
     expect(r.totalUnidades).toBe(10);
   });
 
-  it('fifo (default) + BO línea >15d → se EXCLUYE por TTL (preservado)', () => {
+  it('v1388 §37: fifo (default) + BO línea >90d → se EXCLUYE por red seguridad', () => {
     const pedidos = [
       pedido({
         stage: 'confirmed',
-        createdAt: daysAgo(20),
+        createdAt: daysAgo(95),
         lines: [line({ state: 'BO', qtyOpen: 10 })],
       }),
     ];

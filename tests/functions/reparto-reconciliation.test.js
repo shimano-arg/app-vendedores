@@ -141,13 +141,13 @@ describe('reconcileRepartosFaltantes (E2 v1384)', () => {
     expect(fbDb._writes).toHaveLength(0);
   });
 
-  it('SKU sin BO vigente → NO crea aunque haya fisico libre', async () => {
+  it('v1388: SKU con BO >90d (fuera red seguridad) → NO crea reparto', async () => {
     const fbDb = makeFakeFbDb({
       pedidos: [
         pedidoDoc('pA', {
           clientCardCode: 'CA',
           clientName: 'VIEJO',
-          createdAt: '2026-10-01T00:00:00Z', // >7d → BO expirado
+          createdAt: '2026-07-01T00:00:00Z', // >90d atrás (NOW=2026-10-21)
           lines: [{ code: 'STRADIC', state: 'BO', qtyOpen: 5 }],
         }),
       ],

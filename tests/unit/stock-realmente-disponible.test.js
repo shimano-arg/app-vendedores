@@ -482,15 +482,21 @@ describe('lineReservesStock — v963 confirmed expira a 7d desde confirmedAt', (
     expect(lineReservesStock(line, now, pedido)).toBe(true);
   });
 
-  it('BO con createdAt >7d NO reserva (expirada)', () => {
+  it('v1388 §37: BO con createdAt >7d SIGUE reservando (regla cambiada 2026-10-21)', () => {
     const line = { state: 'BO', qtyOpen: 5 };
     const pedido = { createdAt: isoDaysAgo(20) };
+    expect(lineReservesStock(line, now, pedido)).toBe(true);
+  });
+
+  it('v1388 §37: BO con createdAt >90d NO reserva (red de seguridad 90d)', () => {
+    const line = { state: 'BO', qtyOpen: 5 };
+    const pedido = { createdAt: isoDaysAgo(91) };
     expect(lineReservesStock(line, now, pedido)).toBe(false);
   });
 
-  it('BO expirada (>7d) libera stock — impacto en getStockRealmenteDisponible', () => {
-    // Caso: 20 en dep 11, dos BOs — uno reciente (5u, 10d) y otro viejo (7u, 30d).
-    // El viejo NO debe reservar → real = 20 - 5 = 15.
+  it('v1388 §37: BO 30d sigue reservando — stock queda bloqueado por BO vigente', () => {
+    // Caso v1388: 20 en dep 11, dos BOs — uno reciente (5u, 5d) y otro viejo (7u, 30d).
+    // Ambos reservan (BO sin TTL 7d) → real = 20 - 5 - 7 = 8.
     const r = getStockRealmenteDisponible(
       'SKU1',
       {
@@ -502,7 +508,7 @@ describe('lineReservesStock — v963 confirmed expira a 7d desde confirmedAt', (
       },
       { now }
     );
-    expect(r).toBe(15);
+    expect(r).toBe(8);
   });
 });
 
@@ -574,8 +580,8 @@ describe('lineReservesStock — fix auditor 2026-10-02 Timestamp + asigReserva=0
     expect(lineReservesStock(line, now)).toBe(true);
   });
 
-  it('C1: BO con pedido.createdAt como Firestore Timestamp expirado -> no reserva', () => {
-    const expired = now - 12 * DAY_MS;
+  it('C1: BO con pedido.createdAt como Firestore Timestamp expirado (>90d, v1388) -> no reserva', () => {
+    const expired = now - 95 * DAY_MS;
     const line = { state: 'BO', qtyOpen: 5 };
     const pedido = { createdAt: tsToMillis(expired) };
     expect(lineReservesStock(line, now, pedido)).toBe(false);
@@ -613,12 +619,15 @@ describe('lineReservesStock — fix auditor 2026-10-02 Timestamp + asigReserva=0
     // Antes del fix: new Date({toMillis: () => X}).getTime() === NaN,
     // Number.isFinite(NaN) === false -> if nunca entraba -> la fn retornaba
     // true "para siempre". Ahora el expired debe devolver false.
-    const expired = now - 30 * DAY_MS;
-    const line1 = { state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: tsToMillis(expired) };
+    // ASIG/confirmed: expiran a 7d. BO v1388: expira a 90d. Usamos 30d para
+    // ASIG+confirmed (expiran) y 95d para BO (expira red seguridad).
+    const expired7 = now - 30 * DAY_MS;
+    const expired90 = now - 95 * DAY_MS;
+    const line1 = { state: 'ASIG', qtyOpen: 5, asigReserva: true, asigAt: tsToMillis(expired7) };
     const line2 = { state: 'confirmed', qtyOpen: 5 };
-    const pedido2 = { confirmedAt: tsSeconds(expired) };
+    const pedido2 = { confirmedAt: tsSeconds(expired7) };
     const line3 = { state: 'BO', qtyOpen: 5 };
-    const pedido3 = { createdAt: tsToMillis(expired) };
+    const pedido3 = { createdAt: tsToMillis(expired90) };
     expect(lineReservesStock(line1, now)).toBe(false);
     expect(lineReservesStock(line2, now, pedido2)).toBe(false);
     expect(lineReservesStock(line3, now, pedido3)).toBe(false);

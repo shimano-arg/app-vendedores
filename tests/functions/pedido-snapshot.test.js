@@ -293,7 +293,21 @@ describe('aggregateForSku', () => {
       expect(r.asig).toBe(0);
     });
 
-    it('BO con pedido.createdAt >7d NO cuenta (v1380 vencido, antes v969 era 15d)', () => {
+    it('v1388 §37: BO con pedido.createdAt >90d NO cuenta (red seguridad 90d)', () => {
+      const pedidos = [
+        {
+          clientCardCode: 'C1',
+          closedAt: null,
+          transferidoSAP: { via: 'service_layer_auto' },
+          createdAt: isoDaysAgo(95),
+          lines: [{ code: 'X', qtyOpen: 8, state: 'BO' }],
+        },
+      ];
+      const r = aggregateForSku(pedidos, 'X', now);
+      expect(r.bo).toBe(0);
+    });
+
+    it('v1388 §37: BO 30d SI cuenta (regla cambiada 2026-10-21, BO no vence a 7d)', () => {
       const pedidos = [
         {
           clientCardCode: 'C1',
@@ -304,7 +318,7 @@ describe('aggregateForSku', () => {
         },
       ];
       const r = aggregateForSku(pedidos, 'X', now);
-      expect(r.bo).toBe(0);
+      expect(r.bo).toBe(8);
     });
 
     it('BO con pedido.createdAt <7d cuenta (v1380 alineado con src/pure)', () => {

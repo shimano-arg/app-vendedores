@@ -7023,7 +7023,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1389';
+const APP_VERSION = 'v1390';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7737,7 +7737,7 @@ window.getBoDupeForCurrentOrder = function(skuCode){
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) continue;
       out.totalBo += qo;
-      out.pedidos.push({ orden: p.orderNumber || p._fsId || '(sin orden)', qty: qo });
+      out.pedidos.push({ orden: p.orderNumber || 'legacy', qty: qo });
     }
   }
   return out;
@@ -20136,10 +20136,17 @@ function _renderWaitlistSidebar(){
       }
     }
     // v499/v501: chip ORDEN N alineado al costado derecho.
-    if (w.orderNumber) {
+    // v1388 (2026-10-21, D5): si no hay orderNumber, mostrar "legacy" en gris.
+    {
       const badge = document.createElement('span');
       badge.className = 'slft-wl-orden';
-      badge.textContent = 'ORDEN ' + w.orderNumber;
+      if (w.orderNumber) {
+        badge.textContent = 'ORDEN ' + w.orderNumber;
+      } else {
+        badge.textContent = 'ORDEN legacy';
+        badge.style.background = '#9ca3af';
+        badge.title = 'Pedido pre-v913: sin numero de orden. Legacy — no se backfillea (decision Mariano 2026-10-21).';
+      }
       cli.appendChild(badge);
     }
     item.appendChild(cli);
@@ -20953,10 +20960,13 @@ function _renderEstadoEspera(content, arr){
     name.style.cssText = 'flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     name.textContent = w.clientName || 'sin nombre';
     row1.appendChild(name);
-    if (w.orderNumber) {
+    // v1388 (2026-10-21, D5): fallback "legacy" cuando falta orderNumber.
+    {
       const chip = document.createElement('span');
-      chip.style.cssText = 'background:#0f172a;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
-      chip.textContent = 'ORDEN ' + w.orderNumber;
+      const _bg = w.orderNumber ? '#0f172a' : '#9ca3af';
+      chip.style.cssText = 'background:' + _bg + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px;flex-shrink:0';
+      chip.textContent = w.orderNumber ? ('ORDEN ' + w.orderNumber) : 'ORDEN legacy';
+      if (!w.orderNumber) chip.title = 'Pedido pre-v913 sin numero de orden (legacy, no backfillea).';
       row1.appendChild(chip);
     }
     card.appendChild(row1);
@@ -22197,7 +22207,7 @@ function _renderWaitlistRows(){
     const cli = document.createElement('div');
     cli.className = 'wl-cli';
     // v499: incluir ORDEN N en el nombre si esta.
-    const _ord = w.orderNumber ? ' — ORDEN ' + w.orderNumber : '';
+    const _ord = w.orderNumber ? ' — ORDEN ' + w.orderNumber : ' — ORDEN legacy';
     cli.textContent = w.clientName + _ord + ' (' + (w.clientLocality || 's/loc') + ', ' + (w.clientProvince || 's/prov') + ')';
     left.appendChild(cli);
     const meta = document.createElement('div');
@@ -23489,7 +23499,7 @@ window.openSugerenciasModal = async function(pedidoId) {
   const totalProd = (w.items || []).length;
   const totalU = (w.items || []).reduce((a, i) => a + (Number(i.qty) || 0), 0);
   const totalMon = (typeof _waitlistComputeTotal === 'function') ? _waitlistComputeTotal(w) : null;
-  titleEl.textContent = 'Sugerencias — ORDEN ' + (w.orderNumber || '?') + ' — ' + (w.clientName || 'Cliente');
+  titleEl.textContent = 'Sugerencias — ORDEN ' + (w.orderNumber || 'legacy') + ' — ' + (w.clientName || 'Cliente');
   subtEl.textContent = 'Pedido: ' + totalProd + ' prod · ' + totalU + ' u' + (totalMon ? (' · $' + Math.round(totalMon).toLocaleString('es-AR')) : '');
   while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
   bodyEl.appendChild(_sugMakeEl('div', 'text-align:center;padding:40px;color:#64748b;font-size:13px', 'Cargando sugerencias…'));
