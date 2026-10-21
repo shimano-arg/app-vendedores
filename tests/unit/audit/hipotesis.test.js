@@ -172,15 +172,17 @@ describe('H4 — Pedido parcial mal partido', () => {
     expect(lines[1]).toMatchObject({ qty: 3, state: 'BO' });
   });
 
-  it('CONFIRMADA (flag OFF kill switch v600): qty 10 disp 7 → 1 linea 100% BO', () => {
+  it('DESCARTADA post-fix H4: flag OFF ignorado, splittea siempre', () => {
+    // Post-fix v1380 (E3 fix-stock-cardcode-h1): rama legacy eliminada en
+    // pedido-split.js. Browsers con localStorage.split_enabled='0' tambien
+    // splittean correctamente.
     const lines = splitPedidoLine(
       { code: 'X', qty: 10, precio: 100 },
       { getDisp: () => 7, flagEnabled: false }
     );
-    expect(lines).toHaveLength(1);
-    expect(lines[0].state).toBe('BO');
-    expect(lines[0].qty).toBe(10);
-    // Bug persistente en browsers con localStorage.split_enabled='0'.
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ qty: 7, state: 'confirmed' });
+    expect(lines[1]).toMatchObject({ qty: 3, state: 'BO' });
   });
 });
 

@@ -134,13 +134,14 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
     expect(lines[1]).toMatchObject({ qty: 1, state: 'BO' });
   });
 
-  it('PASO 3 (RED, flag OFF v600): Sur envia 2 con disp 1 → 1 linea 100% BO (bug legacy)', () => {
+  it('PASO 3 (post-fix H4): Sur envia 2 con disp 1 → split 1+1 (flag OFF ignorado)', () => {
     const lines = splitPedidoLine(
       { code: SKU_STRADIC, qty: 2, precio: 1000 },
       { getDisp: () => 1, flagEnabled: false }
     );
-    // VIOLA I7: SAP deberia recibir 1 (parcial se parte). Observado: 0.
-    expect(lines).toHaveLength(2); // ← FALLA con flag OFF (confirma H4).
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ qty: 1, state: 'confirmed' });
+    expect(lines[1]).toMatchObject({ qty: 1, state: 'BO' });
   });
 
   // =========================================================================

@@ -7009,24 +7009,12 @@ window.APP_VERSION = APP_VERSION;
 // {qty:disp, state:'confirmed'} → viaja a SAP como SQ
 // {qty:qty-disp, state:'BO'} → queda como backorder en la app
 //
-// Kill switch: si aparece un problema critico, cualquier user puede desactivar
-// el split en su browser con:
-// localStorage.setItem('split_enabled', '0')
-// Y volver a activar (opcional, ya es default):
-// localStorage.removeItem('split_enabled')
-//
-// Activado global a pedido de Mariano 2026-08-25: bug reportado con pedido
-// CHALPAC S.A. donde 2u de 22CATPRII420 quedaron 100% BO (disp=1 al confirmar)
-// cuando lo esperado era 1u a SAP + 1u BO. Con flag ON este caso se maneja
-// automatico. E5 auditoria previa (v605) verifico que el resto del codebase
-// es split-safe.
-window.isPedidoSplitEnabled = function(){
-  try {
-    const v = localStorage.getItem('split_enabled');
-    if (v === '0') return false; // kill switch explicito
-    return true; // default ON desde v620
-  } catch (_e) { return true; } // default ON aun sin localStorage
-};
+// v1380 (2026-10-20, E3 fix H4): kill switch eliminado. El flag
+// `localStorage.split_enabled='0'` pisaba el split en todo-o-nada y mandaba
+// pedidos parciales 100% a BO (bug CHALPAC original v600). Siempre splittear
+// → la fn devuelve `true` siempre para preservar compat con call-sites que
+// aun la invocan (eliminarlos en PRs separados).
+window.isPedidoSplitEnabled = function(){ return true; };
 
 // v701 (2026-08-28): STOCK REALMENTE DISPONIBLE.
 // Mariano decidio 2026-08-28 que la app sea dueña del stock: al confirmar

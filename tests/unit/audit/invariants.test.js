@@ -261,10 +261,9 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
     expect(lines[0].state).toBe('confirmed'); // Utilizable(Oeste)=1 cubre qty=1
   });
 
-  it('VIOLA I6 (RED, flag OFF kill switch v600): parcial disp=5 qty=10 deberia partir en 5+5, no 0+10', () => {
-    // Caso v600 CHALPAC pre-fix. Con flag OFF (localStorage.split_enabled=0)
-    // sigue vivo el bug legacy. I6 pide que si Disp cubre parte, al menos esa
-    // parte vaya a SAP.
+  it('I6 (post-fix H4): parcial disp=5 qty=10 parte en 5+5 (flag OFF ignorado)', () => {
+    // Post-fix H4: rama legacy `if (!flagEnabled)` eliminada en pedido-split.js.
+    // El arg flagEnabled todavia se recibe pero ya no pisa el comportamiento.
     const deps = makeDeps({
       fisicoBySku: { X: 10 },
       pedidos: [pedidoOpen('p1', SUR, [lineBO('X', 5)])],
@@ -275,8 +274,7 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
       { code: 'X', qty: 10, precio: 100 },
       { getDisp, flagEnabled: false }
     );
-    // SEGUN I6 + I7: deberia partir 5 confirmed + 5 BO (aunque flag esté OFF,
-    // la invariante del dominio no admite 100% BO con stock parcial).
+    // Post-fix: siempre splittea. 5 a SAP + 5 BO.
     expect(lines).toHaveLength(2); // ← FALLA hoy (da 1 linea BO con flag OFF).
   });
 });
@@ -295,12 +293,13 @@ describe('I7 — Parcial se parte', () => {
     expect(lines[1]).toMatchObject({ qty: 3, state: 'BO', qtyOpen: 3 });
   });
 
-  it('VIOLA I7 (RED, flag OFF): qty 10 disp 7 deberia partir en 7+3, no 1 linea 100% BO', () => {
+  it('I7 (post-fix H4): qty 10 disp 7 parte en 7+3 (flag OFF ignorado)', () => {
     const lines = splitPedidoLine(
       { code: 'X', qty: 10, precio: 100 },
       { getDisp: () => 7, flagEnabled: false }
     );
-    // SEGUN I7: parcial se parte. Con flag OFF, el kill switch mete 100% BO.
-    expect(lines).toHaveLength(2); // ← FALLA hoy (da 1 linea BO).
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ qty: 7, state: 'confirmed' });
+    expect(lines[1]).toMatchObject({ qty: 3, state: 'BO' });
   });
 });
