@@ -16,11 +16,11 @@
  * cómo el modelo evoluciona vs. lo que las fórmulas puras dicen.
  */
 import { describe, expect, it } from 'vitest';
+import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   getStockPorCliente,
   getStockRealmenteDisponible,
 } from '../../../src/pure/stock-realmente-disponible.js';
-import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   AT_NOW,
   CUARTO,
@@ -101,7 +101,12 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
     const depsPost = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 }, // SAP reservo las 2u
       pedidos: [
-        pedidoOpen('p-norte', NORTE, [lineConfirmed(SKU_STRADIC, 2, { confirmedAt: '2026-10-19T10:00:00Z' })], { confirmedAt: '2026-10-19T10:00:00Z' }),
+        pedidoOpen(
+          'p-norte',
+          NORTE,
+          [lineConfirmed(SKU_STRADIC, 2, { confirmedAt: '2026-10-19T10:00:00Z' })],
+          { confirmedAt: '2026-10-19T10:00:00Z' }
+        ),
       ],
     });
     // Semantica prompt: Reservado = ASIG only. confirmed no cuenta → dispPrompt=1.
@@ -242,8 +247,7 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
       ],
     });
     // Call-site de doConfirmPedido (index.html:34720).
-    const getDispCallSite = (sku) =>
-      Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
     expect(getDispCallSite(SKU_STRADIC)).toBe(0); // bug (deberia ser 1 segun I2)
 
     const lines = splitPedidoLine(
@@ -295,8 +299,7 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
       fisicoBySku: { [SKU_STRADIC]: 2 },
       pedidos: [pedidoOpen('p-sur', SUR, [lineASIG(SKU_STRADIC, 1)])],
     });
-    const getDispCallSite = (sku) =>
-      Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
     // Fisico=2, ASIG Sur=1 → disp global = max(0, 2-1) = 1.
     // Para Sur: utilizable deberia ser 1 (su propia reserva).
     // Pero en el call-site: disp=1 ≥ qty=1 → va a confirmed. ✅ Este paso SI pasa!
@@ -317,8 +320,7 @@ describe('end-to-end STRADIC-2500 flow (11 pasos)', () => {
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [pedidoOpen('p-sur', SUR, [lineASIG(SKU_STRADIC, 1)])],
     });
-    const getDispCallSite = (sku) =>
-      Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
     expect(getDispCallSite(SKU_STRADIC)).toBe(0); // ← bug
     const lines = splitPedidoLine(
       { code: SKU_STRADIC, qty: 1, precio: 1000 },

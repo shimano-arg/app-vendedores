@@ -10,12 +10,12 @@
  * - Hipotesis DESCARTADA => test que verifica que el bug NO ocurre.
  */
 import { describe, expect, it } from 'vitest';
+import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   getStockPorCliente,
   getStockRealmenteDisponible,
   lineReservesStock,
 } from '../../../src/pure/stock-realmente-disponible.js';
-import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   AT_NOW,
   CUARTO,

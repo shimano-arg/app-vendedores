@@ -5,6 +5,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  getStockPorCliente,
+  getStockRealmenteDisponible,
+} from '../../../src/pure/stock-realmente-disponible.js';
+import {
   AT_NOW,
   lineASIG,
   lineBO,
@@ -17,7 +21,6 @@ import {
   SUR,
   waitlistCPST,
 } from './_fixtures.js';
-import { getStockPorCliente, getStockRealmenteDisponible } from '../../../src/pure/stock-realmente-disponible.js';
 
 describe('[audit fixtures smoke]', () => {
   it('escenario trivial 3 fisico / 0 reservas → disp 3', () => {
@@ -87,7 +90,14 @@ describe('[audit fixtures smoke]', () => {
   it('line confirmed reserva', () => {
     const deps = makeDeps({
       fisicoBySku: { X: 10 },
-      pedidos: [pedidoOpen('p1', NORTE, [lineConfirmed('X', 3, { confirmedAt: '2026-10-18T10:00:00.000Z' })], { confirmedAt: '2026-10-18T10:00:00.000Z' })],
+      pedidos: [
+        pedidoOpen(
+          'p1',
+          NORTE,
+          [lineConfirmed('X', 3, { confirmedAt: '2026-10-18T10:00:00.000Z' })],
+          { confirmedAt: '2026-10-18T10:00:00.000Z' }
+        ),
+      ],
     });
     expect(getStockRealmenteDisponible('X', deps, AT_NOW)).toBe(7);
   });

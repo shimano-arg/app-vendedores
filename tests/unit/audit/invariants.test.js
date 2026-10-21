@@ -9,12 +9,12 @@
  *   o modal UI render), queda como NO VERIFICABLE con descripcion explicita.
  */
 import { describe, expect, it } from 'vitest';
+import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   getStockPorCliente,
   getStockRealmenteDisponible,
   lineReservesStock,
 } from '../../../src/pure/stock-realmente-disponible.js';
-import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   AT_NOW,
   lineASIG,
@@ -123,8 +123,7 @@ describe('I2 — Utilizable(C) = Disp + Reservado(C) para pedidos ex-ASIG', () =
   it('VIOLA I2 (RED): el call-site de doConfirmPedido deberia devolver utilizable(OESTE)=1', () => {
     const deps = buildEscenarioOeste();
     // Simula el call-site exacto de doConfirmPedido (index.html:34720-34722).
-    const getDispCallSite = (sku) =>
-      Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
     const disp = getDispCallSite(SKU_STRADIC);
     // SEGUN I2: Utilizable(Oeste) = Disp + Reservado(Oeste) = 0 + 1 = 1.
     // OBSERVADO HOY: 0 (porque getStockRealmenteDisponible no considera cardCode).
@@ -135,8 +134,7 @@ describe('I2 — Utilizable(C) = Disp + Reservado(C) para pedidos ex-ASIG', () =
     // Fase final del PASO 8: con fix de H1, splitPedidoLine deberia recibir
     // disp=1 y producir una linea confirmed.
     const deps = buildEscenarioOeste();
-    const getDispCallSite = (sku) =>
-      Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
     const rawLine = { code: SKU_STRADIC, qty: 1, precio: 1000 };
     const lines = splitPedidoLine(rawLine, {
       getDisp: getDispCallSite,
@@ -240,7 +238,10 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
   it('CUMPLE: pedido nuevo (no ex-ASIG), fisico 10, qty 3 → 1 linea confirmed', () => {
     const deps = makeDeps({ fisicoBySku: { X: 10 }, pedidos: [] });
     const getDisp = (sku) => getStockRealmenteDisponible(sku, deps, AT_NOW);
-    const lines = splitPedidoLine({ code: 'X', qty: 3, precio: 100 }, { getDisp, flagEnabled: true });
+    const lines = splitPedidoLine(
+      { code: 'X', qty: 3, precio: 100 },
+      { getDisp, flagEnabled: true }
+    );
     expect(lines).toHaveLength(1);
     expect(lines[0].state).toBe('confirmed');
   });
@@ -269,7 +270,10 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
     });
     const getDisp = (sku) => getStockRealmenteDisponible(sku, deps, AT_NOW);
     expect(getDisp('X')).toBe(5);
-    const lines = splitPedidoLine({ code: 'X', qty: 10, precio: 100 }, { getDisp, flagEnabled: false });
+    const lines = splitPedidoLine(
+      { code: 'X', qty: 10, precio: 100 },
+      { getDisp, flagEnabled: false }
+    );
     // SEGUN I6 + I7: deberia partir 5 confirmed + 5 BO (aunque flag esté OFF,
     // la invariante del dominio no admite 100% BO con stock parcial).
     expect(lines).toHaveLength(2); // ← FALLA hoy (da 1 linea BO con flag OFF).
