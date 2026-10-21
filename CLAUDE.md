@@ -1081,3 +1081,39 @@ El `background` NO depende de `has-exceed`. El re-render al llegar el snapshot n
 - `tests/unit/audit/wl-sidebar-css-parity.test.js`: parsea `styles/apple-design.css` + `<style>` del `index.html`, encuentra TODAS las reglas que matchean `.slft-wl-item.source-cpst[.X]`, extrae `background`, y falla si hay más de un valor único. Protección contra regresión futura.
 
 **Precedente**: `feat-cards-stock-asig-color-plus-export-pablo` 2026-10-21 (v1396). Reporte Mariano: "al abrir la app todas las cards STOCK ASIG se veían naranja y a los 3-4s algunas pasaban a amarillo". Hipótesis Mariano exacta: "mi lectura es que el fondo depende de has-exceed, que se calcula recién cuando llega el snapshot de stock".
+
+### §40.5 (2026-10-21, v1397): ASIG sin respaldo físico vuelve a BO al pasar por CPST
+
+Regla fuerte: **una asignación solo existe con respaldo físico. Sin respaldo, es cola (BO).**
+
+Cuando el VDE confirma "Crear Pedido Desde Stock Asignado" y el stock físico libre para el cliente HOY no alcanza para cubrir el nominal, las unidades no entregables **no quedan como ASIG viva**. Vuelven al estado `BO` del pedido original con audit (`asigRevertidaAt`, `asigRevertidaBy`, `asigRevertidaReason='asig_sin_stock_revertida_a_bo'`). El SKU entra en la reconciliación normal y aparece en Reparto para que Pablo reasigne cuando ingrese mercadería.
+
+**Comportamiento al confirmar CPST**:
+- Entregables (`sk.qtyAjustada > 0`): van al pedido en lista de espera como hoy.
+- Recortadas (`sk.qtyRecorte > 0`): split o revert_full en el pedido original:
+  - `revert_full`: línea entera `state=ASIG → state=BO` + audit.
+  - `split` (recorte parcial): línea original queda ASIG con `qty=qtyKeep`, nueva línea BO con `qty=qtyRevert` + audit + `splitFromLineIndex`.
+- Si **todas** las qtyAjustada son 0: botón NO crea pedido vacío. Muestra "No hay unidades entregables; N unidades vuelven a back order" y hace solo la reversión.
+- **Idempotencia**: segundo pase sobre una línea ya en `state='BO'` con `asigRevertidaReason='asig_sin_stock_revertida_a_bo'` NO la toca.
+
+**Reconciliación normal**: al volver a BO, el bucket `backorderApp` del `getStockBreakdown` ve la línea y la cuenta en `porCliente`. Cuando el físico > 0 entra en reparto automáticamente (`reconcileRepartosFaltantes`). **No se crea reparto si no hay físico** — es simetría con §40 (reparto solo cuando hay stock que distribuir).
+
+**Flag `sobreAsignada` del plan v1395 §40.3** sigue existiendo PERO queda **informativo**:
+- Mientras nadie pase por CPST para el cliente afectado, el breakdown reporta `sobreAsignada > 0` en `asignadas.detalle[]`. Útil para que Pablo vea el gap desde el modal Stock Asignado (ya tiene el badge "prometidas N / entregables M").
+- En cuanto el VDE pasa por CPST, la sobre-asignación se resuelve: las unidades sin respaldo pasan a BO → el bucket `asignadas` del SKU/cliente baja → `sobreAsignada` ya es 0.
+- Si Pablo quiere resolver manual sin esperar al VDE, puede usar el botón `[−]` de la fila para recortar la ASIG.
+- No se elimina (lo mantuvimos por utilidad diagnóstica), pero se puede dropear en el futuro si queda sin consumo.
+
+**Modal confirm**: texto actualizado. Ya no dice "quedan ASIG tildadas reservadas para cuando haya más stock" (comportamiento viejo pre-v1397). Dice "N unidades vuelven a back order (sin stock físico hoy); el SKU va a aparecer en Reparto cuando ingrese mercadería".
+
+**Código**:
+- Pure: `src/pure/cpst-revert-plan.js` → `computeCpstRevertPlan(entries, qtyAjustadaTotal)` devuelve plan por entry con action `keep | split | revert_full`.
+- Inline: `index.html` `_cpstConfirmar` arma el batch Firestore: aplica reversiones + (si hay entregables) crea waitlist. `batch.commit()` atómico.
+
+**Tests**:
+- `tests/unit/cpst-revert-plan.test.js` (10): T1-T3 pedidos Mariano + edge cases + casos LA LOMITA.
+- `tests/unit/audit/cpst-revert-flow.test.js` (5): simula el merge de lines[] con reversiones + idempotencia + reconciliación (breakdown ve BO post-reversión).
+
+**Caso real para verificación prod**: LA LOMITA OUTDOORS SRL (C30716659379), EXGC66MHBAR 1u + EXGC66HBAR 2u, hoy recortadas a 0 → al confirmar CPST, 3u totales deberían pasar a BO con `asigRevertidaReason='asig_sin_stock_revertida_a_bo'`. Validar con script audit `scripts/audit/J_sobre_asignadas_prod.cjs` post-ejecución: esas líneas desaparecen de `asignadas.totalSobreAsignada`.
+
+**Precedente**: `feat-cpst-revert-asig-sin-stock-a-bo` 2026-10-21 (v1397). Reporte Mariano: "una asignación solo existe con respaldo físico; sin respaldo, es cola".
