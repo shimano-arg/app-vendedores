@@ -3419,43 +3419,97 @@ WHERE fecha IS NOT NULL
 
 
 -- ============================================================
--- View: v_cartera_vendor (v1283, 2026-10-20)
+-- View: v_cartera_vendor (v1283, 2026-10-20 · fuente ampliada v1381, 2026-10-20)
 -- ============================================================
 -- Fuente del dashboard "Analisis de Cartera por Vendedor".
--- 1 fila por cliente de la cartera (client_master.vendor IS NOT NULL).
+-- 1 fila por cliente de la cartera.
 -- Enriquece con: ultima visita presencial, ultimo contacto, ultima compra
 -- (SAP INVOICE neto de CREDIT_NOTE porque las NC vienen con importe negativo),
 -- facturado 12M movil, deuda abierta, cliTipo, geo.
 -- Consumida por CF syncCarteraVendorScheduled (04:00 ART).
 --
+-- v1381 (2026-10-20): FUENTE AMPLIADA client_applications + client_master.
+-- Antes (v1283): solo client_master.vendor. Reporte Mariano 2026-10-20:
+-- MAURICIO mostraba 16 clientes vs 58 reales. Causa: 425/577 docs (73%) de
+-- client_master tienen vendor=null. La fuente REAL del vendor-cliente mapping
+-- es `client_applications.assignedVendor` (mismo pattern que usa PBI via
+-- `assigned_vendor_app`, documentado en linea 252-269 de este archivo).
+--
+-- Nuevo modelo:
+--   1) Primaria: client_applications WHERE cardCodeSap+assignedVendor seteados
+--      (fuente real del negocio, ya en uso por PBI).
+--   2) Fallback: client_master WHERE sapCardCode+vendor seteados (legacy
+--      clients sin alta en client_applications).
+--   3) Dedupe por card_code con QUALIFY ROW_NUMBER, prioridad 1 > 2.
+--
 -- Field names reales confirmados 2026-10-20 (Task 1 pre-work, v1283):
 --   client_master_raw_raw_latest.data: vendor (NO assignedVendor), sapCardCode
 --     (NO cardCodeSap), provincia (NO province), localidad (NO locName),
 --     clientName, cliTipo (sparse: solo ~7 docs lo tienen hoy).
+--   client_applications_raw_raw_latest.data: assignedVendor, cardCodeSap,
+--     provincia, localidad, clientName, cliTipo. Las keys para apps vs master
+--     difieren historicamente (sapCardCode vs cardCodeSap).
 --   v_visitas_full: NO existe client_id; match por card_code (SAP). Visitas
 --     sin card_code (leads) NO entran -- consistente con spec linea 211.
 --     Field de fecha es fecha_visita (NO fecha).
 --   v_ventas_lineas: doc_kind IN ('INVOICE','CREDIT_NOTE'); los CN tienen
 --     importe_linea_ars negativo, por eso SUM() ya da neto.
+-- Caveat: conflicto de vendor entre fuentes (cardCode con vendorA en apps y
+--   vendorB en master) gana apps. Esos casos son data sucia a conciliar manual.
 -- ============================================================
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_cartera_vendor` AS
 
 WITH cartera AS (
   SELECT
-    document_id                                            AS client_id,
-    JSON_VALUE(data, '$.sapCardCode')                      AS card_code,
-    JSON_VALUE(data, '$.clientName')                       AS client_name,
-    JSON_VALUE(data, '$.provincia')                        AS province,
-    JSON_VALUE(data, '$.localidad')                        AS loc_name,
-    JSON_VALUE(data, '$.cliTipo')                          AS cli_tipo,
-    -- canonVendor: alias legacy MARTIN BOIERO -> PACHI consistente con planner-stage-change-core.js
-    CASE
-      WHEN UPPER(TRIM(JSON_VALUE(data, '$.vendor'))) = 'MARTIN BOIERO' THEN 'PACHI'
-      ELSE UPPER(TRIM(JSON_VALUE(data, '$.vendor')))
-    END                                                    AS vendor_key
-  FROM `app-vendedores-shimano.shimano_app.client_master_raw_raw_latest`
-  WHERE JSON_VALUE(data, '$.vendor') IS NOT NULL
-    AND TRIM(JSON_VALUE(data, '$.vendor')) != ''
+    * EXCEPT (source_priority)
+  FROM (
+    -- Fuente PRIMARIA: client_applications (fuente real del negocio, misma
+    -- que usa PBI via assigned_vendor_app). Cubre clientes con alta app +
+    -- cardCodeSap asignado + assignedVendor seteado.
+    SELECT
+      CAST(NULL AS STRING)                                 AS client_id,
+      JSON_VALUE(ca.data, '$.cardCodeSap')                 AS card_code,
+      JSON_VALUE(ca.data, '$.clientName')                  AS client_name,
+      JSON_VALUE(ca.data, '$.provincia')                   AS province,
+      JSON_VALUE(ca.data, '$.localidad')                   AS loc_name,
+      JSON_VALUE(ca.data, '$.cliTipo')                     AS cli_tipo,
+      CASE
+        WHEN UPPER(TRIM(JSON_VALUE(ca.data, '$.assignedVendor'))) = 'MARTIN BOIERO' THEN 'PACHI'
+        ELSE UPPER(TRIM(JSON_VALUE(ca.data, '$.assignedVendor')))
+      END                                                  AS vendor_key,
+      1                                                    AS source_priority
+    FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest` ca
+    WHERE JSON_VALUE(ca.data, '$.cardCodeSap') IS NOT NULL
+      AND TRIM(JSON_VALUE(ca.data, '$.cardCodeSap')) != ''
+      AND JSON_VALUE(ca.data, '$.assignedVendor') IS NOT NULL
+      AND TRIM(JSON_VALUE(ca.data, '$.assignedVendor')) != ''
+
+    UNION ALL
+
+    -- Fuente FALLBACK: client_master.vendor (legacy clients sin doc en
+    -- client_applications). Mantiene compat con v1283 para los clientes que
+    -- ya funcionaban + agrega los que SOLO existen en master.
+    SELECT
+      cm.document_id                                       AS client_id,
+      JSON_VALUE(cm.data, '$.sapCardCode')                 AS card_code,
+      JSON_VALUE(cm.data, '$.clientName')                  AS client_name,
+      JSON_VALUE(cm.data, '$.provincia')                   AS province,
+      JSON_VALUE(cm.data, '$.localidad')                   AS loc_name,
+      JSON_VALUE(cm.data, '$.cliTipo')                     AS cli_tipo,
+      CASE
+        WHEN UPPER(TRIM(JSON_VALUE(cm.data, '$.vendor'))) = 'MARTIN BOIERO' THEN 'PACHI'
+        ELSE UPPER(TRIM(JSON_VALUE(cm.data, '$.vendor')))
+      END                                                  AS vendor_key,
+      2                                                    AS source_priority
+    FROM `app-vendedores-shimano.shimano_app.client_master_raw_raw_latest` cm
+    WHERE JSON_VALUE(cm.data, '$.sapCardCode') IS NOT NULL
+      AND TRIM(JSON_VALUE(cm.data, '$.sapCardCode')) != ''
+      AND JSON_VALUE(cm.data, '$.vendor') IS NOT NULL
+      AND TRIM(JSON_VALUE(cm.data, '$.vendor')) != ''
+  )
+  -- Dedupe por card_code: si aparece en ambas fuentes, se queda con la de
+  -- client_applications (priority=1) por ser la fuente REAL del negocio.
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY card_code ORDER BY source_priority) = 1
 ),
 visitas_agg AS (
   -- Match por card_code (SAP). Visitas sin card_code (leads sin alta SAP) se
