@@ -65,13 +65,13 @@ describe('[audit fixtures smoke]', () => {
     expect(rOeste.libreParaCliente).toBe(1); // v1392: 1 - 0 = 1 (BO no bloquea)
   });
 
-  it('waitlist CPST source=stock-asignado-batch reserva stock', () => {
+  it('v1393 §40.1: waitlist CPST NO reserva (draft VDE)', () => {
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [],
       waitlistEntries: [waitlistCPST(NORTE, [{ code: SKU_STRADIC, qty: 1 }])],
     });
-    expect(getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW)).toBe(0);
+    expect(getStockRealmenteDisponible(SKU_STRADIC, deps, AT_NOW)).toBe(1);
   });
 
   it('v1392 §40: line BO reciente NO reserva — libre = fisico', () => {

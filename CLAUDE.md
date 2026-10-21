@@ -953,3 +953,23 @@ Reservan stock SOLO:
 - Call-sites que muestran `backorderApp.total` ven lo mismo (cola legible).
 - `pendienteReparto` queda como alias de `repartoAbierto` (compat v1391).
 - `demandaSapSinCubrir` ahora siempre null (DEPRECATED, eliminar en v1393).
+
+### §40.1 (2026-10-21, v1393): waitlistCpst NO reserva (es draft VDE)
+
+Extensión de §40. El bucket `waitlistCpst` del breakdown queda **informativo** (visible en `getStockBreakdown` pero NO suma a `reservadasTotal`).
+
+**Por qué**: un `revision_waitlist` con `source=’stock-asignado-batch’` es un **draft** del VDE preparando un pedido desde Stock Asignado. La ASIG original (pedido padre) ya reserva su stock. Hasta que el VDE apreta "Confirmar", el waitlist no genera un pedido real. Contar waitlist como reserva además de la ASIG = **doble conteo**.
+
+**Precedente**: BENGOCHEA 597151 ORDEN 467 (2026-10-21). Tenía ASIG qty=6 + waitlist `GYQRCgyXyOJttrQyNsru` qty=6 del MISMO cliente para el MISMO SKU. Breakdown v1392 contaba 12 u reservadas con físico 2. VDE veía "reservadas 16" en la Lista de Espera por SKU 597151 (6 asig + 10 wlCpst totales).
+
+**Código** (`src/pure/stock-breakdown.js` + mirror):
+```js
+const reservadasTotal = confirmadasSinFacturar.total + asignadas.total;
+```
+NO más `+ waitlistCpst.total`. `utilizablePara` tampoco cuenta waitlist propia.
+
+**Shape**: `waitlistCpst` sigue en el breakdown como bucket informativo para tooltips/debug. `_version` 2 → 3.
+
+**Efecto en prod @ merge v1393** (`docs/auditoria/27_EFECTO_WAITLIST_NO_RESERVA.md`): 31 SKUs / 139 u pasaron a libre. Caso 597151 BENGOCHEA: delta real libre = 0 (clamp por fisico=2), pero la UX visible pasó de "reservadas 16" a "reservadas 6" (sin doble conteo).
+
+**Caso borde**: si existe un waitlist "huérfano" (sin ASIG viva de respaldo), tampoco reserva. Es coherente con §40.1: waitlist es draft, nunca reserva por sí mismo.
