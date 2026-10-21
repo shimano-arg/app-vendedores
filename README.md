@@ -4717,6 +4717,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1388 (2026-10-21) — BO sin TTL 7d + confirmed hard cap 60d + legacy orderNumber UI
+
+Decisiones Mariano post-v1387 (loop B1 + D4 + D5).
+
+**Antes**:
+- BO con `pedido.createdAt > 7d` dejaba de reservar stock (v1198). Resultado: SKUs con BO vigente + físico llegaba quedaban sin reparto porque `reconcileRepartosFaltantes` filtraba por `lineReservesStock` que los expiraba.
+- confirmed solo tenía TTL soft 7d, sin red de seguridad en caso de que mañana se suba.
+- Pedidos pre-v913 con `orderNumber === undefined` renderizaban "ORDEN undefined" o chip oculto en la UI.
+
+**Cambio**:
+- `src/pure/stock-realmente-disponible.js` + `functions/core/pedido-snapshot-core.js`:
+  - `BO_TTL_DAYS = 90` (red de seguridad). BO reserva hasta 90d desde `createdAt`. CLAUDE.md §37.
+  - `CONFIRMED_HARD_CAP_DAYS = 60`. confirmed además de soft 7d, hard cap 60d sobre `confirmedAt`. CLAUDE.md §38.
+  - ASIG no cambia (sigue con TTL 7d).
+- `functions/core/reparto-core.js:reconcileRepartosFaltantes` usa `lineReservesStock` directamente → automáticamente toma BO de 30/60/89d como válido.
+- `index.html` 3 call-sites: chip ORDEN con fallback "ORDEN legacy" en gris cuando `orderNumber` falta. Decisión D5.
+
+**Tests nuevos (9 PASS, `tests/unit/audit/bo-sin-ttl-7d.test.js`)**:
+- BO 30d reserva + BO 89d reserva + BO 91d NO reserva (red seguridad).
+- confirmed 3d reserva + confirmed 30d NO reserva (soft) + confirmed 61d NO reserva (hard cap).
+- ASIG 30d NO reserva + ASIG 3d SI reserva (invariante preservado).
+
+**Tests actualizados** (regla cambiada, era TTL 7d, ahora 90d BO):
+- `tests/unit/stock-realmente-disponible.test.js`: 3 tests `BO >7d` migrados a `>90d`.
+- `tests/functions/pedido-snapshot.test.js`: 1 test `BO >7d` migrado a `>90d`.
+- `tests/functions/reparto-reconciliation.test.js`: 1 test "sin BO vigente" ahora usa >90d.
+- `tests/unit/backorder-sku-map.test.js`: 2 tests >15d → >90d.
+- `tests/unit/virtual-asig-fifo.test.js`: 1 test >15d → >90d.
+
+Suite: 1482 PASS + 1 FAIL (pre-existente `reparto.test.js`, no relacionado).
+
+**Impacto en prod**:
+- Pre-fix: 13 SKUs con BO 15-89d quedaban sin reparto porque el reconcile los filtraba. Tras deploy, próxima corrida del CF crea reparto para esos SKUs.
+- CUDC201HG en particular: cerrado doc `migration-v1278 XqBxRRu78WLwmZx0K6Gd` (admin) + reconcile creó `kBIQuz7yqUsCCeD5nnr1` con qty=6 + clientesCount=5. Verificado 2026-10-21 13:28 UTC.
+
+APP_VERSION v1387 → v1388. CACHE_VERSION v1387 → v1388.
+
+**Rollback**: `git revert` + deploy functions. Vuelve TTL BO 7d. El CUDC201HG queda con el reparto `kBIQuz7y...` ya creado (no retrocede).
+
 ### v1387 (2026-10-21) — Fix TTL reservas + reparto por reconciliación
 
 Loop E0-E4 sobre reporte "reservas fantasma de cotizaciones muertas y reparto que nunca se dispara" (CUDC201HG). Rama `fix-ttl-reservas-y-reparto` → `main`.

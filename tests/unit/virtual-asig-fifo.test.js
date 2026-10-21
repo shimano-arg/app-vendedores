@@ -265,15 +265,15 @@ describe('computeVirtualAsigFifo', () => {
     expect(result.get('pBo:0')).toBe(2);
   });
 
-  it('v1124: BO expirado (pedido.createdAt > 15d) NO cuenta en FIFO (es cola muerta)', () => {
-    const expiredCreatedAt = NOW_MS - 20 * DAY_MS;
+  it('v1388 §37: BO expirado (pedido.createdAt > 90d) NO cuenta en FIFO (es cola muerta)', () => {
+    const expiredCreatedAt = NOW_MS - 95 * DAY_MS;
     const freshCreatedAt = NOW_MS - 2 * DAY_MS;
     const pedidos = [
       mkPedido('pBoExp', 'C1', [{ code: 'SKU', state: 'BO', qtyOpen: 3 }], expiredCreatedAt),
       mkPedido('pBoFresh', 'C2', [{ code: 'SKU', state: 'BO', qtyOpen: 2 }], freshCreatedAt),
     ];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 2 }), NOW_MS);
-    // BO expirado NO reserva ni compite; el fresco gana el stock.
+    // BO expirado por red seguridad 90d NO reserva ni compite; el fresco gana el stock.
     expect(result.has('pBoExp:0')).toBe(false);
     expect(result.get('pBoFresh:0')).toBe(2);
   });

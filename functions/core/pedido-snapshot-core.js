@@ -46,6 +46,10 @@ const OPEN_STATES = new Set(['BO', 'ASIG']);
 // medir prod (153/153 ASIG vivas <= 7d, drift puramente teorico pero
 // sistemico). Test anti-divergencia en tests/unit/audit/ttl-sync.test.js.
 const RESERVA_TTL_DAYS = 7;
+// v1388 (2026-10-21): mirror src/pure (CLAUDE.md §37 BO no vence a 7d / §38
+// confirmed hard cap 60d).
+const BO_TTL_DAYS = 90;
+const CONFIRMED_HARD_CAP_DAYS = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -97,10 +101,10 @@ export function lineReservesStock(line, nowMs, pedido) {
   if (!line) return false;
   const state = line.state;
   if (state === 'BO') {
-    // v969: expira 15d desde pedido.createdAt.
+    // v1388 (2026-10-21, CLAUDE.md §37): BO NO vence a 7d. Red 90d.
     if (pedido && pedido.createdAt) {
       const createdAtMs = toMillisSafe(pedido.createdAt);
-      if (createdAtMs !== null && (nowMs - createdAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+      if (createdAtMs !== null && (nowMs - createdAtMs) / DAY_MS > BO_TTL_DAYS) {
         return false;
       }
     }
@@ -116,7 +120,11 @@ export function lineReservesStock(line, nowMs, pedido) {
     if (!pedido || !pedido.confirmedAt) return false;
     const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
     if (confirmedAtMs === null) return false;
-    return (nowMs - confirmedAtMs) / DAY_MS <= RESERVA_TTL_DAYS;
+    const ageDays = (nowMs - confirmedAtMs) / DAY_MS;
+    if (ageDays > RESERVA_TTL_DAYS) return false;
+    // v1388 (CLAUDE.md §38): hard cap 60d.
+    if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
+    return true;
   }
   if (state === 'ASIG') {
     // v957 + fix auditor 2026-10-02: asigReserva=false (B/C) no reserva.
