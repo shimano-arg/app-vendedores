@@ -4717,6 +4717,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1388 (2026-10-21) — Cards source-cpst · unificar naranja + has-exceed correcto (fix H1 visto desde sidebar)
+
+**Antes**: en el sidebar "Pedidos en espera" del mapa, las cards generadas desde Stock Asignado (badge "STOCK ASIG", clase `source-cpst`) tenían dos backgrounds según computed `has-exceed`: amarillo pastel `#fde68a` por default, naranja `#fdba74` cuando alguna línea excedía el disponible. Reporte Mariano 21/10/2026 09:50: ORDEN 444-447 naranja, 448+472 amarillo — pedido explícito: "todas en el mismo naranja, sin excepción".
+
+**Bug adicional detectado (misma raíz que H1 — ver v1387/CLAUDE §32 §33)**: el cálculo de `has-exceed` del renderer (`index.html:20062-20073`) usaba `_pendingAppDeSku` global, que cuenta las reservas del PROPIO cliente como "comprometido ajeno". Para cards source-cpst (donde el pedido viene de la ASIG previamente reservada para ese cliente), esto marcaba falsos positivos: la ASIG propia aparecía como reserva ajena → `dispApp=0` → `qty > 0 → has-exceed=TRUE` aunque la reserva propia cubriera el pedido entero. El border rojo perdía significado.
+
+**Cambios**:
+
+1. **Pure function nueva** `src/pure/waitlist-has-exceed.js` con `computeHasExceed(waitlist, deps, opts)`:
+   - Si `source='stock-asignado-batch'` + `clientCardCode` presente → `getStockUtilizableParaClienteExAsig(sku, cardCode)` (fórmula H1-safe).
+   - Otra source → `getStockRealmenteDisponible(sku)` global.
+   - CPST sin cardCode → `hasExceed=false` (señal muerta mejor que señal mentirosa).
+
+2. **CSS** `index.html:2395-2408` — unificar bg a `#fdba74` (naranja) para TODAS las cards `source-cpst`. Mover la señal `has-exceed` a `border-left-color:var(--color-danger)` (border rojo), sin cambiar el fondo. Mantiene el aviso útil pero sin ambigüedad amarillo/naranja.
+
+3. **Renderer** `index.html:20047-20065` — usar `window.__phase0.pure.computeHasExceed(w, deps)` en lugar del cálculo inline con `_pendingAppDeSku`. `totalUnid` sigue calculándose aparte para la meta line.
+
+4. **main.js** — importar `computeHasExceed` y exponer en `__phase0.pure`.
+
+5. **Tests** `tests/unit/waitlist-has-exceed.test.js` — 12 tests: los 2 casos exigidos por Mariano (cpst qty=1 físico=1 ASIG propia=1 → `false`; normal qty=1 disp=0 → `true`) + edge cases (cpst sin cardCode, inputs defectuosos, múltiples items). **12/12 pass**.
+
+Bundle regenerado. APP_VERSION/CACHE_VERSION v1387 → v1388. Branch original pedida `fix-card-stock-asig-color` (push como `fix-card-stock-asig-color-v2` por workflow del sandbox).
+
+**Verificación**:
+- Suite unit: `12/12 waitlist-has-exceed` pass, `1471/1472 total` (único failing es pre-existente de `reparto.test.js` que Mariano advirtió, no relacionado).
+- En producción: todas las cards source-cpst del sidebar se ven en naranja uniforme. Border-left rojo aparece SOLO cuando el pedido realmente excede lo disponible (fórmula por cliente respeta ASIG propia).
+
+**Rollback**: revertir el commit. Vuelve el fondo amarillo/naranja oscilante y los falsos positivos de `has-exceed` en cards cpst.
+
 ### v1387 (2026-10-21) — Fix TTL reservas + reparto por reconciliación
 
 Loop E0-E4 sobre reporte "reservas fantasma de cotizaciones muertas y reparto que nunca se dispara" (CUDC201HG). Rama `fix-ttl-reservas-y-reparto` → `main`.

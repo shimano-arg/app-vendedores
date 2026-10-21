@@ -7023,7 +7023,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1387';
+const APP_VERSION = 'v1388';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20044,21 +20044,29 @@ function _renderWaitlistSidebar(){
     return;
   }
   empty.style.display = 'none';
+  // v1388 (2026-10-21, fix-card-stock-asig-color): has-exceed delegado a
+  // computeHasExceed (pure, src/pure/waitlist-has-exceed.js). Para cards
+  // source-cpst usa la fórmula POR CLIENTE (CLAUDE §32 §33) que respeta la
+  // ASIG propia — antes el cálculo inline usaba _pendingAppDeSku global y
+  // marcaba falsos positivos cuando la reserva propia cubría el pedido.
+  // totalUnid se sigue calculando acá para la meta line (no afecta clase).
+  const _hasExceedPure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeHasExceed;
+  const _hasExceedDeps = {
+    getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    waitlistEntries: (typeof _getWaitlistCpstEntries === 'function') ? _getWaitlistCpstEntries() : [],
+  };
   filtered.forEach(w => {
-    let excedentes = 0;
     let totalUnid = 0;
-    (w.items || []).forEach(it => {
-      totalUnid += (it.qty || 0);
-      const stk = _revisionStockFor(it.code);
-      if (stk.hasData) {
-        const disp = Math.max((stk.stockTotal || 0) - (stk.backorder || 0), 0);
-        const dispApp = Math.max(disp - _pendingAppDeSku(it.code), 0);
-        if (it.qty > dispApp) excedentes++;
-      }
-    });
+    (w.items || []).forEach(it => { totalUnid += (it.qty || 0); });
+    let excedentes = 0;
+    if (_hasExceedPure) {
+      const _r = _hasExceedPure(w, _hasExceedDeps);
+      excedentes = _r && typeof _r.excedentes === 'number' ? _r.excedentes : 0;
+    }
     const item = document.createElement('div');
     // v1192 (2026-10-08): source=stock-asignado-batch → clase source-cpst
-    // para pintar la card celeste y distinguirla de pedidos normales. Mariano.
+    // para pintar la card naranja (v1388) y distinguirla de pedidos normales.
     const _isCpst = w.source === 'stock-asignado-batch';
     item.className = 'slft-wl-item'
       + (excedentes > 0 ? ' has-exceed' : '')
