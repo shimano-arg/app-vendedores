@@ -45,6 +45,21 @@ const KPI_CARDS = [
   { chip: 'nuncaCompraron', label: 'Nunca compraron', color: '#be185d' },
 ];
 
+// v1384 (2026-10-21): whitelist de los 6 VDE reales operativos (pedido Mariano).
+// Filtra el dropdown para excluir ruido en client_applications.assignedVendor:
+// 'ADMIN_LDOOG2F4MWVMXKQOD8YCBOIRU2O2' (admin uid que quedo como string vendor),
+// 'EMPLEADO' (altas internas), 'DIEGO VALSI' (ex-VDE con 1 cliente historico).
+// Si en el futuro se incorpora un nuevo VDE, agregarlo aqui + verificar que la
+// vista BQ v_cartera_vendor lo canonicalize igual (ver bigquery/views.sql:3480).
+const VENDORS_WHITELIST = new Set([
+  'FEDERICO CASTELANELLI',
+  'GONZALO DE LA ROSA',
+  'IOANNIS PALKOUDAKIS',
+  'MAURICIO GIL',
+  'PACHI',
+  'SANTIAGO ESTEBAN',
+]);
+
 // === Open / close ===
 window.openCarteraModal = async function openCarteraModal() {
   const modal = document.getElementById('cartera-modal');
@@ -70,7 +85,10 @@ async function populateVendorDropdown() {
     const snap = await firebase.firestore().collection('cartera_vendor').get();
     /** @type {string[]} */
     const vendors = [];
-    snap.forEach((doc) => vendors.push(doc.id));
+    snap.forEach((doc) => {
+      // v1384: solo VDE whitelist. Resto (admin uid, EMPLEADO, ex-VDE) se ocultan.
+      if (VENDORS_WHITELIST.has(doc.id)) vendors.push(doc.id);
+    });
     vendors.sort();
     for (const v of vendors) {
       const opt = document.createElement('option');
