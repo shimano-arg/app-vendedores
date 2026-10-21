@@ -4717,6 +4717,51 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1381 (2026-10-20) — Modal Análisis de Cartera · ampliar fuente a `client_applications` (fix carteras incompletas)
+
+**Antes**: la vista `v_cartera_vendor` leía solo de `client_master.vendor`. MAURICIO GIL mostraba 16 clientes en el modal cuando su cartera real es 58 (reporte Mariano 2026-10-20).
+
+**Problema**: `client_master.vendor` está sparse — **425 de 577 docs (73%) tienen `vendor=null`**. La fuente REAL del mapping vendor↔cliente vive en `client_applications.assignedVendor` (mismo pattern que PBI usa via `assigned_vendor_app`, documentado en `views.sql:252-269` precisamente por este tipo de inconsistencias con SAP SlpCode). La vista v1283 no se enganchó a esa fuente.
+
+Breakdown del impacto medido en los 58 cardCodes reales de MAURICIO contra `client_master`:
+- 11 matcheaban MAURICIO en master ✓ (correctos v1283)
+- 7 en master pero con `vendor=null` o vacío ✗
+- 3 asignados a OTRO vendor en master ✗ (inconsistencia a conciliar manual)
+- **37 ni existían en client_master** ✗
+
+**Cambio**: `bigquery/views.sql:3421+` — reescribir `v_cartera_vendor` CTE `cartera` con UNION ALL de 2 fuentes:
+1. **Primaria**: `client_applications_raw_raw_latest` WHERE `cardCodeSap`+`assignedVendor` seteados.
+2. **Fallback**: `client_master_raw_raw_latest` WHERE `sapCardCode`+`vendor` seteados.
+3. **Dedupe** por `card_code` con `QUALIFY ROW_NUMBER() OVER (PARTITION BY card_code ORDER BY source_priority)` — gana priority=1 (client_applications).
+
+Mantiene canonical UPPER + alias `MARTIN BOIERO → PACHI`. Zero cambios en los demás CTEs (visitas_agg, compras_agg, deuda_agg) y el SELECT final.
+
+Deploy: `python scripts/deploy_v_cartera_vendor.py` + trigger manual del scheduler `firebase-schedule-syncCarteraVendorScheduled-southamerica-east1` para regenerar snapshot `cartera_vendor/*` ya (sin esperar al cron nightly 04:00 ART). APP_VERSION v1380 → v1381. CACHE_VERSION v1380 → v1381.
+
+**Smoke post-deploy (BQ live + Firestore snapshot)**:
+```
+FEDERICO CASTELANELLI    80 clientes
+GONZALO DE LA ROSA       65
+PACHI                    60
+MAURICIO GIL             58   ← era 16 pre-fix (reporte Mariano)
+IOANNIS PALKOUDAKIS      31
+SANTIAGO ESTEBAN         26
+EMPLEADO                  2   ← ruido, data sucia (TODO: filtrar)
+ADMIN_LDOOG2F...          1   ← ruido, data sucia (TODO: filtrar)
+DIEGO VALSI               1
+```
+
+**Por qué**: PBI y app deben leer la MISMA fuente para que los números cuadren. `client_applications.assignedVendor` es la fuente oficial del negocio desde v311+ (2026-07-22). No tiene sentido que la cartera del vendedor use una fuente distinta.
+
+**Verificación**: refrescar el modal "Análisis de Cartera" en la app, elegir MAURICIO GIL → 58 clientes. Idem FEDERICO 80, PACHI 60, GONZALO 65, IOANNIS 31, SANTIAGO 26.
+
+**Rollback**: revertir el commit en `bigquery/views.sql` + re-deployar con el mismo script. Vuelve a la fuente única `client_master.vendor` del v1283.
+
+**Follow-ups**:
+- 3 clientes de MAURICIO con `assignedVendor='MAURICIO GIL'` en apps pero `vendor='OTRO'` en master — conciliar manual.
+- 2 vendedores de ruido en el dropdown (`EMPLEADO`, `ADMIN_LDOOG2F...`) — filtrar en la vista o limpiar data origen.
+- 73% de `client_master` sin vendor → data debt. El fix oculta el síntoma pero no cura la causa.
+
 ### v1379 (2026-10-20) — Modal Pedido en espera · fix regresión v1377 en rows con warning (texto invisible sobre bg claro)
 
 **Antes**: v1377 puso `color:#ffffff !important` al valor de "Libre para la venta" + "Pedido Final" en hover. Funcionaba OK en rows normales (bg azul marino + texto blanco = legible). **Pero rompía las rows con warning class** (`repeat-sku`, `warn-quiebra`, `warn-duplicado`): en esas, el bg del `td.disp-sap-col` y `td.pedido-final-col` **mantiene el color claro** (naranja/amarillo/rojo pastel) en hover porque las reglas 2663-2672 tienen specificity `.CLASS` + `!important` que gana sobre `apple-design.css:5290` → texto blanco sobre bg claro = invisible. Reporte Mariano 2026-10-20 post-v1377 (ORDEN 448 ADRIAN HORACIO VALIÑA, SKU EXGTVS70MH4AR en `repeat-sku`).
