@@ -1162,3 +1162,46 @@ Ninguno de los 2 botones de acción tiene estilo `default`/focus auto — el use
 - `getStockBreakdown('CLC70MHAAR').asignadas` baja 1u. El modal Stock Asignado deja de listarla.
 
 **Precedente**: `feat-cpst-delete-choice-cancel-asig` 2026-10-21 (v1398). Reporte Mariano: regla simétrica a §40.5 — "si el cliente no quiere, no tiene sentido mantener la reserva".
+
+### §40.7 (2026-10-21, v1399): toda reducción explícita del VDE sobre línea con reserva libera la diferencia
+
+Regla fuerte: cuando el VDE **reduce** la demanda sobre una línea con reserva (asigRefs/pedidosOrigenes), las unidades no demandadas se **cancelan** en el pedido origen con audit, en vez de quedar como ASIG viva. Casos cubiertos (3, inclusive §40.6):
+
+1. **Borrar orden entera con "cliente_rechazo_cpst"** (§40.6): closedReason=`cliente_rechazo_cpst`.
+2. **Botón X "Quitar producto"** sobre línea con reserva (§40.7 Case 1): closedReason=`quitado_por_vendedor_cpst`.
+3. **Editar qty por debajo de reserva + enviar a SAP** (§40.7 Case 2): closedReason=`recorte_vendedor_cpst`.
+
+En los 3 casos: `state='cancelled'`, `qtyOpen=0`, `qtyCancelled += prevQo`, `closedReason=<...>`, `cancelledAt=nowIso`, `cancelledBy=userEmail`, `asigReserva=false`.
+
+**Case 1 — Botón X en modal waitlist-card** (`waitlistRemoveItem`):
+- Si la línea del item tiene reserva (via `collectAsigRefsForItemCancel(w, idx)`): confirm pregunta "Se quita el SKU y se liberan N unidades reservadas..."; al aceptar, batch delete item + cancel refs.
+- Si NO tiene reserva: flujo histórico (confirm nativo + remove sin cancel).
+- Idempotencia: línea ya cancelled con closedReason set → skip. Línea en otro estado (BO revertida v1397, invoiced) → skip.
+
+**Case 2 — Recorte al enviar SAP** (bloque v1280 en `doConfirmPedido`):
+- Al confirmar pedido B, para cada org en `_origenesACancelar`:
+  - `qtyConsumed = min(qtyAsig, qty consumible restante del SKU en pedido B)` → cancel con `closedReason='waitlist-confirm'`.
+  - `qtyRecortado = qtyAsig - qtyConsumed` → **split** línea original en 2 cancelled: la primera con `waitlist-confirm`, la segunda appendada con `splitFromLineIndex` + `closedReason='recorte_vendedor_cpst'` + `cancelledBy` del VDE.
+- La reducción se aplica **al enviar a SAP**, no al editar en espera (la reserva sigue entera mientras la orden está en espera).
+- Caso qty editada > reserva: el excedente va a BO en pedido B (comportamiento histórico, no toca el plan de recorte).
+
+**UI modal waitlist-card** (`_renderWaitlistCard`): cuando el VDE edita qty por debajo de la reserva, aparece un badge amarillo bajo el input de qty: "se liberan N al enviar" (tooltip con detalle sobre `recorte_vendedor_cpst`).
+
+**Pure helpers** (`src/pure/cpst-item-cancel-helpers.js`):
+- `collectAsigRefsForItemCancel(w, itemIndex)`: unión dedupe de `w.items[itemIndex].asigRefs` + `w.pedidosOrigenes[]` filtrado por `item.code`.
+- `sumQtyBySku(lines)`: suma qty del pedido B por SKU normalizado uppercase.
+- `computeRecorteVendedorPlan(origenes, qtyConsumedBySku)`: decompone cada org en `{qtyConsumed, qtyRecortado}` FIFO contra el bucket consumible.
+
+**Reutilización v1398**: la lógica de cancelación es idéntica (misma mutación de línea, mismos campos de audit) — solo cambia `closedReason`. Un único closedReason set `{cliente_rechazo_cpst, quitado_por_vendedor_cpst, recorte_vendedor_cpst}` sirve para consulta Firestore de todos los casos de liberación explícita por el VDE.
+
+**Tests**:
+- `tests/unit/cpst-item-cancel-helpers.test.js` (14): pure + edge + caso real SNAKE S.R.L.
+- `tests/unit/audit/cpst-liberar-reserva-flow.test.js` (12): Case 1 X + idempotencia + breakdown post-X; Case 2 recorte 5→3 split + 5→7 BO + orden unificada v1382 + idempotencia + SNAKE.
+
+**Caso real para verificar prod**: SNAKE S.R.L., orden 488, ALV6000FA 1u reservada.
+- Si VDE deja qty=1 y envía: `line.state=cancelled, closedReason='waitlist-confirm'` (sin recorte).
+- Si VDE edita a 0 (X): `line.state=cancelled, closedReason='quitado_por_vendedor_cpst'`.
+- Si VDE edita a 2 y envía (qty > reserva): 1 consume + 1 BO en pedido B (sin recorte).
+- Si hubiera reserva 5 editada a 3 y envía: split 3 waitlist-confirm + 2 recorte_vendedor_cpst.
+
+**Precedente**: `feat-cpst-liberar-reserva-x-y-recorte` 2026-10-21 (v1399).

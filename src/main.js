@@ -13,6 +13,11 @@
 import { installChunkStubs } from './loader.js';
 import { computeBackorderRawLines, computeBackorderSkuMap } from './pure/backorder-sku-map.js';
 import { collectAsigRefsForCancel, sumUnitsToFreeOnCancel } from './pure/cpst-cancel-asig-plan.js';
+import {
+  collectAsigRefsForItemCancel,
+  computeRecorteVendedorPlan,
+  sumQtyBySku,
+} from './pure/cpst-item-cancel-helpers.js';
 import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
@@ -249,6 +254,9 @@ const phase0 = {
     sumRevertUnits,
     collectAsigRefsForCancel,
     sumUnitsToFreeOnCancel,
+    collectAsigRefsForItemCancel,
+    computeRecorteVendedorPlan,
+    sumQtyBySku,
     mergeLinesFromOrders,
     computeDuplicateCodes,
     getRowColorClass,
