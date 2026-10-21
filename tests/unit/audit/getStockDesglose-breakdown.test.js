@@ -85,13 +85,13 @@ describe('getStockDesglose invariant v1392 §40', () => {
     expect(desg.real).toBe(3); // libre completo
   });
 
-  it('v1392 §40: sobre-reserva con confirmed+ASIG — real = 0', () => {
+  it('v1394 §40.2: sobre-reserva con confirmed — comprometido cap por fisico', () => {
     const deps = _makeDeps({
       fisico: 3,
       pedidos: [_ped({ lines: [_lineConfirmed('X', 10)] })],
     });
     const desg = getStockDesglose('X', deps, { now: NOW });
-    expect(desg.comprometido).toBe(10);
+    expect(desg.comprometido).toBe(3); // cap por fisico (no nominal 10)
     expect(desg.real).toBe(0);
   });
 

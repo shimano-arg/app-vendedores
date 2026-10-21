@@ -44,10 +44,10 @@ describe('v1393 §40.1 waitlistCpst NO reserva', () => {
       ],
     });
     const b = getStockBreakdown('597151', deps, { now: NOW });
-    expect(b.asignadas.total).toBe(6);
+    expect(b.asignadas.total).toBe(6); // nominal
     expect(b.waitlistCpst.total).toBe(6); // informativo
-    expect(b.reservadasTotal).toBe(6); // SOLO ASIG, NO suma waitlist
-    expect(b.libre).toBe(0); // max(0, 2 - 6)
+    expect(b.reservadasTotal).toBe(2); // v1394 §40.2 cap por fisico
+    expect(b.libre).toBe(0);
     // utilizablePara BENGOCHEA = min(fisico, libre + ASIG propia) = min(2, 0+6) = 2.
     expect(b.utilizablePara('C20293164852')).toBe(2);
   });
@@ -130,9 +130,9 @@ describe('v1393 §40.1 waitlistCpst NO reserva', () => {
     expect(b.utilizablePara('CA')).toBe(5); // libre + 0 (BO y waitlist no suman)
   });
 
-  it('_version = 3 (v1393)', () => {
+  it('_version = 4 (v1394)', () => {
     const b = getStockBreakdown('X', makeDeps({}), { now: NOW });
-    expect(b._version).toBe(3);
+    expect(b._version).toBe(4);
   });
 
   it('sync: espejo functions/core también aplica §40.1', () => {

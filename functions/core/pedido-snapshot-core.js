@@ -293,8 +293,9 @@ export function getStockBreakdown(sku, deps, opts) {
     }
   }
 
-  // v1393 §40.1: reservadasTotal = ASIG + confirmed (SIN waitlistCpst). Mirror.
-  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total;
+  // v1394 §40.2 mirror: cap por fisico. reservadasTotal = min(ASIG+conf, fisico).
+  const reservasNominales = confirmadasSinFacturar.total + asignadas.total;
+  const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
   // demandaSapSinCubrir DEPRECATED v1392 — queda null.
@@ -327,7 +328,7 @@ export function getStockBreakdown(sku, deps, opts) {
     libre,
     utilizablePara,
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 3,
+    _version: 4,
   };
 }
 
