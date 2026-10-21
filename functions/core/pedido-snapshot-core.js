@@ -145,6 +145,166 @@ export function lineReservesStock(line, nowMs, pedido) {
 }
 
 /**
+ * v1391 (2026-10-21, CLAUDE.md §39) — Espejo de src/pure/stock-breakdown.js.
+ * Mantener sincronizado via tests/unit/audit/stock-breakdown-sync.test.js.
+ *
+ * @param {string} sku
+ * @param {{
+ *   getStockFisico: (sku:string) => number,
+ *   getStockTransito?: (sku:string) => number,
+ *   pedidos: Array<any>,
+ *   waitlistEntries?: Array<any>,
+ *   ingresosRepartoActivos?: Array<any>,
+ *   sapBackorderSnapshot?: Object|null,
+ * }} deps
+ * @param {{now?: number, includeStale?: boolean}} [opts]
+ */
+export function getStockBreakdown(sku, deps, opts) {
+  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
+  const includeStale = !!(opts && opts.includeStale);
+  const skuUp = String(sku || '').toUpperCase();
+  const fisicoDep11 = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
+  const transitoDep12 =
+    skuUp && typeof deps.getStockTransito === 'function'
+      ? Number(deps.getStockTransito(skuUp)) || 0
+      : 0;
+
+  const buckets = {
+    BO: new Map(),
+    confirmed: new Map(),
+    ASIG: new Map(),
+  };
+  const bucketsStale = {
+    BO: new Map(),
+    confirmed: new Map(),
+  };
+
+  const _push = (map, cardCode, clientName, qty, pedidoId, lineIndex) => {
+    const key = String(cardCode || clientName || '(sin cliente)').trim() || '(sin cliente)';
+    const existing = map.get(key);
+    if (existing) {
+      existing.qty += qty;
+      if (!Array.isArray(existing.origins)) existing.origins = [];
+      existing.origins.push({ pedidoId, lineIndex, qty });
+    } else {
+      map.set(key, {
+        cardCode: String(cardCode || ''),
+        clientName: String(clientName || ''),
+        qty,
+        origins: [{ pedidoId, lineIndex, qty }],
+      });
+    }
+  };
+
+  const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
+  for (const p of pedidos) {
+    if (!p || p.closedAt) continue;
+    const lines = Array.isArray(p.lines) ? p.lines : [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (!l || !l.code) continue;
+      if (String(l.code).toUpperCase() !== skuUp) continue;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) continue;
+      const st = l.state;
+      const vig = lineReservesStock(l, now, p);
+      if (st === 'BO' || st === 'confirmed' || st === 'ASIG') {
+        if (vig) {
+          _push(buckets[st], p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
+        }
+        if (includeStale && (st === 'BO' || st === 'confirmed')) {
+          _push(bucketsStale[st], p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
+        }
+      }
+    }
+  }
+
+  const _toBucket = (map) => {
+    const porCliente = Array.from(map.values()).sort((a, b) => b.qty - a.qty);
+    const total = porCliente.reduce((s, c) => s + c.qty, 0);
+    return { total, porCliente };
+  };
+
+  const backorderApp = _toBucket(buckets.BO);
+  const confirmadasSinFacturar = _toBucket(buckets.confirmed);
+  const asignadas = _toBucket(buckets.ASIG);
+  const reservadasTotal = backorderApp.total + confirmadasSinFacturar.total + asignadas.total;
+  const libre = Math.max(0, fisicoDep11 - reservadasTotal);
+
+  let demandaSapSinCubrir = null;
+  if (includeStale) {
+    const combined = new Map();
+    for (const map of [bucketsStale.BO, bucketsStale.confirmed]) {
+      for (const [k, v] of map.entries()) {
+        const existing = combined.get(k);
+        if (existing) {
+          existing.qty += v.qty;
+          existing.origins = (existing.origins || []).concat(v.origins || []);
+        } else {
+          combined.set(k, Object.assign({}, v, { origins: (v.origins || []).slice() }));
+        }
+      }
+    }
+    const porCliente = Array.from(combined.values()).sort((a, b) => b.qty - a.qty);
+    const total = porCliente.reduce((s, c) => s + c.qty, 0);
+    demandaSapSinCubrir = { total, porCliente };
+  }
+  if (!includeStale && deps.sapBackorderSnapshot) {
+    demandaSapSinCubrir = deps.sapBackorderSnapshot[skuUp] || null;
+  }
+
+  const _pendQty =
+    backorderApp.total > 0
+      ? Math.max(0, fisicoDep11 - asignadas.total - confirmadasSinFacturar.total)
+      : 0;
+  let _pendRepartoId = null;
+  if (_pendQty > 0 && Array.isArray(deps.ingresosRepartoActivos)) {
+    const match = deps.ingresosRepartoActivos.find(
+      (r) => r && String(r.sku || '').toUpperCase() === skuUp
+    );
+    if (match) _pendRepartoId = match._fsId || match.id || null;
+  }
+
+  const utilizablePara = (cardCode) => {
+    if (!cardCode) return libre;
+    const key = String(cardCode).trim();
+    let reservasPropias = 0;
+    for (const map of [buckets.BO, buckets.confirmed, buckets.ASIG]) {
+      const own = map.get(key);
+      if (own) reservasPropias += own.qty;
+    }
+    return Math.min(fisicoDep11, libre + reservasPropias);
+  };
+
+  return {
+    sku: skuUp,
+    fisicoDep11,
+    transitoDep12,
+    demandaSapSinCubrir,
+    backorderApp,
+    confirmadasSinFacturar,
+    asignadas,
+    reservadasTotal,
+    libre,
+    utilizablePara,
+    pendienteReparto: { qty: _pendQty, repartoId: _pendRepartoId },
+    _version: 1,
+  };
+}
+
+export const STOCK_LABELS_SERVER = Object.freeze({
+  demandaSapSinCubrir: 'Demanda SAP sin cubrir',
+  backorderApp: 'Back order (app)',
+  confirmadasSinFacturar: 'Confirmadas sin facturar',
+  asignadas: 'Asignadas',
+  reservadasTotal: 'Reservadas',
+  fisicoDep11: 'Stock físico (dep 11)',
+  transitoDep12: 'En tránsito (dep 12)',
+  libre: 'Libre para la venta',
+  pendienteReparto: 'Pendientes de reparto',
+});
+
+/**
  * @typedef {Object} PedidoLine
  * @property {string} code
  * @property {number} qtyOpen
