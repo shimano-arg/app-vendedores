@@ -46,6 +46,27 @@ import { lineReservesStock } from './stock-realmente-disponible.js';
  */
 
 /**
+ * @typedef {Object} AsigDetalleItem
+ * @property {string} pedidoId
+ * @property {number} lineIndex
+ * @property {string} cardCode
+ * @property {string} clientName
+ * @property {string|null} asigAt
+ * @property {number} qtyNominal
+ * @property {number} qtyEntregable
+ * @property {number} sobreAsignada
+ */
+
+/**
+ * @typedef {Object} AsignadasBucket
+ * @property {number} total  Nominal (suma qtyNominal) — compat.
+ * @property {number} totalEntregable  Suma qtyEntregable FIFO.
+ * @property {number} totalSobreAsignada  Suma sobreAsignada FIFO.
+ * @property {PorClienteItem[]} porCliente  Por cliente nominal — compat.
+ * @property {AsigDetalleItem[]} detalle  FIFO por asigAt ASC.
+ */
+
+/**
  * @typedef {Object} StockBreakdown
  * @property {string} sku
  * @property {number} fisicoDep11
@@ -53,7 +74,7 @@ import { lineReservesStock } from './stock-realmente-disponible.js';
  * @property {{total:number, porCliente:PorClienteItem[]}|null} demandaSapSinCubrir  DEPRECATED v1392
  * @property {BucketTotal} backorderApp  Cola BO con TTL §37 90d. NO reserva (v1392).
  * @property {BucketTotal} confirmadasSinFacturar  Reserva (TTL §38).
- * @property {BucketTotal} asignadas  Reserva (TTL 7d).
+ * @property {AsignadasBucket} asignadas  Reserva (TTL 7d) + FIFO entregable (§40.3 v1395).
  * @property {BucketTotal} waitlistCpst  Reserva (sin TTL).
  * @property {{qty:number, repartoId:string|null, status:string|null}} repartoAbierto  v1392 informativo, NO reserva.
  * @property {number} reservadasTotal  = asignadas + confirmed + waitlistCpst (SIN BO, SIN repartoAbierto).
@@ -128,6 +149,15 @@ export function getStockBreakdown(sku, deps, opts) {
     }
   };
 
+  /**
+   * v1395 §40.3: raw ASIG + confirmed lines capturadas con asigAt/confirmedAt
+   * para FIFO (confirmed-first, ASIG después). Más viejas consumen físico primero.
+   * @type {Array<{pedidoId:string, lineIndex:number, cardCode:string, clientName:string, asigAt:string|null, qtyNominal:number}>}
+   */
+  const asigRaw = [];
+  /** @type {Array<{confirmedAt:string|null, qtyNominal:number}>} */
+  const confirmedRaw = [];
+
   const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
   for (const p of pedidos) {
     if (!p || p.closedAt) continue;
@@ -164,6 +194,22 @@ export function getStockBreakdown(sku, deps, opts) {
             buckets[/** @type {'BO'|'confirmed'|'ASIG'} */ (st)]
           );
           _push(_map, p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
+          // v1395 §40.3: capturo raw para FIFO distribution.
+          if (st === 'ASIG') {
+            asigRaw.push({
+              pedidoId: String(p._fsId || p.id || ''),
+              lineIndex: i,
+              cardCode: String(p.clientCardCode || ''),
+              clientName: String(p.clientName || ''),
+              asigAt: l.asigAt || null,
+              qtyNominal: qo,
+            });
+          } else if (st === 'confirmed') {
+            confirmedRaw.push({
+              confirmedAt: p.confirmedAt || null,
+              qtyNominal: qo,
+            });
+          }
         }
         // stale (sin TTL) solo para BO y confirmed (DEPRECATED v1392).
         if (includeStale && (st === 'BO' || st === 'confirmed')) {
@@ -200,8 +246,54 @@ export function getStockBreakdown(sku, deps, opts) {
 
   const backorderApp = _toBucket(buckets.BO);
   const confirmadasSinFacturar = _toBucket(buckets.confirmed);
-  const asignadas = _toBucket(buckets.ASIG);
+  const asignadasBase = _toBucket(buckets.ASIG);
   const waitlistCpst = _toBucket(bucketWaitlist);
+
+  // v1395 §40.3: FIFO distribution por asigAt ASC. Confirmed consume físico
+  // primero (más viejas), después ASIG. Lo que queda sin físico es sobre-asignado.
+  const _tsOrInf = (/** @type {string|null} */ iso) => {
+    if (!iso) return Number.POSITIVE_INFINITY;
+    const t = Date.parse(iso);
+    return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+  };
+  confirmedRaw.sort((a, b) => _tsOrInf(a.confirmedAt) - _tsOrInf(b.confirmedAt));
+  let fisicoRestante = fisicoDep11;
+  // Confirmed consume primero (sin tracking por ahora — solo descuenta físico).
+  for (const c of confirmedRaw) {
+    const take = Math.min(c.qtyNominal, Math.max(0, fisicoRestante));
+    fisicoRestante -= take;
+  }
+  // ASIG FIFO por asigAt ASC. Nulos al final.
+  asigRaw.sort((a, b) => _tsOrInf(a.asigAt) - _tsOrInf(b.asigAt));
+  /** @type {AsigDetalleItem[]} */
+  const asigDetalle = [];
+  let asigTotalEntregable = 0;
+  let asigTotalSobre = 0;
+  for (const a of asigRaw) {
+    const entregable = Math.min(a.qtyNominal, Math.max(0, fisicoRestante));
+    const sobre = a.qtyNominal - entregable;
+    fisicoRestante -= entregable;
+    asigDetalle.push({
+      pedidoId: a.pedidoId,
+      lineIndex: a.lineIndex,
+      cardCode: a.cardCode,
+      clientName: a.clientName,
+      asigAt: a.asigAt,
+      qtyNominal: a.qtyNominal,
+      qtyEntregable: entregable,
+      sobreAsignada: sobre,
+    });
+    asigTotalEntregable += entregable;
+    asigTotalSobre += sobre;
+  }
+  /** @type {AsignadasBucket} */
+  const asignadas = {
+    total: asignadasBase.total,
+    totalEntregable: asigTotalEntregable,
+    totalSobreAsignada: asigTotalSobre,
+    porCliente: asignadasBase.porCliente,
+    detalle: asigDetalle,
+  };
 
   // v1392 §40: repartoAbierto es INFORMATIVO (NO suma a reservadasTotal).
   // Lo único que reserva: ASIG + confirmed + waitlistCpst.
@@ -275,6 +367,6 @@ export function getStockBreakdown(sku, deps, opts) {
     utilizablePara,
     // Alias compat v1391 — mismo info que repartoAbierto.
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 4,
+    _version: 5,
   };
 }

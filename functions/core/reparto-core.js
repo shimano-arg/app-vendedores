@@ -1032,3 +1032,83 @@ function _buildAsigLine(origLine, qty, nowIso, ingresoId, splitFromIdx) {
     splitFromLineIndex: splitFromIdx,
   };
 }
+
+/**
+ * v1395 §40.3: scanSobreAsignadas — recorre pedidos abiertos + stock snapshot,
+ * computa `getStockBreakdown` por SKU y loguea cada línea con `sobreAsignada > 0`.
+ *
+ * NO escribe nada en Firestore. El flag es computed en el breakdown; se "limpia
+ * solo" al próximo read cuando entra stock. Este scan existe para dejar log
+ * auditable en Cloud Logging + array de retorno para scripts/dashboards.
+ *
+ * @param {RepartoDeps} deps
+ * @param {any} snapshot - stock_snapshot.warehouseBreakdown
+ * @returns {Promise<{sobreAsignadas: Array<{sku:string, pedidoId:string, lineIndex:number, cardCode:string, clientName:string, asigAt:string|null, qtyNominal:number, qtyEntregable:number, sobreAsignada:number}>, errors: string[]}>}
+ */
+export async function scanSobreAsignadas(deps, snapshot) {
+  const log = deps.log || (() => {});
+  const now = (deps.now || (() => new Date()))();
+  const nowMs = now.getTime();
+  const whsBreakdown = _parseWarehouseBreakdown(snapshot);
+  /** @type {Array<any>} */
+  const sobreAsignadas = [];
+  /** @type {string[]} */
+  const errors = [];
+
+  let openPedidos;
+  try {
+    openPedidos = await loadOpenPedidos(deps);
+  } catch (e) {
+    errors.push(
+      'scanSobreAsignadas: loadOpenPedidos fallo: ' + (e && e.message ? e.message : String(e))
+    );
+    return { sobreAsignadas, errors };
+  }
+  const pedidosData = openPedidos.map((d) => Object.assign({ _fsId: d.id }, d.data() || {}));
+
+  // SKUs a scanear: unión de (SKUs con físico > 0 en whs 11) + (SKUs con ASIG en pedidos abiertos).
+  const skuSet = new Set();
+  for (const [skuRaw, whs] of Object.entries(whsBreakdown)) {
+    const fisico = Number(whs['11']) || 0;
+    if (fisico > 0) skuSet.add(String(skuRaw).toUpperCase());
+  }
+  for (const p of pedidosData) {
+    for (const l of Array.isArray(p.lines) ? p.lines : []) {
+      if (l && l.state === 'ASIG' && l.code) skuSet.add(String(l.code).toUpperCase());
+    }
+  }
+
+  for (const sku of skuSet) {
+    try {
+      const fisico = Number((whsBreakdown[sku] && whsBreakdown[sku]['11']) || 0);
+      const breakdown = getStockBreakdown(
+        sku,
+        { getStockFisico: () => fisico, pedidos: pedidosData },
+        { now: nowMs }
+      );
+      const totalSobre = breakdown.asignadas.totalSobreAsignada || 0;
+      if (totalSobre <= 0) continue;
+      for (const d of breakdown.asignadas.detalle || []) {
+        if (d.sobreAsignada <= 0) continue;
+        const row = {
+          sku,
+          pedidoId: d.pedidoId,
+          lineIndex: d.lineIndex,
+          cardCode: d.cardCode,
+          clientName: d.clientName,
+          asigAt: d.asigAt,
+          qtyNominal: d.qtyNominal,
+          qtyEntregable: d.qtyEntregable,
+          sobreAsignada: d.sobreAsignada,
+        };
+        sobreAsignadas.push(row);
+        log('sobre_asignada', row);
+      }
+    } catch (e) {
+      errors.push(
+        'scanSobreAsignadas sku=' + sku + ': ' + (e && e.message ? e.message : String(e))
+      );
+    }
+  }
+  return { sobreAsignadas, errors };
+}

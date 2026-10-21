@@ -63,6 +63,7 @@ import {
   applyRepartoManualCore,
   createIngresosRepartoFromDelta,
   reconcileRepartosFaltantes,
+  scanSobreAsignadas,
 } from './core/reparto-core.js';
 // v1278 (2026-10-14): migracion ASIG → BO + create ingresos_reparto para
 // SKUs con stock libre. Switchover al reparto manual.
@@ -946,6 +947,9 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
     // otras reservas). Ejemplo CUDC201HG: fisico 7 estable, 10 clientes en BO
     // pero nunca se creó reparto porque dep11 nunca subió.
     const r2 = await reconcileRepartosFaltantes(deps, after);
+    // v1395 §40.3: scan sobre-asignadas y loguear cada línea con
+    // sobreAsignada > 0. NO escribe nada; es puramente diagnóstico/log.
+    const r3 = await scanSobreAsignadas(deps, after);
     console.log('onDep11IncreaseCreateReparto done', {
       deltaCreated: r.created.length,
       deltaSkipped: r.skipped.length,
@@ -953,6 +957,8 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
       reconcileCreated: r2.created.length,
       reconcileSkipped: r2.skipped.length,
       reconcileErrors: r2.errors.length,
+      sobreAsignadas: r3.sobreAsignadas.length,
+      scanErrors: r3.errors.length,
     });
   }
 );
