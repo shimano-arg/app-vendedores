@@ -73,6 +73,7 @@ import {
 } from './pure/unificar-ordenes.js';
 import { computeVirtualAsigFifo } from './pure/virtual-asig-fifo.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
+import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
 // Dominios que quedan en el shell (side-effect imports, cada uno registra window.foo).
@@ -237,6 +238,7 @@ const phase0 = {
     suggestForSku,
     passesTypeFilter,
     shouldIncludeWaitlistDoc,
+    computeHasExceed,
     mergeLinesFromOrders,
     computeDuplicateCodes,
     getRowColorClass,
