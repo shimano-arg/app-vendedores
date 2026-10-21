@@ -4717,6 +4717,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1383 (2026-10-21) — Modal Análisis de Cartera · fix clientName vacío + rediseño Apple Design
+
+Dos cambios en el mismo PR:
+
+#### A) FIX clientName vacío post-v1381
+
+**Antes**: tras v1381, la columna "Cliente" en el modal quedaba vacía para los clientes nuevos que vinieron de `client_applications` (reporte Mariano 2026-10-21, screenshot GONZALO DE LA ROSA 65 clientes todos sin nombre).
+
+**Problema**: `client_applications.data` NO tiene campo `clientName`. El nombre real vive en `comercio` (razón social SAP) o `fantasia` (nombre comercial). v1381 usó `JSON_VALUE(ca.data, '$.clientName')` → todos los nombres NULL. Idem `localidad` que a veces solo está en `localidadFinal` (normalizada).
+
+**Cambio**: `bigquery/views.sql` — en el SELECT PRIMARIA del CTE `cartera`:
+- `client_name` → `COALESCE(JSON_VALUE(ca.data,'$.comercio'), JSON_VALUE(ca.data,'$.fantasia'))`
+- `loc_name` → `COALESCE(JSON_VALUE(ca.data,'$.localidad'), JSON_VALUE(ca.data,'$.localidadFinal'))`
+
+Deploy + trigger CF manual ya ejecutados. Smoke BQ: NULL client_name = 0. Snapshot Firestore regenerado 11:54 UTC.
+
+#### B) Rediseño Apple Design del modal
+
+**Antes**: modal con gradiente azul llamativo (v1283), inputs con bg-input genérico, KPI cards con border grueso + bg tintado, chips con pills individuales de color, botón export verde liso. Pedido Mariano 2026-10-21: alinear con el patrón iOS/Apple ya usado en Dashboard (`dash-tabs-segment`, `dash-tab-btn`).
+
+**Cambio**: `index.html` — bloque `<style>` nuevo `#cartera-modal .cartera-*` + reescritura del shell HTML. `src/domains/cartera-vendor.js` — renderer usa clases Apple en vez de inline styles.
+
+- **Head**: bg blanco + border-bottom hairline + título SF Pro bold -0.02em letter-spacing. Close button pill circular bg `#f2f2f7` hover `#e5e5ea`.
+- **Toolbar vendedor**: label uppercase small muted, select pill con chevron SVG custom + shadow sutil + focus ring azul iOS, snapshot badge pill con dot verde live.
+- **KPI cards**: 6 cards en grid responsive (6/3/2 cols). Número grande 26px weight 800 letter-spacing -0.02em, label small muted, underline 2px color-de-categoría transform scaleX reveal en hover/active. Hover: translateY -1px + shadow sutil. Active: bg blanco + border + shadow más fuerte.
+- **Chips tabs**: segmented control iOS idéntico al patrón `dash-tabs-segment` (bg `#f2f2f7` radius 10 padding 3, pills padding 7×14 radius 7, active = bg white + shadow).
+- **Search bar**: pill `#f2f2f7` con icon lupa SVG inline absolute + focus ring azul iOS.
+- **Export button**: pill verde iOS `#34c759` con icon download SVG + shadow verde sutil, hover darken + lift.
+- **Table**: thead sticky bg white con header uppercase small muted letter-spacing +0.5. Rows border-bottom `#f5f5f7` + hover bg `#fafafa` + active `#f2f2f7`. Tabular-nums en celdas numéricas.
+- Bundle regenerado: `app.bundle.js` + `chunks/cartera-vendor.js`.
+
+APP_VERSION v1382 → v1383. CACHE_VERSION v1382 → v1383.
+
+**Por qué**: el patrón Apple ya está establecido en Shimano (Dashboard, Botones pill, modales recientes). El modal cartera era el único stand-out con gradiente llamativo. Alinear ahorra fricción cognitiva al usuario.
+
+**Verificación**: abrir modal "Análisis de Cartera" → head blanco limpio, select con chevron, snapshot badge con dot verde. Elegir MAURICIO GIL → 58 clientes TODOS con nombre (fix A). KPI cards con underline color + hover suave. Chips como pill segmented. Botón Exportar pill verde. Tabla rows con hover gentle.
+
+**Rollback**: revertir el commit — vuelve el estilo gradiente y la columna Cliente vacía. Si solo se quiere revertir el fix A sin tocar el rediseño: revertir solo el bloque PRIMARIA del CTE `cartera` en views.sql + re-deployar.
+
 ### v1381 (2026-10-20) — Modal Análisis de Cartera · ampliar fuente a `client_applications` (fix carteras incompletas)
 
 **Antes**: la vista `v_cartera_vendor` leía solo de `client_master.vendor`. MAURICIO GIL mostraba 16 clientes en el modal cuando su cartera real es 58 (reporte Mariano 2026-10-20).

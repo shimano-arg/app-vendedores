@@ -161,7 +161,10 @@ function renderDashboard(doc) {
   const subtitle = document.getElementById('cartera-subtitle');
   if (subtitle) subtitle.textContent = `${doc.counts.total} clientes en cartera.`;
   const info = document.getElementById('cartera-snapshot-info');
-  if (info) info.textContent = `Snapshot: ${doc.snapshotDate}`;
+  if (info) {
+    info.textContent = `Snapshot ${doc.snapshotDate}`;
+    info.style.display = 'inline-flex';
+  }
   renderKpis(doc.counts);
   renderChips(doc.counts);
   renderTable(doc.clientes);
@@ -172,16 +175,20 @@ function renderKpis(counts) {
   const el = document.getElementById('cartera-kpis');
   if (!el) return;
   while (el.firstChild) el.removeChild(el.firstChild);
+  // v1383: Apple-style KPI cards. Clases .cartera-kpi definidas en index.html.
+  // Color se aplica solo al número + underline (sutil identidad por categoría).
   for (const spec of KPI_CARDS) {
     const card = document.createElement('div');
-    const isActive = activeChip === spec.chip;
-    card.style.cssText = `padding:10px 14px;border:2px solid ${isActive ? spec.color : 'var(--border-light)'};border-radius:8px;cursor:pointer;background:${isActive ? `${spec.color}15` : 'var(--bg-card)'};min-width:120px;flex:1;max-width:200px`;
+    card.className = 'cartera-kpi';
+    if (activeChip === spec.chip) card.classList.add('active');
+    card.style.color = spec.color; // currentColor para el number + ::after underline
     card.addEventListener('click', () => /** @type {any} */ (window).onCarteraChipClick(spec.chip));
     const n = document.createElement('div');
-    n.style.cssText = `font-size:22px;font-weight:800;color:${spec.color}`;
+    n.className = 'cartera-kpi-num';
     n.textContent = String(counts[spec.chip === 'todos' ? 'total' : spec.chip]);
     const l = document.createElement('div');
-    l.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:2px';
+    l.className = 'cartera-kpi-label';
+    l.style.color = ''; // reset currentColor para que use el muted del CSS
     l.textContent = spec.label;
     card.appendChild(n);
     card.appendChild(l);
@@ -201,14 +208,19 @@ function renderChips(counts) {
     nuncaCompraron: counts.nuncaCompraron,
   };
   while (el.firstChild) el.removeChild(el.firstChild);
+  // v1383: segmented control iOS. Wrapper .cartera-chip-wrap agrupa pills con bg gris.
+  const wrap = document.createElement('div');
+  wrap.className = 'cartera-chip-wrap';
   for (const chip of CHIPS) {
     const b = document.createElement('button');
-    const isActive = activeChip === chip.id;
-    b.style.cssText = `padding:4px 10px;border-radius:999px;border:1px solid ${isActive ? '#1e3a8a' : 'var(--border)'};background:${isActive ? '#1e3a8a' : 'var(--bg-card)'};color:${isActive ? 'white' : 'var(--text-primary)'};font-size:12px;cursor:pointer;font-weight:${isActive ? '700' : '500'}`;
+    b.className = 'cartera-chip';
+    if (activeChip === chip.id) b.classList.add('active');
+    b.type = 'button';
     b.textContent = `${chip.label} (${countByChip[chip.id]})`;
     b.addEventListener('click', () => /** @type {any} */ (window).onCarteraChipClick(chip.id));
-    el.appendChild(b);
+    wrap.appendChild(b);
   }
+  el.appendChild(wrap);
 }
 
 /** @param {Array<any>} clientes */
@@ -230,10 +242,9 @@ function renderTable(clientes) {
 }
 
 function buildThead() {
+  // v1383: Apple-style thead. Clases .cartera-* en index.html controlan bg/colors.
   const thead = document.createElement('thead');
   const tr = document.createElement('tr');
-  tr.style.cssText =
-    'position:sticky;top:0;background:var(--bg-card);border-bottom:2px solid var(--border);font-weight:700;font-size:12px;text-align:left';
   const headers = [
     { label: 'Cliente', sortKey: 'clientName', align: 'left' },
     { label: 'Prov/Loc', sortKey: null, align: 'left' },
@@ -246,7 +257,6 @@ function buildThead() {
   ];
   for (const h of headers) {
     const th = document.createElement('th');
-    th.style.padding = '8px';
     th.style.textAlign = h.align;
     th.textContent = h.label;
     if (h.sortKey) {
@@ -406,10 +416,11 @@ function showTable() {
   if (loading) loading.style.display = 'none';
   const table = document.getElementById('cartera-table');
   if (table) table.style.display = 'table';
+  // v1383: display vacio = reset al valor del CSS (grid para kpis, flex para chips).
   const kpis = document.getElementById('cartera-kpis');
-  if (kpis) kpis.style.display = 'flex';
+  if (kpis) kpis.style.display = '';
   const chips = document.getElementById('cartera-chips');
-  if (chips) chips.style.display = 'flex';
+  if (chips) chips.style.display = '';
 }
 
 // === Export Excel ===

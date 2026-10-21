@@ -3466,12 +3466,23 @@ WITH cartera AS (
     -- Fuente PRIMARIA: client_applications (fuente real del negocio, misma
     -- que usa PBI via assigned_vendor_app). Cubre clientes con alta app +
     -- cardCodeSap asignado + assignedVendor seteado.
+    -- v1383 (2026-10-21): el nombre del cliente en client_applications vive en
+    --   `comercio` (razon social) o `fantasia`, NO en clientName. v1381 uso
+    --   clientName -> todos los nombres NULL. COALESCE para fallback.
+    --   Tambien localidadFinal como fallback de localidad (varias altas antiguas
+    --   solo tienen localidadFinal normalizada).
     SELECT
       CAST(NULL AS STRING)                                 AS client_id,
       JSON_VALUE(ca.data, '$.cardCodeSap')                 AS card_code,
-      JSON_VALUE(ca.data, '$.clientName')                  AS client_name,
+      COALESCE(
+        JSON_VALUE(ca.data, '$.comercio'),
+        JSON_VALUE(ca.data, '$.fantasia')
+      )                                                    AS client_name,
       JSON_VALUE(ca.data, '$.provincia')                   AS province,
-      JSON_VALUE(ca.data, '$.localidad')                   AS loc_name,
+      COALESCE(
+        JSON_VALUE(ca.data, '$.localidad'),
+        JSON_VALUE(ca.data, '$.localidadFinal')
+      )                                                    AS loc_name,
       JSON_VALUE(ca.data, '$.cliTipo')                     AS cli_tipo,
       CASE
         WHEN UPPER(TRIM(JSON_VALUE(ca.data, '$.assignedVendor'))) = 'MARTIN BOIERO' THEN 'PACHI'
