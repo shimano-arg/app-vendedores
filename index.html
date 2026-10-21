@@ -2605,6 +2605,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr.merge-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
 #wcard-rows tr.merge-duplicate-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
 #wcard-rows tr.merge-duplicate-original td{background:#991b1b !important;color:#fff !important;font-weight:800}
+/* v1382 (2026-10-20): clases para lineas con origen='stock-asignado'
+   (nacidas desde CPST, directo o via unificacion).
+   - merge-reservado-imported: fila importada con reserva (sin duplicado) — AZUL #1e40af.
+   - merge-duplicate-reservado: SKU duplicado + fila con reserva — AZUL #1e40af.
+     (La original queda con merge-duplicate-original rojo.) */
+#wcard-rows tr.merge-reservado-imported td{background:#1e40af !important;color:#fff !important;font-weight:700}
+#wcard-rows tr.merge-duplicate-reservado td{background:#1e40af !important;color:#fff !important;font-weight:700}
+/* Badge inline que acompaña la fila con reserva (en celda SKU o descripcion). */
+.badge-reservado{display:inline-block;padding:2px 6px;margin-left:4px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
 /* v1322 (2026-10-15): sticky al nivel de TH individual (más confiable que
@@ -6836,7 +6845,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1381';
+const APP_VERSION = 'v1382';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17395,12 +17404,19 @@ window._cpstConfirmar = async function(){
     // en vez de sk.qty original. Si las ASIG viejas expiraron y otro VDE tomo
     // parte del stock, la card nueva refleja la realidad. SKUs con qtyAjustada=0
     // se omiten del waitlist (no tiene sentido crear BO fantasma).
+    // v1382 (2026-10-20): identidad ASIG por linea. Cada item del CPST
+    // lleva origen='stock-asignado' + asigRefs[] (buildAsigRefsForLine).
+    // Permite al call-site de doConfirmPedido/persistPendingEntry decidir
+    // getDisp por linea sin depender del documento (compat con unificacion).
+    const _buildAsigRefsFn =
+      (window.__phase0 && window.__phase0.pure && window.__phase0.pure.buildAsigRefsForLine) || null;
     const items = c.skus
       .filter(sk => (sk.qtyAjustada || 0) > 0)
       .map(sk => {
         const stk = (typeof _revisionStockFor === 'function')
           ? _revisionStockFor(sk.sku)
           : { hasData: false, stockTotal: null, backorder: 0, disponible: null };
+        const refs = _buildAsigRefsFn ? _buildAsigRefsFn(sk.sku, pedidosOrigenes) : [];
         return {
           code: sk.sku,
           desc: sk.desc || '',
@@ -17410,6 +17426,8 @@ window._cpstConfirmar = async function(){
           firstStockTotal: stk.hasData ? stk.stockTotal : null,
           firstBackorder: stk.backorder || 0,
           firstDisponible: stk.hasData ? stk.disponible : null,
+          // v1382: identidad por linea
+          ...(refs.length > 0 ? { origen: 'stock-asignado', asigRefs: refs } : {}),
         };
       });
     if (items.length === 0) {
@@ -23742,6 +23760,9 @@ function _renderWaitlistCard(){
       warnQuiebra, warnDuplicado,
       // v1284: flag para pintar fila post-"Unificar orden" (ver src/pure/unificar-ordenes.js).
       importedFromOrder: (it && typeof it.importedFromOrder === 'number') ? it.importedFromOrder : null,
+      // v1382: identidad ASIG por linea (CPST o importada de CPST absorbido).
+      origen: (it && it.origen) || null,
+      asigRefs: Array.isArray(it && it.asigRefs) ? it.asigRefs : null,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
@@ -23849,27 +23870,50 @@ function _renderWaitlistCard(){
     // Precedente: Mariano probó la unificación 396→447 y las filas quedaron sin
     // pintar porque _mergePure.computeDuplicateCodes aún no estaba en memoria.
     const _isImportedRow = typeof r.importedFromOrder === 'number';
+    // v1382: pasar origen al helper puro para que distinga 'reservado-imported'
+    // y 'duplicate-reservado' (color azul + badge). Compat: si r.origen es null,
+    // el comportamiento es idéntico a v1284.
+    const _lineRef = {
+      code: r.code,
+      importedFromOrder: _isImportedRow ? r.importedFromOrder : null,
+      origen: r.origen || null,
+    };
     if (_isImportedRow) {
       // Default fallback: imported (sin check de duplicado). Siempre funciona.
       let _mergeCls = 'imported';
-      // Upgrade con helper puro si está disponible (distingue duplicate-imported).
+      // Upgrade con helper puro si está disponible (distingue duplicate-imported, reservado-imported).
       if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet instanceof Set) {
-        const _c = _mergePure.getRowColorClass(
-          { code: r.code, importedFromOrder: r.importedFromOrder },
-          _wcardDupSet
-        );
+        const _c = _mergePure.getRowColorClass(_lineRef, _wcardDupSet);
         if (_c) _mergeCls = _c;
       }
       tr.classList.add('merge-' + _mergeCls);
     } else if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet instanceof Set) {
       // Fila original: solo relevante si es duplicada (requiere helper).
-      const _c = _mergePure.getRowColorClass(
-        { code: r.code, importedFromOrder: null },
-        _wcardDupSet
-      );
+      const _c = _mergePure.getRowColorClass(_lineRef, _wcardDupSet);
       if (_c) tr.classList.add('merge-' + _c);
     }
-    tr.appendChild(mk(r.code, 'mono'));
+    // v1382: tooltip con info de la ASIG referenciada (si corresponde).
+    if (r.origen === 'stock-asignado' && Array.isArray(r.asigRefs) && r.asigRefs.length > 0) {
+      const _refSummary = r.asigRefs.map((ref) => (
+        'pedido ' + (ref.pedidoId || '?').slice(0, 8) + ' linea ' + ref.lineIndex + ' x' + ref.qtyAsignada
+      )).join(' | ');
+      tr.title = 'Linea con reserva (RESERVADO). Origen: ' + _refSummary;
+    }
+    // v1382: celda SKU con badge "RESERVADO" si la linea tiene origen='stock-asignado'.
+    if (r.origen === 'stock-asignado') {
+      const _tdSku = document.createElement('td');
+      _tdSku.className = 'mono';
+      const _skuSpan = document.createElement('span');
+      _skuSpan.textContent = r.code;
+      _tdSku.appendChild(_skuSpan);
+      const _badge = document.createElement('span');
+      _badge.className = 'badge-reservado';
+      _badge.textContent = '🔒 RESERVADO';
+      _tdSku.appendChild(_badge);
+      tr.appendChild(_tdSku);
+    } else {
+      tr.appendChild(mk(r.code, 'mono'));
+    }
     // v817 (2026-09-07): si la desc es "(SKU no encontrado en catalogo)", el
     // producto está en SAP (tiene stock/precio) pero no en PRODUCTS local.
     // Causa típica: no es grupo PESCA (el sync filtra ItemsGroupCode=PESCA).
@@ -24648,10 +24692,23 @@ window.waitlistUnificarOrden = async function(){
     const u = (c.items || []).reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
     return '  • ORDEN ' + (c.orderNumber || '?') + ': ' + n + ' SKU · ' + u + ' u';
   });
+  // v1382: avisar sobre lineas con reserva (CPST absorbido). Si entre los
+  // candidatos hay un CPST, agregar frase sobre el comportamiento post-unificar.
+  const _tieneCpst = candidates.some((c) =>
+    c.source === 'stock-asignado-batch' ||
+    (Array.isArray(c.pedidosOrigenes) && c.pedidosOrigenes.length > 0)
+  );
+  const _notaReservado = _tieneCpst
+    ? '\n\nATENCION: una o mas ordenes tienen lineas RESERVADAS (desde Stock Asignado).\n' +
+      '  - Los SKU reservados aparecen en AZUL con badge "RESERVADO".\n' +
+      '  - Si borras una fila RESERVADA, la ASIG del cliente queda viva — se\n' +
+      '    cancela solo al enviar a SAP o cuando expira el TTL (7 dias).'
+    : '';
   const msg = '¿Unificar las siguientes ordenes dentro de la ORDEN ' + (w.orderNumber || '?') + '?\n\n' +
     msgLines.join('\n') + '\n\n' +
     'Las ordenes viejas se van a cerrar (quedan en Firestore para audit, invisibles en lista de espera).\n' +
-    'Los SKU importados aparecen en AMARILLO. Los duplicados: original en ROJO + importada en AMARILLO.';
+    'Los SKU importados aparecen en AMARILLO. Los duplicados: original en ROJO + importada en AMARILLO.' +
+    _notaReservado;
   if (!confirm(msg)) return;
   const btn = document.getElementById('wcard-unificar-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Unificando...'; }
@@ -24661,22 +24718,41 @@ window.waitlistUnificarOrden = async function(){
     if (!pure || typeof pure.mergeLinesFromOrders !== 'function') {
       throw new Error('Helper mergeLinesFromOrders no disponible (bundle no cargo).');
     }
+    // v1382 (2026-10-20): pasar source + pedidosOrigenes del CPST absorbido
+    // a mergeLinesFromOrders para que las lineas importadas lleven
+    // origen='stock-asignado' + asigRefs[].
     const otherOrders = candidates.map((c) => ({
       orderNumber: Number(c.orderNumber) || 0,
       pedidoId: c._id,
+      source: c.source || null,
+      pedidosOrigenes: Array.isArray(c.pedidosOrigenes) ? c.pedidosOrigenes : [],
       lines: Array.isArray(c.items) ? c.items : [],
     }));
     const { mergedLines } = pure.mergeLinesFromOrders(w.items || [], otherOrders);
     const nowIso = new Date().toISOString();
     const userEmail = (currentUser && currentUser.email) || '';
     const unifiedFromAudit = pure.buildUnifiedFromAudit(otherOrders, userEmail, nowIso);
+    // v1382: unir pedidosOrigenes[] a nivel documento del pedido unificado
+    // (compat con callers legacy que lean a nivel documento). El flow nuevo
+    // lee asigRefs por linea, pero preservamos ambos.
+    const _absorbedOrigenes = otherOrders.reduce((acc, o) => {
+      if (Array.isArray(o.pedidosOrigenes)) acc.push(...o.pedidosOrigenes);
+      return acc;
+    }, []);
     // writeBatch atomico: nueva + N viejas.
     const batch = fbDb.batch();
-    batch.update(fbDb.collection('revision_waitlist').doc(w._id), {
+    const _unifiedUpdate = {
       items: mergedLines,
       unifiedFrom: firebase.firestore.FieldValue.arrayUnion(...unifiedFromAudit),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    if (_absorbedOrigenes.length > 0) {
+      _unifiedUpdate.pedidosOrigenes = firebase.firestore.FieldValue.arrayUnion(..._absorbedOrigenes);
+      // Si la orden base no era CPST, heredar el source para que la unificada
+      // tambien se reconozca como CPST en el read side (compat con flow pre-v1382).
+      if (!w.source) _unifiedUpdate.source = 'stock-asignado-batch';
+    }
+    batch.update(fbDb.collection('revision_waitlist').doc(w._id), _unifiedUpdate);
     for (const c of candidates) {
       batch.update(fbDb.collection('revision_waitlist').doc(c._id), {
         stage: 'consumed',
@@ -25478,8 +25554,23 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // v568 (2026-08-20): filtraba items sin dispSap y los dejaba en waitlist.
   // v573 (2026-08-21): revierte a v507 — pasa todo. Los BO viajan al pedido
   // y aparecen en el modal BACKORDER (via CF E3 backorderByClientSkuApp).
+  // v1382 (2026-10-20): propagar identidad de linea del waitlist al pedido.
+  // Fix pre-existente de v1284 (importedFromOrder se perdia) + nuevos campos
+  // origen/asigRefs del fix "Unificar orden preservando identidad ASIG".
+  // Permite al call-site decidir getDisp por linea y cancelar ASIG por linea.
   const finalItems = (w.items || [])
-    .map(it => ({code: it.code, desc: it.desc, qty: it.qty || 0, precioExcel: null, needsReview: false}))
+    .map(it => ({
+      code: it.code,
+      desc: it.desc,
+      qty: it.qty || 0,
+      precioExcel: null,
+      needsReview: false,
+      // v1284: color de fila importada post-unificacion persiste al confirmar
+      ...(typeof it.importedFromOrder === 'number' ? { importedFromOrder: it.importedFromOrder } : {}),
+      // v1382: identidad ASIG por linea (orden CPST o items de CPST absorbido)
+      ...(it.origen ? { origen: it.origen } : {}),
+      ...(Array.isArray(it.asigRefs) && it.asigRefs.length > 0 ? { asigRefs: it.asigRefs.map(r => ({ ...r })) } : {}),
+    }))
     .filter(it => it.qty > 0);
   if (!finalItems.length) {
     alert('No hay ninguna linea con qty > 0 en el pedido. Agrega o corrige unidades antes de pasar a Pendientes.');
@@ -26964,35 +27055,38 @@ function persistPendingEntry(entry){
     const _reenrichFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.reenrichPedidoLine);
     let _linesEnriched;
     if (_reenrichFn) {
-      // v1380 (2026-10-20, FIX H1): si el entry es un pedido ex-ASIG (source
-      // CPST o pedidosOrigenes[] populated), usar formula por cliente (replica
-      // del preview CPST v1362). Para pedidos normales, mantener formula v802.
-      // CLAUDE.md §32 + §33.
+      // v1382 (2026-10-20, FIX unificar lineas): decidir fórmula POR LINEA
+      // leyendo l.origen. Compat con v1380 (si la linea no tiene origen pero
+      // el entry tiene source CPST, cae en formula por cliente). CLAUDE.md §35.
+      // v1382 Caso D (2026-10-21): si el entry es MIXTO (al menos 1 linea con
+      // origen), el fallback por documento NO aplica — decidimos solo per-line.
       const _entryIsExAsig = entry.source === 'stock-asignado-batch'
         || (Array.isArray(entry.pedidosOrigenes) && entry.pedidosOrigenes.length > 0);
       const _entryCardCode = String(entry.clientCardCode || '').trim();
-      const _opts = {
-        // v802 (2026-09-04): mismo criterio v797 aplicado a reenrichPedidoLine.
-        // Formula liberal (dep11 - ASIG) alineada con el modal Revisar. Los
-        // BO viejos no restan — la CF FIFO los promociona automaticamente al
-        // proximo arribo. Ver comentario en el split principal (~line 24494).
-        getDisp: function(sku){
-          if (_entryIsExAsig && _entryCardCode
-              && typeof window.getStockUtilizableParaClienteExAsig === 'function') {
-            return Math.max(Number(window.getStockUtilizableParaClienteExAsig(sku, _entryCardCode) || 0), 0);
-          }
-          const _gsdvFn = (typeof window.getStockDisponibleVenta === 'function')
-            ? window.getStockDisponibleVenta : null;
-          if (!_gsdvFn) return 0;
-          const _dep11 = Number(_gsdvFn(sku) || 0);
-          const _asig = (typeof STOCK_ASIG_APP === 'object' && STOCK_ASIG_APP)
-            ? Number(STOCK_ASIG_APP[String(sku || '').toUpperCase().trim()] || 0)
-            : 0;
-          return Math.max(_dep11 - _asig, 0);
-        },
-        flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
-      };
-      _linesEnriched = (entry.lines || []).flatMap(l => _reenrichFn(l, _opts));
+      const _entryHasAnyOrigen = (entry.lines || []).some(_l => _l && _l.origen === 'stock-asignado');
+      _linesEnriched = (entry.lines || []).flatMap(l => {
+        const _lineIsExAsig = l && l.origen === 'stock-asignado';
+        const _useByCliente = (_lineIsExAsig || (_entryIsExAsig && !_lineIsExAsig && !_entryHasAnyOrigen))
+          && _entryCardCode
+          && typeof window.getStockUtilizableParaClienteExAsig === 'function';
+        const _opts = {
+          getDisp: function(sku){
+            if (_useByCliente) {
+              return Math.max(Number(window.getStockUtilizableParaClienteExAsig(sku, _entryCardCode) || 0), 0);
+            }
+            const _gsdvFn = (typeof window.getStockDisponibleVenta === 'function')
+              ? window.getStockDisponibleVenta : null;
+            if (!_gsdvFn) return 0;
+            const _dep11 = Number(_gsdvFn(sku) || 0);
+            const _asig = (typeof STOCK_ASIG_APP === 'object' && STOCK_ASIG_APP)
+              ? Number(STOCK_ASIG_APP[String(sku || '').toUpperCase().trim()] || 0)
+              : 0;
+            return Math.max(_dep11 - _asig, 0);
+          },
+          flagEnabled: (typeof window.isPedidoSplitEnabled === 'function') ? window.isPedidoSplitEnabled() : false,
+        };
+        return _reenrichFn(l, _opts);
+      });
     } else {
       // Fallback (bundle no cargado): legacy inline. No deberia pasar en prod.
       const _LOCKED_STATES = ['ASIG', 'invoiced', 'cancelled', 'recycled'];
@@ -34648,6 +34742,11 @@ window.doConfirmPedido = async function(){
   const _clientCardCode = (typeof sapGetClienteCode === 'function')
     ? (sapGetClienteCode(parts[3]) || '')
     : '';
+  // v1382 Caso D (2026-10-21): flag "doc mixto" calculado una vez. Si al
+  // menos una linea tiene origen='stock-asignado', el fallback por documento
+  // (_pendingPedidoSource global) NO aplica — decidimos solo per-line.
+  // Evita que lineas sin origen de una orden unificada consuman reserva propia.
+  const _ordHasAnyOrigen = (ord || []).some(_l => _l && _l.origen === 'stock-asignado');
   const docData = {
     ownerUid: ownerUid,
     ownerEmail: ownerEmail,
@@ -34735,17 +34834,29 @@ window.doConfirmPedido = async function(){
           // quedaban state='confirmed' por el split y viajaban a SAP.
           // Fix: usar window.getStockRealmenteDisponible (mismo que el modal).
           //
-          // v1380 (2026-10-20, FIX H1 auditoria 2026-10-20): para pedidos
-          // ex-ASIG (CPST, source='stock-asignado-batch' o pedidosOrigenes[]
-          // populated), usar formula POR CLIENTE (replica del preview CPST
-          // v1362). La ASIG propia del cliente YA reservo stock para el —
-          // no restarse en su propia contra. Si no es ex-ASIG, mantener la
-          // formula global (preserva compat con pedidos normales y evita
-          // bug H2 "reservas fantasma"). CLAUDE.md §32 + §33.
+          // v1382 (2026-10-20, FIX "Unificar orden" preserva identidad ASIG):
+          // decidir fórmula de disp POR LINEA, no por documento. Si la linea
+          // tiene origen='stock-asignado' (nacio desde CPST, directo o via
+          // unificacion), usar formula por cliente. Si no, formula global.
+          // Refina §33: el filtro por `line.origen` es mas preciso que `source`
+          // del documento y permite órdenes unificadas mixtas correctamente.
+          // CLAUDE.md §33 (compat) + §35 (nueva regla por linea).
+          //
+          // v1382 Caso D (2026-10-21): si el doc es MIXTO (al menos 1 linea
+          // con origen), el fallback por documento NO aplica — decidimos solo
+          // per-line. Evita que lineas sin origen de orden unificada consuman
+          // reserva propia del cliente. Bug reportado por Mariano en el gate
+          // de cierre v1382.
           getDisp: function(sku){
-            const _isExAsig = window._pendingPedidoSource === 'stock-asignado-batch'
-              || (Array.isArray(window._pendingPedidoOrigenes) && window._pendingPedidoOrigenes.length > 0);
-            if (_isExAsig && currentOrderClient && currentOrderClient.name
+            const _lineIsExAsig = l && l.origen === 'stock-asignado';
+            // Fallback compat: si l no tiene origen pero el pedido padre si tiene
+            // marcadores globales (CPST no unificado pre-v1382 waitlists viejas).
+            // Solo aplica si NINGUNA linea del pedido tiene origen (doc puro-ex-ASIG).
+            const _docIsExAsig = !_lineIsExAsig && !_ordHasAnyOrigen && (
+              window._pendingPedidoSource === 'stock-asignado-batch'
+              || (Array.isArray(window._pendingPedidoOrigenes) && window._pendingPedidoOrigenes.length > 0)
+            );
+            if ((_lineIsExAsig || _docIsExAsig) && currentOrderClient && currentOrderClient.name
                 && typeof sapGetClienteCode === 'function'
                 && typeof window.getStockUtilizableParaClienteExAsig === 'function') {
               const _cc = String(sapGetClienteCode(currentOrderClient.name) || '').trim();
@@ -34753,7 +34864,7 @@ window.doConfirmPedido = async function(){
                 return Math.max(Number(window.getStockUtilizableParaClienteExAsig(sku, _cc) || 0), 0);
               }
             }
-            // Pedido normal: formula global (preserva comportamiento v1208).
+            // Linea normal: formula global (preserva comportamiento v1208).
             if (typeof window.getStockRealmenteDisponible === 'function') {
               return Math.max(Number(window.getStockRealmenteDisponible(sku) || 0), 0);
             }
@@ -34830,9 +34941,34 @@ window.doConfirmPedido = async function(){
       window._pendingPedidoWaitlistId = null;
       // v1209 (2026-10-08): reset del source heredado.
       window._pendingPedidoSource = null;
-      // v1280 (2026-10-14): grab + reset de pedidosOrigenes para pasarlo al
-      // paso de cancelacion de ASIG originales (abajo).
-      const _origenesACancelar = Array.isArray(window._pendingPedidoOrigenes) ? window._pendingPedidoOrigenes.slice() : null;
+      // v1280 (2026-10-14) + v1382 (2026-10-20): grab + reset de
+      // pedidosOrigenes para pasarlo al paso de cancelacion de ASIG originales.
+      // v1382: unificar con docData.lines[].asigRefs (identidad por linea).
+      // Dedupe por (pedidoId, lineIndex) para no cancelar 2 veces una misma
+      // ASIG que viene tanto en el global como en una linea. CLAUDE.md §35.
+      const _origenesACancelar = (function(){
+        const result = [];
+        const seen = new Set();
+        const push = (ref) => {
+          if (!ref || !ref.pedidoId) return;
+          const li = Number(ref.lineIndex);
+          const key = ref.pedidoId + '|' + li;
+          if (seen.has(key)) return;
+          seen.add(key);
+          result.push({ pedidoId: ref.pedidoId, lineIndex: li, qtyAsignada: Number(ref.qtyAsignada) || 0, sku: ref.sku });
+        };
+        if (Array.isArray(window._pendingPedidoOrigenes)) {
+          for (const r of window._pendingPedidoOrigenes) push(r);
+        }
+        if (Array.isArray(docData.lines)) {
+          for (const line of docData.lines) {
+            if (Array.isArray(line.asigRefs)) {
+              for (const r of line.asigRefs) push(r);
+            }
+          }
+        }
+        return result.length > 0 ? result : null;
+      })();
       window._pendingPedidoOrigenes = null;
       // v1118 (2026-09-30): reset del flag bypass ASIG — ya se persistio.
       window._pendingBypassAsigGate = null;

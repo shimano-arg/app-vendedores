@@ -25,6 +25,12 @@
  */
 
 /**
+ * @typedef {Object} AsigRef
+ * @property {string} pedidoId
+ * @property {number} lineIndex
+ * @property {number} qtyAsignada
+ * @property {string} [sku]
+ *
  * @typedef {Object} RawLine
  * @property {string} code
  * @property {string} [desc]
@@ -34,6 +40,9 @@
  * @property {number | string} qty
  * @property {number | string} precio
  * @property {boolean} [needsReview]
+ * @property {number} [importedFromOrder]  v1284 preserve post-unificar
+ * @property {'stock-asignado'} [origen]  v1382 identidad ASIG por linea
+ * @property {Array<AsigRef>} [asigRefs]   v1382 refs a ASIG original(es)
  */
 
 /**
@@ -83,6 +92,15 @@ export function splitPedidoLine(rawLine, opts = {}) {
     asigAt: null,
     recycledIntoPedidoId: null,
     priceAtCreation: precio,
+    // v1382 (2026-10-20): propagar identidad de linea desde el waitlist a
+    // pedido.lines[]. Permite al call-site decidir getDisp por linea
+    // (origen) y al bloque v1280 cancelar ASIG por linea (asigRefs). El
+    // importedFromOrder tambien persiste (fix pre-existente de v1284).
+    ...(rawLine.importedFromOrder != null ? { importedFromOrder: rawLine.importedFromOrder } : {}),
+    ...(rawLine.origen ? { origen: rawLine.origen } : {}),
+    ...(Array.isArray(rawLine.asigRefs) && rawLine.asigRefs.length > 0
+      ? { asigRefs: rawLine.asigRefs.map((r) => ({ ...r })) }
+      : {}),
   };
 
   // v1380 (2026-10-20, E3 fix H4): rama legacy flag OFF eliminada. El kill

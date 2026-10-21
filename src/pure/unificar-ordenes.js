@@ -14,14 +14,24 @@
  */
 
 /**
+ * @typedef {Object} AsigRef
+ * @property {string} pedidoId
+ * @property {number} lineIndex
+ * @property {number} qtyAsignada
+ * @property {string} [sku]
+ *
  * @typedef {Object} Line
  * @property {string} code
  * @property {number} [qty]
  * @property {number} [importedFromOrder]
+ * @property {'stock-asignado'} [origen]  v1382: identidad ASIG por linea
+ * @property {Array<AsigRef>} [asigRefs]  v1382: refs a ASIG original(es)
  *
  * @typedef {Object} OtherOrder
  * @property {number} orderNumber
  * @property {string} [pedidoId]
+ * @property {string} [source]  v1382: 'stock-asignado-batch' si es CPST absorbido
+ * @property {Array<AsigRef>} [pedidosOrigenes]  v1382: shape {pedidoId, lineIndex, sku, qtyAsignada}
  * @property {Array<Line>} lines
  *
  * @typedef {Object} MergeResult
@@ -64,8 +74,41 @@ export function computeDuplicateCodes(lines) {
 }
 
 /**
+ * Devuelve las AsigRefs que respaldan un SKU dado desde el pedidosOrigenes[]
+ * de un CPST absorbido. Match case-insensitive por sku.
+ *
+ * v1382: una linea importada de un CPST puede estar respaldada por N refs
+ * (ej: Pablo asigno 2u desde pedido A + 1u desde pedido B). Devolver todas.
+ *
+ * @param {string} code
+ * @param {Array<AsigRef>|undefined} pedidosOrigenes
+ * @returns {Array<AsigRef>}
+ */
+export function buildAsigRefsForLine(code, pedidosOrigenes) {
+  if (!Array.isArray(pedidosOrigenes) || pedidosOrigenes.length === 0) return [];
+  const target = normCode(code);
+  const refs = [];
+  for (const o of pedidosOrigenes) {
+    if (!o || !o.sku) continue;
+    if (normCode(o.sku) !== target) continue;
+    refs.push({
+      pedidoId: o.pedidoId,
+      lineIndex: Number(o.lineIndex),
+      qtyAsignada: Number(o.qtyAsignada) || 0,
+      sku: o.sku,
+    });
+  }
+  return refs;
+}
+
+/**
  * Merge lines de órdenes viejas dentro de las de la nueva. Las importadas
  * quedan con flag `importedFromOrder: <orderNumber>`.
+ *
+ * v1382: si la orden absorbida es un CPST (source='stock-asignado-batch' o
+ * pedidosOrigenes[] populated), cada línea importada tambien recibe:
+ *   - origen: 'stock-asignado'
+ *   - asigRefs: refs a las ASIG originales (match por sku dentro de pedidosOrigenes)
  *
  * No muta inputs. Devuelve nuevo array + Set de codes duplicados.
  *
@@ -77,14 +120,26 @@ export function mergeLinesFromOrders(baseLines, otherOrders) {
   if (!Array.isArray(baseLines)) {
     return { mergedLines: [], duplicateCodes: new Set() };
   }
-  // Copia defensiva de baseLines (sin flag importedFromOrder).
+  // Copia defensiva de baseLines (preserva campos existentes, incl. origen/asigRefs
+  // si la base ya los tenía — ej. orden base es CPST actualizada).
   const mergedLines = baseLines.map((l) => ({ ...l }));
   if (Array.isArray(otherOrders)) {
     for (const order of otherOrders) {
       if (!order || !Array.isArray(order.lines)) continue;
+      const isCpst =
+        order.source === 'stock-asignado-batch' ||
+        (Array.isArray(order.pedidosOrigenes) && order.pedidosOrigenes.length > 0);
       for (const line of order.lines) {
         if (!line) continue;
-        mergedLines.push({ ...line, importedFromOrder: order.orderNumber });
+        const newLine = { ...line, importedFromOrder: order.orderNumber };
+        if (isCpst) {
+          const refs = buildAsigRefsForLine(line.code, order.pedidosOrigenes);
+          if (refs.length > 0) {
+            newLine.origen = 'stock-asignado';
+            newLine.asigRefs = refs;
+          }
+        }
+        mergedLines.push(newLine);
       }
     }
   }
@@ -95,15 +150,28 @@ export function mergeLinesFromOrders(baseLines, otherOrders) {
 /**
  * Devuelve la clase CSS que corresponde a la fila según su rol en el merge.
  *
+ * v1382: nuevas clases para líneas con `origen='stock-asignado'`:
+ *   - 'reservado-imported' (importada, no duplicada): azul + badge
+ *   - 'duplicate-reservado' (importada + duplicada): azul + badge, la otra
+ *     fila original queda 'duplicate-original' (rojo)
+ *
  * @param {Line|null} line
  * @param {Set<string>|null} duplicateCodes
- * @returns {'imported' | 'duplicate-original' | 'duplicate-imported' | null}
+ * @returns {'imported' | 'duplicate-original' | 'duplicate-imported' | 'reservado-imported' | 'duplicate-reservado' | null}
  */
 export function getRowColorClass(line, duplicateCodes) {
   if (!line) return null;
   const isImported = line.importedFromOrder != null;
+  const isReservado = line.origen === 'stock-asignado';
   const isDuplicate =
     duplicateCodes instanceof Set ? duplicateCodes.has(normCode(line.code)) : false;
+  // v1382: una linea reservada SOLO se marca con la clase reservado si viene
+  // importada (importedFromOrder != null). Si origen='stock-asignado' pero
+  // es parte de la base (no importada), es un CPST original — ya se renderiza
+  // con su propio tratamiento visual en el modal; getRowColorClass no cambia.
+  if (isReservado && isImported) {
+    return isDuplicate ? 'duplicate-reservado' : 'reservado-imported';
+  }
   if (isDuplicate && isImported) return 'duplicate-imported';
   if (isDuplicate && !isImported) return 'duplicate-original';
   if (!isDuplicate && isImported) return 'imported';

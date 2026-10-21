@@ -719,3 +719,51 @@ const _entryIsExAsig = entry.source === 'stock-asignado-batch'
 - Debe venir con panel admin "Reparto urgente" + alertas al admin cuando ingresa stock con BO pendiente.
 - Debe venir con bloqueo transitorio UX (ej. SKU "en reparto" por N minutos post-ingreso).
 - Es feature grande, no un oneliner. No lo arregles como "mejora menor".
+
+## 35. Fórmula de disponibilidad se decide POR LÍNEA leyendo `line.origen` (2026-10-20)
+
+**Regla fuerte** (refina §33): el call-site del split (`doConfirmPedido`, `persistPendingEntry`) decide la fórmula de `disp` POR LÍNEA, no por documento. El flag es `line.origen === 'stock-asignado'`:
+
+- Si `line.origen === 'stock-asignado'` → fórmula POR CLIENTE (`getStockUtilizableParaClienteExAsig(sku, cardCode)`).
+- Si no → fórmula GLOBAL (`getStockRealmenteDisponible(sku)`).
+
+**Por qué refina §33 sin violarla**: §33 dice "sólo pedidos ex-ASIG usan fórmula por cliente, acotados por `source` del documento". §35 dice "sólo líneas con `origen='stock-asignado'`, acotadas por el flag de la propia línea". Es MÁS PRECISO que `source` porque:
+
+1. **Órdenes unificadas mixtas**: una orden normal puede absorber un CPST via "Unificar orden". El documento resultante NO tiene `source='stock-asignado-batch'` (es normal), pero algunas de sus líneas sí vienen de un ASIG original. §33 (por documento) hubiera dejado esas líneas en fórmula global → bug H1 reaparece. §35 (por línea) las detecta correctamente.
+
+2. **Compat con pedidos normales**: una línea sin `origen` sigue usando fórmula global, exactamente como §33. No se filtra el fix.
+
+**Shape nuevo** (persistido en Firestore):
+
+```js
+line = {
+  code, qty, qtyOpen, state, ...,
+  origen: 'stock-asignado',  // flag discriminador (undefined para líneas normales)
+  asigRefs: [{                // refs a la(s) ASIG(s) que respaldan esta línea
+    pedidoId: 'xxx',
+    lineIndex: N,
+    qtyAsignada: K,
+    sku: '...',
+  }]
+}
+```
+
+El `pedidosOrigenes[]` del CPST original tiene shape `{pedidoId, lineIndex, sku, qtyAsignada}` y se mapea 1-a-N a `asigRefs` por línea via `buildAsigRefsForLine(sku, pedidosOrigenes)` (helper puro en `src/pure/unificar-ordenes.js`).
+
+**Dónde aplicar la regla**:
+- `index.html:34720` (`doConfirmPedido.getDisp`): decide por línea.
+- `index.html:26963` (`persistPendingEntry.getDisp`): decide por línea.
+- `index.html:34881+` (bloque v1280 cancelación ASIG): recolecta `_origenesACancelar` desde `window._pendingPedidoOrigenes` (compat) ∪ `docData.lines[].asigRefs` (nuevo) con dedupe por `(pedidoId, lineIndex)`.
+
+**Dónde seteamos `origen` + `asigRefs`**:
+- `_cpstConfirmar` (`index.html:17398+`): cada item del waitlist CPST raíz lleva `origen='stock-asignado'` + `asigRefs`.
+- `mergeLinesFromOrders` (`src/pure/unificar-ordenes.js:76+`): líneas importadas desde un CPST absorbido reciben `origen` + `asigRefs` matcheando por SKU.
+- `_waitlistPasarAPendientesContinuar` (`index.html:25481+`): propaga `origen`, `asigRefs`, `importedFromOrder` del waitlist a `finalItems[]`.
+- `splitPedidoLine` (`src/pure/pedido-split.js:72+`): propaga en `base` → cada línea output.
+- `reenrichPedidoLine` (`src/pure/pedido-split.js:181`): preserva via `Object.assign` sobre `existingLine`.
+
+**Riesgo si se olvida la condicional de línea**:
+- Si el fix usa `line.origen` para decidir pero el shape NO se persiste correctamente desde el waitlist → regresión H1 (línea CPST pierde origen al llegar a `pedido.lines[]`).
+- Si el fix no acota por línea (solo mira documento) → regresión H1 en órdenes unificadas (P2 del plan v1382).
+
+**Precedente**: `feat-unificar-lineas-asig` 2026-10-20 (`docs/superpowers/plans/`...). Tests de regresión en `tests/unit/audit/unificar-cpst-regression.test.js` (T0-P2+P3, T2-T6). Si fallan post-refactor, el fix se filtró a pedidos normales o perdió la identidad por línea.
