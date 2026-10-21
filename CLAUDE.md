@@ -1245,3 +1245,44 @@ El guard se evalúa **antes** del TTL check — una línea con SO en SAP no rese
 **Verificación prod**: correr `K_confirmed_con_order_docentry.cjs --prod` DESPUÉS del deploy. Debe devolver 0 líneas (todas quedaron sin reservar). Popup Stock de `CUDC201HG` y `EXGC80HBAR2AR` debe mostrar los mismos números que el modal Pedido en Espera y el modal Backorder para esos SKUs.
 
 **Precedente**: `fix-pendientes-21-10` 2026-10-21 (v1400).
+
+### §40.9 (2026-10-21, v1401): Generar Backorder guarda `key` canónica (fix UI "undefined - BACKORDER")
+
+**Bug**: pedidos creados via "Generar Backorder" (`_gbConfirmar` en `index.html`) mostraban en el modal Pedidos > Confirmados como "undefined - BACKORDER / cliente undefined / prospecto undefined".
+
+**Causa raíz**: `_gbConfirmar` guardaba `key: ''` (literal vacío) + `tipo: ''`. El listener de pedidos (`index.html:35091`) agrupa por `d.key`:
+
+```js
+if (!target[d.key]) target[d.key] = [];
+target[d.key].push(entry);
+```
+
+Entonces los manual-backorder caían en `confirmed['']`. El render (`index.html:27201`) hacía `k.split('|')` sobre la key vacía → `parts[1,2,3]` todos `undefined` → `clientName = parts[3] = undefined` → `escapeHtml(undefined)` → UI mostraba literalmente la palabra "undefined".
+
+**Fix** (`_gbConfirmar`):
+
+```js
+const tipo = r.cardCode ? 'C' : 'P';
+const province = r.provincia || '';
+const locName = r.localidad || '';
+const clientName = String(r.nombre || '').trim();
+const key = tipo + '|' + province + '|' + locName + '|' + clientName;
+// + clientProvince/clientLocality agregados por compat con otros consumidores.
+```
+
+**Bloqueo "sin cliente"**: guard pre-flight exige `r.nombre` no vacío. Ya estaba desde v1400 pero reforzado en v1401 con mensaje más explícito.
+
+**Backfill pedidos existentes**: `scripts/audit/L_manual_backorder_sin_cliente.cjs` (dry-run por default, `--apply` para ejecutar). Recomputa `key` desde `clientName + clientCardCode + province + locName` que ya están en el doc. 4 pedidos afectados en prod 2026-10-21:
+
+| OrderNumber | Pedido ID | Cliente | $ARS | CardCode |
+|---:|---|---|---:|---|
+| 463 | Hk7v9lza8TWtbKyIJo0F | PABLO SEBASTIAN ROLDAN | 878.000 | C20259014868 |
+| 467 | EFw2AM0lhfp8VRB52KmG | JUAN MIGUEL BENGOCHEA | 426.000 | C20293164852 |
+| 470 | C7sNsg1vexjGIcI202Ah | GUILLERMO FERRARO | 41.800.000 | C20312157552 |
+| 477 | exFJxr8ncw8nsHg4W87e | HUGO GIARDINO | 336.000 | C20135893553 |
+
+Todos tienen `clientName` + `clientCardCode` populated — solo falta recomputar `key`. Mariano decide ejecutar `--apply`.
+
+**Tests**: `tests/unit/audit/gb-undefined-fix.test.js` (8): construcción key canónica, cliente SAP vs prospecto, bloqueo sin nombre, modal label, regression pre-fix, provincia/localidad vacías, caso real pedido 463.
+
+**Precedente**: `fix-gb-undefined` 2026-10-21 (v1401). Reporte Mariano con fecha precisa del pedido 463 (20/10 09:51:29, 4 SKUs 878k).
