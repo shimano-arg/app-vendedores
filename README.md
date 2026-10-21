@@ -15331,7 +15331,7 @@ sapSL.fetchWithSession('/b1s/v1/Items?$top=1&$select=ItemCode').then(r => consol
 
 **Pendiente post-v330** (opcional, cerrar el círculo de seguridad de E5):
 - Borrar `app_config/sap_integration.serviceLayer.password` de Firestore (el fetch legacy queda sin creds, pero como useCloudProxy=true los ignora). Antes de borrar, dejar la app corriendo N días para confirmar que useCloudProxy=true no da problemas en operación real.
-- Rotar la password (`Shi*99` es débil + leakeada en esta sesión). Ver 43.8.
+- Rotar la password (`<removida 2026-10>` es débil + leakeada en esta sesión). Ver 43.8.
 
 ### v329 (2026-07-27) — Preparación E2.b step 3: SDK + CSP + region
 
@@ -16323,7 +16323,7 @@ De la sesión 2026-07-27 (esta):
 ### 44.4 Pendientes (post Fase 0, no bloqueantes)
 
 **Cerrar el círculo de seguridad E5** (recomendado semana próxima):
-1. **Rotar la password de `APP_VENDEDORES` en SAP**: la actual `Shi*99` es débil (6 chars) y quedó leakeada en el transcript del chat 2026-07-27. Pedir a Seidor password nueva 16+ chars. Actualizar Secret Manager: `Set-Content -Path secret-tmp.txt -Value "<nueva>" -Encoding ascii -NoNewline; gcloud secrets versions add SAP_SL_PASSWORD --data-file=secret-tmp.txt --project=app-vendedores-shimano; Remove-Item secret-tmp.txt`. La función `sapProxy` lee `LATEST` automáticamente.
+1. **Rotar la password de `APP_VENDEDORES` en SAP**: la actual `<removida 2026-10>` es débil (6 chars) y quedó leakeada en el transcript del chat 2026-07-27. Pedir a Seidor password nueva 16+ chars. Actualizar Secret Manager: `Set-Content -Path secret-tmp.txt -Value "<nueva>" -Encoding ascii -NoNewline; gcloud secrets versions add SAP_SL_PASSWORD --data-file=secret-tmp.txt --project=app-vendedores-shimano; Remove-Item secret-tmp.txt`. La función `sapProxy` lee `LATEST` automáticamente.
 2. **Borrar `app_config/sap_integration.serviceLayer.password` de Firestore**: solo el campo `password`, dejar `url`, `companyDB`, `username` (no sensibles). Precondición: dejar la app corriendo N días con `sapSL.useCloudProxy=true` para confirmar que no da problemas en operación real. Después de borrar la password, el fallback legacy (useCloudProxy=false) queda sin creds — pero como useCloudProxy=true no lo usa, todo sigue funcionando. Si algún día se necesita rollback: la password nueva en Secret Manager es reversible, se puede volver a poner en Firestore temporalmente.
 3. **Verificar cada mañana los primeros días** que el backup diario corrió: `gcloud storage ls gs://app-vendedores-shimano-backups/firestore/` debe listar folder de la fecha. Sino: `gcloud functions logs read dailyFirestoreBackup --region=southamerica-east1 --limit=20`.
 4. **Configurar alerta email de fallo del backup**: Cloud Logging → log-based metric sobre `severity>=ERROR AND resource.labels.function_name="dailyFirestoreBackup"` → Alerting policy → email a `bot.shimano.pesca@gmail.com`.
@@ -16347,7 +16347,7 @@ De la sesión 2026-07-27 (esta):
   - `dailyFirestoreBackup` — cron 2am AR → gs://app-vendedores-shimano-backups/firestore/{YYYY-MM-DD}/
   - `sapProxy` — callable, invocada desde el browser via `httpsCallable` cada vez que la app hace una request SAP
 - **Bucket backups**: `gs://app-vendedores-shimano-backups` (populated diariamente).
-- **Secret Manager**: `SAP_SL_PASSWORD` versión 3 con valor real (`Shi*99`, débil — rotar).
+- **Secret Manager**: `SAP_SL_PASSWORD` versión 3 con valor real (`<removida 2026-10>`, débil — rotar).
 - **IAM Compute Engine SA** (`746111030735-compute@developer.gserviceaccount.com`): `roles/datastore.importExportAdmin` + `roles/storage.objectAdmin` sobre bucket + `roles/secretmanager.secretAccessor` sobre SAP_SL_PASSWORD.
 - **Rollback rápido sap-client**: `sapSL.useCloudProxy = false` en F12 Console (sin redeploy).
 
