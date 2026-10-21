@@ -129,11 +129,8 @@ export function lineReservesStock(line, nowMs, pedido) {
     return true;
   }
   if (state === 'ASIG') {
-    // v957 + fix auditor 2026-10-02: asigReserva=false (B/C) no reserva.
-    // Explicito tambien para entero 0 (SAP serializa booleanos como 0/1 y
-    // 0===false es false en JS). NO usar `!asigReserva` porque undefined/null
-    // significa "default true" historicamente.
-    if (line.asigReserva === false || line.asigReserva === 0) return false;
+    // v1402 §40.10 mirror: ASIG siempre reserva (§40). Guard asigReserva=false
+    // eliminado. Toggle UI "destildar" revierte a BO (ver _toggleAsigReserva).
     // v959: expira 15d desde asigAt.
     if (line.asigAt) {
       const asigAtMs = toMillisSafe(line.asigAt);

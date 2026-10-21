@@ -194,13 +194,12 @@ export function lineReservesStock(line, nowMs, pedido) {
     return true;
   }
   if (state === 'ASIG') {
-    // Bug fix auditor 2026-10-02: SAP/legacy serializa booleanos como 0/1
-    // enteros. `0 === false` es false en JS, por lo que el guard previo
-    // (`asigReserva === false`) no cachaba el entero 0 → la linea reservaba
-    // stock cuando no debia. Explicito con ambos valores; NO usamos
-    // `!line.asigReserva` porque undefined/null significa "default true"
-    // historicamente.
-    if (line.asigReserva === false || line.asigReserva === 0) return false;
+    // v1402 §40.10 (2026-10-21): regla §40 estricta — ASIG siempre reserva,
+    // sin excepción. El guard histórico `asigReserva === false` queda
+    // eliminado: si Pablo decidió no reservar, la línea revierte a BO con
+    // closedReason='asig_destildada_por_admin' (ver _toggleAsigReserva).
+    // Pre-fix había 0 líneas con asigReserva=false en prod (verificado por
+    // script N 2026-10-21), así que el cambio es puramente defensivo.
     // v959: expiracion 15 dias desde asigAt.
     if (line.asigAt) {
       const asigAtMs = toMillisSafe(line.asigAt);

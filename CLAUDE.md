@@ -1286,3 +1286,29 @@ Todos tienen `clientName` + `clientCardCode` populated — solo falta recomputar
 **Tests**: `tests/unit/audit/gb-undefined-fix.test.js` (8): construcción key canónica, cliente SAP vs prospecto, bloqueo sin nombre, modal label, regression pre-fix, provincia/localidad vacías, caso real pedido 463.
 
 **Precedente**: `fix-gb-undefined` 2026-10-21 (v1401). Reporte Mariano con fecha precisa del pedido 463 (20/10 09:51:29, 4 SKUs 878k).
+
+### §40.10 (2026-10-21, v1402): ASIG siempre reserva, sin excepción — eliminada "ASIG sin reserva"
+
+Extensión de §40. Regla fuerte: `lineReservesStock('ASIG')` **ignora** el flag `asigReserva=false`. Si Pablo decide no reservar para un cliente, la línea revierte a BO (patrón §40.5/§40.7) con `closedReason='asig_destildada_por_admin'` + `asigRevertidaAt/By`. No existe más el estado "ASIG viva que no reserva".
+
+**Causa**: el toggle del modal Stock Asignado (`_toggleAsigReserva`, v1268) seteaba `asigReserva=false` + `asigReservaChangedAt`, pero el estado seguía siendo `ASIG`. Pre-fix, `lineReservesStock('ASIG')` honraba el flag y la línea no reservaba — contradecía la definición de §40 ("ASIG = reserva real"). Reporte Mariano 2026-10-21 (MARCELO BOSCHETTO LDM64TE2020030G 2u, línea `6XQDqxFb4aBICVOTxfKC`).
+
+**Cambios**:
+- `src/pure/stock-realmente-disponible.js:lineReservesStock('ASIG')` + mirror: eliminado el guard `asigReserva === false || asigReserva === 0`. ASIG siempre reserva (dentro del TTL `asigAt`).
+- `index.html:_renderBackordersTab`: eliminado el badge "SIN RESERVA" (v1270) del modal Stock Asignado. Eliminado el `<input type="checkbox" asigReserva>` que renderizaba el toggle. El fallback `c.sinReserva === true` también removido del render (`_qtyShow` ya solo mira `c.qtyAsignada`).
+- `index.html:_toggleAsigReserva`: handler conservado para compat (bookmarklet admin / consola) pero **cambió semántica**: destildar NO setea `asigReserva=false` sino que **revierte la línea a BO** con `asigRevertidaReason='asig_destildada_por_admin'`. Confirmación explícita. Idempotente.
+
+**Hallazgo pre-fix** (script `scripts/audit/N_asig_sin_reserva_destildadas.cjs`):
+- 0 líneas ASIG o confirmed con `asigReserva=false` + `asigReservaChangedAt` en prod 2026-10-21.
+- 0 unidades afectadas. 0 SKUs.
+- Caso BOSCHETTO reportado estaba actualmente con `asigReserva=true` (Mariano lo re-tildó manualmente antes del reporte).
+
+**Impacto en prod @ merge**: cero unidades liberadas o reservadas (no había líneas en el estado "ASIG sin reserva"). Cambio puramente defensivo + consistencia con §40.
+
+**Tests**:
+- `tests/unit/audit/asig-sin-reserva-eliminada.test.js` (14): ASIG con `asigReserva=false/0/undefined/true` + con/sin `asigReservaChangedAt` siempre reserva; TTL sigue aplicando; BO revertida con `asig_destildada_por_admin` NO reserva (BO no reserva, §40); mirror sync; breakdown; caso real BOSCHETTO.
+- 10 tests legacy actualizados invirtiendo expectativas (ASIG con `asigReserva=false` AHORA reserva): `pedido-snapshot.test.js`, `stock-por-cliente-memo.test.js`, `stock-realmente-disponible.test.js`, `virtual-asig-fifo.test.js`.
+
+**Contador "unidades para asignar"**: refleja solo líneas que reservan (regla implícita — como ya no hay ASIG sin reserva, el contador coincide con `asignadas.total` del breakdown).
+
+**Precedente**: `feat-asig-sin-reserva-eliminada` 2026-10-21 (v1402). Reporte Mariano explícito: "una línea en Stock Asignado reserva, sin excepción (§40)". Caso MARCELO BOSCHETTO LDM64TE2020030G 2u.

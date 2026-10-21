@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1401';
+const APP_VERSION = 'v1402';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16346,22 +16346,18 @@ window.renderBackordersTab = function(){
       // Backorder NO distingue state en la UX — todo lo que esta ahi es
       // "demanda sin cubrir" conceptualmente y NO vence. Si en el futuro el
       // admin quiere ver pedidos SAP sin facturar, hacer vista aparte.
-      // v1270 (2026-10-14): badge "SIN RESERVA" para rows destildadas en modal
-      // Stock Asignado. La linea esta ASIG o confirmed pero el admin libero la
-      // reserva (asigReserva=false). Visible como demanda pero no bloquea stock.
-      if (_isAsigMode && c.sinReserva === true) {
-        html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Admin destildo esta row. La demanda sigue viva (' + Math.round(c.pendiente || 0) + ' unidades) pero NO bloquea stock. Las unidades liberadas quedan disponibles para los proximos clientes en Backorder. Volver a tildar la reactiva (vuelve a reservar).">SIN RESERVA</span>';
-      }
+      // v1402 §40.10 (2026-10-21): badge "SIN RESERVA" eliminado. §40 estricto:
+      // una línea en Stock Asignado reserva, sin excepción. Si Pablo decide no
+      // reservar, la línea revierte a BO (ver _toggleAsigReserva → closedReason
+      // 'asig_destildada_por_admin') y desaparece del modal.
       html += '<span>' + escapeHtml(c.nombre) + '</span>';
       html += '</div></td>';
       html += '<td style="padding:6px 8px;text-align:right;vertical-align:middle;white-space:nowrap">';
       html += '<div style="display:inline-flex;align-items:center;gap:6px">';
       // v691: mostrar qty segun modo. STOCK ASIG. -> c.qtyAsignada. BACKORDER -> c.qtyBackorder.
-      // v1270: destildadas tienen qtyAsignada=0 pero mostramos pendiente (demanda
-      // original) para que admin vea cuanto podria recuperar al re-tildar.
-      const _qtyShow = _isAsigMode
-        ? (c.sinReserva === true ? (c.pendiente || 0) : (c.qtyAsignada || 0))
-        : (c.qtyBackorder || 0);
+      // v1402 §40.10: eliminado el fallback sinReserva (no existe más — líneas
+      // destildadas revierten a BO y salen del modal).
+      const _qtyShow = _isAsigMode ? (c.qtyAsignada || 0) : (c.qtyBackorder || 0);
       // v1212 (2026-10-08): control inline [-] NN [+] para admin en modo asignacion.
       // v1213: soportar multiples pedidoIds (FIFO).
       // v1214: aceptar state='BO' (virtual asig).
@@ -16390,32 +16386,17 @@ window.renderBackordersTab = function(){
         );
         const _titMinus = _isAsigMode ? 'Quitarle 1 unidad al cliente (va a BO)' : 'Quitarle 1 unidad al backorder del cliente';
         const _titPlus = _isAsigMode ? 'Sumarle 1 unidad al cliente (de BO propio o stock libre)' : 'Sumarle 1 unidad al backorder del cliente';
-        // v1268 (2026-10-14): checkbox "Reserva stock" solo en modo asignacion.
-        // Tildado = reserva stock fisico (default). Destildado = la linea ASIG
-        // existe pero NO bloquea stock -> otros clientes pueden recibir el
-        // SKU via BO. Equivale a asigReserva=false (ya existente). Operacion
-        // destructiva (libera reserva) -> confirm al destildar.
-        if (_isAsigMode) {
-          const _reserva = (c.asigReserva !== false);
-          const _reservaTit = _reserva
-            ? 'Tildado = reserva stock fisico para este cliente. Destildar libera las ' + Math.round(_qtyShow) + ' unidades al pool (otros clientes en BO las reciben).'
-            : 'Destildado = NO reserva stock. Las ' + Math.round(_qtyShow) + ' unidades estan disponibles para otros clientes en BO. Tildar vuelve a reservarlas para este cliente.';
-          const _argsReserva = escapeAttr(
-            JSON.stringify(g.sku) + ',' +
-            JSON.stringify(_pid) + ',' +
-            JSON.stringify(String(c.nombre || '')) + ',' +
-            Math.round(_qtyShow)
-          );
-          html += '<label style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0;cursor:pointer;margin-right:6px" title="' + escapeAttr(_reservaTit) + '">'
-            + '<input type="checkbox" ' + (_reserva ? 'checked' : '') + ' onchange="window._toggleAsigReserva(' + _argsReserva + ', this.checked)" '
-            + 'style="width:16px;height:16px;accent-color:#0891b2;cursor:pointer" />'
-            + '</label>';
-        }
+        // v1402 §40.10: checkbox "Reserva stock" ELIMINADO. §40 estricto:
+        // una línea en Stock Asignado reserva, sin excepción. Si Pablo quiere
+        // "no reservarle" a este cliente, usa el botón ELIMINAR (que cancela
+        // la línea entera con closedReason='quitado_por_admin'). Pre-v1402 el
+        // checkbox seteaba asigReserva=false; ese flag ya no se honra en
+        // lineReservesStock('ASIG') — ASIG siempre reserva (§40).
         // v1395 §40.3: badge sobre-asignada. Si c.qtyBackorder > 0 en modo
         // asignacion sobre linea ASIG (reservada), significa que Pablo prometio
         // mas unidades que el fisico actual. Mostrar "prometidas N" para que
         // decida: recortar o esperar mas stock. "Entregable" es _cur.
-        const _sobreAsig = (_isAsigMode && !c.sinReserva && c.state === 'ASIG')
+        const _sobreAsig = (_isAsigMode && c.state === 'ASIG')
           ? Math.round(Number(c.qtyBackorder) || 0)
           : 0;
         const _promet = _sobreAsig > 0 ? Math.round(Number(c.pendiente) || 0) : 0;
@@ -17164,32 +17145,42 @@ window._cpstVolver = function(){
 };
 
 /**
- * v1268 (2026-10-14): toggle `asigReserva` de las lineas ASIG de un pedido
- * para un SKU especifico. Checkbox tildado=true (reserva), destildado=false
- * (no reserva, libera stock al pool BO). Pide confirmacion al destildar.
- * Zero cambios en SAP (lineReservesStock se mantiene). Solo flag app-side.
- * v1269 (2026-10-14): aceptar tambien state='confirmed'. El modal Stock
- * Asignado muestra lineas ASIG + confirmed (v1190 isAsigLike). Si solo
- * matcheabamos ASIG, destildar una row confirmed devolvia changed=0 → alert
- * "No se encontraron lineas" → flag jamas se escribia → refresh devolvia
- * tildado. Reporte Mariano 2026-10-14 (SVPAC270XH / MONICA VIRGONE ORDEN 251).
+ * v1402 §40.10 (2026-10-21): toggle "destildar" cambió semántica.
+ *
+ * Antes (v1268-v1401): seteaba `asigReserva=false` + `asigReservaChangedAt`.
+ * La línea seguía ASIG pero `lineReservesStock` devolvía false → stock libre
+ * para otros clientes. Contradecía §40 estricto ("ASIG siempre reserva").
+ *
+ * Ahora (v1402): destildar REVIERTE la línea a `state='BO'` con audit
+ * (closedReason='asig_destildada_por_admin'). La línea desaparece del modal
+ * Stock Asignado y el stock queda libre. Mismo patrón que §40.5 (reversión
+ * CPST sin stock) + §40.7 (quitar producto). Idempotente.
+ *
+ * Preservada como función exportable por si algún call-site externo la invoca
+ * (bookmarklet admin, consola). El UI principal ya NO llama este handler (el
+ * checkbox fue eliminado del modal).
+ *
  * @param {string} sku
  * @param {string} pedidoId
  * @param {string} clienteNombre
  * @param {number} qtyAfectadas - para mensaje de confirmacion
- * @param {boolean} newValue - nuevo valor del checkbox
+ * @param {boolean} newValue - solo acción destructiva (false) tiene efecto;
+ *   true es no-op (una línea revertida ya no existe para re-tildar).
  */
 window._toggleAsigReserva = async function(sku, pedidoId, clienteNombre, qtyAfectadas, newValue){
-  // Confirm al destildar (operacion destructiva: libera reserva).
-  if (newValue === false) {
-    const _msg = 'Vas a liberar ' + Math.round(qtyAfectadas) + ' unidades de ' + sku + ' reservadas para ' + clienteNombre + '.\n\n'
-      + 'La linea sigue viviendo en el pedido (no se elimina) pero el stock queda disponible '
-      + 'para asignar a otros clientes en Backorder.\n\n¿Confirmar?';
-    if (!confirm(_msg)) {
-      // Revertir el checkbox visualmente: forzar re-render del modal.
-      try { renderBackordersTab(); } catch(_e) { /* silent */ }
-      return;
-    }
+  if (newValue !== false) {
+    // No-op: una línea destildada ya se revirtió a BO en una llamada previa.
+    // Para re-asignarla, usar flow Reparto (ingresos_reparto).
+    return;
+  }
+  const _msg = 'Vas a devolver ' + Math.round(qtyAfectadas) + ' unidades de ' + sku + ' de ' + clienteNombre +
+    ' a back order.\n\n'
+    + 'La línea sale de Stock Asignado y queda en cola BO con audit '
+    + '(closedReason=asig_destildada_por_admin). Si querés reasignarla, usá flow Reparto.\n\n'
+    + '¿Confirmar?';
+  if (!confirm(_msg)) {
+    try { renderBackordersTab(); } catch(_e) { /* silent */ }
+    return;
   }
   try {
     const docRef = fbDb.collection('pedidos').doc(pedidoId);
@@ -17203,35 +17194,37 @@ window._toggleAsigReserva = async function(sku, pedidoId, clienteNombre, qtyAfec
     const byUser = (currentUser && (currentUser.email || currentUser.uid)) || '';
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      // v1269 (2026-10-14): aceptar ASIG + confirmed. Ambos aparecen en modal
-      // Stock Asignado (v1190 isAsigLike). Un pedido ya enviado a SAP tiene
-      // sus lineas en state='confirmed' pero sigue reservando stock hasta
-      // facturar — el admin tiene que poder liberar la reserva igual que una
-      // ASIG. Pre-v1269 solo matcheaba ASIG y la row confirmed quedaba muda.
-      if (!l || (l.state !== 'ASIG' && l.state !== 'confirmed')) continue;
+      if (!l || l.state !== 'ASIG') continue;
       const lSku = String((l.sku || l.code || '')).trim().toUpperCase();
       if (lSku !== skuU) continue;
+      // Idempotencia: si ya está BO con audit, skip.
+      if (l.state === 'BO' && l.asigRevertidaReason === 'asig_destildada_por_admin') continue;
+      const prevQo = Number(l.qtyOpen) || 0;
       lines[i] = Object.assign({}, l, {
-        asigReserva: !!newValue,
-        asigReservaChangedAt: nowIso,
-        asigReservaChangedBy: byUser,
+        state: 'BO',
+        asigReserva: false,
+        asigRevertidaAt: nowIso,
+        asigRevertidaBy: byUser,
+        asigRevertidaReason: 'asig_destildada_por_admin',
+        qtyOpen: prevQo, // BO conserva qtyOpen (es cola, no cancelado)
       });
       changed++;
     }
     if (!changed) {
-      alert('No se encontraron lineas ASIG/confirmed matching para ' + sku + ' en el pedido.');
+      alert('No se encontraron líneas ASIG matching para ' + sku + ' en el pedido.');
       return;
     }
     await docRef.update({ lines: lines, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-    if (typeof showSyncTag === 'function') {
-      showSyncTag(newValue ? 'Reserva activada: ' + Math.round(qtyAfectadas) + 'u ' + sku : 'Reserva liberada: ' + Math.round(qtyAfectadas) + 'u ' + sku);
-    }
-    // Re-render para reflejar el estado nuevo. El listener Firestore tambien
-    // dispara render, pero esto da feedback inmediato.
+    try {
+      if (typeof logOp === 'function') logOp('asig_destildada_a_bo', 'pedidos/' + pedidoId, clienteNombre, {
+        sku, pedidoId, lineasAfectadas: changed, qtyLiberadas: Math.round(qtyAfectadas),
+      });
+    } catch (_e) {}
+    if (typeof showSyncTag === 'function') showSyncTag('Devuelto a BO: ' + Math.round(qtyAfectadas) + 'u ' + sku);
     try { renderBackordersTab(); } catch(_e) { /* silent */ }
   } catch (e) {
     console.error('_toggleAsigReserva error', e);
-    alert('Error al actualizar reserva: ' + (e.message || String(e)));
+    alert('Error al revertir a BO: ' + (e.message || String(e)));
     try { renderBackordersTab(); } catch(_e) { /* silent */ }
   }
 };

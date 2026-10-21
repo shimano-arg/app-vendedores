@@ -278,7 +278,7 @@ describe('aggregateForSku', () => {
       expect(r.asig).toBe(5);
     });
 
-    it('ASIG con asigReserva=false NO cuenta (v957 cliente B/C)', () => {
+    it('v1402 §40.10: ASIG con asigReserva=false AHORA cuenta (§40 estricto)', () => {
       const pedidos = [
         {
           clientCardCode: 'C1',
@@ -290,7 +290,7 @@ describe('aggregateForSku', () => {
         },
       ];
       const r = aggregateForSku(pedidos, 'X', now);
-      expect(r.asig).toBe(0);
+      expect(r.asig).toBe(5);
     });
 
     it('v1388 §37: BO con pedido.createdAt >90d NO cuenta (red seguridad 90d)', () => {
@@ -348,13 +348,13 @@ describe('aggregateForSku', () => {
       expect(r.bo).toBe(8);
     });
 
-    it('caso mixto: 3 pedidos ASIG (uno vencido, uno B/C, uno fresco) — solo el fresco cuenta', () => {
+    it('v1402 §40.10: caso mixto 3 pedidos ASIG (vencido + asigReserva=false + fresco) — cuentan los 2 vigentes', () => {
       const pedidos = [
         {
           clientCardCode: 'C1',
           closedAt: null,
           transferidoSAP: { via: 'service_layer_auto' },
-          lines: [{ code: 'X', qtyOpen: 10, state: 'ASIG', asigAt: isoDaysAgo(20) }],
+          lines: [{ code: 'X', qtyOpen: 10, state: 'ASIG', asigAt: isoDaysAgo(20) }], // expirada TTL
         },
         {
           clientCardCode: 'C2',
@@ -372,9 +372,10 @@ describe('aggregateForSku', () => {
         },
       ];
       const r = aggregateForSku(pedidos, 'X', now);
-      expect(r.asig).toBe(4);
+      // §40.10: C2 (asigReserva=false) AHORA cuenta. C1 (expirada TTL) sigue sin contar.
+      expect(r.asig).toBe(11); // 7 (C2) + 4 (C3)
       expect(r.asigByClient.get('C1')).toBeUndefined();
-      expect(r.asigByClient.get('C2')).toBeUndefined();
+      expect(r.asigByClient.get('C2')).toBe(7);
       expect(r.asigByClient.get('C3')).toBe(4);
     });
   });

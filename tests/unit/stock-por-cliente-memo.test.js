@@ -169,11 +169,12 @@ describe('getStockPorClienteMemo', () => {
   });
 });
 
-// v957 (2026-09-16, Fase 2): ASIG con asigReserva=false no cuenta en el desglose
-describe('getStockPorCliente — v957 asigReserva=false', () => {
-  it('ASIG sin reserva de otro cliente NO reduce libreParaCliente', () => {
+// v1402 §40.10 (2026-10-21): ASIG siempre reserva, sin excepción. El guard
+// asigReserva=false fue eliminado. Si Pablo decide no reservar, la línea
+// revierte a BO con closedReason='asig_destildada_por_admin'.
+describe('getStockPorCliente — v1402 §40.10 ASIG siempre reserva', () => {
+  it('ASIG con asigReserva=false de otro cliente AHORA reduce libreParaCliente', () => {
     const pedidos = [
-      // Otro cliente con ASIG sin reserva (cliente B/C) — no bloquea a nadie
       {
         _fsId: 'p_otro',
         clientCardCode: 'C_OTRO',
@@ -183,12 +184,11 @@ describe('getStockPorCliente — v957 asigReserva=false', () => {
     const deps = makeDeps(pedidos);
     const r = getStockPorCliente('SKU1', 'C_MIO', deps);
     expect(r.fisico).toBe(20);
-    expect(r.reservadasPorOtros).toBe(0);
-    expect(r.libreParaCliente).toBe(20); // el ASIG sin reserva no cuenta
-    expect(r.disponibleReal).toBe(20);
+    expect(r.reservadasPorOtros).toBe(6); // §40.10
+    expect(r.libreParaCliente).toBe(14);
   });
 
-  it('ASIG sin reserva del MISMO cliente tampoco cuenta en reservadasPorCliente', () => {
+  it('ASIG con asigReserva=false del MISMO cliente AHORA cuenta en reservadasPorCliente', () => {
     const pedidos = [
       {
         _fsId: 'p_mio',
@@ -198,10 +198,7 @@ describe('getStockPorCliente — v957 asigReserva=false', () => {
     ];
     const deps = makeDeps(pedidos);
     const r = getStockPorCliente('SKU1', 'C_MIO', deps);
-    // La linea existe en el pedido pero no reserva stock — no aparece en el
-    // desglose de reservas.
-    expect(r.reservadasPorCliente).toBe(0);
-    expect(r.libreParaCliente).toBe(20);
+    expect(r.reservadasPorCliente).toBe(4); // §40.10
   });
 
   it('ASIG con reserva sigue contando normal (retrocompat)', () => {
