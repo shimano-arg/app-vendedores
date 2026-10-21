@@ -34878,9 +34878,34 @@ window.doConfirmPedido = async function(){
       window._pendingPedidoWaitlistId = null;
       // v1209 (2026-10-08): reset del source heredado.
       window._pendingPedidoSource = null;
-      // v1280 (2026-10-14): grab + reset de pedidosOrigenes para pasarlo al
-      // paso de cancelacion de ASIG originales (abajo).
-      const _origenesACancelar = Array.isArray(window._pendingPedidoOrigenes) ? window._pendingPedidoOrigenes.slice() : null;
+      // v1280 (2026-10-14) + v1382 (2026-10-20): grab + reset de
+      // pedidosOrigenes para pasarlo al paso de cancelacion de ASIG originales.
+      // v1382: unificar con docData.lines[].asigRefs (identidad por linea).
+      // Dedupe por (pedidoId, lineIndex) para no cancelar 2 veces una misma
+      // ASIG que viene tanto en el global como en una linea. CLAUDE.md §35.
+      const _origenesACancelar = (function(){
+        const result = [];
+        const seen = new Set();
+        const push = (ref) => {
+          if (!ref || !ref.pedidoId) return;
+          const li = Number(ref.lineIndex);
+          const key = ref.pedidoId + '|' + li;
+          if (seen.has(key)) return;
+          seen.add(key);
+          result.push({ pedidoId: ref.pedidoId, lineIndex: li, qtyAsignada: Number(ref.qtyAsignada) || 0, sku: ref.sku });
+        };
+        if (Array.isArray(window._pendingPedidoOrigenes)) {
+          for (const r of window._pendingPedidoOrigenes) push(r);
+        }
+        if (Array.isArray(docData.lines)) {
+          for (const line of docData.lines) {
+            if (Array.isArray(line.asigRefs)) {
+              for (const r of line.asigRefs) push(r);
+            }
+          }
+        }
+        return result.length > 0 ? result : null;
+      })();
       window._pendingPedidoOrigenes = null;
       // v1118 (2026-09-30): reset del flag bypass ASIG — ya se persistio.
       window._pendingBypassAsigGate = null;

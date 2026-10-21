@@ -233,4 +233,31 @@ describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde do
     const origenes = collectOrigenesACancelar(lines, pending);
     expect(origenes).toHaveLength(1); // dedupe por (pedidoId, lineIndex)
   });
+
+  // T4 — idempotencia: 2 líneas distintas con asigRefs al mismo (pedidoId, lineIndex)
+  //      no cancelan 2 veces (ej: VDE sumó manualmente duplicados).
+  it('T4 idempotencia: 2 líneas con mismo asigRef (pedidoId,lineIndex) → cancel 1 vez', () => {
+    const lines = [
+      { code: SKU_STRADIC, qty: 1, asigRefs: [{ pedidoId: 'p-a', lineIndex: 5, qtyAsignada: 1 }] },
+      { code: SKU_STRADIC, qty: 1, asigRefs: [{ pedidoId: 'p-a', lineIndex: 5, qtyAsignada: 1 }] },
+    ];
+    const origenes = collectOrigenesACancelar(lines, null);
+    expect(origenes).toHaveLength(1);
+    expect(origenes[0]).toMatchObject({ pedidoId: 'p-a', lineIndex: 5 });
+  });
+
+  it('T4 N refs distintos: 1 línea con 2 asigRefs distintos (ej: Pablo asignó 2+1 desde pedidos distintos)', () => {
+    const lines = [
+      {
+        code: SKU_STRADIC,
+        qty: 3,
+        asigRefs: [
+          { pedidoId: 'p-a', lineIndex: 5, qtyAsignada: 2 },
+          { pedidoId: 'p-b', lineIndex: 3, qtyAsignada: 1 },
+        ],
+      },
+    ];
+    const origenes = collectOrigenesACancelar(lines, null);
+    expect(origenes).toHaveLength(2); // 2 refs distintas = 2 cancels
+  });
 });
