@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1386 (2026-10-21) — Modal Backorder · quitar badge "VENCIDA Xd" también en filas state=confirmed (completa v1385)
+
+**Antes**: v1385 removió el badge "VENCIDA Xd" solo para `state=BO`. Mariano re-reportó 2026-10-21 (screenshot v1385 confirmado en DevTools "Shimano App v1385") que sigue viendo "VENCIDA 25d" y "VENCIDA 58d" en los mismos clientes — porque esas filas son `state=confirmed` con `sqDocDate>7d`, y v1385 mantuvo ese bloque pensando que era útil para admin.
+
+**Cambio**: `index.html:16331-16337` — remover también el bloque `state=confirmed` del badge. El modal Backorder ya NO muestra "VENCIDA" en ninguna fila, independiente del state interno.
+
+APP_VERSION v1385 → v1386. CACHE_VERSION v1385 → v1386.
+
+**Por qué**: el modal se llama "Backorder" — a nivel UX todo lo que vive ahí es "demanda sin cubrir" y conceptualmente NO vence. La distinción `state=BO` vs `state=confirmed` es interna del schema (BO App vs BO ya enviado a SAP esperando factura), no es info relevante para el VDE en el modal. Si en el futuro el admin necesita ver pedidos SAP sin facturar, se hace una vista aparte con esa lógica.
+
+**Verificación**: abrir modal Backorder → expandir cualquier SKU → ninguna fila muestra badge "VENCIDA".
+
+**Rollback**: revertir el commit — vuelve el badge solo para confirmed>7d (sin el de BO, que ya quedó eliminado en v1385).
+
 ### v1385 (2026-10-21) — Modal Backorder · quitar badge "VENCIDA Xd" en filas state=BO
 
 **Antes**: en el modal "Backorder", al expandir un SKU se veían las filas-cliente. Las filas con `state='BO'` y `pedidoCreatedAt > 15d` mostraban un badge amarillo "VENCIDA Xd" (regla v969 del 2026-09-17: BO viejo deja de reservar stock). Reporte Mariano 2026-10-21 (screenshot CVC66MH4SACO con "VENCIDA 25d" y "VENCIDA 58d" en 2 clientes).
