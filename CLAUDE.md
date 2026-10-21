@@ -973,3 +973,26 @@ NO más `+ waitlistCpst.total`. `utilizablePara` tampoco cuenta waitlist propia.
 **Efecto en prod @ merge v1393** (`docs/auditoria/27_EFECTO_WAITLIST_NO_RESERVA.md`): 31 SKUs / 139 u pasaron a libre. Caso 597151 BENGOCHEA: delta real libre = 0 (clamp por fisico=2), pero la UX visible pasó de "reservadas 16" a "reservadas 6" (sin doble conteo).
 
 **Caso borde**: si existe un waitlist "huérfano" (sin ASIG viva de respaldo), tampoco reserva. Es coherente con §40.1: waitlist es draft, nunca reserva por sí mismo.
+
+### §40.2 (2026-10-21, v1394): reservadasTotal cap por físico (sobre-reserva no es entregable)
+
+Extensión de §40. `reservadasTotal` muestra lo **entregable hoy**, no la reserva nominal cuando excede el físico.
+
+**Fórmula** (`src/pure/stock-breakdown.js` + mirror):
+```js
+const reservasNominales = confirmadasSinFacturar.total + asignadas.total;
+const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
+const libre = Math.max(0, fisicoDep11 - reservadasTotal);
+```
+
+**Por qué**: una ASIG nominal de 6u sobre un físico de 2u es un sobre-asignado administrativo (Pablo repartió más de lo que tenía; o el físico bajó post-ASIG). La columna "Reservado" debe mostrar **2** (lo que se puede entregar), no **6** (la promesa nominal).
+
+- Los buckets individuales (`asignadas.total`, `confirmadasSinFacturar.total`) **siguen siendo los nominales** para auditoría/debug.
+- Sólo `reservadasTotal` + `libre` aplican el cap.
+- `utilizablePara(cardCode)` ya respeta esto por construcción (`min(fisicoDep11, libre + reservasPropias)`).
+
+**Precedente concreto**: BENGOCHEA 597151 (2026-10-21). ASIG qty=6, fisicoDep11=2. v1393 mostraba "Reservado 6 / Libre 0" (y la columna confundía — "si están reservadas 6, ¿dónde están?"). v1394 muestra "Reservado 2 / Libre 0" — refleja la realidad entregable.
+
+**Shape**: `_version` 3 → 4. Mismo shape (sin campos nuevos).
+
+**Efecto en prod @ merge v1394**: cero unidades liberadas (es cambio de **representación**, no de reglas de reserva). Solo cambia lo que se muestra en Reservado — útiles para el VDE que ve números más honestos.

@@ -229,11 +229,14 @@ export function getStockBreakdown(sku, deps, opts) {
   }
 
   // v1393 §40.1: reservadasTotal = ASIG + confirmed (SIN BO, SIN reparto, SIN waitlistCpst).
-  // waitlistCpst sigue en el shape como INFORMATIVO. Es draft del VDE desde
-  // Stock Asignado — la ASIG original ya reserva, contar waitlist = doble conteo.
-  // Precedente: BENGOCHEA 597151 ORDEN 467 (2026-10-21) ASIG 6 + waitlist 6
-  // mismo cliente/SKU → breakdown contaba 12 u reservadas con fisico 2.
-  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total;
+  // v1394 §40.2: cap por físico. Si la reserva nominal (asig+conf) excede el
+  // fisico, "reservadas" muestra solo lo que efectivamente puede entregar HOY
+  // (= min(nominal, fisico)). La sobre-reserva nominal queda visible en los
+  // buckets .total individuales + tooltips, pero el total agregado refleja la
+  // realidad. Precedente: BENGOCHEA 597151 (2026-10-21) ASIG 6 con fisico 2
+  // → antes mostraba 6; ahora muestra 2 (= lo entregable).
+  const reservasNominales = confirmadasSinFacturar.total + asignadas.total;
+  const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
   // demandaSapSinCubrir DEPRECATED v1392 — queda null para no romper
@@ -272,6 +275,6 @@ export function getStockBreakdown(sku, deps, opts) {
     utilizablePara,
     // Alias compat v1391 — mismo info que repartoAbierto.
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 3,
+    _version: 4,
   };
 }
