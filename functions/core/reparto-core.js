@@ -35,7 +35,10 @@
  */
 
 // v1384 (2026-10-21): import lineReservesStock para la reconciliación de reparto.
-import { lineReservesStock } from './pedido-snapshot-core.js';
+// v1391 (2026-10-21): import getStockBreakdown — el reconcile usa el mismo
+// cálculo que las pantallas (CLAUDE.md §39). lineReservesStock sigue
+// importado SOLO para armar clientesBO[] ordenado FIFO.
+import { getStockBreakdown, lineReservesStock } from './pedido-snapshot-core.js';
 
 const INGRESOS_REPARTO_COLLECTION = 'ingresos_reparto';
 const REPARTO_LOG_COLLECTION = 'reparto_log';
@@ -366,7 +369,11 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
     return { created, skipped, errors };
   }
 
-  // 3. Para cada SKU con fisico > 0 → agregar demanda vigente (reusando lineReservesStock).
+  // 3. Para cada SKU con fisico > 0 → delegar cálculo a getStockBreakdown
+  //    (CLAUDE.md §39: una sola fuente de verdad). lineReservesStock sigue
+  //    usándose SOLO para armar el shape clientesBO[] FIFO del doc nuevo.
+  //    Shape de pedidos: ya expandido en openPedidos (array de QueryDocumentSnapshot).
+  const pedidosData = openPedidos.map((d) => Object.assign({ _fsId: d.id }, d.data() || {}));
   for (const [skuRaw, whs] of Object.entries(whsBreakdown)) {
     const sku = String(skuRaw).toUpperCase();
     try {
@@ -376,9 +383,37 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
         skipped.push({ sku, reason: 'reparto_activo_existe' });
         continue;
       }
-      let asigVig = 0;
-      let confVig = 0;
-      let boVig = 0;
+      // Autoridad: getStockBreakdown decide pendienteReparto.qty.
+      const breakdown = getStockBreakdown(
+        sku,
+        {
+          getStockFisico: () => fisico,
+          pedidos: pedidosData,
+        },
+        { now: nowMs }
+      );
+      const boVig = breakdown.backorderApp.total;
+      if (boVig <= 0) {
+        skipped.push({ sku, reason: 'sin_bo_vigente' });
+        continue;
+      }
+      const qtyARepartir = breakdown.pendienteReparto.qty;
+      if (qtyARepartir <= 0) {
+        skipped.push({
+          sku,
+          reason:
+            'libre_cero (fisico=' +
+            fisico +
+            ' asig=' +
+            breakdown.asignadas.total +
+            ' conf=' +
+            breakdown.confirmadasSinFacturar.total +
+            ')',
+        });
+        continue;
+      }
+      // clientesBO[] FIFO: construido iterando pedidos (shape del doc requiere
+      // clientProvince/clientLocality/pedidoCreatedAt que breakdown no provee).
       /** @type {Array<ClienteBO & { _createdMs: number }>} */
       const preClientesBO = [];
       for (const doc of openPedidos) {
@@ -388,53 +423,37 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
           const l = lines[i];
           if (!l || !l.code) continue;
           if (String(l.code).toUpperCase() !== sku) continue;
+          if (l.state !== 'BO') continue;
           const qo = Number(l.qtyOpen) || 0;
           if (qo <= 0) continue;
           if (!lineReservesStock(l, nowMs, data)) continue;
-          if (l.state === 'ASIG') asigVig += qo;
-          else if (l.state === 'confirmed') confVig += qo;
-          else if (l.state === 'BO') {
-            boVig += qo;
-            let createdMs = 0;
-            let createdIso = null;
-            if (data.createdAt) {
-              if (typeof data.createdAt.toMillis === 'function') {
-                try {
-                  createdMs = data.createdAt.toMillis();
-                } catch {
-                  createdMs = 0;
-                }
-                createdIso = toIsoSafe(data.createdAt);
-              } else if (typeof data.createdAt === 'string') {
-                createdMs = Date.parse(data.createdAt) || 0;
-                createdIso = data.createdAt;
+          let createdMs = 0;
+          let createdIso = null;
+          if (data.createdAt) {
+            if (typeof data.createdAt.toMillis === 'function') {
+              try {
+                createdMs = data.createdAt.toMillis();
+              } catch {
+                createdMs = 0;
               }
+              createdIso = toIsoSafe(data.createdAt);
+            } else if (typeof data.createdAt === 'string') {
+              createdMs = Date.parse(data.createdAt) || 0;
+              createdIso = data.createdAt;
             }
-            preClientesBO.push({
-              pedidoId: doc.id,
-              lineIndex: i,
-              clientCardCode: String(data.clientCardCode || '').trim(),
-              clientName: String(data.clientName || '').trim(),
-              clientProvince: String(data.province || data.clientProvince || '').trim(),
-              clientLocality: String(data.locName || data.clientLocality || '').trim(),
-              pedidoCreatedAt: createdIso,
-              qtyBackorder: qo,
-              _createdMs: createdMs,
-            });
           }
+          preClientesBO.push({
+            pedidoId: doc.id,
+            lineIndex: i,
+            clientCardCode: String(data.clientCardCode || '').trim(),
+            clientName: String(data.clientName || '').trim(),
+            clientProvince: String(data.province || data.clientProvince || '').trim(),
+            clientLocality: String(data.locName || data.clientLocality || '').trim(),
+            pedidoCreatedAt: createdIso,
+            qtyBackorder: qo,
+            _createdMs: createdMs,
+          });
         }
-      }
-      if (boVig <= 0) {
-        skipped.push({ sku, reason: 'sin_bo_vigente' });
-        continue;
-      }
-      const qtyARepartir = Math.max(0, fisico - asigVig - confVig);
-      if (qtyARepartir <= 0) {
-        skipped.push({
-          sku,
-          reason: 'libre_cero (fisico=' + fisico + ' asig=' + asigVig + ' conf=' + confVig + ')',
-        });
-        continue;
       }
       preClientesBO.sort(
         (a, b) => a._createdMs - b._createdMs || a.pedidoId.localeCompare(b.pedidoId)

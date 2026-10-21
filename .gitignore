@@ -133,6 +133,51 @@ apps/*/next-env.d.ts
 apps/*/.claude/
 
 # v1283 (2026-10-20): backups de collections antes del cleanup
-# (seguimiento_notes/status). Son dumps JSON con data operativa — no publicar.
+# (seguimiento_notes/status). Son dumps JSON con data operativa -- no publicar.
 backups/
 
+# ============================================================================
+# Hardening audit 2026-10-21: cortar exposicion publica
+# ============================================================================
+# Repo deploya a GitHub Pages con path '.' (sirve el repo entero publico).
+# Los siguientes archivos tienen PII de clientes, mapa de ataque, baselines
+# de rules, o dumps con datos operativos sensibles. NO commitear.
+# Siguen en disco local; solo se sacan del tracking.
+# Referencia: AUDITORIA-ETAPA1-INVENTARIO.md seccion 4.3.
+
+# Dumps de auditoria con PII de clientes (CUIT + razon social + pedido + SKU)
+audit_bo_2026-10-05.json
+audit_migracion_sap_2026-08-28.json
+
+# Scripts root-level con nombres de clientes + path a service-account key
+# en ~/Downloads. Fueron agregados con `git add -f` bypassing el `_*.py`
+# del gitignore legacy. NUNCA mas usar `git add -f` para scripts root.
+_cleanup_orphan_waitlist_228.py
+_diagnose_ana_lorena.py
+
+# Audits internos (mapa de ataque + hallazgos con repro paths)
+docs/AUDIT_2026-10-13/
+docs/AUDIT_2026-10-13.md
+docs/AUDIT_SHIMANO_2026-10-07.md
+
+# Auditoria stock/CRM 2026-10-20 con PII masiva (nombres + CUIT de 10+ clientes
+# reales: SNAKE S.R.L., PESCAR.INFO SHOP, BROBRO SA, MUNDO ESTURION, etc).
+docs/auditoria/
+
+# Baseline historico de rules (permite diff publico del hardening)
+firestore.rules.baseline
+
+# Forecast v3 outputs (ventas por SKU/subfamilia, informacion comercial sensible)
+scripts/forecast/v3/output/
+
+# Informes de auditoria generados por tareas de hardening/review.
+# Viven fuera del repo (Desktop\AUDITORIA-SHIMANO-JAPON\).
+AUDITORIA-*.md
+
+# Scripts debug ad-hoc / recovery one-shot con nombres de clientes.
+# Siguen existiendo en disco pero no se tracken. Para eliminar un script
+# por confianza alta de muerto, usar `git rm` + eliminar del disco.
+scripts/debug-*
+scripts/force-*
+scripts/_*
+scripts/audit/_*

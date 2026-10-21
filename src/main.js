@@ -56,6 +56,7 @@ import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import { matchesAllTokens } from './pure/search.js';
+import { getStockBreakdown, STOCK_LABELS } from './pure/stock-breakdown.js';
 import {
   getStockDesglose,
   getStockPorCliente,
@@ -258,6 +259,8 @@ const phase0 = {
     getStockPorCliente,
     getStockPorClienteMemo,
     getStockUtilizableParaClienteExAsig,
+    getStockBreakdown,
+    STOCK_LABELS,
     lineReservesStock,
     computeVirtualAsigFifo,
     computeBackorderSkuMap,

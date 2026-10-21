@@ -4717,6 +4717,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1391 (2026-10-21) — Una sola fuente de verdad: getStockBreakdown (FINDING-04)
+
+Loop E0-E5 metodología superpowers (systematic-debugging + writing-plans + TDD + verification-before-completion). Rama `feat-stock-breakdown-unico` → `main`.
+
+**Antes**: cada pantalla aplicaba su propia fórmula de disponibilidad/reservas. El mismo SKU mostraba 5 números distintos:
+- Modal Backorder: 26 u (sin TTL)
+- Popup Master: BO 11 u (crudo)
+- Pedido en espera: 17 u BO (con TTL §37)
+- Modal Reparto: 0 (filtro específico)
+- Modal Stock Asignado: 1 u
+
+**Cambio**:
+- `src/pure/stock-breakdown.js` nueva función `getStockBreakdown(sku, deps, opts)` — fuente única. Devuelve shape fijo: `fisicoDep11`, `transitoDep12`, `demandaSapSinCubrir` (opt-in con `includeStale=true`), `backorderApp`, `confirmadasSinFacturar`, `asignadas`, `waitlistCpst`, `reservadasTotal`, `libre`, `utilizablePara(cardCode)`, `pendienteReparto`. Reusa `lineReservesStock` (reglas §36 §37 §38).
+- `functions/core/pedido-snapshot-core.js` copia espejo + test sincronía (`tests/unit/audit/stock-breakdown-sync.test.js`).
+- `src/pure/stock-realmente-disponible.js`: 4 fns derivadas convertidas a **wrappers finos** (2-20 líneas): `getStockRealmenteDisponible → breakdown.libre`, `getStockDesglose → shape viejo`, `getStockPorCliente → mapeado desde porCliente`, `getStockUtilizableParaClienteExAsig → breakdown.utilizablePara(cardCode)`.
+- `functions/core/reparto-core.js`: `reconcileRepartosFaltantes` usa `breakdown.pendienteReparto.qty` como autoridad (ajuste Mariano #1). Test que falla si divergen (`tests/functions/reconcile-breakdown-sync.test.js`).
+- `index.html`: `window.getStockBreakdown` + `window.STOCK_LABELS` expuestos. Modal Pedido en espera migrado a 1 call breakdown (reemplaza `getStockDesglose + getStockPorCliente` back-to-back).
+- CLAUDE.md §39: regla durable — ninguna pantalla reimplementa fórmula.
+
+**Tests (41 nuevos, 1514 PASS totales + 1 FAIL pre-existente)**:
+- `tests/unit/stock-breakdown.test.js` (19) — invariantes, TTL, schema shape fijo, fixture CUDC201HG real.
+- `tests/unit/audit/stock-breakdown-sync.test.js` (9) — src/pure vs functions/core.
+- `tests/functions/reconcile-breakdown-sync.test.js` (4) — reconcile qty == breakdown.pendienteReparto.qty.
+- Verificación prod E3: 4 SKUs (CUDC201HG + CLC66H2PY + CLC66MH2PY + CLC70H2PY) — todos invariantes ✓.
+
+APP_VERSION v1390 → v1391. CACHE_VERSION v1390 → v1391.
+
+**Rollback**: `git revert <sha>` + redeploy functions. Las fns viejas son wrappers idempotentes; revertir vuelve a implementación propia sin pérdida.
+
+**Follow-ups** (en `docs/auditoria/19_INFORME_COWORK_V1391.md`):
+- Modal Backorder sigue usando `computeBackorderSkuMap` (sin TTL por diseño histórico). Migrarlo a `breakdown.demandaSapSinCubrir` requiere OK Mariano.
+- 14 call-sites `index.html` siguen usando wrappers (cumplen §39 por delegación). Migración a breakdown directo es optimización performance futura.
+
 ### v1390 (2026-10-21) — BO sin TTL 7d (red seguridad 90d) + confirmed hard cap 60d + legacy orderNumber UI + fix B1
 
 Decisiones Mariano post-v1387 (B1 cerrar fantasmas migration-v1278 + D-nueva §37 BO sin TTL 7d + D4 §38 confirmed hard cap 60d + D5 legacy orderNumber UI). Rama `feat-bo-sin-ttl-v2`.
@@ -15331,7 +15364,7 @@ sapSL.fetchWithSession('/b1s/v1/Items?$top=1&$select=ItemCode').then(r => consol
 
 **Pendiente post-v330** (opcional, cerrar el círculo de seguridad de E5):
 - Borrar `app_config/sap_integration.serviceLayer.password` de Firestore (el fetch legacy queda sin creds, pero como useCloudProxy=true los ignora). Antes de borrar, dejar la app corriendo N días para confirmar que useCloudProxy=true no da problemas en operación real.
-- Rotar la password (`Shi*99` es débil + leakeada en esta sesión). Ver 43.8.
+- Rotar la password (`<removida 2026-10>` es débil + leakeada en esta sesión). Ver 43.8.
 
 ### v329 (2026-07-27) — Preparación E2.b step 3: SDK + CSP + region
 
@@ -16323,7 +16356,7 @@ De la sesión 2026-07-27 (esta):
 ### 44.4 Pendientes (post Fase 0, no bloqueantes)
 
 **Cerrar el círculo de seguridad E5** (recomendado semana próxima):
-1. **Rotar la password de `APP_VENDEDORES` en SAP**: la actual `Shi*99` es débil (6 chars) y quedó leakeada en el transcript del chat 2026-07-27. Pedir a Seidor password nueva 16+ chars. Actualizar Secret Manager: `Set-Content -Path secret-tmp.txt -Value "<nueva>" -Encoding ascii -NoNewline; gcloud secrets versions add SAP_SL_PASSWORD --data-file=secret-tmp.txt --project=app-vendedores-shimano; Remove-Item secret-tmp.txt`. La función `sapProxy` lee `LATEST` automáticamente.
+1. **Rotar la password de `APP_VENDEDORES` en SAP**: la actual `<removida 2026-10>` es débil (6 chars) y quedó leakeada en el transcript del chat 2026-07-27. Pedir a Seidor password nueva 16+ chars. Actualizar Secret Manager: `Set-Content -Path secret-tmp.txt -Value "<nueva>" -Encoding ascii -NoNewline; gcloud secrets versions add SAP_SL_PASSWORD --data-file=secret-tmp.txt --project=app-vendedores-shimano; Remove-Item secret-tmp.txt`. La función `sapProxy` lee `LATEST` automáticamente.
 2. **Borrar `app_config/sap_integration.serviceLayer.password` de Firestore**: solo el campo `password`, dejar `url`, `companyDB`, `username` (no sensibles). Precondición: dejar la app corriendo N días con `sapSL.useCloudProxy=true` para confirmar que no da problemas en operación real. Después de borrar la password, el fallback legacy (useCloudProxy=false) queda sin creds — pero como useCloudProxy=true no lo usa, todo sigue funcionando. Si algún día se necesita rollback: la password nueva en Secret Manager es reversible, se puede volver a poner en Firestore temporalmente.
 3. **Verificar cada mañana los primeros días** que el backup diario corrió: `gcloud storage ls gs://app-vendedores-shimano-backups/firestore/` debe listar folder de la fecha. Sino: `gcloud functions logs read dailyFirestoreBackup --region=southamerica-east1 --limit=20`.
 4. **Configurar alerta email de fallo del backup**: Cloud Logging → log-based metric sobre `severity>=ERROR AND resource.labels.function_name="dailyFirestoreBackup"` → Alerting policy → email a `bot.shimano.pesca@gmail.com`.
@@ -16347,7 +16380,7 @@ De la sesión 2026-07-27 (esta):
   - `dailyFirestoreBackup` — cron 2am AR → gs://app-vendedores-shimano-backups/firestore/{YYYY-MM-DD}/
   - `sapProxy` — callable, invocada desde el browser via `httpsCallable` cada vez que la app hace una request SAP
 - **Bucket backups**: `gs://app-vendedores-shimano-backups` (populated diariamente).
-- **Secret Manager**: `SAP_SL_PASSWORD` versión 3 con valor real (`Shi*99`, débil — rotar).
+- **Secret Manager**: `SAP_SL_PASSWORD` versión 3 con valor real (`<removida 2026-10>`, débil — rotar).
 - **IAM Compute Engine SA** (`746111030735-compute@developer.gserviceaccount.com`): `roles/datastore.importExportAdmin` + `roles/storage.objectAdmin` sobre bucket + `roles/secretmanager.secretAccessor` sobre SAP_SL_PASSWORD.
 - **Rollback rápido sap-client**: `sapSL.useCloudProxy = false` en F12 Console (sin redeploy).
 

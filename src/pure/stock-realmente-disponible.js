@@ -1,4 +1,6 @@
 // @ts-check
+import { getStockBreakdown } from './stock-breakdown.js';
+
 /**
  * v701 (2026-08-28): Stock realmente disponible para vender.
  *
@@ -214,7 +216,8 @@ export function lineReservesStock(line, nowMs, pedido) {
 }
 
 /**
- * Calcula el stock realmente disponible para un SKU dado.
+ * v1391 (2026-10-21, §39): wrapper fino sobre getStockBreakdown.
+ * Preserva el shape histórico (number). Lógica dentro: libre del breakdown.
  *
  * @param {string} sku
  * @param {StockRealDeps} deps
@@ -222,54 +225,7 @@ export function lineReservesStock(line, nowMs, pedido) {
  * @returns {number} Stock disponible >= 0.
  */
 export function getStockRealmenteDisponible(sku, deps, opts) {
-  const skuUp = String(sku || '').toUpperCase();
-  if (!skuUp) return 0;
-  const fisico = Number(deps.getStockFisico(skuUp)) || 0;
-  if (fisico <= 0) return 0;
-
-  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
-  let comprometido = 0;
-  const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
-  for (const p of pedidos) {
-    if (!p || p.closedAt) continue;
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    for (const l of lines) {
-      if (!l || !l.code) continue;
-      if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >7d expirada.
-      if (!lineReservesStock(l, now, p)) continue;
-      const qtyOpen = Number(l.qtyOpen) || 0;
-      if (qtyOpen <= 0) continue;
-      comprometido += qtyOpen;
-    }
-  }
-
-  // v1198 (2026-10-08): tambien restar items de revision_waitlist con
-  // source='stock-asignado-batch' (CPST). Son unidades que ya estaban como
-  // ASIG para el cliente y pasaron a waitlist via "Crear Pedido - ST". Se
-  // mantienen protegidas hasta que el admin pase la card a Pendientes (donde
-  // se crean como pedido con state=confirmed y vuelven a contar via lineas).
-  //
-  // Rationale Mariano: "si yo paso desde 'Crear Pedido - ST' a Lista de
-  // Espera esas 20 unidades dejan de ser Stock Asignado porque pasa a ser
-  // pedido pero estan PROTEGIDAS... si justo carga otro vendedor un pedido y
-  // pide 2 entonces ahora deberia avisarle al cliente 'ahora tenes 18
-  // reservadas' y se va a enojar porque ya le habia dicho que tenia 20
-  // unidades guardadas".
-  const waitlist = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries : [];
-  for (const w of waitlist) {
-    if (!w || w.source !== 'stock-asignado-batch') continue;
-    const items = Array.isArray(w.items) ? w.items : [];
-    for (const it of items) {
-      if (!it || !it.code) continue;
-      if (String(it.code).toUpperCase() !== skuUp) continue;
-      const qty = Number(it.qty) || 0;
-      if (qty <= 0) continue;
-      comprometido += qty;
-    }
-  }
-
-  return Math.max(0, fisico - comprometido);
+  return getStockBreakdown(sku, deps, opts).libre;
 }
 
 /**
@@ -285,6 +241,10 @@ export function getStockRealmenteDisponible(sku, deps, opts) {
  *   - Pero al confirmar, el disponible REAL sigue siendo 0 (fisico - TODAS
  *     las reservas = 6 - 6 = 0). Sus 2u nuevas caen en BO.
  *
+ * v1391 (2026-10-21, §39): wrapper sobre getStockBreakdown. Preserva el
+ * shape histórico {fisico, reservadasPorCliente, reservadasPorOtros, ...}
+ * mapeado desde los buckets porCliente del breakdown.
+ *
  * @param {string} sku
  * @param {string} cardCode CardCode del cliente actual
  * @param {StockRealDeps} deps
@@ -294,58 +254,37 @@ export function getStockRealmenteDisponible(sku, deps, opts) {
 export function getStockPorCliente(sku, cardCode, deps, opts) {
   const skuUp = String(sku || '').toUpperCase();
   const ccUp = String(cardCode || '').trim();
-  const fisico = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
-  const empty = {
-    fisico,
-    reservadasPorCliente: 0,
-    reservadasPorOtros: 0,
-    libreParaCliente: fisico,
-    disponibleReal: fisico,
-    yaEnOtroPedido: [],
-  };
-  if (!skuUp || !ccUp) return empty;
-
-  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
+  const b = getStockBreakdown(skuUp, deps, opts);
+  const fisico = b.fisicoDep11;
+  if (!skuUp || !ccUp) {
+    return {
+      fisico,
+      reservadasPorCliente: 0,
+      reservadasPorOtros: 0,
+      libreParaCliente: fisico,
+      disponibleReal: fisico,
+      yaEnOtroPedido: [],
+    };
+  }
   let reservadasPorCliente = 0;
   let reservadasPorOtros = 0;
   const yaEnOtroPedido = [];
-  const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
-  for (const p of pedidos) {
-    if (!p || p.closedAt) continue;
-    const pCC = String(p.clientCardCode || '').trim();
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    for (const l of lines) {
-      if (!l || !l.code) continue;
-      if (String(l.code).toUpperCase() !== skuUp) continue;
-      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >7d expirada.
-      if (!lineReservesStock(l, now, p)) continue;
-      const qtyOpen = Number(l.qtyOpen) || 0;
-      if (qtyOpen <= 0) continue;
-      if (pCC === ccUp) {
-        reservadasPorCliente += qtyOpen;
-        yaEnOtroPedido.push({
-          pedidoId: p._fsId || p._id || '',
-          qtyOpen,
-          state: l.state,
-        });
+  const buckets = [
+    { bk: b.backorderApp, state: 'BO' },
+    { bk: b.confirmadasSinFacturar, state: 'confirmed' },
+    { bk: b.asignadas, state: 'ASIG' },
+    { bk: b.waitlistCpst, state: 'WAITLIST_CPST' },
+  ];
+  for (const { bk, state } of buckets) {
+    for (const c of bk.porCliente) {
+      if (c.cardCode === ccUp) {
+        reservadasPorCliente += c.qty;
+        for (const o of c.origins || []) {
+          yaEnOtroPedido.push({ pedidoId: o.pedidoId, qtyOpen: o.qty, state });
+        }
       } else {
-        reservadasPorOtros += qtyOpen;
+        reservadasPorOtros += c.qty;
       }
-    }
-  }
-  // v1198 (2026-10-08): tambien considerar waitlist CPST (source=stock-asignado-batch).
-  const waitlist = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries : [];
-  for (const w of waitlist) {
-    if (!w || w.source !== 'stock-asignado-batch') continue;
-    const wCC = String(w.clientCardCode || '').trim();
-    const items = Array.isArray(w.items) ? w.items : [];
-    for (const it of items) {
-      if (!it || !it.code) continue;
-      if (String(it.code).toUpperCase() !== skuUp) continue;
-      const qty = Number(it.qty) || 0;
-      if (qty <= 0) continue;
-      if (wCC === ccUp) reservadasPorCliente += qty;
-      else reservadasPorOtros += qty;
     }
   }
   return {
@@ -446,6 +385,8 @@ export function getStockPorClienteMemo(sku, cardCode, deps, opts) {
  * @returns {number} Stock disponible >= 0 para el cliente C en pedido ex-ASIG.
  */
 export function getStockUtilizableParaClienteExAsig(sku, cardCode, deps, opts) {
+  // v1391 (§39): delegado a breakdown.utilizablePara (mismo cálculo).
+  if (cardCode) return getStockBreakdown(sku, deps, opts).utilizablePara(cardCode);
   const r = getStockPorCliente(sku, cardCode, deps, opts);
   const fisico = Number(r.fisico) || 0;
   if (fisico <= 0) return 0;
@@ -478,47 +419,24 @@ export function _resetStockPorClienteMemo() {
  * @param {{now?: number}} [opts] - v959: now inyectable para tests.
  * @returns {{fisico: number, comprometido: number, real: number, breakdown: {confirmed: number, BO: number, ASIG: number}}}
  */
+/**
+ * v1391 (§39): wrapper sobre getStockBreakdown.
+ * @param {string} sku
+ * @param {StockRealDeps} deps
+ * @param {{now?: number}} [opts]
+ * @returns {{fisico: number, comprometido: number, real: number, breakdown: {confirmed: number, BO: number, ASIG: number, WAITLIST_CPST: number}}}
+ */
 export function getStockDesglose(sku, deps, opts) {
-  const skuUp = String(sku || '').toUpperCase();
-  const fisico = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
-  const breakdown = { confirmed: 0, BO: 0, ASIG: 0, WAITLIST_CPST: 0 };
-  if (!skuUp) return { fisico: 0, comprometido: 0, real: 0, breakdown };
-
-  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
-  const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
-  for (const p of pedidos) {
-    if (!p || p.closedAt) continue;
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    for (const l of lines) {
-      if (!l || !l.code) continue;
-      if (String(l.code).toUpperCase() !== skuUp) continue;
-      const st = /** @type {'confirmed'|'BO'|'ASIG'} */ (l.state);
-      // v957/v959/v963: skipear ASIG sin reserva/expirada + confirmed >7d expirada.
-      if (!lineReservesStock(l, now, p)) continue;
-      const qtyOpen = Number(l.qtyOpen) || 0;
-      if (qtyOpen <= 0) continue;
-      breakdown[st] = (breakdown[st] || 0) + qtyOpen;
-    }
-  }
-  // v1198: waitlist CPST reserva stock también.
-  const waitlist = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries : [];
-  for (const w of waitlist) {
-    if (!w || w.source !== 'stock-asignado-batch') continue;
-    const items = Array.isArray(w.items) ? w.items : [];
-    for (const it of items) {
-      if (!it || !it.code) continue;
-      if (String(it.code).toUpperCase() !== skuUp) continue;
-      const qty = Number(it.qty) || 0;
-      if (qty <= 0) continue;
-      breakdown.WAITLIST_CPST += qty;
-    }
-  }
-  const comprometido =
-    breakdown.confirmed + breakdown.BO + breakdown.ASIG + breakdown.WAITLIST_CPST;
+  const b = getStockBreakdown(sku, deps, opts);
   return {
-    fisico,
-    comprometido,
-    real: Math.max(0, fisico - comprometido),
-    breakdown,
+    fisico: b.fisicoDep11,
+    comprometido: b.reservadasTotal,
+    real: b.libre,
+    breakdown: {
+      confirmed: b.confirmadasSinFacturar.total,
+      BO: b.backorderApp.total,
+      ASIG: b.asignadas.total,
+      WAITLIST_CPST: b.waitlistCpst.total,
+    },
   };
 }
