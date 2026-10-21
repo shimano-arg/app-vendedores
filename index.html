@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1399';
+const APP_VERSION = 'v1400';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18295,8 +18295,11 @@ window._gbConfirmar = async function(){
   const r = _gbState.cliResolved;
   const btn = document.getElementById('gb-confirm-btn');
   // 1) Validaciones.
-  if (!r) {
-    alert('Elegi un cliente valido antes de guardar.');
+  // v1400 §40.8: antes el bug "pedidos undefined" venía cuando _revisionResolveCliente
+  // devolvia un objeto sin .nombre (edge case: cliente nuevo sin match completo).
+  // Guard explícito: exigir r.nombre no vacío.
+  if (!r || !r.nombre || !String(r.nombre).trim()) {
+    alert('Elegi un cliente valido antes de guardar (sin nombre resuelto).');
     const cli = document.getElementById('gb-cliente');
     if (cli) cli.focus();
     return;
@@ -18463,7 +18466,9 @@ window._gbConfirmar = async function(){
       onBehalfOf: false,
       stage: 'confirmed',
       key: '',
-      tipo: '', province: r.provincia || '', locName: r.localidad || '', clientName: r.nombre,
+      tipo: '', province: r.provincia || '', locName: r.localidad || '',
+      // v1400 §40.8: coerción defensiva — nunca persistir clientName undefined/null.
+      clientName: String(r.nombre || '').trim(),
       clientCardCode: r.cardCode || '',
       orderNumber: orderNum,
       waitlistOrigenId: null,
@@ -30845,103 +30850,57 @@ window.queryStockLive = function(code, btn){
           }
         }
       }
-      // v973 (2026-09-17): 4 lineas — dep 11 + dep 12 + comprometido + libre.
-      // v974 (2026-09-17): Lista de Espera NO compromete stock (Mariano).
-      // v1238/v1239 (2026-10-13): intenta usar getStockDesglose pero los
-      // numeros no coincidian con los modales Backorder / Stock Asignado,
-      // confundiendo al VDE: "si abro Stock Asignado dice 22, el modal
-      // Productos dice CONFIRMED=19+ASIG=0+BO=16 ???".
-      // v1242 (2026-10-13): simplificar a 5 lineas y SIEMPRE calcular desde
-      // la misma fuente que los modales (computeBackorderSkuMap con mode
-      // 'asignacion' y 'urgente'). Garantiza:
-      //   STOCK ASIGNADO (modal Productos) == totalPendiente modal Stock
-      //                                       Asignado para el mismo SKU.
-      //   BACKORDER     (modal Productos) == totalPendiente modal Backorder.
-      //   LIBRE          = max(disp - STOCK_ASIGNADO - BACKORDER, 0)
-      const _bkFn = (window.__phase0 && window.__phase0.pure
-        && window.__phase0.pure.computeBackorderSkuMap);
-      const _bkDeps = {
-        getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function')
-          ? getStockDisponibleVenta : () => 0,
-        canonVendor: (typeof _canonVendor === 'function')
-          ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
-        products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS))
-          ? PRODUCTS : [],
-        backorderLines: (typeof backorderLines !== 'undefined'
-          && Array.isArray(backorderLines)) ? backorderLines : [],
-        sapGetClienteCode: (typeof sapGetClienteCode === 'function')
-          ? sapGetClienteCode : undefined,
-      };
-      const _bkFilters = { aggregationMode: 'fifo' };
-      const _bkGP = (typeof globalPedidos !== 'undefined'
-        && Array.isArray(globalPedidos)) ? globalPedidos : [];
-      let stockAsignadoQty = 0;
-      let backorderQty = 0;
+      // v1400 §40.8: migrado a getStockBreakdown — fuente única de verdad
+      // (CLAUDE.md §39). Antes mezclaba computeBackorderSkuMap +
+      // getStockDesglose + getStockRealmenteDisponible y los números no
+      // siempre coincidían con el modal Pedido en Espera y Backorder. Ahora
+      // comparte el mismo shape que todas las pantallas via STOCK_LABELS.
+      const _bkFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.getStockBreakdown;
+      const _labels = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.STOCK_LABELS) || {};
+      let _bk = null;
       if (_bkFn) {
         try {
-          const _asigRes = _bkFn(_bkGP, 'asignacion', _bkFilters, _bkDeps);
-          const _asigSku = (_asigRes.skus || []).find((g) => g.sku === k);
-          if (_asigSku) stockAsignadoQty = Math.round(_asigSku.totalPendiente || 0);
-          const _urgRes = _bkFn(_bkGP, 'urgente', _bkFilters, _bkDeps);
-          const _urgSku = (_urgRes.skus || []).find((g) => g.sku === k);
-          if (_urgSku) backorderQty = Math.round(_urgSku.totalPendiente || 0);
+          const _bkGP = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+          const _bkWL = (typeof _getWaitlistCpstEntries === 'function') ? _getWaitlistCpstEntries() : [];
+          const _bkIR = (typeof window._ingresosRepartoActivos === 'object' && window._ingresosRepartoActivos)
+            ? Object.values(window._ingresosRepartoActivos) : [];
+          _bk = _bkFn(k, {
+            getStockFisico: (sku) => (typeof getStockDisponibleVenta === 'function') ? (getStockDisponibleVenta(sku) || 0) : 0,
+            getStockTransito: (sku) => {
+              const _wb = STOCK_WAREHOUSE_BREAKDOWN[String(sku || '').toUpperCase().trim()] || {};
+              return Number(_wb['12']) || 0;
+            },
+            pedidos: _bkGP,
+            waitlistEntries: _bkWL,
+            ingresosRepartoActivos: _bkIR,
+          });
         } catch (_bkErr) {
-          console.warn('[stock-modal] computeBackorderSkuMap fallo:', _bkErr);
-          // Fallback a desglose generico.
-          stockAsignadoQty = reservado;
-          backorderQty = pendienteSinStock;
+          console.warn('[stock-modal] getStockBreakdown fallo:', _bkErr);
         }
+      }
+      if (_bk) {
+        const _line = (label, qty) => label + ': ' + qty + ' unidades';
+        const _lines = [
+          _line(_labels.fisicoDep11 || 'Stock físico (dep 11)', _bk.fisicoDep11),
+          _line(_labels.transitoDep12 || 'En tránsito (dep 12)', _bk.transitoDep12),
+          _line(_labels.backorderApp || 'Back order (app)', _bk.backorderApp.total),
+          _line(_labels.confirmadasSinFacturar || 'Confirmadas sin facturar', _bk.confirmadasSinFacturar.total),
+          _line(_labels.asignadas || 'Asignadas', _bk.asignadas.total),
+          _line(_labels.reservadasTotal || 'Reservadas', _bk.reservadasTotal),
+          _line(_labels.libre || 'Libre para la venta', _bk.libre),
+        ];
+        const _pendRep = (_bk.pendienteReparto && Number(_bk.pendienteReparto.qty)) || 0;
+        if (_pendRep > 0) {
+          _lines.push(_line(_labels.pendienteReparto || 'Pendientes de reparto', _pendRep));
+        }
+        status = _lines.join('\n');
       } else {
-        stockAsignadoQty = reservado;
-        backorderQty = pendienteSinStock;
+        // Fallback si el bundle no está cargado (edge case; no debería pasar).
+        status =
+          'STOCK FISICO (DEP 11): ' + disp + ' unidades\n' +
+          'STOCK EN TRANSITO (DEP 12): ' + transito + ' unidades\n' +
+          '(breakdown no disponible — recargá la página)';
       }
-      // v1367 (2026-10-19): fix divergencia con el export Lista de Precios.
-      // Antes: libre = disp - stockAsignado - backorder (solo cuenta BO+ASIG).
-      // Export usa getStockRealmenteDisponible = disp - confirmed - BO - ASIG
-      // - WAITLIST_CPST. Si hay confirmed (ya en SAP, aún no facturado) o
-      // waitlist CPST (reservas de pedidos en espera), el export los descuenta
-      // y el modal no → divergencia (ej. 32 vs 30). Alineamos a la misma
-      // formula + agregamos las 2 lineas faltantes para que la aritmetica
-      // cierre a la vista. Reporte Mariano 2026-10-19 11:17 ART.
-      let confirmedQty = 0;
-      let waitlistCpstQty = 0;
-      try {
-        const _desgloseFn = typeof window.getStockDesglose === 'function' ? window.getStockDesglose : null;
-        if (_desgloseFn) {
-          const _desg = _desgloseFn(k);
-          if (_desg && _desg.breakdown) {
-            confirmedQty = Math.round(Number(_desg.breakdown.confirmed) || 0);
-            waitlistCpstQty = Math.round(Number(_desg.breakdown.WAITLIST_CPST) || 0);
-          }
-        }
-      } catch (_desgErr) {
-        console.warn('[stock-modal] getStockDesglose fallo:', _desgErr);
-      }
-      // Usar getStockRealmenteDisponible como fuente unica de "libre" (coincide
-      // con el export). Fallback a la formula manual si la pure no esta cargada.
-      let libre;
-      try {
-        const _fn = typeof window.getStockRealmenteDisponible === 'function'
-          ? window.getStockRealmenteDisponible : null;
-        libre = _fn ? Math.max(Math.round(Number(_fn(k)) || 0), 0)
-                    : Math.max(disp - stockAsignadoQty - backorderQty - confirmedQty - waitlistCpstQty, 0);
-      } catch (_libErr) {
-        libre = Math.max(disp - stockAsignadoQty - backorderQty - confirmedQty - waitlistCpstQty, 0);
-      }
-      const lines = [
-        'STOCK FISICO (DEP 11): ' + disp + ' unidades',
-        'STOCK EN TRANSITO (DEP 12): ' + transito + ' unidades',
-        'BACKORDER (pedidos BO): ' + backorderQty + ' unidades',
-        'STOCK ASIGNADO (ASIG Pablo): ' + stockAsignadoQty + ' unidades',
-      ];
-      if (confirmedQty > 0) {
-        lines.push('CONFIRMED (en SAP, no facturado): ' + confirmedQty + ' unidades');
-      }
-      if (waitlistCpstQty > 0) {
-        lines.push('LISTA DE ESPERA (CPST): ' + waitlistCpstQty + ' unidades');
-      }
-      lines.push('LIBRE PARA LA VENTA: ' + libre + ' unidades');
-      status = lines.join('\n');
     } else if (hasQtyData) {
       status = 'Total vendible: ' + qty + ' unidades\n\n(Sin desglose por almacen — el proximo sync separara disponible vs transito)';
     } else {

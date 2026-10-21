@@ -15,7 +15,7 @@
  *   - confirmed: §38 soft 7d + hard cap 60d. §36 guard sin confirmedAt.
  *   - ASIG: 7d.
  *
- * `demandaSapSinCubrir` — DEPRECATED en v1392. Siempre null. Eliminar en v1393.
+ * `demandaSapSinCubrir` — ELIMINADO v1400 §40.8 (DEPRECATED desde v1392).
  */
 
 import { lineReservesStock } from './stock-realmente-disponible.js';
@@ -71,7 +71,6 @@ import { lineReservesStock } from './stock-realmente-disponible.js';
  * @property {string} sku
  * @property {number} fisicoDep11
  * @property {number} transitoDep12
- * @property {{total:number, porCliente:PorClienteItem[]}|null} demandaSapSinCubrir  DEPRECATED v1392
  * @property {BucketTotal} backorderApp  Cola BO con TTL §37 90d. NO reserva (v1392).
  * @property {BucketTotal} confirmadasSinFacturar  Reserva (TTL §38).
  * @property {AsignadasBucket} asignadas  Reserva (TTL 7d) + FIFO entregable (§40.3 v1395).
@@ -99,12 +98,11 @@ export const STOCK_LABELS = Object.freeze({
 /**
  * @param {string} sku
  * @param {StockBreakdownDeps} deps
- * @param {{now?: number, includeStale?: boolean}} [opts]
+ * @param {{now?: number}} [opts]
  * @returns {StockBreakdown}
  */
 export function getStockBreakdown(sku, deps, opts) {
   const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
-  const includeStale = !!(opts && opts.includeStale);
   const skuUp = String(sku || '').toUpperCase();
   const fisicoDep11 = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
   const transitoDep12 =
@@ -118,11 +116,7 @@ export function getStockBreakdown(sku, deps, opts) {
     confirmed: /** @type {Map<string, PorClienteItem>} */ (new Map()),
     ASIG: /** @type {Map<string, PorClienteItem>} */ (new Map()),
   };
-  // Buckets stale (sin TTL) para demandaSapSinCubrir.
-  const bucketsStale = {
-    BO: /** @type {Map<string, PorClienteItem>} */ (new Map()),
-    confirmed: /** @type {Map<string, PorClienteItem>} */ (new Map()),
-  };
+  // v1400 §40.8: buckets stale eliminados — demandaSapSinCubrir removido.
 
   /**
    * @param {Map<string, PorClienteItem>} map
@@ -210,13 +204,6 @@ export function getStockBreakdown(sku, deps, opts) {
               qtyNominal: qo,
             });
           }
-        }
-        // stale (sin TTL) solo para BO y confirmed (DEPRECATED v1392).
-        if (includeStale && (st === 'BO' || st === 'confirmed')) {
-          const _staleMap = /** @type {Map<string, PorClienteItem>} */ (
-            bucketsStale[/** @type {'BO'|'confirmed'} */ (st)]
-          );
-          _push(_staleMap, p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
         }
       }
     }
@@ -331,11 +318,6 @@ export function getStockBreakdown(sku, deps, opts) {
   const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
-  // demandaSapSinCubrir DEPRECATED v1392 — queda null para no romper
-  // consumidores que lo lean. Eliminar del shape en v1393.
-  /** @type {{total:number, porCliente:PorClienteItem[]}|null} */
-  const demandaSapSinCubrir = null;
-
   /** @param {string} cardCode */
   const utilizablePara = (cardCode) => {
     if (!cardCode) return libre;
@@ -356,7 +338,6 @@ export function getStockBreakdown(sku, deps, opts) {
     sku: skuUp,
     fisicoDep11,
     transitoDep12,
-    demandaSapSinCubrir, // DEPRECATED v1392 — siempre null
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
@@ -367,6 +348,6 @@ export function getStockBreakdown(sku, deps, opts) {
     utilizablePara,
     // Alias compat v1391 — mismo info que repartoAbierto.
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 5,
+    _version: 6,
   };
 }

@@ -145,7 +145,7 @@ describe('v1395 §40.3 asignadas FIFO + qtyEntregable + sobreAsignada', () => {
 
   it('_version = 5', () => {
     const b = getStockBreakdown('X', makeDeps({}), { now: NOW });
-    expect(b._version).toBe(5);
+    expect(b._version).toBe(6);
   });
 
   it('sync src/pure vs functions/core: mismo detalle FIFO', () => {

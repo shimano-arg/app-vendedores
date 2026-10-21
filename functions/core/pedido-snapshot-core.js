@@ -110,6 +110,12 @@ export function lineReservesStock(line, nowMs, pedido) {
     // v1269 (2026-10-14): asigReserva=false libera reserva tambien para
     // confirmed. Mirror client-side (src/pure/stock-realmente-disponible.js).
     if (line.asigReserva === false || line.asigReserva === 0) return false;
+    // v1400 §40.8 D3 mirror: si la SQ ya se convirtió en SO en SAP
+    // (orderDocEntry presente), SAP la cubre en Available → la app NO
+    // reserva (evita doble conteo).
+    if (pedido && pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry != null) {
+      return false;
+    }
     // v963: expira desde pedido.confirmedAt (TTL 7d post-v1198).
     // v1384 (2026-10-21): guard defensivo — sin pedido.confirmedAt se trata
     // como data corrupta y NO reserva. CLAUDE.md §36.
@@ -153,11 +159,10 @@ export function lineReservesStock(line, nowMs, pedido) {
  *   ingresosRepartoActivos?: Array<any>,
  *   sapBackorderSnapshot?: Object|null,
  * }} deps
- * @param {{now?: number, includeStale?: boolean}} [opts]
+ * @param {{now?: number}} [opts]
  */
 export function getStockBreakdown(sku, deps, opts) {
   const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
-  const includeStale = !!(opts && opts.includeStale);
   const skuUp = String(sku || '').toUpperCase();
   const fisicoDep11 = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
   const transitoDep12 =
@@ -170,10 +175,7 @@ export function getStockBreakdown(sku, deps, opts) {
     confirmed: new Map(),
     ASIG: new Map(),
   };
-  const bucketsStale = {
-    BO: new Map(),
-    confirmed: new Map(),
-  };
+  // v1400 §40.8: buckets stale eliminados — demandaSapSinCubrir removido del shape.
 
   /**
    * @param {Map<string, any>} map
@@ -255,12 +257,6 @@ export function getStockBreakdown(sku, deps, opts) {
               qtyNominal: qo,
             });
           }
-        }
-        if (includeStale && (st === 'BO' || st === 'confirmed')) {
-          const _staleMap = /** @type {Map<string, any>} */ (
-            bucketsStale[/** @type {'BO'|'confirmed'} */ (st)]
-          );
-          _push(_staleMap, p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
         }
       }
     }
@@ -361,9 +357,6 @@ export function getStockBreakdown(sku, deps, opts) {
   const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
-  // demandaSapSinCubrir DEPRECATED v1392 — queda null.
-  const demandaSapSinCubrir = null;
-
   /** @param {string} cardCode */
   const utilizablePara = (cardCode) => {
     if (!cardCode) return libre;
@@ -381,7 +374,6 @@ export function getStockBreakdown(sku, deps, opts) {
     sku: skuUp,
     fisicoDep11,
     transitoDep12,
-    demandaSapSinCubrir, // DEPRECATED v1392
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
@@ -391,7 +383,7 @@ export function getStockBreakdown(sku, deps, opts) {
     libre,
     utilizablePara,
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 5,
+    _version: 6,
   };
 }
 
