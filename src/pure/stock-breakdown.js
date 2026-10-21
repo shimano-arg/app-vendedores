@@ -99,6 +99,14 @@ export function getStockBreakdown(sku, deps, opts) {
     confirmed: /** @type {Map<string, PorClienteItem>} */ (new Map()),
   };
 
+  /**
+   * @param {Map<string, PorClienteItem>} map
+   * @param {string|undefined} cardCode
+   * @param {string|undefined} clientName
+   * @param {number} qty
+   * @param {string} pedidoId
+   * @param {number} lineIndex
+   */
   const _push = (map, cardCode, clientName, qty, pedidoId, lineIndex) => {
     const key = String(cardCode || clientName || '(sin cliente)').trim() || '(sin cliente)';
     const existing = map.get(key);
@@ -130,16 +138,23 @@ export function getStockBreakdown(sku, deps, opts) {
       const vig = lineReservesStock(l, now, p);
       if (st === 'BO' || st === 'confirmed' || st === 'ASIG') {
         if (vig) {
-          _push(buckets[st], p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
+          const _map = /** @type {Map<string, PorClienteItem>} */ (
+            buckets[/** @type {'BO'|'confirmed'|'ASIG'} */ (st)]
+          );
+          _push(_map, p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
         }
         // stale (sin TTL) solo para BO y confirmed (lo que ve Modal Backorder).
         if (includeStale && (st === 'BO' || st === 'confirmed')) {
-          _push(bucketsStale[st], p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
+          const _staleMap = /** @type {Map<string, PorClienteItem>} */ (
+            bucketsStale[/** @type {'BO'|'confirmed'} */ (st)]
+          );
+          _push(_staleMap, p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
         }
       }
     }
   }
 
+  /** @param {Map<string, PorClienteItem>} map */
   const _toBucket = (map) => {
     const porCliente = Array.from(map.values()).sort((a, b) => b.qty - a.qty);
     const total = porCliente.reduce((s, c) => s + c.qty, 0);
@@ -193,7 +208,8 @@ export function getStockBreakdown(sku, deps, opts) {
   if (!includeStale && deps.sapBackorderSnapshot) {
     // Futuro: feed real SAP si existe. Hoy ignorado por diseño (E0 confirmó
     // que no hay fuente externa; sapBackorderSnapshot queda como extension point).
-    demandaSapSinCubrir = /** @type {any} */ (deps.sapBackorderSnapshot[skuUp] || null);
+    const _snap = /** @type {Record<string, any>} */ (deps.sapBackorderSnapshot);
+    demandaSapSinCubrir = _snap[skuUp] || null;
   }
 
   // pendienteReparto: cuánto quedaría libre para repartir a BO vigentes
