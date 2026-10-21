@@ -27058,12 +27058,15 @@ function persistPendingEntry(entry){
       // v1382 (2026-10-20, FIX unificar lineas): decidir fórmula POR LINEA
       // leyendo l.origen. Compat con v1380 (si la linea no tiene origen pero
       // el entry tiene source CPST, cae en formula por cliente). CLAUDE.md §35.
+      // v1382 Caso D (2026-10-21): si el entry es MIXTO (al menos 1 linea con
+      // origen), el fallback por documento NO aplica — decidimos solo per-line.
       const _entryIsExAsig = entry.source === 'stock-asignado-batch'
         || (Array.isArray(entry.pedidosOrigenes) && entry.pedidosOrigenes.length > 0);
       const _entryCardCode = String(entry.clientCardCode || '').trim();
+      const _entryHasAnyOrigen = (entry.lines || []).some(_l => _l && _l.origen === 'stock-asignado');
       _linesEnriched = (entry.lines || []).flatMap(l => {
         const _lineIsExAsig = l && l.origen === 'stock-asignado';
-        const _useByCliente = (_lineIsExAsig || (_entryIsExAsig && !_lineIsExAsig))
+        const _useByCliente = (_lineIsExAsig || (_entryIsExAsig && !_lineIsExAsig && !_entryHasAnyOrigen))
           && _entryCardCode
           && typeof window.getStockUtilizableParaClienteExAsig === 'function';
         const _opts = {
@@ -34739,6 +34742,11 @@ window.doConfirmPedido = async function(){
   const _clientCardCode = (typeof sapGetClienteCode === 'function')
     ? (sapGetClienteCode(parts[3]) || '')
     : '';
+  // v1382 Caso D (2026-10-21): flag "doc mixto" calculado una vez. Si al
+  // menos una linea tiene origen='stock-asignado', el fallback por documento
+  // (_pendingPedidoSource global) NO aplica — decidimos solo per-line.
+  // Evita que lineas sin origen de una orden unificada consuman reserva propia.
+  const _ordHasAnyOrigen = (ord || []).some(_l => _l && _l.origen === 'stock-asignado');
   const docData = {
     ownerUid: ownerUid,
     ownerEmail: ownerEmail,
@@ -34833,11 +34841,18 @@ window.doConfirmPedido = async function(){
           // Refina §33: el filtro por `line.origen` es mas preciso que `source`
           // del documento y permite órdenes unificadas mixtas correctamente.
           // CLAUDE.md §33 (compat) + §35 (nueva regla por linea).
+          //
+          // v1382 Caso D (2026-10-21): si el doc es MIXTO (al menos 1 linea
+          // con origen), el fallback por documento NO aplica — decidimos solo
+          // per-line. Evita que lineas sin origen de orden unificada consuman
+          // reserva propia del cliente. Bug reportado por Mariano en el gate
+          // de cierre v1382.
           getDisp: function(sku){
             const _lineIsExAsig = l && l.origen === 'stock-asignado';
             // Fallback compat: si l no tiene origen pero el pedido padre si tiene
             // marcadores globales (CPST no unificado pre-v1382 waitlists viejas).
-            const _docIsExAsig = !_lineIsExAsig && (
+            // Solo aplica si NINGUNA linea del pedido tiene origen (doc puro-ex-ASIG).
+            const _docIsExAsig = !_lineIsExAsig && !_ordHasAnyOrigen && (
               window._pendingPedidoSource === 'stock-asignado-batch'
               || (Array.isArray(window._pendingPedidoOrigenes) && window._pendingPedidoOrigenes.length > 0)
             );

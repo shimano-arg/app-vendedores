@@ -300,6 +300,76 @@ describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde do
     // El TTL 7d la expirará si nadie la toca.
   });
 
+  // T7 — Caso D crítico (reportado por Mariano en gate de cierre v1382):
+  //      orden unificada hereda source='stock-asignado-batch' al nivel doc.
+  //      El fallback _docIsExAsig NO debe filtrar fórmula por cliente a las
+  //      líneas sin origen cuando el doc es MIXTO (hay otras líneas con
+  //      origen). De otro modo, las líneas sin origen consumen la reserva
+  //      propia del cliente → disp inflado → bug.
+  it('T7 Caso D: doc mixto con source heredado → línea sin origen va a BO (fórmula global)', () => {
+    const deps = makeDeps({
+      fisicoBySku: { [SKU_STRADIC]: 1 },
+      pedidos: [pedidoOpen('p-oeste-asig', OESTE, [lineASIG(SKU_STRADIC, 1)])],
+    });
+    const docData = {
+      source: 'stock-asignado-batch', // heredado al unificar
+      lines: [
+        { code: SKU_STRADIC, qty: 2, precio: 1000 }, // original SIN origen (orden base)
+        {
+          code: SKU_STRADIC,
+          qty: 1,
+          precio: 1000,
+          origen: 'stock-asignado',
+          asigRefs: [{ pedidoId: 'p-oeste-asig', lineIndex: 0, qtyAsignada: 1 }],
+        },
+      ],
+    };
+    const _docHasAnyOrigen = docData.lines.some((l) => l && l.origen === 'stock-asignado');
+    const buildGetDisp = (l) => {
+      const lineIsExAsig = l && l.origen === 'stock-asignado';
+      // POST-FIX: _docIsExAsig solo aplica si NINGUNA línea tiene origen.
+      const docIsExAsig = !lineIsExAsig && !_docHasAnyOrigen && docData.source === 'stock-asignado-batch';
+      return (sku) =>
+        (lineIsExAsig || docIsExAsig)
+          ? Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0)
+          : Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    };
+    // Línea 1 (sin origen): fórmula global → disp=max(0,1-1)=0 → BO 2u.
+    const out1 = splitPedidoLine(docData.lines[0], { getDisp: buildGetDisp(docData.lines[0]), flagEnabled: true });
+    expect(out1).toHaveLength(1);
+    expect(out1[0].state).toBe('BO');
+    expect(out1[0].qty).toBe(2);
+    // Línea 2 (con origen): fórmula por cliente → disp=min(1,1+0)=1 → confirmed 1u.
+    const out2 = splitPedidoLine(docData.lines[1], { getDisp: buildGetDisp(docData.lines[1]), flagEnabled: true });
+    expect(out2).toHaveLength(1);
+    expect(out2[0].state).toBe('confirmed');
+    expect(out2[0].qty).toBe(1);
+    // Total a SAP: 1u. A BO: 2u. (Caso D del plan.)
+  });
+
+  it('T7.b fallback doc activo cuando NINGUNA línea tiene origen (CPST puro compat)', () => {
+    const deps = makeDeps({
+      fisicoBySku: { [SKU_STRADIC]: 1 },
+      pedidos: [pedidoOpen('p-oeste-asig', OESTE, [lineASIG(SKU_STRADIC, 1)])],
+    });
+    const docData = {
+      source: 'stock-asignado-batch',
+      lines: [{ code: SKU_STRADIC, qty: 1, precio: 1000 }], // sin origen (CPST pre-v1382)
+    };
+    const _docHasAnyOrigen = docData.lines.some((l) => l && l.origen === 'stock-asignado');
+    const buildGetDisp = (l) => {
+      const lineIsExAsig = l && l.origen === 'stock-asignado';
+      const docIsExAsig = !lineIsExAsig && !_docHasAnyOrigen && docData.source === 'stock-asignado-batch';
+      return (sku) =>
+        (lineIsExAsig || docIsExAsig)
+          ? Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0)
+          : Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    };
+    const out = splitPedidoLine(docData.lines[0], { getDisp: buildGetDisp(docData.lines[0]), flagEnabled: true });
+    expect(out).toHaveLength(1);
+    expect(out[0].state).toBe('confirmed');
+  });
+
   it('T4 N refs distintos: 1 línea con 2 asigRefs distintos (ej: Pablo asignó 2+1 desde pedidos distintos)', () => {
     const lines = [
       {
