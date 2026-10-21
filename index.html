@@ -17395,12 +17395,19 @@ window._cpstConfirmar = async function(){
     // en vez de sk.qty original. Si las ASIG viejas expiraron y otro VDE tomo
     // parte del stock, la card nueva refleja la realidad. SKUs con qtyAjustada=0
     // se omiten del waitlist (no tiene sentido crear BO fantasma).
+    // v1382 (2026-10-20): identidad ASIG por linea. Cada item del CPST
+    // lleva origen='stock-asignado' + asigRefs[] (buildAsigRefsForLine).
+    // Permite al call-site de doConfirmPedido/persistPendingEntry decidir
+    // getDisp por linea sin depender del documento (compat con unificacion).
+    const _buildAsigRefsFn =
+      (window.__phase0 && window.__phase0.pure && window.__phase0.pure.buildAsigRefsForLine) || null;
     const items = c.skus
       .filter(sk => (sk.qtyAjustada || 0) > 0)
       .map(sk => {
         const stk = (typeof _revisionStockFor === 'function')
           ? _revisionStockFor(sk.sku)
           : { hasData: false, stockTotal: null, backorder: 0, disponible: null };
+        const refs = _buildAsigRefsFn ? _buildAsigRefsFn(sk.sku, pedidosOrigenes) : [];
         return {
           code: sk.sku,
           desc: sk.desc || '',
@@ -17410,6 +17417,8 @@ window._cpstConfirmar = async function(){
           firstStockTotal: stk.hasData ? stk.stockTotal : null,
           firstBackorder: stk.backorder || 0,
           firstDisponible: stk.hasData ? stk.disponible : null,
+          // v1382: identidad por linea
+          ...(refs.length > 0 ? { origen: 'stock-asignado', asigRefs: refs } : {}),
         };
       });
     if (items.length === 0) {
@@ -24661,22 +24670,41 @@ window.waitlistUnificarOrden = async function(){
     if (!pure || typeof pure.mergeLinesFromOrders !== 'function') {
       throw new Error('Helper mergeLinesFromOrders no disponible (bundle no cargo).');
     }
+    // v1382 (2026-10-20): pasar source + pedidosOrigenes del CPST absorbido
+    // a mergeLinesFromOrders para que las lineas importadas lleven
+    // origen='stock-asignado' + asigRefs[].
     const otherOrders = candidates.map((c) => ({
       orderNumber: Number(c.orderNumber) || 0,
       pedidoId: c._id,
+      source: c.source || null,
+      pedidosOrigenes: Array.isArray(c.pedidosOrigenes) ? c.pedidosOrigenes : [],
       lines: Array.isArray(c.items) ? c.items : [],
     }));
     const { mergedLines } = pure.mergeLinesFromOrders(w.items || [], otherOrders);
     const nowIso = new Date().toISOString();
     const userEmail = (currentUser && currentUser.email) || '';
     const unifiedFromAudit = pure.buildUnifiedFromAudit(otherOrders, userEmail, nowIso);
+    // v1382: unir pedidosOrigenes[] a nivel documento del pedido unificado
+    // (compat con callers legacy que lean a nivel documento). El flow nuevo
+    // lee asigRefs por linea, pero preservamos ambos.
+    const _absorbedOrigenes = otherOrders.reduce((acc, o) => {
+      if (Array.isArray(o.pedidosOrigenes)) acc.push(...o.pedidosOrigenes);
+      return acc;
+    }, []);
     // writeBatch atomico: nueva + N viejas.
     const batch = fbDb.batch();
-    batch.update(fbDb.collection('revision_waitlist').doc(w._id), {
+    const _unifiedUpdate = {
       items: mergedLines,
       unifiedFrom: firebase.firestore.FieldValue.arrayUnion(...unifiedFromAudit),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    if (_absorbedOrigenes.length > 0) {
+      _unifiedUpdate.pedidosOrigenes = firebase.firestore.FieldValue.arrayUnion(..._absorbedOrigenes);
+      // Si la orden base no era CPST, heredar el source para que la unificada
+      // tambien se reconozca como CPST en el read side (compat con flow pre-v1382).
+      if (!w.source) _unifiedUpdate.source = 'stock-asignado-batch';
+    }
+    batch.update(fbDb.collection('revision_waitlist').doc(w._id), _unifiedUpdate);
     for (const c of candidates) {
       batch.update(fbDb.collection('revision_waitlist').doc(c._id), {
         stage: 'consumed',
@@ -25478,8 +25506,23 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // v568 (2026-08-20): filtraba items sin dispSap y los dejaba en waitlist.
   // v573 (2026-08-21): revierte a v507 — pasa todo. Los BO viajan al pedido
   // y aparecen en el modal BACKORDER (via CF E3 backorderByClientSkuApp).
+  // v1382 (2026-10-20): propagar identidad de linea del waitlist al pedido.
+  // Fix pre-existente de v1284 (importedFromOrder se perdia) + nuevos campos
+  // origen/asigRefs del fix "Unificar orden preservando identidad ASIG".
+  // Permite al call-site decidir getDisp por linea y cancelar ASIG por linea.
   const finalItems = (w.items || [])
-    .map(it => ({code: it.code, desc: it.desc, qty: it.qty || 0, precioExcel: null, needsReview: false}))
+    .map(it => ({
+      code: it.code,
+      desc: it.desc,
+      qty: it.qty || 0,
+      precioExcel: null,
+      needsReview: false,
+      // v1284: color de fila importada post-unificacion persiste al confirmar
+      ...(typeof it.importedFromOrder === 'number' ? { importedFromOrder: it.importedFromOrder } : {}),
+      // v1382: identidad ASIG por linea (orden CPST o items de CPST absorbido)
+      ...(it.origen ? { origen: it.origen } : {}),
+      ...(Array.isArray(it.asigRefs) && it.asigRefs.length > 0 ? { asigRefs: it.asigRefs.map(r => ({ ...r })) } : {}),
+    }))
     .filter(it => it.qty > 0);
   if (!finalItems.length) {
     alert('No hay ninguna linea con qty > 0 en el pedido. Agrega o corrige unidades antes de pasar a Pendientes.');

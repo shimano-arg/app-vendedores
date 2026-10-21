@@ -111,6 +111,30 @@ describe('T0-P2 (RED): orden unificada pierde identidad ASIG → bug H1 reaparec
 });
 
 // =============================================================================
+// T2 — Unificar 2 órdenes NORMALES (sin source CPST): ninguna línea tiene origen
+// =============================================================================
+describe('T2 — órdenes normales → sin origen (no se filtra el fix)', () => {
+  it('mergedLines[importada] NO tiene origen cuando otherOrder no es CPST', () => {
+    const baseLines = [{ code: SKU_STRADIC, qty: 2 }];
+    const otherOrder = {
+      orderNumber: 100,
+      pedidoId: 'orden-normal-1',
+      // source ausente, pedidosOrigenes ausente
+      lines: [{ code: 'OTRO-SKU', qty: 3 }],
+    };
+    const { mergedLines } = mergeLinesFromOrders(baseLines, [otherOrder]);
+    expect(mergedLines).toHaveLength(2);
+    // Línea base: sin origen (nunca tuvo)
+    expect(mergedLines[0].origen).toBeUndefined();
+    expect(mergedLines[0].asigRefs).toBeUndefined();
+    // Línea importada: tiene importedFromOrder pero NO origen/asigRefs
+    expect(mergedLines[1].importedFromOrder).toBe(100);
+    expect(mergedLines[1].origen).toBeUndefined();
+    expect(mergedLines[1].asigRefs).toBeUndefined();
+  });
+});
+
+// =============================================================================
 // T0-P3 — Cancelación ASIG hoy depende de _pendingPedidoOrigenes global.
 // =============================================================================
 describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde documento)', () => {

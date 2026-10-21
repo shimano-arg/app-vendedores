@@ -65,6 +65,7 @@ import {
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
 import {
+  buildAsigRefsForLine,
   buildUnifiedFromAudit,
   computeDuplicateCodes,
   getRowColorClass,
@@ -240,6 +241,7 @@ const phase0 = {
     computeDuplicateCodes,
     getRowColorClass,
     buildUnifiedFromAudit,
+    buildAsigRefsForLine,
     splitPedidoLine,
     reenrichPedidoLine,
     redistributeAsigLine,
