@@ -1117,3 +1117,48 @@ Cuando el VDE confirma "Crear Pedido Desde Stock Asignado" y el stock físico li
 **Caso real para verificación prod**: LA LOMITA OUTDOORS SRL (C30716659379), EXGC66MHBAR 1u + EXGC66HBAR 2u, hoy recortadas a 0 → al confirmar CPST, 3u totales deberían pasar a BO con `asigRevertidaReason='asig_sin_stock_revertida_a_bo'`. Validar con script audit `scripts/audit/J_sobre_asignadas_prod.cjs` post-ejecución: esas líneas desaparecen de `asignadas.totalSobreAsignada`.
 
 **Precedente**: `feat-cpst-revert-asig-sin-stock-a-bo` 2026-10-21 (v1397). Reporte Mariano: "una asignación solo existe con respaldo físico; sin respaldo, es cola".
+
+### §40.6 (2026-10-21, v1398): "Borrar de espera" en órdenes CPST abre modal de 2 opciones
+
+El botón **"Borrar de espera"** del modal waitlist-card:
+- Para órdenes **normales** (sin `source='stock-asignado-batch'` ni `pedidosOrigenes`/`asigRefs` populated): sigue el flujo histórico (confirm nativo + `delete` del doc).
+- Para órdenes **CPST** (`isWaitlistCpst(w) === true`): abre `#wcard-delete-choice-modal` con 2 botones (sin opción peligrosa por defecto). Si el user cierra sin elegir, nada se escribe.
+
+Opciones:
+
+1. **"El cliente no quiere la mercadería"** (`choice='rechazo_cpst'`):
+   - `batch.delete(revision_waitlist/w._id)`.
+   - Para cada ref de `collectAsigRefsForCancel(w)`:
+     - Fetch pedido origen.
+     - Mutar `lines[lineIndex]`: `state='cancelled'`, `qtyOpen=0`, `qtyCancelled += prevQo`, `closedReason='cliente_rechazo_cpst'`, `cancelledAt=nowIso`, `cancelledBy=userEmail`, `asigReserva=false`.
+   - 1 batch atómico (`batch.commit()`).
+   - Alert "Pedido borrado · N u ASIG canceladas".
+   - Las unidades vuelven a libre; la reconciliación crea reparto si hay BO del SKU y entra físico.
+
+2. **"Solo borro el borrador"** (`choice='solo_borrador'`):
+   - `batch.delete(revision_waitlist/w._id)` — nada más.
+   - Las ASIG de origen quedan vivas (reservadas hasta vencimiento 7d).
+
+**Fuente de refs** (`src/pure/cpst-cancel-asig-plan.js:collectAsigRefsForCancel`): unión dedupe de `w.pedidosOrigenes[]` + `w.items[].asigRefs[]` (per-línea v1382). Dedupe por `(pedidoId, lineIndex)` — toma la qty máxima si una ref aparece en ambas fuentes.
+
+**Idempotencia**:
+- Línea ya en `state='cancelled'` con `closedReason='cliente_rechazo_cpst'`: skip (no se re-cancela ni se cambia audit).
+- Línea en otro estado (`BO`, `invoiced`, `confirmed`): skip (no se fuerza cancelación — otros flows la pueden haber mutado válidamente, ej. v1397 revertida a BO).
+
+**UI del modal**:
+- Botón 1 (danger, borde rojo): "El cliente no quiere la mercadería" — detalle dinámico: "Se borra el pedido y las N unidad(es) ASIG de origen se cancelan (cliente_rechazo_cpst). Vuelven a libre; si hay back order del SKU, aparecerán en Reparto cuando ingrese stock."
+- Botón 2 (neutro, borde gris): "Solo borro el borrador" — detalle dinámico: "Se borra el pedido y las N unidad(es) siguen reservadas para el cliente (ASIG). Vencen el DD/MM (7 días)."
+- Botón 3: "Cancelar" (no hace nada).
+
+Ninguno de los 2 botones de acción tiene estilo `default`/focus auto — el user debe elegir explícitamente.
+
+**Tests**:
+- `tests/unit/cpst-cancel-asig-plan.test.js` (8): pure function + edge cases + caso ALAN OSCAR orden 487.
+- `tests/unit/audit/cpst-delete-choice-flow.test.js` (10): isWaitlistCpst discrimination + path 1 muta línea con audit + breakdown post-cancel deja de contar + path 2 preserva línea + idempotencia (ya cancelled, BO revertida, invoiced) + orden unificada v1382 extrae asigRefs por línea + caso real ALAN OSCAR.
+
+**Caso real para verificar prod**: ALAN OSCAR NICOLAS RODRIGUEZ (CardCode `C23347411299`), orden 487, CLC70MHAAR 1 unidad. Al elegir "cliente_rechazo_cpst":
+- `revision_waitlist/<orden487>` se borra.
+- `pedidos/ewGoZIDQ.lines[0]` muta: `state='ASIG' → 'cancelled'`, `qtyOpen 1 → 0`, `closedReason='cliente_rechazo_cpst'`.
+- `getStockBreakdown('CLC70MHAAR').asignadas` baja 1u. El modal Stock Asignado deja de listarla.
+
+**Precedente**: `feat-cpst-delete-choice-cancel-asig` 2026-10-21 (v1398). Reporte Mariano: regla simétrica a §40.5 — "si el cliente no quiere, no tiene sentido mantener la reserva".
