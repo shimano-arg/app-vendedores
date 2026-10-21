@@ -1040,3 +1040,44 @@ asignadas: {
 - Si entra stock y físico sube a 6, el próximo read del breakdown devuelve `sobreAsignada=0` sin acción manual.
 
 **Precedente**: `feat-sobre-asignadas` 2026-10-21 (v1395). Tests `tests/unit/audit/asignadas-fifo.test.js` + `tests/functions/scan-sobre-asignadas.test.js` cubren los 3 casos pedidos (T1 nominal == físico, T2 nominal > físico, T3 entra stock que limpia solo) + FIFO con 2 ASIGs + ASIG sin asigAt.
+
+### §40.4 (2026-10-21, v1396): cards STOCK ASIG tienen UN SOLO background en todos los estados
+
+Regla fuerte: una card `.slft-wl-item.source-cpst` (badge "STOCK ASIG") tiene **un único color de fondo (`#fdba74` naranja) en todos los estados** — con/sin `has-exceed`, con/sin `:hover`, con cualquier badge de vencimiento. La señal de excedente va EXCLUSIVAMENTE en el `border-left-color` rojo. No se permiten reglas CSS adicionales que seteen un `background` distinto sobre `.source-cpst[.X]`.
+
+**Por qué**: pre-v1396 el bug era visible como flicker 3-4s al abrir la app. `_hasExceedPure` depende del snapshot stock + `globalPedidos`. Antes de que llegara el snapshot (fisico=0, pedidos=[]), TODAS las cards con qty>0 marcaban excedente spurio → clase `has-exceed`. Al llegar el snapshot real a los 3-4s, muchas perdían `has-exceed` → caían al bucket base `.source-cpst`. `styles/apple-design.css` tenía 2 reglas distintas:
+
+```css
+.slft-wl-item.source-cpst { background: #fde68a; }         /* amarillo */
+.slft-wl-item.source-cpst.has-exceed { background: #fdba74; }  /* naranja */
+```
+
+El flicker visible era el cambio de background entre renders, no de la clase `source-cpst` per se. Mariano reporte 2026-10-21 13:50: cards 479-484 "amarillas" (sin has-exceed → `#fde68a`), 472 "naranja" (con has-exceed real → `#fdba74`).
+
+**Fix v1396** (`styles/apple-design.css:1979-...`):
+
+```css
+.slft-wl-item.source-cpst,
+.slft-wl-item.source-cpst:hover,
+.slft-wl-item.source-cpst.has-exceed,
+.slft-wl-item.source-cpst.has-exceed:hover {
+  background: #fdba74 !important;
+  color: #78350f !important;
+  border: 2px solid #f59e0b !important;
+  border-left: 6px solid #d97706 !important;
+}
+.slft-wl-item.source-cpst.has-exceed,
+.slft-wl-item.source-cpst.has-exceed:hover {
+  border-left-color: #ff3b30 !important;  /* has-exceed solo cambia el color del borde */
+}
+```
+
+El `background` NO depende de `has-exceed`. El re-render al llegar el snapshot no cambia el color de fondo — solo transiciona el `border-left-color` entre naranja (sin exceso) y rojo (con exceso).
+
+**Fallback source-cpst** (`src/pure/wl-sidebar-classes.js`): `isWaitlistCpst(w)` devuelve `true` también si `pedidosOrigenes[]` está populated — por si el cache local trae un snapshot stale sin el campo `source`. Idempotente: mismo input → mismo output en cualquier render.
+
+**Tests** (dos niveles):
+- `tests/unit/wl-sidebar-classes.test.js`: función pura `computeWaitlistCardClasses(w, hasExceed)`. Valida idempotencia: con stock vacío (hasExceed=true) vs stock cargado (hasExceed=false), la clase `source-cpst` NO cambia. Solo `has-exceed` lo hace.
+- `tests/unit/audit/wl-sidebar-css-parity.test.js`: parsea `styles/apple-design.css` + `<style>` del `index.html`, encuentra TODAS las reglas que matchean `.slft-wl-item.source-cpst[.X]`, extrae `background`, y falla si hay más de un valor único. Protección contra regresión futura.
+
+**Precedente**: `feat-cards-stock-asig-color-plus-export-pablo` 2026-10-21 (v1396). Reporte Mariano: "al abrir la app todas las cards STOCK ASIG se veían naranja y a los 3-4s algunas pasaban a amarillo". Hipótesis Mariano exacta: "mi lectura es que el fondo depende de has-exceed, que se calcula recién cuando llega el snapshot de stock".

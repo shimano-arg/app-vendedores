@@ -75,6 +75,7 @@ import {
 import { computeVirtualAsigFifo } from './pure/virtual-asig-fifo.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
+import { computeWaitlistCardClasses, isWaitlistCpst } from './pure/wl-sidebar-classes.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
 // Dominios que quedan en el shell (side-effect imports, cada uno registra window.foo).
@@ -240,6 +241,8 @@ const phase0 = {
     passesTypeFilter,
     shouldIncludeWaitlistDoc,
     computeHasExceed,
+    computeWaitlistCardClasses,
+    isWaitlistCpst,
     mergeLinesFromOrders,
     computeDuplicateCodes,
     getRowColorClass,

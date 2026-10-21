@@ -4225,80 +4225,56 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <div><h2>Que queres exportar?</h2><div class="subt">Elegi una categoria y despues seleccion&aacute; el mes/a&ntilde;o.</div></div>
         <button class="modal-close" onclick="closeExportDialog()">&times;</button>
       </div>
+      <!-- v1396 (2026-10-21): modal depurado. Solo icono + titulo por fila.
+           Descripciones removidas. Info condicional (admin-only, tardanza)
+           pasa a title (tooltip) o aviso al click. Nueva categoria
+           "Pendiente de Asignacion - Pablo"; "Stock Asignado" viejo renombrado
+           a "Stock Asignado - lineas". -->
       <div class="export-options">
-        <!-- v711 (2026-08-28): VENTAS y RUTAS eliminados por pedido de Mariano. -->
-        <div class="exp-opt" data-exp-kind="VISITAS" onclick="closeExportDialog();showMonthPicker('VISITAS')">
+        <div class="exp-opt" data-exp-kind="VISITAS" title="Visitas presenciales + contactos no presenciales (WhatsApp/Tel/SMS) con fotos del frente embebidas." onclick="closeExportDialog();showMonthPicker('VISITAS')">
           <div class="exp-icon" style="background:var(--color-accent-violet)"></div>
-          <div class="exp-body">
-            <h3>Visitas y Contactos</h3>
-            <p>Detalle de visitas presenciales y contactos no presenciales (WhatsApp/Tel/SMS) con fotos del frente embebidas.</p>
-          </div>
+          <div class="exp-body"><h3>Visitas y Contactos</h3></div>
         </div>
-        <div class="exp-opt" data-exp-kind="RENDICIONES" onclick="closeExportDialog();showMonthPicker('RENDICIONES')">
+        <div class="exp-opt" data-exp-kind="RENDICIONES" title="Gastos rendidos y anticipos del periodo con fotos de tickets embebidas." onclick="closeExportDialog();showMonthPicker('RENDICIONES')">
           <div class="exp-icon" style="background:var(--color-warning)"></div>
-          <div class="exp-body">
-            <h3>Rendiciones</h3>
-            <p>Gastos rendidos y anticipos del periodo con fotos de tickets embebidas.</p>
-          </div>
+          <div class="exp-body"><h3>Rendiciones</h3></div>
         </div>
-        <div class="exp-opt" data-exp-kind="ALTAS" onclick="closeExportDialog();showMonthPicker('ALTAS')">
+        <div class="exp-opt" data-exp-kind="ALTAS" title="Solicitudes de alta: comercio, CUIT, estado, aprobador." onclick="closeExportDialog();showMonthPicker('ALTAS')">
           <div class="exp-icon" style="background:#0891b2"></div>
-          <div class="exp-body">
-            <h3>Altas de clientes</h3>
-            <p>Solicitudes de alta cargadas en el periodo: comercio, CUIT, estado, aprobador.</p>
-          </div>
+          <div class="exp-body"><h3>Altas de clientes</h3></div>
         </div>
-        <div class="exp-opt" data-exp-kind="MASTER" onclick="closeExportDialog();exportMasterClientes()">
+        <div class="exp-opt" data-exp-kind="MASTER" title="Listado completo de tiendas con zona, vendedor, direccion y estado." onclick="closeExportDialog();exportMasterClientes()">
           <div class="exp-icon" style="background:#1e3a8a"></div>
-          <div class="exp-body">
-            <h3>Masterfile Clientes</h3>
-            <p>Listado completo de tiendas: nombre, zona, vendedor, asesor interno, direcci&oacute;n, provincia, localidad y estado.</p>
-          </div>
+          <div class="exp-body"><h3>Masterfile Clientes</h3></div>
         </div>
-        <div class="exp-opt" data-exp-kind="PRECIOS_STOCK" onclick="closeExportDialog();exportPreciosStock()">
+        <div class="exp-opt" data-exp-kind="PRECIOS_STOCK" title="SKUs con precio y unidades libres para la venta (fisico dep 11 − reservas)." onclick="closeExportDialog();exportPreciosStock()">
           <div class="exp-icon" style="background:#0d9488"></div>
-          <div class="exp-body">
-            <h3>LISTA DE PRECIOS - DISPONIBLE</h3>
-            <p>Lista completa de SKUs con precio actual en ARS y unidades <b>libres para la venta</b> (stock físico dep 11 − reservas confirmed/BO/ASIG/waitlist). Util para enviar al cliente lo que efectivamente se le puede prometer HOY.</p>
-          </div>
+          <div class="exp-body"><h3>Lista de precios - disponible</h3></div>
         </div>
-        <!-- v709 (2026-08-28): 3 exportaciones nuevas pedidas por Mariano.
-             Todas filtran por mes de createdAt del pedido. -->
-        <!-- v737 (2026-08-30): BACKORDER y STOCK_ASIG dejan de filtrar por
-             mes de createdAt (bug reportado por Mariano: los 62 pedidos
-             migrados el 2026-08-28 tienen createdAt de fechas viejas del
-             SAP SQ original, entonces exportar "Backorder Agosto" salia
-             vacio). Ahora es SNAPSHOT ACTUAL - todas las lineas BO/ASIG
-             open independiente de cuando se creo el pedido. -->
-        <div class="exp-opt" data-exp-kind="BACKORDER" onclick="closeExportDialog();exportBackorderAll()">
+        <div class="exp-opt" data-exp-kind="BACKORDER" title="Lineas state=BO abiertas en todos los pedidos-app. Snapshot del estado actual." onclick="closeExportDialog();exportBackorderAll()">
           <div class="exp-icon" style="background:#c2410c"></div>
-          <div class="exp-body">
-            <h3>Backorder</h3>
-            <p>Lineas state=BO open en TODOS los pedidos-app: cliente, SKU, cantidad pendiente, vendedor asignado, fecha del pedido original, precio. Sin filtro de mes - snapshot del estado actual (incluye pedidos migrados desde SAP).</p>
-          </div>
+          <div class="exp-body"><h3>Backorder</h3></div>
         </div>
-        <div class="exp-opt" data-exp-kind="STOCK_ASIG" onclick="closeExportDialog();exportStockAsigAll()">
+        <!-- v1396: nuevo primary. Repartos abiertos (ingresos_reparto pending/in_progress). -->
+        <div class="exp-opt" data-exp-kind="PENDIENTE_ASIG_PABLO" title="Repartos abiertos (ingresos_reparto pending/in_progress): SKU, fisico, unidades a repartir, clientes en cola." onclick="closeExportDialog();exportPendienteDeAsignacionPablo()">
+          <div class="exp-icon" style="background:#b45309"></div>
+          <div class="exp-body"><h3>Pendiente de Asignaci&oacute;n - Pablo</h3></div>
+        </div>
+        <!-- v1396: viejo "Stock Asignado" renombrado a "Stock Asignado - lineas" (auxiliar).
+             Mantiene computeBackorderRawLines FIFO + columnas Fecha_Pedido/Cliente/SKU/Qty/Estado_Real. -->
+        <div class="exp-opt" data-exp-kind="STOCK_ASIG" title="Lineas ASIG + confirmed + BO virtual_ASIG post-FIFO. Snapshot auxiliar — para el flujo nuevo usar 'Pendiente de Asignacion - Pablo'." onclick="closeExportDialog();exportStockAsigAll()">
           <div class="exp-icon" style="background:var(--color-accent-violet)"></div>
-          <div class="exp-body">
-            <h3>Stock Asignado</h3>
-            <p>Lineas ASIG (o BO con stock virtual) de TODOS los pedidos-app: cliente, SKU, cantidad reservada, vendedor, pedido, precio. Sin filtro de mes - snapshot del estado actual.</p>
-          </div>
+          <div class="exp-body"><h3>Stock Asignado - l&iacute;neas</h3></div>
         </div>
-        <div class="exp-opt" data-exp-kind="PEDIDOS_MES" onclick="closeExportDialog();showMonthPicker('PEDIDOS_MES')">
+        <div class="exp-opt" data-exp-kind="PEDIDOS_MES" title="Pedidos creados en el mes/anio: cliente, vendedor, fecha, SKUs, unidades, ARS, estado." onclick="closeExportDialog();showMonthPicker('PEDIDOS_MES')">
           <div class="exp-icon" style="background:#1e40af"></div>
-          <div class="exp-body">
-            <h3>Pedidos del mes</h3>
-            <p>Todos los pedidos creados en el mes/anio (independiente del stage): cliente, vendedor, fecha, SKUs, unidades, ARS por linea, estado.</p>
-          </div>
+          <div class="exp-body"><h3>Pedidos del mes</h3></div>
         </div>
-        <!-- v1233 (2026-10-09): pedido Pablo. Reporte server-side via CF
-             generateVentasReportCF. Admin/gerente only. Tarda 30-60s. -->
-        <div class="exp-opt" data-exp-kind="VENTAS_ART_CLI" onclick="closeExportDialog();showMonthPicker('VENTAS_ART_CLI')">
+        <!-- v1233 server-side via generateVentasReportCF. Admin/gerente only + tarda 30-60s —
+             aviso al click en el handler onclick (no en el listado). -->
+        <div class="exp-opt" data-exp-kind="VENTAS_ART_CLI" title="4 hojas: productos vendidos/NO vendidos por VDE + clientes CON/SIN compra. Fuente SAP via BigQuery." onclick="window._ventasArtCliClick()">
           <div class="exp-icon" style="background:#047857"></div>
-          <div class="exp-body">
-            <h3>Ventas &times; art&iacute;culo &times; cliente / vendedor</h3>
-            <p>Reporte mensual con 4 hojas: productos vendidos / NO vendidos por VDE + clientes CON compra / SIN compra por VDE. Fuente SAP via BigQuery. Admin/gerente only. Tarda ~30-60s.</p>
-          </div>
+          <div class="exp-body"><h3>Ventas &times; art&iacute;culo &times; cliente / vendedor</h3></div>
         </div>
       </div>
     </div>
@@ -7023,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1395';
+const APP_VERSION = 'v1396';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20120,12 +20096,21 @@ function _renderWaitlistSidebar(){
       excedentes = _r && typeof _r.excedentes === 'number' ? _r.excedentes : 0;
     }
     const item = document.createElement('div');
-    // v1192 (2026-10-08): source=stock-asignado-batch → clase source-cpst
-    // para pintar la card naranja (v1388) y distinguirla de pedidos normales.
-    const _isCpst = w.source === 'stock-asignado-batch';
-    item.className = 'slft-wl-item'
-      + (excedentes > 0 ? ' has-exceed' : '')
-      + (_isCpst ? ' source-cpst' : '');
+    // v1396 (2026-10-21): clases via función pura computeWaitlistCardClasses.
+    // Antes se calculaba inline con `w.source === 'stock-asignado-batch'`; ahora
+    // además hace fallback a `pedidosOrigenes[]` para que un cache local sin
+    // `source` (pre-v1192 docs touched after) no deje la card sin la clase
+    // source-cpst. Fix principal del flicker: ver styles/apple-design.css +
+    // CLAUDE.md §40.4.
+    const _wlClassFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeWaitlistCardClasses;
+    const _wlClasses = _wlClassFn
+      ? _wlClassFn(w, excedentes > 0)
+      : ['slft-wl-item'].concat(
+          excedentes > 0 ? ['has-exceed'] : [],
+          w.source === 'stock-asignado-batch' ? ['source-cpst'] : []
+        );
+    const _isCpst = _wlClasses.indexOf('source-cpst') >= 0;
+    item.className = _wlClasses.join(' ');
     item.onclick = () => openWaitlistCardModal(w._id);
     const cli = document.createElement('div');
     cli.className = 'slft-wl-cli';

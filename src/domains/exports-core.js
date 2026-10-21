@@ -1962,6 +1962,162 @@ window.exportStockAsigAll = async function () {
   showSyncTag('Export Stock Asignado listo (' + rows.length + ' lineas)', 2400);
 };
 
+// v1396 (2026-10-21): nuevo export "Pendiente de Asignación - Pablo". Lista
+// los repartos abiertos (ingresos_reparto pending/in_progress) por SKU +
+// clientes en cola. Reemplaza semánticamente al viejo "Stock Asignado" en el
+// modal (el viejo pasa a "Stock Asignado - líneas" como auxiliar).
+// Dos hojas:
+//   Resumen reparto — una fila por doc ingresos_reparto.
+//   Clientes en cola — una fila por cliente BO de cada reparto.
+window.exportPendienteDeAsignacionPablo = async function () {
+  showSyncTag('Generando export Pendiente de Asignación - Pablo...');
+  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
+  const fbDb = w.fbDb;
+  if (!fbDb) {
+    alert('Firestore no inicializado. Reintentá en unos segundos.');
+    return;
+  }
+  // 1. Repartos abiertos.
+  let repartosDocs;
+  try {
+    const snap = await fbDb
+      .collection('ingresos_reparto')
+      .where('status', 'in', ['pending', 'in_progress'])
+      .get();
+    repartosDocs = snap.docs;
+  } catch (e) {
+    alert('Error cargando ingresos_reparto: ' + (e && e.message ? e.message : String(e)));
+    return;
+  }
+  if (!repartosDocs || repartosDocs.length === 0) {
+    alert('No hay repartos pending/in_progress ahora mismo.');
+    showSyncTag('Export Pablo: 0 repartos', 2400);
+    return;
+  }
+  // 2. Snapshot stock + getStockBreakdown por SKU.
+  const stockSnap =
+    typeof w.getStockSnapshot === 'function'
+      ? w.getStockSnapshot()
+      : w._stockSnapshotCache || { warehouseBreakdown: {} };
+  const whs =
+    typeof stockSnap.warehouseBreakdown === 'string'
+      ? JSON.parse(stockSnap.warehouseBreakdown)
+      : stockSnap.warehouseBreakdown || {};
+  const pedidos = Array.isArray(w.globalPedidos) ? w.globalPedidos : [];
+  const waitlistEntries =
+    typeof w._getWaitlistCpstEntries === 'function' ? w._getWaitlistCpstEntries() : [];
+  const ingresosRepartoActivos = repartosDocs.map((d) =>
+    Object.assign({ _fsId: d.id }, d.data() || {})
+  );
+  const getBreakdown = w.__phase0 && w.__phase0.pure && w.__phase0.pure.getStockBreakdown;
+  // 3. Resolver producto por SKU.
+  const prodBySku = new Map();
+  const PRODUCTS = Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [];
+  for (const p of PRODUCTS) {
+    if (p && p.sku) prodBySku.set(String(p.sku).toUpperCase(), p);
+  }
+  const nowMs = Date.now();
+  const resumenRows = [];
+  const colaRows = [];
+  for (const doc of repartosDocs) {
+    const data = doc.data() || {};
+    const sku = String(data.sku || '').toUpperCase();
+    const prod = prodBySku.get(sku) || null;
+    const fisicoDep11 = Number((whs[sku] && whs[sku]['11']) || 0);
+    const qtyIngresada = Number(data.qtyIngresada || 0);
+    const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+    let qtyYaAsignada = 0;
+    for (const a of assignments) qtyYaAsignada += Number((a && a.qtyAsignada) || 0);
+    let qtyARepartir = Math.max(0, qtyIngresada - qtyYaAsignada);
+    if (getBreakdown) {
+      try {
+        const bk = getBreakdown(
+          sku,
+          {
+            getStockFisico: () => fisicoDep11,
+            pedidos,
+            waitlistEntries,
+            ingresosRepartoActivos,
+          },
+          { now: nowMs }
+        );
+        if (bk && bk.repartoAbierto && typeof bk.repartoAbierto.qty === 'number') {
+          qtyARepartir = bk.repartoAbierto.qty;
+        }
+      } catch (_e) {
+        /* fallback a cálculo local */
+      }
+    }
+    const clientesBO = Array.isArray(data.clientesBO) ? data.clientesBO : [];
+    let detectedAt = data.detectedAt || '';
+    if (detectedAt && typeof detectedAt.toDate === 'function') {
+      try {
+        detectedAt = detectedAt.toDate().toISOString();
+      } catch (_e) {
+        detectedAt = '';
+      }
+    }
+    const boTotalQty = clientesBO.reduce((s, c) => s + Number(c.qtyBackorder || 0), 0);
+    resumenRows.push({
+      Reparto_ID: doc.id,
+      SKU: sku,
+      Producto: (prod && (prod.name || prod.description)) || '',
+      Fisico_Dep11: fisicoDep11,
+      Qty_Ingresada: qtyIngresada,
+      Qty_Ya_Asignada: qtyYaAsignada,
+      Qty_A_Repartir: qtyARepartir,
+      Clientes_En_Cola: clientesBO.length,
+      BO_Total_Qty: boTotalQty,
+      DetectedAt: typeof detectedAt === 'string' ? detectedAt.slice(0, 19).replace('T', ' ') : '',
+      Status: data.status || '',
+    });
+    for (const c of clientesBO) {
+      let fechaPed = c.pedidoCreatedAt || '';
+      if (fechaPed && typeof fechaPed.toDate === 'function') {
+        try {
+          fechaPed = fechaPed.toDate().toISOString();
+        } catch (_e) {
+          fechaPed = '';
+        }
+      }
+      // Vendedor: buscar en globalPedidos por pedidoId.
+      let vendedor = c.vendorKey || '';
+      if (!vendedor && c.pedidoId) {
+        const p = pedidos.find((x) => x && x._fsId === c.pedidoId);
+        if (p) vendedor = p.ownerVendor || p.vendorAssigned || '';
+      }
+      colaRows.push({
+        Reparto_ID: doc.id,
+        SKU: sku,
+        Cliente: c.clientName || '',
+        CardCode: c.clientCardCode || '',
+        Provincia: c.clientProvince || '',
+        Localidad: c.clientLocality || '',
+        Vendedor: vendedor,
+        Qty_BO: Number(c.qtyBackorder || 0),
+        Fecha_Pedido_Original: typeof fechaPed === 'string' ? fechaPed.slice(0, 10) : '',
+        Pedido_ID: c.pedidoId || '',
+      });
+    }
+  }
+  resumenRows.sort((a, b) => b.Qty_A_Repartir - a.Qty_A_Repartir);
+  colaRows.sort(
+    (a, b) =>
+      (a.SKU || '').localeCompare(b.SKU || '') ||
+      (a.Fecha_Pedido_Original || '').localeCompare(b.Fecha_Pedido_Original || '')
+  );
+  const today = new Date().toISOString().slice(0, 10);
+  const fname = 'Shimano_PendienteDeAsignacion_Pablo_' + today + '.xlsx';
+  downloadXlsx(fname, [
+    { name: 'Resumen reparto', rows: resumenRows },
+    { name: 'Clientes en cola', rows: colaRows },
+  ]);
+  showSyncTag(
+    'Export Pablo: ' + resumenRows.length + ' repartos / ' + colaRows.length + ' clientes en cola',
+    2800
+  );
+};
+
 // v975 (2026-09-17): resuelve nombre de fantasia para un pedido usando el
 // mismo pattern que las cards del mapa (index.html:9915-9935):
 //   1) clientMeta[cardCode].customFantasia (editado desde el modal cliente)
@@ -2268,3 +2424,26 @@ window.closeExportAnalisis = function () {
 // Todas las funciones window.foo = function... ya están verbatim.
 // Helpers internos (downloadXlsx, exportVentasForMonth, etc.) son consumidos
 // solo dentro de este bloque (verificado pre-extracción).
+
+// v1396 (2026-10-21): aviso al click para "Ventas × artículo × cliente".
+// Admin/gerente only. Tarda 30-60s. Antes la nota estaba en la descripción del
+// listado del modal; ahora el listado solo muestra icono + titulo.
+window._ventasArtCliClick = function () {
+  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
+  const role = w.userRole || '';
+  if (role !== 'admin' && role !== 'gerente') {
+    alert('Este reporte es solo para admin / gerente.');
+    return;
+  }
+  const ok = confirm(
+    'Reporte server-side (BigQuery). Tarda 30-60 segundos y descarga un .xlsx con 4 hojas:\n' +
+      '  • Productos vendidos por VDE\n' +
+      '  • Productos NO vendidos por VDE\n' +
+      '  • Clientes CON compra por VDE\n' +
+      '  • Clientes SIN compra por VDE\n\n' +
+      'Continuar?'
+  );
+  if (!ok) return;
+  if (typeof w.closeExportDialog === 'function') w.closeExportDialog();
+  if (typeof w.showMonthPicker === 'function') w.showMonthPicker('VENTAS_ART_CLI');
+};
