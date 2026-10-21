@@ -4717,6 +4717,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1391 (2026-10-21) — Una sola fuente de verdad: getStockBreakdown (FINDING-04)
+
+Loop E0-E5 metodología superpowers (systematic-debugging + writing-plans + TDD + verification-before-completion). Rama `feat-stock-breakdown-unico` → `main`.
+
+**Antes**: cada pantalla aplicaba su propia fórmula de disponibilidad/reservas. El mismo SKU mostraba 5 números distintos:
+- Modal Backorder: 26 u (sin TTL)
+- Popup Master: BO 11 u (crudo)
+- Pedido en espera: 17 u BO (con TTL §37)
+- Modal Reparto: 0 (filtro específico)
+- Modal Stock Asignado: 1 u
+
+**Cambio**:
+- `src/pure/stock-breakdown.js` nueva función `getStockBreakdown(sku, deps, opts)` — fuente única. Devuelve shape fijo: `fisicoDep11`, `transitoDep12`, `demandaSapSinCubrir` (opt-in con `includeStale=true`), `backorderApp`, `confirmadasSinFacturar`, `asignadas`, `waitlistCpst`, `reservadasTotal`, `libre`, `utilizablePara(cardCode)`, `pendienteReparto`. Reusa `lineReservesStock` (reglas §36 §37 §38).
+- `functions/core/pedido-snapshot-core.js` copia espejo + test sincronía (`tests/unit/audit/stock-breakdown-sync.test.js`).
+- `src/pure/stock-realmente-disponible.js`: 4 fns derivadas convertidas a **wrappers finos** (2-20 líneas): `getStockRealmenteDisponible → breakdown.libre`, `getStockDesglose → shape viejo`, `getStockPorCliente → mapeado desde porCliente`, `getStockUtilizableParaClienteExAsig → breakdown.utilizablePara(cardCode)`.
+- `functions/core/reparto-core.js`: `reconcileRepartosFaltantes` usa `breakdown.pendienteReparto.qty` como autoridad (ajuste Mariano #1). Test que falla si divergen (`tests/functions/reconcile-breakdown-sync.test.js`).
+- `index.html`: `window.getStockBreakdown` + `window.STOCK_LABELS` expuestos. Modal Pedido en espera migrado a 1 call breakdown (reemplaza `getStockDesglose + getStockPorCliente` back-to-back).
+- CLAUDE.md §39: regla durable — ninguna pantalla reimplementa fórmula.
+
+**Tests (41 nuevos, 1514 PASS totales + 1 FAIL pre-existente)**:
+- `tests/unit/stock-breakdown.test.js` (19) — invariantes, TTL, schema shape fijo, fixture CUDC201HG real.
+- `tests/unit/audit/stock-breakdown-sync.test.js` (9) — src/pure vs functions/core.
+- `tests/functions/reconcile-breakdown-sync.test.js` (4) — reconcile qty == breakdown.pendienteReparto.qty.
+- Verificación prod E3: 4 SKUs (CUDC201HG + CLC66H2PY + CLC66MH2PY + CLC70H2PY) — todos invariantes ✓.
+
+APP_VERSION v1390 → v1391. CACHE_VERSION v1390 → v1391.
+
+**Rollback**: `git revert <sha>` + redeploy functions. Las fns viejas son wrappers idempotentes; revertir vuelve a implementación propia sin pérdida.
+
+**Follow-ups** (en `docs/auditoria/19_INFORME_COWORK_V1391.md`):
+- Modal Backorder sigue usando `computeBackorderSkuMap` (sin TTL por diseño histórico). Migrarlo a `breakdown.demandaSapSinCubrir` requiere OK Mariano.
+- 14 call-sites `index.html` siguen usando wrappers (cumplen §39 por delegación). Migración a breakdown directo es optimización performance futura.
+
 ### v1390 (2026-10-21) — BO sin TTL 7d (red seguridad 90d) + confirmed hard cap 60d + legacy orderNumber UI + fix B1
 
 Decisiones Mariano post-v1387 (B1 cerrar fantasmas migration-v1278 + D-nueva §37 BO sin TTL 7d + D4 §38 confirmed hard cap 60d + D5 legacy orderNumber UI). Rama `feat-bo-sin-ttl-v2`.

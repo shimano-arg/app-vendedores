@@ -32,7 +32,14 @@ const _ped = (opts) =>
     opts
   );
 
-const _makeDeps = ({ fisico = 0, transito = 0, pedidos = [], waitlist = [], ingresos = [], sapBackorderSnapshot = null }) => ({
+const _makeDeps = ({
+  fisico = 0,
+  transito = 0,
+  pedidos = [],
+  waitlist = [],
+  ingresos = [],
+  sapBackorderSnapshot = null,
+}) => ({
   getStockFisico: () => fisico,
   getStockTransito: () => transito,
   pedidos,
@@ -86,8 +93,16 @@ describe('getStockBreakdown — invariante reservadasTotal', () => {
       fisico: 10,
       pedidos: [
         _ped({ _fsId: 'p1', clientName: 'CA', lines: [{ code: 'X', state: 'BO', qtyOpen: 3 }] }),
-        _ped({ _fsId: 'p2', clientName: 'CB', lines: [{ code: 'X', state: 'confirmed', qtyOpen: 2 }] }),
-        _ped({ _fsId: 'p3', clientName: 'CC', lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }] }),
+        _ped({
+          _fsId: 'p2',
+          clientName: 'CB',
+          lines: [{ code: 'X', state: 'confirmed', qtyOpen: 2 }],
+        }),
+        _ped({
+          _fsId: 'p3',
+          clientName: 'CC',
+          lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }],
+        }),
       ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
@@ -124,7 +139,11 @@ describe('getStockBreakdown — pendienteReparto', () => {
       fisico: 7,
       pedidos: [
         _ped({ _fsId: 'p1', clientName: 'CA', lines: [{ code: 'X', state: 'BO', qtyOpen: 10 }] }),
-        _ped({ _fsId: 'p2', clientName: 'CB', lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }] }),
+        _ped({
+          _fsId: 'p2',
+          clientName: 'CB',
+          lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }],
+        }),
       ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
@@ -136,7 +155,9 @@ describe('getStockBreakdown — pendienteReparto', () => {
     const deps = _makeDeps({
       fisico: 10,
       pedidos: [
-        _ped({ lines: [{ code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(1) }] }),
+        _ped({
+          lines: [{ code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(1) }],
+        }),
       ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
@@ -162,8 +183,18 @@ describe('getStockBreakdown — utilizablePara (fórmula §33/§35)', () => {
     const deps = _makeDeps({
       fisico: 7,
       pedidos: [
-        _ped({ _fsId: 'p1', clientCardCode: 'CA', clientName: 'ANDRILI', lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }] }),
-        _ped({ _fsId: 'p2', clientCardCode: 'CB', clientName: 'BROBRO', lines: [{ code: 'X', state: 'BO', qtyOpen: 5 }] }),
+        _ped({
+          _fsId: 'p1',
+          clientCardCode: 'CA',
+          clientName: 'ANDRILI',
+          lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }],
+        }),
+        _ped({
+          _fsId: 'p2',
+          clientCardCode: 'CB',
+          clientName: 'BROBRO',
+          lines: [{ code: 'X', state: 'BO', qtyOpen: 5 }],
+        }),
       ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
@@ -200,7 +231,9 @@ describe('getStockBreakdown — TTL (reglas §36 §37 §38)', () => {
   it('§38: confirmed 30d NO cuenta (soft TTL 7d)', () => {
     const deps = _makeDeps({
       fisico: 10,
-      pedidos: [_ped({ confirmedAt: daysAgo(30), lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }] })],
+      pedidos: [
+        _ped({ confirmedAt: daysAgo(30), lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }] }),
+      ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.confirmadasSinFacturar.total).toBe(0);
@@ -209,7 +242,9 @@ describe('getStockBreakdown — TTL (reglas §36 §37 §38)', () => {
   it('§38: confirmed 3d SI cuenta (dentro soft 7d)', () => {
     const deps = _makeDeps({
       fisico: 10,
-      pedidos: [_ped({ confirmedAt: daysAgo(3), lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }] })],
+      pedidos: [
+        _ped({ confirmedAt: daysAgo(3), lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }] }),
+      ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.confirmadasSinFacturar.total).toBe(5);
@@ -218,7 +253,14 @@ describe('getStockBreakdown — TTL (reglas §36 §37 §38)', () => {
   it('§36: confirmed sin confirmedAt NO cuenta', () => {
     const deps = _makeDeps({
       fisico: 10,
-      pedidos: [{ _fsId: 'p1', closedAt: null, createdAt: daysAgo(1), lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }] }],
+      pedidos: [
+        {
+          _fsId: 'p1',
+          closedAt: null,
+          createdAt: daysAgo(1),
+          lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }],
+        },
+      ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.confirmadasSinFacturar.total).toBe(0);
@@ -227,7 +269,11 @@ describe('getStockBreakdown — TTL (reglas §36 §37 §38)', () => {
   it('ASIG 30d NO cuenta (TTL 7d sin cambios)', () => {
     const deps = _makeDeps({
       fisico: 10,
-      pedidos: [_ped({ lines: [{ code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(30) }] })],
+      pedidos: [
+        _ped({
+          lines: [{ code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(30) }],
+        }),
+      ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
     expect(b.asignadas.total).toBe(0);
@@ -262,9 +308,24 @@ describe('getStockBreakdown — porCliente arrays', () => {
     const deps = _makeDeps({
       fisico: 10,
       pedidos: [
-        _ped({ _fsId: 'p1', clientCardCode: 'CA', clientName: 'ANDRILI', lines: [{ code: 'X', state: 'BO', qtyOpen: 2 }] }),
-        _ped({ _fsId: 'p2', clientCardCode: 'CA', clientName: 'ANDRILI', lines: [{ code: 'X', state: 'BO', qtyOpen: 3 }] }),
-        _ped({ _fsId: 'p3', clientCardCode: 'CB', clientName: 'BROBRO', lines: [{ code: 'X', state: 'BO', qtyOpen: 1 }] }),
+        _ped({
+          _fsId: 'p1',
+          clientCardCode: 'CA',
+          clientName: 'ANDRILI',
+          lines: [{ code: 'X', state: 'BO', qtyOpen: 2 }],
+        }),
+        _ped({
+          _fsId: 'p2',
+          clientCardCode: 'CA',
+          clientName: 'ANDRILI',
+          lines: [{ code: 'X', state: 'BO', qtyOpen: 3 }],
+        }),
+        _ped({
+          _fsId: 'p3',
+          clientCardCode: 'CB',
+          clientName: 'BROBRO',
+          lines: [{ code: 'X', state: 'BO', qtyOpen: 1 }],
+        }),
       ],
     });
     const b = getStockBreakdown('X', deps, { now: NOW });
@@ -283,11 +344,30 @@ describe('getStockBreakdown — CUDC201HG real-world fixture', () => {
       transito: 24,
       pedidos: [
         // BO vigente ANDRILI 2u 6d atrás
-        _ped({ _fsId: 'p_andrili', clientCardCode: 'C_ANDRILI', clientName: 'ANDRILI', createdAt: daysAgo(6), lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }] }),
+        _ped({
+          _fsId: 'p_andrili',
+          clientCardCode: 'C_ANDRILI',
+          clientName: 'ANDRILI',
+          createdAt: daysAgo(6),
+          lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }],
+        }),
         // ASIG vigente GRAUBERGER 1u 1d atrás
-        _ped({ _fsId: 'p_grauberger', clientCardCode: 'C_GRAU', clientName: 'GRAUBERGER', lines: [{ code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }] }),
+        _ped({
+          _fsId: 'p_grauberger',
+          clientCardCode: 'C_GRAU',
+          clientName: 'GRAUBERGER',
+          lines: [
+            { code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) },
+          ],
+        }),
         // confirmed 15d (BROBRO) - NO vigente
-        _ped({ _fsId: 'p_brobro', clientCardCode: 'C_BROBRO', clientName: 'BROBRO', confirmedAt: daysAgo(15), lines: [{ code: 'CUDC201HG', state: 'confirmed', qtyOpen: 8 }] }),
+        _ped({
+          _fsId: 'p_brobro',
+          clientCardCode: 'C_BROBRO',
+          clientName: 'BROBRO',
+          confirmedAt: daysAgo(15),
+          lines: [{ code: 'CUDC201HG', state: 'confirmed', qtyOpen: 8 }],
+        }),
       ],
     });
     const b = getStockBreakdown('CUDC201HG', deps, { now: NOW });

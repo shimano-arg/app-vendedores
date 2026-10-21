@@ -8,8 +8,8 @@
  * a actualizar el reconcile (o detecta drift silencioso).
  */
 import { describe, expect, it } from 'vitest';
-import { reconcileRepartosFaltantes } from '../../functions/core/reparto-core.js';
 import { getStockBreakdown } from '../../functions/core/pedido-snapshot-core.js';
+import { reconcileRepartosFaltantes } from '../../functions/core/reparto-core.js';
 
 const NOW = new Date('2026-10-21T12:00:00Z');
 const nowIso = NOW.toISOString();
@@ -31,8 +31,12 @@ function makeFakeFbDb({ pedidos = [], ingresosActivos = [] } = {}) {
                 return { forEach: (cb) => ingresosActivos.forEach(cb) };
               return { forEach: () => {} };
             },
-            where() { return this; },
-            limit() { return this; },
+            where() {
+              return this;
+            },
+            limit() {
+              return this;
+            },
           };
         },
         async add(data) {

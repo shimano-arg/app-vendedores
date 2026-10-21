@@ -64,7 +64,8 @@ describe('stock-breakdown sync src/pure vs functions/core', () => {
   });
 
   it('fórmula pendienteReparto idéntica en ambos (max(0, fisico - asig - confirmed) si BO>0)', () => {
-    const pattern = /backorderApp\.total\s*>\s*0\s*\?\s*Math\.max\(0,\s*fisicoDep11\s*-\s*asignadas\.total\s*-\s*confirmadasSinFacturar\.total\)/;
+    const pattern =
+      /backorderApp\.total\s*>\s*0\s*\?\s*Math\.max\(0,\s*fisicoDep11\s*-\s*asignadas\.total\s*-\s*confirmadasSinFacturar\.total\)/;
     expect(SRC).toMatch(pattern);
     expect(CF).toMatch(pattern);
   });

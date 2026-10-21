@@ -130,25 +130,11 @@ export function getStockBreakdown(sku, deps, opts) {
       const vig = lineReservesStock(l, now, p);
       if (st === 'BO' || st === 'confirmed' || st === 'ASIG') {
         if (vig) {
-          _push(
-            buckets[st],
-            p.clientCardCode,
-            p.clientName,
-            qo,
-            p._fsId || p.id || '',
-            i
-          );
+          _push(buckets[st], p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
         }
         // stale (sin TTL) solo para BO y confirmed (lo que ve Modal Backorder).
         if (includeStale && (st === 'BO' || st === 'confirmed')) {
-          _push(
-            bucketsStale[st],
-            p.clientCardCode,
-            p.clientName,
-            qo,
-            p._fsId || p.id || '',
-            i
-          );
+          _push(bucketsStale[st], p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
         }
       }
     }
@@ -171,14 +157,7 @@ export function getStockBreakdown(sku, deps, opts) {
       if (String(it.code).toUpperCase() !== skuUp) continue;
       const qty = Number(it.qty) || 0;
       if (qty <= 0) continue;
-      _push(
-        bucketWaitlist,
-        w.clientCardCode,
-        w.clientName,
-        qty,
-        w._id || w._fsId || '',
-        0
-      );
+      _push(bucketWaitlist, w.clientCardCode, w.clientName, qty, w._id || w._fsId || '', 0);
     }
   }
 
@@ -219,9 +198,10 @@ export function getStockBreakdown(sku, deps, opts) {
 
   // pendienteReparto: cuánto quedaría libre para repartir a BO vigentes
   // si todas las asignadas + confirmadas ya se consumieron.
-  const _pendQty = backorderApp.total > 0
-    ? Math.max(0, fisicoDep11 - asignadas.total - confirmadasSinFacturar.total)
-    : 0;
+  const _pendQty =
+    backorderApp.total > 0
+      ? Math.max(0, fisicoDep11 - asignadas.total - confirmadasSinFacturar.total)
+      : 0;
   let _pendRepartoId = null;
   if (_pendQty > 0 && Array.isArray(deps.ingresosRepartoActivos)) {
     const match = deps.ingresosRepartoActivos.find(

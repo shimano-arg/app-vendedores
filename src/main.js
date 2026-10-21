@@ -56,6 +56,7 @@ import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import { matchesAllTokens } from './pure/search.js';
+import { getStockBreakdown, STOCK_LABELS } from './pure/stock-breakdown.js';
 import {
   getStockDesglose,
   getStockPorCliente,
@@ -64,7 +65,6 @@ import {
   getStockUtilizableParaClienteExAsig,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
-import { STOCK_LABELS, getStockBreakdown } from './pure/stock-breakdown.js';
 import {
   buildAsigRefsForLine,
   buildUnifiedFromAudit,

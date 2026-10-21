@@ -1,5 +1,6 @@
 // @ts-check
 import { getStockBreakdown } from './stock-breakdown.js';
+
 /**
  * v701 (2026-08-28): Stock realmente disponible para vender.
  *
