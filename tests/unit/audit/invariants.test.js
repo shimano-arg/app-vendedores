@@ -13,6 +13,7 @@ import { splitPedidoLine } from '../../../src/pure/pedido-split.js';
 import {
   getStockPorCliente,
   getStockRealmenteDisponible,
+  getStockUtilizableParaClienteExAsig,
   lineReservesStock,
 } from '../../../src/pure/stock-realmente-disponible.js';
 import {
@@ -118,30 +119,29 @@ describe('I2 — Utilizable(C) = Disp + Reservado(C) para pedidos ex-ASIG', () =
     expect(dispPreview).toBe(1);
   });
 
-  // VIOLA — tests que FALLAN hasta que se arregle (patron TDD red-to-green).
-  // Cuando el fix de H1 esté implementado, estos tests pasan a verde.
-  it('VIOLA I2 (RED): el call-site de doConfirmPedido deberia devolver utilizable(OESTE)=1', () => {
+  // v1380 (post-fix H1): tests que originalmente eran RED, ahora deben PASAR.
+  // El call-site simula doConfirmPedido POST-FIX: pasa cardCode via
+  // getStockUtilizableParaClienteExAsig (replica del preview CPST v1362).
+  it('I2 (post-fix H1): call-site ex-ASIG devuelve utilizable(OESTE)=1', () => {
     const deps = buildEscenarioOeste();
-    // Simula el call-site exacto de doConfirmPedido (index.html:34720-34722).
-    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    // Simula call-site POST-FIX (fórmula por cliente para pedido ex-ASIG).
+    const getDispCallSite = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0);
     const disp = getDispCallSite(SKU_STRADIC);
-    // SEGUN I2: Utilizable(Oeste) = Disp + Reservado(Oeste) = 0 + 1 = 1.
-    // OBSERVADO HOY: 0 (porque getStockRealmenteDisponible no considera cardCode).
-    expect(disp).toBe(1); // ← FALLA hoy; pasa cuando se arregle H1.
+    expect(disp).toBe(1); // Utilizable(Oeste) = Disp + Reservado(Oeste) = 0 + 1 = 1
   });
 
-  it('VIOLA I2 end-to-end (RED): splitPedidoLine deberia dar state=confirmed qty=1', () => {
-    // Fase final del PASO 8: con fix de H1, splitPedidoLine deberia recibir
-    // disp=1 y producir una linea confirmed.
+  it('I2 end-to-end (post-fix H1): splitPedidoLine da state=confirmed qty=1', () => {
     const deps = buildEscenarioOeste();
-    const getDispCallSite = (sku) => Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    const getDispCallSite = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0);
     const rawLine = { code: SKU_STRADIC, qty: 1, precio: 1000 };
     const lines = splitPedidoLine(rawLine, {
       getDisp: getDispCallSite,
       flagEnabled: true,
     });
     expect(lines).toHaveLength(1);
-    expect(lines[0].state).toBe('confirmed'); // ← FALLA hoy (da 'BO'); pasa post-fix.
+    expect(lines[0].state).toBe('confirmed');
     expect(lines[0].qty).toBe(1);
   });
 });
@@ -246,24 +246,24 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
     expect(lines[0].state).toBe('confirmed');
   });
 
-  it('VIOLA I6 (RED, encadenado con H1): pedido ex-ASIG deberia ir a confirmed, no BO', () => {
+  it('I6 (post-fix H1): pedido ex-ASIG va a confirmed con formula por cliente', () => {
     const deps = makeDeps({
       fisicoBySku: { [SKU_STRADIC]: 1 },
       pedidos: [pedidoOpen('p-oeste', OESTE, [lineASIG(SKU_STRADIC, 1)])],
     });
-    const getDisp = (sku) => getStockRealmenteDisponible(sku, deps, AT_NOW);
+    // Post-fix: usa getStockUtilizableParaClienteExAsig cuando el pedido es ex-ASIG.
+    const getDisp = (sku) =>
+      Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0);
     const lines = splitPedidoLine(
       { code: SKU_STRADIC, qty: 1, precio: 100 },
       { getDisp, flagEnabled: true }
     );
-    // SEGUN I6: Utilizable(Oeste)=1 cubre qty=1 → state='confirmed'.
-    expect(lines[0].state).toBe('confirmed'); // ← FALLA hoy (da 'BO').
+    expect(lines[0].state).toBe('confirmed'); // Utilizable(Oeste)=1 cubre qty=1
   });
 
-  it('VIOLA I6 (RED, flag OFF kill switch v600): parcial disp=5 qty=10 deberia partir en 5+5, no 0+10', () => {
-    // Caso v600 CHALPAC pre-fix. Con flag OFF (localStorage.split_enabled=0)
-    // sigue vivo el bug legacy. I6 pide que si Disp cubre parte, al menos esa
-    // parte vaya a SAP.
+  it('I6 (post-fix H4): parcial disp=5 qty=10 parte en 5+5 (flag OFF ignorado)', () => {
+    // Post-fix H4: rama legacy `if (!flagEnabled)` eliminada en pedido-split.js.
+    // El arg flagEnabled todavia se recibe pero ya no pisa el comportamiento.
     const deps = makeDeps({
       fisicoBySku: { X: 10 },
       pedidos: [pedidoOpen('p1', SUR, [lineBO('X', 5)])],
@@ -274,8 +274,7 @@ describe('I6 — No autogenerar BO si Disp cubre al enviar', () => {
       { code: 'X', qty: 10, precio: 100 },
       { getDisp, flagEnabled: false }
     );
-    // SEGUN I6 + I7: deberia partir 5 confirmed + 5 BO (aunque flag esté OFF,
-    // la invariante del dominio no admite 100% BO con stock parcial).
+    // Post-fix: siempre splittea. 5 a SAP + 5 BO.
     expect(lines).toHaveLength(2); // ← FALLA hoy (da 1 linea BO con flag OFF).
   });
 });
@@ -294,12 +293,13 @@ describe('I7 — Parcial se parte', () => {
     expect(lines[1]).toMatchObject({ qty: 3, state: 'BO', qtyOpen: 3 });
   });
 
-  it('VIOLA I7 (RED, flag OFF): qty 10 disp 7 deberia partir en 7+3, no 1 linea 100% BO', () => {
+  it('I7 (post-fix H4): qty 10 disp 7 parte en 7+3 (flag OFF ignorado)', () => {
     const lines = splitPedidoLine(
       { code: 'X', qty: 10, precio: 100 },
       { getDisp: () => 7, flagEnabled: false }
     );
-    // SEGUN I7: parcial se parte. Con flag OFF, el kill switch mete 100% BO.
-    expect(lines).toHaveLength(2); // ← FALLA hoy (da 1 linea BO).
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ qty: 7, state: 'confirmed' });
+    expect(lines[1]).toMatchObject({ qty: 3, state: 'BO' });
   });
 });

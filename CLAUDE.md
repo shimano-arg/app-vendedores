@@ -665,3 +665,57 @@ const disp = Math.min(r.fisico, r.reservadasPorCliente + residual);
 - Doble perdida: cliente pide, Pablo asigna, VDE confirma, SAP no recibe → el cliente queda en BO + Pablo tiene que repartir de nuevo la misma unidad.
 
 **Ejemplo de referencia**: `docs/AUDIT_SHIMANO_2026-10-07.md` — 13 fixes documentados en 4 rounds con el formato completo. Usar como calco.
+
+## 33. Fix de disponibilidad por cliente va SIEMPRE acotado por `source` del pedido (2026-10-20)
+
+**Regla fuerte**: cuando el fix cambia la formula de disponibilidad para favorecer al cliente (ej. `getStockUtilizableParaClienteExAsig` que NO cuenta la reserva propia como "comprometida"), el fix DEBE aplicarse condicionalmente, solo si el pedido tiene `source='stock-asignado-batch'` o `pedidosOrigenes[]` populated. **Nunca** generalizarlo a pedidos normales.
+
+**Por que**: la formula por cliente deja al propio cliente consumir su ASIG. Esto es correcto para pedidos CPST porque el bloque v1280 (`index.html:34881`) cancela la ASIG original despues del `pedidos.add` → la unidad pasa del pedido A al B, sin dobles reservas.
+
+En **pedidos normales** (lista de espera manual, botón "Agregar", edit de pending no-CPST), **NO existe** ese bloque de cancelacion. Si el fix se filtrara ahi:
+- El pedido normal tomaria el stock como "disponible para mi".
+- La ASIG original seguiria viva.
+- Resultado: la unidad quedaria dos veces comprometida (ASIG original + pedido normal nuevo). Bug H2 "reserva fantasma" fabricado por el fix.
+
+**Donde aplicar la condicion**:
+```js
+const _isExAsig = window._pendingPedidoSource === 'stock-asignado-batch'
+  || (Array.isArray(window._pendingPedidoOrigenes) && window._pendingPedidoOrigenes.length > 0);
+// en persistPendingEntry sobre entry (ya persistido):
+const _entryIsExAsig = entry.source === 'stock-asignado-batch'
+  || (Array.isArray(entry.pedidosOrigenes) && entry.pedidosOrigenes.length > 0);
+```
+
+**Donde NO aplicar la condicion**:
+- Cualquier flow que NO cancele la ASIG propia tras crear el pedido nuevo.
+- Pedidos "Generar Backorder" / cargas Excel / etc. — si no hay `source` CPST, es pedido normal.
+
+**Precedente**: fix H1 (`fix-stock-cardcode-h1` 2026-10-20). Diseño confirmado por Mariano explicitamente en el prompt que origino la tarea.
+
+**Test T1 (`tests/unit/audit/fix-h1.test.js`)**: verifica que un pedido normal con ASIG propia NO se filtra al fix (sigue BO). Si T1 falla, el fix se generalizo a pedidos normales — bug H2.
+
+## 34. BO reserva stock por diseño; el reparto convierte BO en ASIG, no crea la reserva (2026-10-20)
+
+**Regla fuerte**: `lineReservesStock(line, nowMs, pedido)` devuelve `true` para `state='BO'` dentro del TTL (7d). Esto es **por diseño**, no un bug. **No cambiarlo** sin autorización explícita de Mariano, y recién después de construir alternativa.
+
+**Por que**:
+- Entre que entra stock en dep 11 y Pablo abre modal Reparto puede pasar horas o días (Pablo puede estar fuera, con muchos ingresos acumulados, o simplemente no ser prioridad en el día).
+- Si BO dejara de reservar, otros clientes podrían cargar pedidos normales que lleven el stock físico recién ingresado antes de que Pablo lo asigne al cliente que lo pidió en BO.
+- Esto violaría O1 ("proteger stock con dueño") — la unidad "tiene dueño" desde que el cliente la pidió, no desde que Pablo la reparte.
+
+**El reparto NO crea la reserva. La convierte**:
+- BO (reserva genérica cliente-SKU) → ASIG (reserva nominada cliente-SKU con `asigAt` + `asigFromReparto` opcional).
+- La diferencia es semántica: BO es "cliente la pidió sin stock", ASIG es "stock físico ya reservado para el cliente".
+- Para efectos de `getStockRealmenteDisponible`, ambos cuentan igual.
+
+**Donde NO cambiar sin OK Mariano**:
+- `src/pure/stock-realmente-disponible.js:146-202` (`lineReservesStock`): la rama `state === 'BO'` debe seguir retornando `true` dentro del TTL.
+- `functions/core/pedido-snapshot-core.js:91-136` (copia inline): idem.
+- `functions/core/reparto-core.js:582-612` (`applyRepartoManualCore`): la mutación `state='BO' → state='ASIG'` no crea reserva nueva, solo renombra la existente.
+
+**Precedente**: decisión D1 de Mariano 2026-10-20 (gate humano post-fix H1). Analizados los 11 pasos end-to-end con las 2 semánticas — mantener BO como reserva protege la ventana PASO 5 (ingreso→reparto) sin construir nada nuevo. Ver `docs/auditoria/09_DECISIONES_PENDIENTES.md > D1`.
+
+**Si en el futuro se decide quitar la reserva de BO**:
+- Debe venir con panel admin "Reparto urgente" + alertas al admin cuando ingresa stock con BO pendiente.
+- Debe venir con bloqueo transitorio UX (ej. SKU "en reparto" por N minutos post-ingreso).
+- Es feature grande, no un oneliner. No lo arregles como "mejora menor".

@@ -19,7 +19,9 @@
 /**
  * @typedef {Object} SplitOpts
  * @property {(sku: string) => number | null} [getDisp] Lookup de disponibilidad SAP dep 11.
- * @property {boolean} [flagEnabled] Si false: legacy todo-o-nada. Si true: split.
+ * @property {boolean} [flagEnabled] DEPRECATED (v1380 2026-10-20). Ignorado — el
+ *   split siempre esta activo (ver E3 del plan fix-stock-cardcode-h1). Preservado
+ *   como opcional para compat con callers que todavia lo pasan.
  */
 
 /**
@@ -83,11 +85,9 @@ export function splitPedidoLine(rawLine, opts = {}) {
     priceAtCreation: precio,
   };
 
-  // Feature flag OFF: legacy todo-o-nada.
-  if (!opts.flagEnabled) {
-    const state = qty > 0 && disp >= qty ? 'confirmed' : 'BO';
-    return [{ ...base, qty, qtyOpen: qty, state }];
-  }
+  // v1380 (2026-10-20, E3 fix H4): rama legacy flag OFF eliminada. El kill
+  // switch (localStorage.split_enabled='0') pisaba el split en todo-o-nada y
+  // mandaba pedidos parciales 100% a BO. Siempre splittear.
 
   // Caso 1: sin qty (edge, no deberia pasar por el picker pero por defensa)
   if (qty <= 0) {
@@ -181,11 +181,8 @@ export function reenrichPedidoLine(existingLine, opts = {}) {
     existingLine
   );
 
-  // Feature flag OFF: legacy todo-o-nada sobre qtyOpen.
-  if (!opts.flagEnabled) {
-    const state = qtyOpen > 0 && disp >= qtyOpen ? 'confirmed' : 'BO';
-    return [Object.assign({}, baseLine, { qtyOpen, state })];
-  }
+  // v1380 (2026-10-20, E3 fix H4): rama legacy flag OFF eliminada tambien
+  // aqui. reenrichPedidoLine siempre splittea cuando corresponde.
 
   // Nada abierto: preservar sin cambios.
   if (qtyOpen <= 0) {

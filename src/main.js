@@ -61,6 +61,7 @@ import {
   getStockPorCliente,
   getStockPorClienteMemo,
   getStockRealmenteDisponible,
+  getStockUtilizableParaClienteExAsig,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
 import {
@@ -252,6 +253,7 @@ const phase0 = {
     getStockDesglose,
     getStockPorCliente,
     getStockPorClienteMemo,
+    getStockUtilizableParaClienteExAsig,
     lineReservesStock,
     computeVirtualAsigFifo,
     computeBackorderSkuMap,

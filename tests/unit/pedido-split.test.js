@@ -13,7 +13,9 @@ const RAW = (o = {}) => ({
   ...o,
 });
 
-describe('splitPedidoLine — flag OFF (legacy todo-o-nada)', () => {
+describe('splitPedidoLine — flag OFF (post-fix H4 v1380: arg ignorado, splittea igual)', () => {
+  // v1380 (2026-10-20): la rama legacy `if (!flagEnabled)` fue eliminada.
+  // El arg flagEnabled sigue aceptandose por compat pero ya no pisa el comportamiento.
   it('disp >= qty → 1 linea confirmed', () => {
     const disp = 100;
     const lines = splitPedidoLine(RAW({ qty: 100 }), { getDisp: () => disp, flagEnabled: false });
@@ -23,12 +25,11 @@ describe('splitPedidoLine — flag OFF (legacy todo-o-nada)', () => {
     expect(lines[0].qtyOpen).toBe(100);
   });
 
-  it('disp < qty → 1 linea BO con qty=qty completa (legacy comportamiento)', () => {
+  it('disp < qty → split en {disp confirmed, qty-disp BO} (post-fix H4, flag OFF ignorado)', () => {
     const lines = splitPedidoLine(RAW({ qty: 100 }), { getDisp: () => 70, flagEnabled: false });
-    expect(lines).toHaveLength(1);
-    expect(lines[0].state).toBe('BO');
-    expect(lines[0].qty).toBe(100);
-    expect(lines[0].qtyOpen).toBe(100);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ qty: 70, state: 'confirmed' });
+    expect(lines[1]).toMatchObject({ qty: 30, state: 'BO' });
   });
 
   it('disp = 0 → 1 linea BO', () => {
@@ -133,7 +134,7 @@ describe('reenrichPedidoLine — estados LOCKED preservados', () => {
   });
 });
 
-describe('reenrichPedidoLine — flag OFF (legacy)', () => {
+describe('reenrichPedidoLine — flag OFF (post-fix H4 v1380: splittea igual)', () => {
   it('state=BO + disp>=qtyOpen: pasa a confirmed', () => {
     const lines = reenrichPedidoLine(
       {
@@ -152,7 +153,7 @@ describe('reenrichPedidoLine — flag OFF (legacy)', () => {
     expect(lines[0].qtyOpen).toBe(100);
   });
 
-  it('state=BO + disp<qtyOpen: se queda BO con qtyOpen entera (legacy)', () => {
+  it('state=BO + disp<qtyOpen (post-fix H4): split {disp confirmed, resto BO}', () => {
     const lines = reenrichPedidoLine(
       {
         code: 'SKU-X',
@@ -165,9 +166,9 @@ describe('reenrichPedidoLine — flag OFF (legacy)', () => {
       },
       { getDisp: () => 70, flagEnabled: false }
     );
-    expect(lines).toHaveLength(1);
-    expect(lines[0].state).toBe('BO');
-    expect(lines[0].qtyOpen).toBe(100);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ qtyOpen: 70, state: 'confirmed' });
+    expect(lines[1]).toMatchObject({ qtyOpen: 30, state: 'BO' });
   });
 });
 
