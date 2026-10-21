@@ -7023,7 +7023,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1384';
+const APP_VERSION = 'v1385';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16335,20 +16335,13 @@ window.renderBackordersTab = function(){
           html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="Pedido con ' + _ageDays + ' dias sin facturar. Deja de reservar stock (TTL 7d). Revisar con el admin.">VENCIDA ' + _ageDays + 'd</span>';
         }
       }
-      // v969 (2026-09-17): badge VENCIDA para BO viejos (>15d desde
-      // pedido.createdAt). Estos dejaron de reservar stock — la linea sigue
-      // viva en la app pero no bloquea stock para nuevos pedidos. VDE debe
-      // decidir: eliminar (si el cliente ya no lo espera) o dejar (si aun
-      // esta pendiente y el stock puede llegar).
-      if (c.source === 'app' && c.state === 'BO' && c.pedidoCreatedAt) {
-        const _boCreatedMs = new Date(c.pedidoCreatedAt).getTime();
-        if (Number.isFinite(_boCreatedMs)) {
-          const _boAgeDays = Math.floor((Date.now() - _boCreatedMs) / (24 * 60 * 60 * 1000));
-          if (_boAgeDays > 15) {
-            html += '<span style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:800;flex-shrink:0;letter-spacing:.3px" title="BO con ' + _boAgeDays + ' dias desde que el vendedor lo cargo. Deja de reservar stock (regla v969). Revisar con el cliente: sigue esperando, se elimina, o se convierte cuando llegue stock.">VENCIDA ' + _boAgeDays + 'd</span>';
-          }
-        }
-      }
+      // v969 (2026-09-17) → REMOVIDO v1385 (2026-10-21): badge "VENCIDA Xd"
+      // para BO viejos (>15d). Mariano explicito: "el backorder no vence,
+      // quitale". El BO vive indefinidamente — solo ASIG tiene TTL (60d, cron
+      // expireAsigLinesTTLCF 03:00 ART). Si el admin quiere limpiar BO viejos
+      // huerfanos corre audit manual (bucket C 2026-10-15 precedente).
+      // Badge VENCIDA para state=confirmed sqDocDate>7d SE MANTIENE (bloque
+      // arriba): info util para admin sobre pedidos SAP sin facturar.
       // v1270 (2026-10-14): badge "SIN RESERVA" para rows destildadas en modal
       // Stock Asignado. La linea esta ASIG o confirmed pero el admin libero la
       // reserva (asigReserva=false). Visible como demanda pero no bloquea stock.
