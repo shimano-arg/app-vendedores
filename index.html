@@ -4939,38 +4939,216 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
        Reemplaza el modal "Seguimiento" viejo. Shell minimo — el render
        dinamico lo hace src/domains/cartera-vendor.js (chunk lazy).
        Datos desde cartera_vendor/{vendorKey} Firestore (snapshot nightly
-       04:00 ART). Spec: docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md -->
+       04:00 ART). Spec: docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md
+       v1383 (2026-10-21): rediseño Apple-style (pedido Mariano). Head blanco con
+       border-bottom hairline, select con pill chevron, KPI cards con numero bold +
+       underline color por categoria, chips como segmented control iOS, search bar
+       con icon lupa, export pill verde Shimano. -->
+  <style>
+    /* v1383: Apple Design para modal cartera. Patron coherente con dash-tabs-segment. */
+    #cartera-modal .cartera-head{
+      background:#fff;color:#1c1c1e;padding:18px 22px;border-bottom:1px solid #f2f2f7;
+      display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+    }
+    #cartera-modal .cartera-head h2{
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",system-ui,sans-serif;
+      font-size:19px;font-weight:700;letter-spacing:-.02em;color:#1c1c1e;margin:0;line-height:1.2;
+      display:flex;align-items:center;gap:8px;
+    }
+    #cartera-modal .cartera-head .subt{
+      font-size:12px;color:#86868b;font-weight:500;margin-top:2px;letter-spacing:-.005em;
+    }
+    #cartera-modal .cartera-close{
+      width:30px;height:30px;border-radius:999px;background:#f2f2f7;border:none;
+      color:#1c1c1e;font-size:17px;cursor:pointer;display:flex;align-items:center;
+      justify-content:center;transition:background 150ms ease-out,transform 100ms ease-out;
+      -webkit-tap-highlight-color:transparent;flex-shrink:0;
+    }
+    #cartera-modal .cartera-close:hover{background:#e5e5ea}
+    #cartera-modal .cartera-close:active{transform:scale(.94)}
+
+    #cartera-modal .cartera-toolbar{
+      padding:14px 22px;border-bottom:1px solid #f2f2f7;display:flex;gap:12px;
+      align-items:center;flex-wrap:wrap;background:#fafafa;
+    }
+    #cartera-modal .cartera-toolbar label{
+      font-size:11px;color:#86868b;font-weight:600;text-transform:uppercase;
+      letter-spacing:.5px;
+    }
+    #cartera-modal .cartera-select{
+      padding:9px 36px 9px 14px;border:1px solid #e5e5ea;border-radius:10px;
+      background:#fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2386868b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") no-repeat right 12px center;
+      color:#1c1c1e;font-size:13px;font-weight:500;min-width:260px;
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+      appearance:none;-webkit-appearance:none;cursor:pointer;
+      box-shadow:0 1px 2px rgba(0,0,0,.03);
+      transition:border-color 150ms ease-out,box-shadow 150ms ease-out;
+    }
+    #cartera-modal .cartera-select:hover{border-color:#d1d1d6}
+    #cartera-modal .cartera-select:focus{outline:none;border-color:#007aff;box-shadow:0 0 0 3px rgba(0,122,255,.15)}
+    #cartera-modal .cartera-snapshot{
+      font-size:11px;color:#86868b;font-weight:500;background:#f2f2f7;
+      padding:4px 10px;border-radius:999px;display:inline-flex;align-items:center;gap:6px;
+    }
+    #cartera-modal .cartera-snapshot::before{
+      content:'';width:6px;height:6px;border-radius:999px;background:#34c759;
+    }
+
+    /* KPI cards: 6 por fila en desktop, grid responsive */
+    #cartera-modal #cartera-kpis{
+      padding:16px 22px !important;background:#fff;gap:10px !important;
+      display:grid !important;grid-template-columns:repeat(6,minmax(0,1fr));
+      border-bottom:1px solid #f2f2f7;
+    }
+    @media (max-width:900px){
+      #cartera-modal #cartera-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+    }
+    @media (max-width:500px){
+      #cartera-modal #cartera-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    #cartera-modal .cartera-kpi{
+      padding:12px 14px;border-radius:14px;background:#fafafa;cursor:pointer;
+      transition:transform 150ms ease-out,box-shadow 150ms ease-out,background 150ms ease-out;
+      border:1px solid transparent;position:relative;overflow:hidden;
+    }
+    #cartera-modal .cartera-kpi:hover{background:#f5f5f7;transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.04)}
+    #cartera-modal .cartera-kpi:active{transform:translateY(0) scale(.98)}
+    #cartera-modal .cartera-kpi.active{background:#fff;border-color:#e5e5ea;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+    #cartera-modal .cartera-kpi .cartera-kpi-num{
+      font-size:26px;font-weight:800;line-height:1.1;letter-spacing:-.02em;
+      font-variant-numeric:tabular-nums;
+    }
+    #cartera-modal .cartera-kpi .cartera-kpi-label{
+      font-size:11px;color:#86868b;font-weight:600;margin-top:4px;letter-spacing:-.005em;
+    }
+    /* Underline color por categoria — identidad visual sutil sin saturar */
+    #cartera-modal .cartera-kpi::after{
+      content:'';position:absolute;left:14px;right:14px;bottom:0;height:2px;
+      background:currentColor;opacity:.6;border-radius:2px 2px 0 0;
+      transform:scaleX(.3);transform-origin:left;transition:transform 250ms ease-out;
+    }
+    #cartera-modal .cartera-kpi.active::after,
+    #cartera-modal .cartera-kpi:hover::after{transform:scaleX(1)}
+
+    /* Chips tabs: segmented control iOS */
+    #cartera-modal #cartera-chips{
+      padding:12px 22px !important;background:#fff;gap:0 !important;
+      display:flex !important;flex-wrap:nowrap;overflow-x:auto;
+      border-bottom:1px solid #f2f2f7;scrollbar-width:none;
+    }
+    #cartera-modal #cartera-chips::-webkit-scrollbar{display:none}
+    #cartera-modal .cartera-chip-wrap{
+      display:inline-flex;gap:2px;background:#f2f2f7;border-radius:10px;padding:3px;
+    }
+    #cartera-modal .cartera-chip{
+      padding:7px 14px;border:none;border-radius:7px;background:transparent;
+      color:rgba(60,60,67,.6);font-size:12px;font-weight:600;
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+      cursor:pointer;letter-spacing:-.01em;white-space:nowrap;
+      transition:background 200ms ease-out,color 200ms ease-out,transform 100ms ease-out;
+      -webkit-tap-highlight-color:transparent;
+    }
+    #cartera-modal .cartera-chip:hover:not(.active){color:#1c1c1e}
+    #cartera-modal .cartera-chip:active{transform:scale(.96)}
+    #cartera-modal .cartera-chip.active{
+      background:#fff;color:#1c1c1e;box-shadow:0 2px 4px rgba(0,0,0,.04),0 1px 2px rgba(0,0,0,.06);
+    }
+
+    /* Search + Export row */
+    #cartera-modal .cartera-search-row{
+      padding:12px 22px;background:#fff;display:flex;gap:10px;align-items:center;
+      border-bottom:1px solid #f2f2f7;
+    }
+    #cartera-modal .cartera-search-wrap{
+      flex:1;position:relative;display:flex;align-items:center;
+    }
+    #cartera-modal .cartera-search-wrap::before{
+      content:'';position:absolute;left:14px;top:50%;transform:translateY(-50%);
+      width:16px;height:16px;pointer-events:none;
+      background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2386868b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>") no-repeat center;
+    }
+    #cartera-modal .cartera-search{
+      flex:1;padding:9px 14px 9px 38px;border:1px solid transparent;border-radius:10px;
+      background:#f2f2f7;color:#1c1c1e;font-size:13px;
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+      transition:border-color 150ms ease-out,background 150ms ease-out,box-shadow 150ms ease-out;
+    }
+    #cartera-modal .cartera-search::placeholder{color:#86868b}
+    #cartera-modal .cartera-search:focus{
+      outline:none;background:#fff;border-color:#007aff;box-shadow:0 0 0 3px rgba(0,122,255,.15);
+    }
+    #cartera-modal .cartera-export-btn{
+      padding:9px 18px;background:#34c759;color:#fff;border:none;border-radius:999px;
+      cursor:pointer;font-size:13px;font-weight:600;letter-spacing:-.01em;
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+      box-shadow:0 1px 3px rgba(52,199,89,.3);display:inline-flex;align-items:center;gap:6px;
+      transition:background 150ms ease-out,transform 100ms ease-out,box-shadow 200ms ease-out;
+      -webkit-tap-highlight-color:transparent;
+    }
+    #cartera-modal .cartera-export-btn:hover{background:#2ca84a;box-shadow:0 2px 6px rgba(52,199,89,.4)}
+    #cartera-modal .cartera-export-btn:active{transform:scale(.97)}
+
+    /* Table */
+    #cartera-modal #cartera-table-wrap{background:#fff}
+    #cartera-modal #cartera-table{
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+    }
+    #cartera-modal #cartera-table thead th{
+      background:#fff;color:#86868b;font-size:11px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.5px;padding:12px 10px;border-bottom:1px solid #e5e5ea;
+      text-align:left;position:sticky;top:0;z-index:5;
+    }
+    #cartera-modal #cartera-table tbody tr{
+      border-bottom:1px solid #f5f5f7;transition:background 100ms ease-out;cursor:pointer;
+    }
+    #cartera-modal #cartera-table tbody tr:hover{background:#fafafa}
+    #cartera-modal #cartera-table tbody tr:active{background:#f2f2f7}
+    #cartera-modal #cartera-table tbody td{
+      padding:12px 10px;font-size:13px;color:#1c1c1e;vertical-align:middle;
+    }
+    #cartera-modal #cartera-table tbody td.num{font-variant-numeric:tabular-nums}
+
+    /* Loading / Empty states */
+    #cartera-modal #cartera-loading,#cartera-modal #cartera-empty{
+      padding:60px 22px;text-align:center;color:#86868b;font-size:14px;font-weight:500;
+    }
+  </style>
   <div class="modal-overlay" id="cartera-modal" onclick="if(event.target===this)closeCarteraModal()">
-    <div class="modal-box" style="width:min(1200px,98vw);max-height:92vh;display:flex;flex-direction:column">
-      <div class="modal-head" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6)">
+    <div class="modal-box" style="width:min(1200px,98vw);max-height:92vh;display:flex;flex-direction:column;background:#fff;border-radius:16px;overflow:hidden">
+      <div class="cartera-head">
         <div>
           <h2>📊 An&aacute;lisis de Cartera por Vendedor</h2>
           <div class="subt" id="cartera-subtitle">Seleccion&aacute; un vendedor para ver su cartera.</div>
         </div>
-        <button class="modal-close" onclick="closeCarteraModal()">&times;</button>
+        <button class="cartera-close" onclick="closeCarteraModal()" aria-label="Cerrar">&times;</button>
       </div>
 
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border-light);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-        <label style="font-size:13px;color:var(--text-primary);font-weight:600">Vendedor:</label>
-        <select id="cartera-vendor-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-size:13px;min-width:240px" onchange="window.onCarteraVendorChange && window.onCarteraVendorChange()">
-          <option value="">— Elegir vendedor —</option>
+      <div class="cartera-toolbar">
+        <label for="cartera-vendor-select">Vendedor</label>
+        <select id="cartera-vendor-select" class="cartera-select" onchange="window.onCarteraVendorChange && window.onCarteraVendorChange()">
+          <option value="">Elegir vendedor…</option>
         </select>
-        <span id="cartera-snapshot-info" style="font-size:11px;color:var(--text-muted)"></span>
+        <span id="cartera-snapshot-info" class="cartera-snapshot" style="display:none"></span>
       </div>
 
-      <div id="cartera-kpis" style="padding:12px 16px;display:none;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border-light)"></div>
+      <div id="cartera-kpis" style="display:none"></div>
 
-      <div id="cartera-chips" style="padding:8px 16px;display:none;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border-light)"></div>
+      <div id="cartera-chips" style="display:none"></div>
 
-      <div style="padding:8px 16px;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border-light)">
-        <input type="search" id="cartera-search" placeholder="Buscar cliente..." style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-size:13px" oninput="window.onCarteraSearchChange && window.onCarteraSearchChange()" />
-        <button id="cartera-export-btn" style="padding:6px 12px;background:#166534;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600" onclick="window.exportCarteraToExcel && window.exportCarteraToExcel()">📥 Exportar</button>
+      <div class="cartera-search-row">
+        <div class="cartera-search-wrap">
+          <input type="search" id="cartera-search" class="cartera-search" placeholder="Buscar cliente" oninput="window.onCarteraSearchChange && window.onCarteraSearchChange()" />
+        </div>
+        <button id="cartera-export-btn" class="cartera-export-btn" onclick="window.exportCarteraToExcel && window.exportCarteraToExcel()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Exportar
+        </button>
       </div>
 
-      <div id="cartera-table-wrap" style="flex:1;overflow:auto;padding:0 16px">
-        <div id="cartera-loading" style="padding:40px;text-align:center;color:var(--text-muted);display:none">Cargando cartera...</div>
-        <div id="cartera-empty" style="padding:40px;text-align:center;color:var(--text-muted)">Eleg&iacute; un vendedor para ver su cartera.</div>
-        <table id="cartera-table" style="width:100%;border-collapse:collapse;font-size:13px;display:none"></table>
+      <div id="cartera-table-wrap" style="flex:1;overflow:auto;padding:0 22px">
+        <div id="cartera-loading" style="display:none">Cargando cartera…</div>
+        <div id="cartera-empty">Eleg&iacute; un vendedor para ver su cartera.</div>
+        <table id="cartera-table" style="width:100%;border-collapse:collapse;display:none"></table>
       </div>
     </div>
   </div>
@@ -6845,7 +7023,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1382';
+const APP_VERSION = 'v1383';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
