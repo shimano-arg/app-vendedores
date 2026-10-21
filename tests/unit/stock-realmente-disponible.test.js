@@ -253,12 +253,15 @@ describe('getStockRealmenteDisponible — v957 asigReserva=false', () => {
     expect(r).toBe(15);
   });
 
-  it('ASIG con asigReserva=false NO reserva (stock queda libre)', () => {
+  // v1402 §40.10 (2026-10-21): ASIG siempre reserva, sin excepción. El guard
+  // `asigReserva === false` para state='ASIG' fue eliminado. Si Pablo decide
+  // no reservar, la línea revierte a BO (closedReason='asig_destildada_por_admin').
+  it('v1402 §40.10: ASIG con asigReserva=false AHORA RESERVA (regla §40 estricta)', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 20,
       pedidos: [P({ lines: [L({ qtyOpen: 5, state: 'ASIG', asigReserva: false })] })],
     });
-    expect(r).toBe(20);
+    expect(r).toBe(15);
   });
 
   it('ASIG sin asigReserva (undefined) reserva por default — retrocompat pre-v956', () => {
@@ -270,7 +273,7 @@ describe('getStockRealmenteDisponible — v957 asigReserva=false', () => {
     expect(r).toBe(15);
   });
 
-  it('v1392 §40: mix: BO NO reserva, ASIG con reserva reserva, ASIG sin reserva NO', () => {
+  it('v1402 §40.10: mix: BO NO reserva, ASIG con y sin reserva AMBAS reservan (§40)', () => {
     const r = getStockRealmenteDisponible('SKU1', {
       getStockFisico: () => 20,
       pedidos: [
@@ -279,13 +282,13 @@ describe('getStockRealmenteDisponible — v957 asigReserva=false', () => {
         P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: false })] }),
       ],
     });
-    // 20 - 0 (BO) - 4 - 0 (asigReserva=false) = 16
-    expect(r).toBe(16);
+    // 20 - 0 (BO) - 4 - 6 = 10 (ASIG siempre reserva)
+    expect(r).toBe(10);
   });
 });
 
-describe('getStockDesglose — v957 asigReserva=false', () => {
-  it('ASIG sin reserva NO cuenta en breakdown.ASIG ni en comprometido', () => {
+describe('getStockDesglose — v1402 §40.10 ASIG siempre reserva', () => {
+  it('ASIG con asigReserva=false AHORA cuenta en breakdown.ASIG y en comprometido', () => {
     const d = getStockDesglose('SKU1', {
       getStockFisico: () => 20,
       pedidos: [
@@ -293,9 +296,9 @@ describe('getStockDesglose — v957 asigReserva=false', () => {
         P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: false })] }),
       ],
     });
-    expect(d.breakdown.ASIG).toBe(4);
-    expect(d.comprometido).toBe(4);
-    expect(d.real).toBe(16);
+    expect(d.breakdown.ASIG).toBe(10);
+    expect(d.comprometido).toBe(10);
+    expect(d.real).toBe(10);
   });
 });
 
@@ -374,7 +377,7 @@ describe('getStockRealmenteDisponible — v959 expiracion 7 dias', () => {
     expect(r).toBe(15);
   });
 
-  it('mix expirada + reciente + confirmed: solo las que reservan cuentan', () => {
+  it('v1402 §40.10: mix expirada + reciente + confirmed + asigReserva=false', () => {
     const r = getStockRealmenteDisponible(
       'SKU1',
       {
@@ -382,14 +385,14 @@ describe('getStockRealmenteDisponible — v959 expiracion 7 dias', () => {
         pedidos: [
           P({ lines: [L({ qtyOpen: 3, state: 'confirmed' })] }),
           P({ lines: [L({ qtyOpen: 4, state: 'ASIG', asigReserva: true, asigAt: iso(5) })] }),
-          P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: true, asigAt: iso(20) })] }), // expirada
-          P({ lines: [L({ qtyOpen: 2, state: 'ASIG', asigReserva: false })] }), // B/C sin reserva
+          P({ lines: [L({ qtyOpen: 6, state: 'ASIG', asigReserva: true, asigAt: iso(20) })] }), // expirada por TTL
+          P({ lines: [L({ qtyOpen: 2, state: 'ASIG', asigReserva: false, asigAt: iso(5) })] }), // §40.10 ahora reserva
         ],
       },
       { now }
     );
-    // 20 - 3 (confirmed) - 4 (ASIG reciente) - 0 (expirada) - 0 (sin reserva) = 13
-    expect(r).toBe(13);
+    // 20 - 3 (confirmed) - 4 (ASIG reciente) - 0 (expirada) - 2 (asigReserva=false ahora reserva) = 11
+    expect(r).toBe(11);
   });
 });
 
@@ -550,11 +553,12 @@ describe('lineReservesStock — fix auditor 2026-10-02 Timestamp + asigReserva=0
     expect(lineReservesStock(line, now)).toBe(true);
   });
 
-  it('C4: ASIG con asigReserva=0 (entero legacy/SAP) -> no reserva', () => {
-    // SAP serializa booleanos como 0/1 enteros. 0===false es false en JS, el
-    // guard original fallaba y la linea reservaba cuando no debia.
+  it('C4 v1402 §40.10: ASIG con asigReserva=0 (entero legacy/SAP) AHORA RESERVA', () => {
+    // SAP serializa booleanos como 0/1 enteros. Pre-v1402 el guard
+    // `asigReserva === 0` liberaba la línea. Post-v1402 (§40.10) ASIG siempre
+    // reserva, sin excepción.
     const line = { state: 'ASIG', qtyOpen: 5, asigReserva: 0 };
-    expect(lineReservesStock(line, now)).toBe(false);
+    expect(lineReservesStock(line, now)).toBe(true);
   });
 
   it('C4: ASIG con asigReserva=1 (entero legacy) -> si reserva (equivalente a true)', () => {

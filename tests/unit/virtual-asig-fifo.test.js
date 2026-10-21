@@ -219,7 +219,7 @@ describe('computeVirtualAsigFifo', () => {
   const FRESH_BO = NOW_MS - 3 * DAY_MS; // BOs frescos para no caer en v1124 BO expiration
   const FRESH_BO_OLD = NOW_MS - 5 * DAY_MS;
 
-  it('v1124: ASIG con asigReserva=false NO consume stock (cliente B/C)', () => {
+  it('v1402 §40.10: ASIG con asigReserva=false AHORA consume stock (§40 estricto)', () => {
     const pedidos = [
       mkPedido(
         'pAsigBC',
@@ -230,8 +230,10 @@ describe('computeVirtualAsigFifo', () => {
       mkPedido('pBo', 'C_A', [{ code: 'SKU', state: 'BO', qtyOpen: 5 }], FRESH_BO),
     ];
     const result = computeVirtualAsigFifo(pedidos, stockMap({ SKU: 5 }), NOW_MS);
-    // ASIG de B/C no reserva -> todo el fisico va al BO del cliente A.
-    expect(result.get('pBo:0')).toBe(5);
+    // §40.10: ASIG siempre reserva. Los 5 físicos quedan reservados para C_BC
+    // (ASIG tiene prioridad FIFO sobre BO), no van al cliente A. El BO queda
+    // sin stock virtual asignado (ausente del map o 0).
+    expect(result.get('pBo:0') || 0).toBe(0);
   });
 
   it('v1124: ASIG expirada (asigAt > 15d atras) NO consume stock', () => {
