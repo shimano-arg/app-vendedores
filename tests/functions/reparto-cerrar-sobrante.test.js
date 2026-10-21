@@ -58,14 +58,25 @@ function makeFakeFbDb({ ingreso, pedidos = [], stockFisico = 10 }) {
       return {
         doc: (id) => {
           if (name === 'ingresos_reparto') return ingresoDocRef;
-          if (name === 'app_config' && id === 'stock_snapshot') return { get: async () => stockSnap };
+          if (name === 'app_config' && id === 'stock_snapshot')
+            return { get: async () => stockSnap };
           if (name === 'pedidos') {
             const ped = pedidos.find((p) => p.id === id);
             return ped ? ped.ref : { get: async () => ({ exists: false }) };
           }
           return { get: async () => ({ exists: false }) };
         },
-        where() { return { get: async () => ({ forEach: () => {} }), where() { return this; }, limit() { return this; } }; },
+        where() {
+          return {
+            get: async () => ({ forEach: () => {} }),
+            where() {
+              return this;
+            },
+            limit() {
+              return this;
+            },
+          };
+        },
         async add(data) {
           writes.push({ col: name, op: 'add', data });
           return { id: 'log_' + writes.length };
@@ -127,7 +138,9 @@ describe('v1392 §40 applyRepartoManualCore allowSobrante', () => {
     });
     expect(r.ok).toBe(true);
     // Última update del ingreso debe tener status=done.
-    const lastUpdate = fbDb._writes.filter((w) => w.col === 'ingresos_reparto' && w.op === 'update').pop();
+    const lastUpdate = fbDb._writes
+      .filter((w) => w.col === 'ingresos_reparto' && w.op === 'update')
+      .pop();
     expect(lastUpdate.data.status).toBe('done');
     expect(lastUpdate.data.closedReason).toContain('admin_cerrado_con_sobrante');
     expect(lastUpdate.data.sobranteLibre).toBe(10);

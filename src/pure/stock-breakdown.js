@@ -147,7 +147,7 @@ export function getStockBreakdown(sku, deps, opts) {
         if (st === 'BO') {
           // TTL §37 90d sobre createdAt — para el bucket, no para reserva.
           if (p.createdAt) {
-            const createdMs = (typeof p.createdAt === 'string') ? Date.parse(p.createdAt) : null;
+            const createdMs = typeof p.createdAt === 'string' ? Date.parse(p.createdAt) : null;
             if (createdMs !== null && (now - createdMs) / (24 * 60 * 60 * 1000) <= 90) {
               incluir = true;
             } else if (createdMs === null) {
@@ -214,8 +214,12 @@ export function getStockBreakdown(sku, deps, opts) {
     if (match) {
       // qty = qtyIngresada - sum(assignments ya aplicadas)
       const qtyIng = Number(match.qtyIngresada) || 0;
-      const assignments = Array.isArray(match.assignments) ? match.assignments : [];
-      const asignadoYa = assignments.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
+      const assignments = /** @type {any[]} */ (
+        Array.isArray(match.assignments) ? match.assignments : []
+      );
+      /** @type {number} */
+      let asignadoYa = 0;
+      for (const a of assignments) asignadoYa += Number((a && a.qtyAsignada) || 0);
       repartoAbierto = {
         qty: Math.max(0, qtyIng - asignadoYa),
         repartoId: match._fsId || match.id || null,
@@ -225,8 +229,7 @@ export function getStockBreakdown(sku, deps, opts) {
   }
 
   // v1392 §40: reservadasTotal = ASIG + confirmed + waitlistCpst (SIN BO, SIN repartoAbierto).
-  const reservadasTotal =
-    confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
+  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
   // demandaSapSinCubrir DEPRECATED v1392 — queda null para no romper
@@ -253,12 +256,12 @@ export function getStockBreakdown(sku, deps, opts) {
     sku: skuUp,
     fisicoDep11,
     transitoDep12,
-    demandaSapSinCubrir,  // DEPRECATED v1392 — siempre null
+    demandaSapSinCubrir, // DEPRECATED v1392 — siempre null
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
     waitlistCpst,
-    repartoAbierto,  // v1392 informativo
+    repartoAbierto, // v1392 informativo
     reservadasTotal,
     libre,
     utilizablePara,

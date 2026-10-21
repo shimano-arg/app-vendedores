@@ -63,7 +63,7 @@ const _STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 // de 90 dias como red de seguridad. confirmed sigue con 7 dias pero con hard
 // cap de 60 dias sobre confirmedAt (regla §38). ASIG no cambia.
 const RESERVA_TTL_DAYS = 7;
-const BO_TTL_DAYS = 90; // §37: BO no vence a 7d, red seguridad a 90d.
+const _BO_TTL_DAYS = 90; // §37: BO no vence a 7d, red seguridad a 90d.
 const CONFIRMED_HARD_CAP_DAYS = 60; // §38: aunque confirmedAt reciente, 60d es el tope duro.
 const DAY_MS = 24 * 60 * 60 * 1000;
 

@@ -94,7 +94,9 @@ describe('v1392 §40 reservadasTotal NO incluye BO ni repartoAbierto', () => {
           _ped({ _fsId: 'p2', lines: [{ code: 'X', state: 'confirmed', qtyOpen: 3 }] }),
           _ped({
             _fsId: 'p3',
-            lines: [{ code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(1) }],
+            lines: [
+              { code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(1) },
+            ],
           }),
         ],
       }),
@@ -116,10 +118,14 @@ describe('v1392 §40 reservadasTotal NO incluye BO ni repartoAbierto', () => {
           _ped({ _fsId: 'p1', lines: [{ code: 'X', state: 'BO', qtyOpen: 10 }] }),
           _ped({
             _fsId: 'p2',
-            lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }],
+            lines: [
+              { code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) },
+            ],
           }),
         ],
-        ingresos: [{ _fsId: 'ing1', sku: 'X', status: 'pending', qtyIngresada: 6, assignments: [] }],
+        ingresos: [
+          { _fsId: 'ing1', sku: 'X', status: 'pending', qtyIngresada: 6, assignments: [] },
+        ],
       }),
       { now: NOW }
     );
@@ -142,15 +148,56 @@ describe('v1392 §40 fixtures CUDC201HG reales del prompt', () => {
             _fsId: 'p_grau',
             clientCardCode: 'C_GRAU',
             clientName: 'GRAUBERGER',
-            lines: [{ code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }],
+            lines: [
+              {
+                code: 'CUDC201HG',
+                state: 'ASIG',
+                qtyOpen: 1,
+                asigReserva: true,
+                asigAt: daysAgo(1),
+              },
+            ],
           }),
-          _ped({ _fsId: 'p_a', clientCardCode: 'C_ANDRILI', clientName: 'ANDRILI', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }] }),
-          _ped({ _fsId: 'p_b', clientCardCode: 'C_ANT', clientName: 'ANTONINI', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }] }),
-          _ped({ _fsId: 'p_c', clientCardCode: 'C_IER', clientName: 'IERONIMO', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 1 }] }),
-          _ped({ _fsId: 'p_d', clientCardCode: 'C_4N', clientName: '4 NARICES', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }] }),
-          _ped({ _fsId: 'p_e', clientCardCode: 'C_MAS', clientName: 'MASERA', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 3 }] }),
+          _ped({
+            _fsId: 'p_a',
+            clientCardCode: 'C_ANDRILI',
+            clientName: 'ANDRILI',
+            lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }],
+          }),
+          _ped({
+            _fsId: 'p_b',
+            clientCardCode: 'C_ANT',
+            clientName: 'ANTONINI',
+            lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }],
+          }),
+          _ped({
+            _fsId: 'p_c',
+            clientCardCode: 'C_IER',
+            clientName: 'IERONIMO',
+            lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 1 }],
+          }),
+          _ped({
+            _fsId: 'p_d',
+            clientCardCode: 'C_4N',
+            clientName: '4 NARICES',
+            lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 2 }],
+          }),
+          _ped({
+            _fsId: 'p_e',
+            clientCardCode: 'C_MAS',
+            clientName: 'MASERA',
+            lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 3 }],
+          }),
         ],
-        ingresos: [{ _fsId: 'ing_wXqG9', sku: 'CUDC201HG', status: 'pending', qtyIngresada: 6, assignments: [] }],
+        ingresos: [
+          {
+            _fsId: 'ing_wXqG9',
+            sku: 'CUDC201HG',
+            status: 'pending',
+            qtyIngresada: 6,
+            assignments: [],
+          },
+        ],
       }),
       { now: NOW }
     );
@@ -169,11 +216,66 @@ describe('v1392 §40 fixtures CUDC201HG reales del prompt', () => {
       _makeDeps({
         fisico: 7,
         pedidos: [
-          _ped({ _fsId: 'p_grau', lines: [{ code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }] }),
-          _ped({ _fsId: 'p_a', lines: [{ code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(0) }] }),
-          _ped({ _fsId: 'p_b', lines: [{ code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(0) }] }),
-          _ped({ _fsId: 'p_c', lines: [{ code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(0) }] }),
-          _ped({ _fsId: 'p_d', lines: [{ code: 'CUDC201HG', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(0) }] }),
+          _ped({
+            _fsId: 'p_grau',
+            lines: [
+              {
+                code: 'CUDC201HG',
+                state: 'ASIG',
+                qtyOpen: 1,
+                asigReserva: true,
+                asigAt: daysAgo(1),
+              },
+            ],
+          }),
+          _ped({
+            _fsId: 'p_a',
+            lines: [
+              {
+                code: 'CUDC201HG',
+                state: 'ASIG',
+                qtyOpen: 1,
+                asigReserva: true,
+                asigAt: daysAgo(0),
+              },
+            ],
+          }),
+          _ped({
+            _fsId: 'p_b',
+            lines: [
+              {
+                code: 'CUDC201HG',
+                state: 'ASIG',
+                qtyOpen: 1,
+                asigReserva: true,
+                asigAt: daysAgo(0),
+              },
+            ],
+          }),
+          _ped({
+            _fsId: 'p_c',
+            lines: [
+              {
+                code: 'CUDC201HG',
+                state: 'ASIG',
+                qtyOpen: 1,
+                asigReserva: true,
+                asigAt: daysAgo(0),
+              },
+            ],
+          }),
+          _ped({
+            _fsId: 'p_d',
+            lines: [
+              {
+                code: 'CUDC201HG',
+                state: 'ASIG',
+                qtyOpen: 1,
+                asigReserva: true,
+                asigAt: daysAgo(0),
+              },
+            ],
+          }),
           _ped({ _fsId: 'p_rest', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 7 }] }),
         ],
         ingresos: [],
@@ -192,7 +294,9 @@ describe('v1392 §40 fixtures CUDC201HG reales del prompt', () => {
       'CUDC201HG',
       _makeDeps({
         fisico: 7,
-        pedidos: [_ped({ _fsId: 'p_bo', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 11 }] })],
+        pedidos: [
+          _ped({ _fsId: 'p_bo', lines: [{ code: 'CUDC201HG', state: 'BO', qtyOpen: 11 }] }),
+        ],
         ingresos: [],
       }),
       { now: NOW }
@@ -235,7 +339,9 @@ describe('v1392 §40 utilizablePara: BO del cliente NO cuenta', () => {
             _fsId: 'p1',
             clientCardCode: 'CA',
             clientName: 'A',
-            lines: [{ code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) }],
+            lines: [
+              { code: 'X', state: 'ASIG', qtyOpen: 1, asigReserva: true, asigAt: daysAgo(1) },
+            ],
           }),
           _ped({
             _fsId: 'p2',
@@ -259,7 +365,9 @@ describe('v1392 §40 TTL BO 90d en bucket backorderApp (cola/forecast)', () => {
       'X',
       _makeDeps({
         fisico: 10,
-        pedidos: [_ped({ createdAt: daysAgo(95), lines: [{ code: 'X', state: 'BO', qtyOpen: 5 }] })],
+        pedidos: [
+          _ped({ createdAt: daysAgo(95), lines: [{ code: 'X', state: 'BO', qtyOpen: 5 }] }),
+        ],
       }),
       { now: NOW }
     );
@@ -271,7 +379,9 @@ describe('v1392 §40 TTL BO 90d en bucket backorderApp (cola/forecast)', () => {
       'X',
       _makeDeps({
         fisico: 10,
-        pedidos: [_ped({ createdAt: daysAgo(30), lines: [{ code: 'X', state: 'BO', qtyOpen: 5 }] })],
+        pedidos: [
+          _ped({ createdAt: daysAgo(30), lines: [{ code: 'X', state: 'BO', qtyOpen: 5 }] }),
+        ],
       }),
       { now: NOW }
     );
@@ -286,13 +396,18 @@ describe('v1392 §40 repartoAbierto descuenta assignments ya aplicadas', () => {
       _makeDeps({
         fisico: 20,
         pedidos: [],
-        ingresos: [{
-          _fsId: 'ing1', sku: 'X', status: 'in_progress', qtyIngresada: 10,
-          assignments: [
-            { pedidoId: 'pX', lineIndex: 0, qtyAsignada: 2 },
-            { pedidoId: 'pY', lineIndex: 1, qtyAsignada: 1 },
-          ],
-        }],
+        ingresos: [
+          {
+            _fsId: 'ing1',
+            sku: 'X',
+            status: 'in_progress',
+            qtyIngresada: 10,
+            assignments: [
+              { pedidoId: 'pX', lineIndex: 0, qtyAsignada: 2 },
+              { pedidoId: 'pY', lineIndex: 1, qtyAsignada: 1 },
+            ],
+          },
+        ],
       }),
       { now: NOW }
     );
@@ -306,10 +421,15 @@ describe('v1392 §40 repartoAbierto descuenta assignments ya aplicadas', () => {
       _makeDeps({
         fisico: 20,
         pedidos: [],
-        ingresos: [{
-          _fsId: 'ing1', sku: 'X', status: 'in_progress', qtyIngresada: 5,
-          assignments: [{ pedidoId: 'pX', lineIndex: 0, qtyAsignada: 5 }],
-        }],
+        ingresos: [
+          {
+            _fsId: 'ing1',
+            sku: 'X',
+            status: 'in_progress',
+            qtyIngresada: 5,
+            assignments: [{ pedidoId: 'pX', lineIndex: 0, qtyAsignada: 5 }],
+          },
+        ],
       }),
       { now: NOW }
     );
@@ -323,7 +443,12 @@ describe('v1392 §38 confirmed/ASIG TTL sigue vivo', () => {
       'X',
       _makeDeps({
         fisico: 10,
-        pedidos: [_ped({ confirmedAt: daysAgo(30), lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }] })],
+        pedidos: [
+          _ped({
+            confirmedAt: daysAgo(30),
+            lines: [{ code: 'X', state: 'confirmed', qtyOpen: 5 }],
+          }),
+        ],
       }),
       { now: NOW }
     );
@@ -335,7 +460,13 @@ describe('v1392 §38 confirmed/ASIG TTL sigue vivo', () => {
       'X',
       _makeDeps({
         fisico: 10,
-        pedidos: [_ped({ lines: [{ code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(30) }] })],
+        pedidos: [
+          _ped({
+            lines: [
+              { code: 'X', state: 'ASIG', qtyOpen: 2, asigReserva: true, asigAt: daysAgo(30) },
+            ],
+          }),
+        ],
       }),
       { now: NOW }
     );

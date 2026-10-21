@@ -48,7 +48,7 @@ const OPEN_STATES = new Set(['BO', 'ASIG']);
 const RESERVA_TTL_DAYS = 7;
 // v1388 (2026-10-21): mirror src/pure (CLAUDE.md §37 BO no vence a 7d / §38
 // confirmed hard cap 60d).
-const BO_TTL_DAYS = 90;
+const _BO_TTL_DAYS = 90;
 const CONFIRMED_HARD_CAP_DAYS = 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -216,8 +216,7 @@ export function getStockBreakdown(sku, deps, opts) {
         let incluir = false;
         if (st === 'BO') {
           if (p.createdAt) {
-            const createdMs =
-              typeof p.createdAt === 'string' ? Date.parse(p.createdAt) : null;
+            const createdMs = typeof p.createdAt === 'string' ? Date.parse(p.createdAt) : null;
             if (createdMs !== null && (now - createdMs) / DAY_MS <= 90) {
               incluir = true;
             } else if (createdMs === null) {
@@ -280,8 +279,12 @@ export function getStockBreakdown(sku, deps, opts) {
     );
     if (match) {
       const qtyIng = Number(match.qtyIngresada) || 0;
-      const assignments = Array.isArray(match.assignments) ? match.assignments : [];
-      const asignadoYa = assignments.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
+      const assignments = /** @type {any[]} */ (
+        Array.isArray(match.assignments) ? match.assignments : []
+      );
+      /** @type {number} */
+      let asignadoYa = 0;
+      for (const a of assignments) asignadoYa += Number((a && a.qtyAsignada) || 0);
       repartoAbierto = {
         qty: Math.max(0, qtyIng - asignadoYa),
         repartoId: match._fsId || match.id || null,
@@ -291,8 +294,7 @@ export function getStockBreakdown(sku, deps, opts) {
   }
 
   // v1392 §40: reservadasTotal = ASIG + confirmed + waitlistCpst (SIN BO, SIN reparto).
-  const reservadasTotal =
-    confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
+  const reservadasTotal = confirmadasSinFacturar.total + asignadas.total + waitlistCpst.total;
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
 
   // demandaSapSinCubrir DEPRECATED v1392 — queda null.
@@ -315,12 +317,12 @@ export function getStockBreakdown(sku, deps, opts) {
     sku: skuUp,
     fisicoDep11,
     transitoDep12,
-    demandaSapSinCubrir,  // DEPRECATED v1392
+    demandaSapSinCubrir, // DEPRECATED v1392
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
     waitlistCpst,
-    repartoAbierto,  // v1392 informativo
+    repartoAbierto, // v1392 informativo
     reservadasTotal,
     libre,
     utilizablePara,

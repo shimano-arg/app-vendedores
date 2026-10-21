@@ -31,8 +31,12 @@ function makeFakeFbDb({ pedidos = [], ingresosActivos = [] } = {}) {
                 return { forEach: (cb) => ingresosActivos.forEach(cb) };
               return { forEach: () => {} };
             },
-            where() { return this; },
-            limit() { return this; },
+            where() {
+              return this;
+            },
+            limit() {
+              return this;
+            },
           };
         },
         async add(data) {
@@ -57,16 +61,24 @@ describe('reconcile fórmula §40: min(fisico - asig - conf, BO vigente)', () =>
   it('fisico=7, BO=10, ASIG=1 → qtyARepartir=6', async () => {
     const pedidosArr = [
       pedidoDoc('pG', {
-        clientCardCode: 'C1', clientName: 'GRAUBERGER', createdAt: nowIso,
+        clientCardCode: 'C1',
+        clientName: 'GRAUBERGER',
+        createdAt: nowIso,
         lines: [{ code: 'STRADIC', ...asigVig }],
       }),
       pedidoDoc('pA', {
-        clientCardCode: 'CA', clientName: 'ANDRILI', createdAt: nowIso,
+        clientCardCode: 'CA',
+        clientName: 'ANDRILI',
+        createdAt: nowIso,
         lines: [{ code: 'STRADIC', state: 'BO', qtyOpen: 10 }],
       }),
     ];
     const pedidosData = pedidosArr.map((d) => Object.assign({ _fsId: d.id }, d.data()));
-    const bk = getStockBreakdown('STRADIC', { getStockFisico: () => 7, pedidos: pedidosData }, { now: NOW.getTime() });
+    const bk = getStockBreakdown(
+      'STRADIC',
+      { getStockFisico: () => 7, pedidos: pedidosData },
+      { now: NOW.getTime() }
+    );
     expect(bk.backorderApp.total).toBe(10);
     expect(bk.asignadas.total).toBe(1);
     const expected = expectedQty(bk, 7); // min(7-1-0, 10) = 6
@@ -81,20 +93,31 @@ describe('reconcile fórmula §40: min(fisico - asig - conf, BO vigente)', () =>
   it('fisico=5, BO=3, confirmed vigente=2, ASIG=1 → qtyARepartir=2 (min con BO=3)', async () => {
     const pedidosArr = [
       pedidoDoc('p1', {
-        clientCardCode: 'C1', clientName: 'A', createdAt: nowIso,
+        clientCardCode: 'C1',
+        clientName: 'A',
+        createdAt: nowIso,
         lines: [{ code: 'SKU', state: 'BO', qtyOpen: 3 }],
       }),
       pedidoDoc('p2', {
-        clientCardCode: 'C2', clientName: 'B', confirmedAt: nowIso, createdAt: nowIso,
+        clientCardCode: 'C2',
+        clientName: 'B',
+        confirmedAt: nowIso,
+        createdAt: nowIso,
         lines: [{ code: 'SKU', state: 'confirmed', qtyOpen: 2 }],
       }),
       pedidoDoc('p3', {
-        clientCardCode: 'C3', clientName: 'C', createdAt: nowIso,
+        clientCardCode: 'C3',
+        clientName: 'C',
+        createdAt: nowIso,
         lines: [{ code: 'SKU', ...asigVig }],
       }),
     ];
     const pedidosData = pedidosArr.map((d) => Object.assign({ _fsId: d.id }, d.data()));
-    const bk = getStockBreakdown('SKU', { getStockFisico: () => 5, pedidos: pedidosData }, { now: NOW.getTime() });
+    const bk = getStockBreakdown(
+      'SKU',
+      { getStockFisico: () => 5, pedidos: pedidosData },
+      { now: NOW.getTime() }
+    );
     const expected = expectedQty(bk, 5); // min(5-1-2, 3) = min(2, 3) = 2
     expect(expected).toBe(2);
 
@@ -108,16 +131,24 @@ describe('reconcile fórmula §40: min(fisico - asig - conf, BO vigente)', () =>
     // Fisico 3, BO 10, ASIG 1, conf 0 → min(3-1-0, 10) = min(2, 10) = 2.
     const pedidosArr = [
       pedidoDoc('p1', {
-        clientCardCode: 'C1', clientName: 'A', createdAt: nowIso,
+        clientCardCode: 'C1',
+        clientName: 'A',
+        createdAt: nowIso,
         lines: [{ code: 'SKU', state: 'BO', qtyOpen: 10 }],
       }),
       pedidoDoc('p2', {
-        clientCardCode: 'C2', clientName: 'B', createdAt: nowIso,
+        clientCardCode: 'C2',
+        clientName: 'B',
+        createdAt: nowIso,
         lines: [{ code: 'SKU', ...asigVig }],
       }),
     ];
     const pedidosData = pedidosArr.map((d) => Object.assign({ _fsId: d.id }, d.data()));
-    const bk = getStockBreakdown('SKU', { getStockFisico: () => 3, pedidos: pedidosData }, { now: NOW.getTime() });
+    const bk = getStockBreakdown(
+      'SKU',
+      { getStockFisico: () => 3, pedidos: pedidosData },
+      { now: NOW.getTime() }
+    );
     const expected = expectedQty(bk, 3);
     expect(expected).toBe(2);
     const fbDb = makeFakeFbDb({ pedidos: pedidosArr });
@@ -129,12 +160,18 @@ describe('reconcile fórmula §40: min(fisico - asig - conf, BO vigente)', () =>
     // Fisico 10, BO 2, ASIG 0, conf 0 → min(10, 2) = 2.
     const pedidosArr = [
       pedidoDoc('p1', {
-        clientCardCode: 'C1', clientName: 'A', createdAt: nowIso,
+        clientCardCode: 'C1',
+        clientName: 'A',
+        createdAt: nowIso,
         lines: [{ code: 'SKU', state: 'BO', qtyOpen: 2 }],
       }),
     ];
     const pedidosData = pedidosArr.map((d) => Object.assign({ _fsId: d.id }, d.data()));
-    const bk = getStockBreakdown('SKU', { getStockFisico: () => 10, pedidos: pedidosData }, { now: NOW.getTime() });
+    const bk = getStockBreakdown(
+      'SKU',
+      { getStockFisico: () => 10, pedidos: pedidosData },
+      { now: NOW.getTime() }
+    );
     const expected = expectedQty(bk, 10);
     expect(expected).toBe(2);
     const fbDb = makeFakeFbDb({ pedidos: pedidosArr });

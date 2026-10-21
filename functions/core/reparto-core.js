@@ -38,7 +38,7 @@
 // v1391 (2026-10-21): import getStockBreakdown — el reconcile usa el mismo
 // cálculo que las pantallas (CLAUDE.md §39). lineReservesStock sigue
 // importado SOLO para armar clientesBO[] ordenado FIFO.
-import { getStockBreakdown, lineReservesStock } from './pedido-snapshot-core.js';
+import { getStockBreakdown } from './pedido-snapshot-core.js';
 
 const INGRESOS_REPARTO_COLLECTION = 'ingresos_reparto';
 const REPARTO_LOG_COLLECTION = 'reparto_log';
@@ -356,11 +356,12 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
       const data = d.data() || {};
       if (!data.sku) return;
       const sku = String(data.sku).toUpperCase();
-      const assignments = Array.isArray(data.assignments) ? data.assignments : [];
-      const asignadoYa = assignments.reduce(
-        (s, a) => s + (Number(a && a.qtyAsignada) || 0),
-        0
+      const assignments = /** @type {any[]} */ (
+        Array.isArray(data.assignments) ? data.assignments : []
       );
+      /** @type {number} */
+      let asignadoYa = 0;
+      for (const a of assignments) asignadoYa += Number((a && a.qtyAsignada) || 0);
       repartosActivos.set(sku, {
         id: d.id,
         qtyIng: Number(data.qtyIngresada) || 0,
@@ -414,10 +415,7 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
       // v1392 §40 fórmula qtyARepartir = min(fisico - asig - conf, BO vigente).
       const qtyARepartir = Math.max(
         0,
-        Math.min(
-          fisico - breakdown.asignadas.total - breakdown.confirmadasSinFacturar.total,
-          boVig
-        )
+        Math.min(fisico - breakdown.asignadas.total - breakdown.confirmadasSinFacturar.total, boVig)
       );
       if (qtyARepartir <= 0) {
         skipped.push({
@@ -443,10 +441,11 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
           // Ajustar: nueva qtyIngresada = assignmentsSum + qtyARepartir (preserva asignaciones).
           const newQtyIng = activo.assignmentsSum + qtyARepartir;
           try {
-            await deps.fbDb
-              .collection(INGRESOS_REPARTO_COLLECTION)
-              .doc(activo.id)
-              .update({ qtyIngresada: newQtyIng, adjustedAt: nowIso, adjustedReason: 'bo_vigente_bajo' });
+            await deps.fbDb.collection(INGRESOS_REPARTO_COLLECTION).doc(activo.id).update({
+              qtyIngresada: newQtyIng,
+              adjustedAt: nowIso,
+              adjustedReason: 'bo_vigente_bajo',
+            });
             log('reparto_ajustado', {
               sku,
               id: activo.id,
@@ -455,9 +454,14 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
               assignmentsSum: activo.assignmentsSum,
               boVig,
             });
-            skipped.push({ sku, reason: 'reparto_ajustado (qty ' + activo.qtyIng + ' -> ' + newQtyIng + ')' });
+            skipped.push({
+              sku,
+              reason: 'reparto_ajustado (qty ' + activo.qtyIng + ' -> ' + newQtyIng + ')',
+            });
           } catch (e) {
-            errors.push('reparto_ajuste fallo sku=' + sku + ': ' + (e && e.message ? e.message : String(e)));
+            errors.push(
+              'reparto_ajuste fallo sku=' + sku + ': ' + (e && e.message ? e.message : String(e))
+            );
           }
         } else {
           skipped.push({ sku, reason: 'reparto_activo_qty_ok' });
@@ -485,10 +489,11 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
             const createdMsCheck =
               typeof data.createdAt === 'string'
                 ? Date.parse(data.createdAt)
-                : (data.createdAt && typeof data.createdAt.toMillis === 'function')
-                    ? data.createdAt.toMillis()
-                    : null;
-            if (createdMsCheck !== null && (nowMs - createdMsCheck) / (24 * 60 * 60 * 1000) > 90) continue;
+                : data.createdAt && typeof data.createdAt.toMillis === 'function'
+                  ? data.createdAt.toMillis()
+                  : null;
+            if (createdMsCheck !== null && (nowMs - createdMsCheck) / (24 * 60 * 60 * 1000) > 90)
+              continue;
           }
           let createdMs = 0;
           let createdIso = null;
@@ -567,6 +572,12 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
  * @param {Assignment[]} assignments
  * @param {Array<{pedidoId: string, lineIndex: number, qtyEliminar: number}>} [eliminations]
  * @returns {{valid: boolean, errors: string[], sumAsignada?: number, sumEliminada?: number}}
+ */
+/**
+ * @param {any} ingresoDoc
+ * @param {Array<any>} [assignments]
+ * @param {Array<any>} [eliminations]
+ * @param {{allowSobrante?: boolean}} [opts]
  */
 export function validateRepartoPayload(ingresoDoc, assignments, eliminations, opts) {
   /** @type {string[]} */
@@ -659,6 +670,7 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations, op
  * @param {Assignment[]} opts.assignments
  * @param {Array<{pedidoId: string, lineIndex: number, qtyEliminar: number}>} [opts.eliminations]
  * @param {string} opts.appliedByEmail Email del user que aplica (audit).
+ * @param {boolean} [opts.allowSobrante] v1392 §40: cerrar con sobrante.
  * @returns {Promise<{ok: boolean, errors: string[], applied: Assignment[], eliminated?: Array<{pedidoId: string, lineIndex: number, qtyEliminada: number}>}>}
  */
 export async function applyRepartoManualCore(deps, opts) {
@@ -908,8 +920,9 @@ export async function applyRepartoManualCore(deps, opts) {
         ? 'done'
         : 'pending'
       : touched > 0
-          ? 'in_progress'
-          : 'pending';
+        ? 'in_progress'
+        : 'pending';
+  /** @type {Record<string, any>} */
   const updatePayload = {
     status: nextStatus,
     appliedAt: nowIso,
@@ -926,9 +939,8 @@ export async function applyRepartoManualCore(deps, opts) {
   }
   // Medir ventana ingreso→reparto (CLAUDE.md): tiempo entre detectedAt y appliedAt.
   if (ingresoDoc.detectedAt) {
-    const detectedMs = typeof ingresoDoc.detectedAt === 'string'
-      ? Date.parse(ingresoDoc.detectedAt)
-      : null;
+    const detectedMs =
+      typeof ingresoDoc.detectedAt === 'string' ? Date.parse(ingresoDoc.detectedAt) : null;
     if (detectedMs !== null) {
       const ventanaMs = now.getTime() - detectedMs;
       updatePayload.ventanaIngresoARepartoMs = ventanaMs;
