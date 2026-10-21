@@ -135,6 +135,43 @@ describe('T2 — órdenes normales → sin origen (no se filtra el fix)', () => 
 });
 
 // =============================================================================
+// T3 — orden unificada mixta (1 reservada + 1 normal): disp per-line
+// =============================================================================
+describe('T3 — orden mixta: disp por línea, no por documento', () => {
+  it('línea reservada va a confirmed; línea normal va a BO; mismo pedido unificado', () => {
+    // Fisico STRADIC=1, Oeste ASIG(STRADIC)=1 (reserva propia).
+    // Fisico OTRO=0, otro cliente tiene BO reserva (fisico 0 bloqueado).
+    const otherSku = 'OTRO-SKU';
+    const deps = makeDeps({
+      fisicoBySku: { [SKU_STRADIC]: 1, [otherSku]: 0 },
+      pedidos: [pedidoOpen('p-oeste-asig', OESTE, [lineASIG(SKU_STRADIC, 1)])],
+    });
+    // Simula el call-site POST-FIX de doConfirmPedido: decide por línea.
+    const buildGetDisp = (l) => {
+      const isExAsig = l && l.origen === 'stock-asignado';
+      return (sku) =>
+        isExAsig
+          ? Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0)
+          : Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
+    };
+    // Línea 1: reservada (importada de CPST)
+    const lineReservada = {
+      code: SKU_STRADIC,
+      qty: 1,
+      precio: 1000,
+      origen: 'stock-asignado',
+      asigRefs: [{ pedidoId: 'p-oeste-asig', lineIndex: 0, qtyAsignada: 1 }],
+    };
+    const outReservada = splitPedidoLine(lineReservada, { getDisp: buildGetDisp(lineReservada), flagEnabled: true });
+    expect(outReservada[0].state).toBe('confirmed');
+    // Línea 2: normal (sin origen)
+    const lineNormal = { code: otherSku, qty: 1, precio: 1000 };
+    const outNormal = splitPedidoLine(lineNormal, { getDisp: buildGetDisp(lineNormal), flagEnabled: true });
+    expect(outNormal[0].state).toBe('BO'); // fisico=0 → sin stock
+  });
+});
+
+// =============================================================================
 // T0-P3 — Cancelación ASIG hoy depende de _pendingPedidoOrigenes global.
 // =============================================================================
 describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde documento)', () => {
