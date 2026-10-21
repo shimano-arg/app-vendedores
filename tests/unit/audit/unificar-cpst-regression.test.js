@@ -166,11 +166,17 @@ describe('T3 — orden mixta: disp por línea, no por documento', () => {
       origen: 'stock-asignado',
       asigRefs: [{ pedidoId: 'p-oeste-asig', lineIndex: 0, qtyAsignada: 1 }],
     };
-    const outReservada = splitPedidoLine(lineReservada, { getDisp: buildGetDisp(lineReservada), flagEnabled: true });
+    const outReservada = splitPedidoLine(lineReservada, {
+      getDisp: buildGetDisp(lineReservada),
+      flagEnabled: true,
+    });
     expect(outReservada[0].state).toBe('confirmed');
     // Línea 2: normal (sin origen)
     const lineNormal = { code: otherSku, qty: 1, precio: 1000 };
-    const outNormal = splitPedidoLine(lineNormal, { getDisp: buildGetDisp(lineNormal), flagEnabled: true });
+    const outNormal = splitPedidoLine(lineNormal, {
+      getDisp: buildGetDisp(lineNormal),
+      flagEnabled: true,
+    });
     expect(outNormal[0].state).toBe('BO'); // fisico=0 → sin stock
   });
 });
@@ -328,19 +334,26 @@ describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde do
     const buildGetDisp = (l) => {
       const lineIsExAsig = l && l.origen === 'stock-asignado';
       // POST-FIX: _docIsExAsig solo aplica si NINGUNA línea tiene origen.
-      const docIsExAsig = !lineIsExAsig && !_docHasAnyOrigen && docData.source === 'stock-asignado-batch';
+      const docIsExAsig =
+        !lineIsExAsig && !_docHasAnyOrigen && docData.source === 'stock-asignado-batch';
       return (sku) =>
-        (lineIsExAsig || docIsExAsig)
+        lineIsExAsig || docIsExAsig
           ? Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0)
           : Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
     };
     // Línea 1 (sin origen): fórmula global → disp=max(0,1-1)=0 → BO 2u.
-    const out1 = splitPedidoLine(docData.lines[0], { getDisp: buildGetDisp(docData.lines[0]), flagEnabled: true });
+    const out1 = splitPedidoLine(docData.lines[0], {
+      getDisp: buildGetDisp(docData.lines[0]),
+      flagEnabled: true,
+    });
     expect(out1).toHaveLength(1);
     expect(out1[0].state).toBe('BO');
     expect(out1[0].qty).toBe(2);
     // Línea 2 (con origen): fórmula por cliente → disp=min(1,1+0)=1 → confirmed 1u.
-    const out2 = splitPedidoLine(docData.lines[1], { getDisp: buildGetDisp(docData.lines[1]), flagEnabled: true });
+    const out2 = splitPedidoLine(docData.lines[1], {
+      getDisp: buildGetDisp(docData.lines[1]),
+      flagEnabled: true,
+    });
     expect(out2).toHaveLength(1);
     expect(out2[0].state).toBe('confirmed');
     expect(out2[0].qty).toBe(1);
@@ -359,13 +372,17 @@ describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde do
     const _docHasAnyOrigen = docData.lines.some((l) => l && l.origen === 'stock-asignado');
     const buildGetDisp = (l) => {
       const lineIsExAsig = l && l.origen === 'stock-asignado';
-      const docIsExAsig = !lineIsExAsig && !_docHasAnyOrigen && docData.source === 'stock-asignado-batch';
+      const docIsExAsig =
+        !lineIsExAsig && !_docHasAnyOrigen && docData.source === 'stock-asignado-batch';
       return (sku) =>
-        (lineIsExAsig || docIsExAsig)
+        lineIsExAsig || docIsExAsig
           ? Math.max(getStockUtilizableParaClienteExAsig(sku, OESTE, deps, AT_NOW), 0)
           : Math.max(getStockRealmenteDisponible(sku, deps, AT_NOW), 0);
     };
-    const out = splitPedidoLine(docData.lines[0], { getDisp: buildGetDisp(docData.lines[0]), flagEnabled: true });
+    const out = splitPedidoLine(docData.lines[0], {
+      getDisp: buildGetDisp(docData.lines[0]),
+      flagEnabled: true,
+    });
     expect(out).toHaveLength(1);
     expect(out[0].state).toBe('confirmed');
   });
