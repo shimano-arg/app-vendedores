@@ -25,6 +25,12 @@
  */
 
 /**
+ * @typedef {Object} AsigRef
+ * @property {string} pedidoId
+ * @property {number} lineIndex
+ * @property {number} qtyAsignada
+ * @property {string} [sku]
+ *
  * @typedef {Object} RawLine
  * @property {string} code
  * @property {string} [desc]
@@ -34,6 +40,9 @@
  * @property {number | string} qty
  * @property {number | string} precio
  * @property {boolean} [needsReview]
+ * @property {number} [importedFromOrder]  v1284 preserve post-unificar
+ * @property {'stock-asignado'} [origen]  v1382 identidad ASIG por linea
+ * @property {Array<AsigRef>} [asigRefs]   v1382 refs a ASIG original(es)
  */
 
 /**
