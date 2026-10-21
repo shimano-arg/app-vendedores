@@ -342,16 +342,30 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
   /** @type {string[]} */
   const errors = [];
 
-  // 1. SKUs con reparto activo (dedupe).
-  const skusConReparto = new Set();
+  // 1. SKUs con reparto activo (dedupe + ajuste).
+  // v1392 §40: ya NO solo "skip si existe"; también ajustar qtyIngresada
+  // cuando el reparto activo supera BO vigente.
+  /** @type {Map<string, {id:string, qtyIng:number, assignmentsSum:number}>} */
+  const repartosActivos = new Map();
   try {
     const activosSnap = await deps.fbDb
       .collection(INGRESOS_REPARTO_COLLECTION)
       .where('status', 'in', ['pending', 'in_progress'])
       .get();
     activosSnap.forEach((/** @type {any} */ d) => {
-      const data = d.data();
-      if (data && data.sku) skusConReparto.add(String(data.sku).toUpperCase());
+      const data = d.data() || {};
+      if (!data.sku) return;
+      const sku = String(data.sku).toUpperCase();
+      const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+      const asignadoYa = assignments.reduce(
+        (s, a) => s + (Number(a && a.qtyAsignada) || 0),
+        0
+      );
+      repartosActivos.set(sku, {
+        id: d.id,
+        qtyIng: Number(data.qtyIngresada) || 0,
+        assignmentsSum: asignadoYa,
+      });
     });
   } catch (e) {
     errors.push(
@@ -359,6 +373,7 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
     );
     return { created, skipped, errors };
   }
+  const skusConReparto = new Set(repartosActivos.keys());
 
   // 2. Pedidos abiertos (una sola vez).
   let openPedidos;
@@ -379,25 +394,31 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
     try {
       const fisico = Number(whs['11']) || 0;
       if (fisico <= 0) continue;
-      if (skusConReparto.has(sku)) {
-        skipped.push({ sku, reason: 'reparto_activo_existe' });
-        continue;
-      }
-      // Autoridad: getStockBreakdown decide pendienteReparto.qty.
+      // Breakdown v2: boVig + asig + conf; NO depende de reparto activo.
       const breakdown = getStockBreakdown(
         sku,
-        {
-          getStockFisico: () => fisico,
-          pedidos: pedidosData,
-        },
+        { getStockFisico: () => fisico, pedidos: pedidosData },
         { now: nowMs }
       );
       const boVig = breakdown.backorderApp.total;
       if (boVig <= 0) {
-        skipped.push({ sku, reason: 'sin_bo_vigente' });
+        if (skusConReparto.has(sku)) {
+          // Hay reparto abierto pero sin BO vigente → no ajustamos ni cerramos
+          // (Pablo decide; cerrar con sobrante es acción manual E2.2).
+          skipped.push({ sku, reason: 'reparto_activo_sin_bo_vigente' });
+        } else {
+          skipped.push({ sku, reason: 'sin_bo_vigente' });
+        }
         continue;
       }
-      const qtyARepartir = breakdown.pendienteReparto.qty;
+      // v1392 §40 fórmula qtyARepartir = min(fisico - asig - conf, BO vigente).
+      const qtyARepartir = Math.max(
+        0,
+        Math.min(
+          fisico - breakdown.asignadas.total - breakdown.confirmadasSinFacturar.total,
+          boVig
+        )
+      );
       if (qtyARepartir <= 0) {
         skipped.push({
           sku,
@@ -408,8 +429,39 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
             breakdown.asignadas.total +
             ' conf=' +
             breakdown.confirmadasSinFacturar.total +
+            ' boVig=' +
+            boVig +
             ')',
         });
+        continue;
+      }
+      // Si ya existe reparto activo → ajustar qtyIngresada si supera qtyARepartir.
+      const activo = repartosActivos.get(sku);
+      if (activo) {
+        const pendiente = Math.max(0, activo.qtyIng - activo.assignmentsSum);
+        if (pendiente > qtyARepartir) {
+          // Ajustar: nueva qtyIngresada = assignmentsSum + qtyARepartir (preserva asignaciones).
+          const newQtyIng = activo.assignmentsSum + qtyARepartir;
+          try {
+            await deps.fbDb
+              .collection(INGRESOS_REPARTO_COLLECTION)
+              .doc(activo.id)
+              .update({ qtyIngresada: newQtyIng, adjustedAt: nowIso, adjustedReason: 'bo_vigente_bajo' });
+            log('reparto_ajustado', {
+              sku,
+              id: activo.id,
+              qtyIngOld: activo.qtyIng,
+              qtyIngNew: newQtyIng,
+              assignmentsSum: activo.assignmentsSum,
+              boVig,
+            });
+            skipped.push({ sku, reason: 'reparto_ajustado (qty ' + activo.qtyIng + ' -> ' + newQtyIng + ')' });
+          } catch (e) {
+            errors.push('reparto_ajuste fallo sku=' + sku + ': ' + (e && e.message ? e.message : String(e)));
+          }
+        } else {
+          skipped.push({ sku, reason: 'reparto_activo_qty_ok' });
+        }
         continue;
       }
       // clientesBO[] FIFO: construido iterando pedidos (shape del doc requiere
@@ -426,7 +478,18 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
           if (l.state !== 'BO') continue;
           const qo = Number(l.qtyOpen) || 0;
           if (qo <= 0) continue;
-          if (!lineReservesStock(l, nowMs, data)) continue;
+          // v1392 §40: lineReservesStock('BO') ahora es false. Usamos filtro
+          // TTL 90d directo para considerar la cola vigente (misma lógica
+          // que breakdown.backorderApp).
+          if (data.createdAt) {
+            const createdMsCheck =
+              typeof data.createdAt === 'string'
+                ? Date.parse(data.createdAt)
+                : (data.createdAt && typeof data.createdAt.toMillis === 'function')
+                    ? data.createdAt.toMillis()
+                    : null;
+            if (createdMsCheck !== null && (nowMs - createdMsCheck) / (24 * 60 * 60 * 1000) > 90) continue;
+          }
           let createdMs = 0;
           let createdIso = null;
           if (data.createdAt) {
@@ -505,7 +568,7 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
  * @param {Array<{pedidoId: string, lineIndex: number, qtyEliminar: number}>} [eliminations]
  * @returns {{valid: boolean, errors: string[], sumAsignada?: number, sumEliminada?: number}}
  */
-export function validateRepartoPayload(ingresoDoc, assignments, eliminations) {
+export function validateRepartoPayload(ingresoDoc, assignments, eliminations, opts) {
   /** @type {string[]} */
   const errors = [];
   if (!ingresoDoc) {
@@ -517,7 +580,9 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations) {
   }
   const asigArr = Array.isArray(assignments) ? assignments : [];
   const elimArr = Array.isArray(eliminations) ? eliminations : [];
-  if (asigArr.length === 0 && elimArr.length === 0) {
+  // v1392 §40: con allowSobrante=true, permitir asig+elim=0 (Pablo cierra con sobrante).
+  const allowSobrante = !!(opts && opts.allowSobrante);
+  if (!allowSobrante && asigArr.length === 0 && elimArr.length === 0) {
     errors.push('assignments y eliminations vacios (nada que aplicar)');
     return { valid: false, errors };
   }
@@ -606,7 +671,9 @@ export async function applyRepartoManualCore(deps, opts) {
     return { ok: false, errors: ['ingreso_reparto no encontrado: ' + opts.ingresoId], applied: [] };
   }
   const ingresoDoc = /** @type {IngresoRepartoDoc} */ (snap.data() || {});
-  const validation = validateRepartoPayload(ingresoDoc, opts.assignments, opts.eliminations);
+  const validation = validateRepartoPayload(ingresoDoc, opts.assignments, opts.eliminations, {
+    allowSobrante: opts.allowSobrante === true,
+  });
   if (!validation.valid) {
     return { ok: false, errors: validation.errors, applied: [] };
   }
@@ -825,18 +892,56 @@ export async function applyRepartoManualCore(deps, opts) {
       errors.push(msg);
     }
   }
-  // Marcar ingreso como done (parcialmente OK, en progreso, o done segun errors).
+  // v1392 §40: Marcar ingreso como done si:
+  //   - no hay errores, Y
+  //   - (hay asignaciones/eliminaciones aplicadas) O (opts.allowSobrante=true)
+  // Si allowSobrante=true + 0 touched → Pablo cerró explícito con sobrante.
   const touched = applied.length + eliminated.length;
-  const nextStatus = errors.length === 0 ? 'done' : touched > 0 ? 'in_progress' : 'pending';
+  const allowSobrante = opts.allowSobrante === true;
+  const sumIngresada = Number(ingresoDoc.qtyIngresada) || 0;
+  const sumAsigAplicada = applied.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
+  const sumElimAplicada = eliminated.reduce((s, e) => s + (Number(e.qtyEliminada) || 0), 0);
+  const sobrante = Math.max(0, sumIngresada - sumAsigAplicada - sumElimAplicada);
+  const nextStatus =
+    errors.length === 0
+      ? touched > 0 || allowSobrante
+        ? 'done'
+        : 'pending'
+      : touched > 0
+          ? 'in_progress'
+          : 'pending';
+  const updatePayload = {
+    status: nextStatus,
+    appliedAt: nowIso,
+    appliedBy: opts.appliedByEmail || '',
+    assignments: applied,
+    eliminations: eliminated,
+    assignmentErrors: errors,
+  };
+  if (nextStatus === 'done' && sobrante > 0) {
+    updatePayload.closedReason = allowSobrante
+      ? 'admin_cerrado_con_sobrante_' + sobrante + '_libres'
+      : 'done_con_sobrante_' + sobrante;
+    updatePayload.sobranteLibre = sobrante;
+  }
+  // Medir ventana ingreso→reparto (CLAUDE.md): tiempo entre detectedAt y appliedAt.
+  if (ingresoDoc.detectedAt) {
+    const detectedMs = typeof ingresoDoc.detectedAt === 'string'
+      ? Date.parse(ingresoDoc.detectedAt)
+      : null;
+    if (detectedMs !== null) {
+      const ventanaMs = now.getTime() - detectedMs;
+      updatePayload.ventanaIngresoARepartoMs = ventanaMs;
+      log('reparto_ventana', {
+        ingresoId: opts.ingresoId,
+        detectedAt: ingresoDoc.detectedAt,
+        appliedAt: nowIso,
+        ventanaMinutos: Math.round(ventanaMs / 60000),
+      });
+    }
+  }
   try {
-    await ingresoRef.update({
-      status: nextStatus,
-      appliedAt: nowIso,
-      appliedBy: opts.appliedByEmail || '',
-      assignments: applied,
-      eliminations: eliminated,
-      assignmentErrors: errors,
-    });
+    await ingresoRef.update(updatePayload);
   } catch (e) {
     errors.push('update ingreso status failed: ' + (e && e.message ? e.message : String(e)));
   }

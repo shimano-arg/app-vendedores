@@ -111,7 +111,7 @@ describe('reconcileRepartosFaltantes (E2 v1384)', () => {
     expect(r.created).toHaveLength(0);
     expect(r.skipped.find((s) => s.sku === 'STRADIC')).toEqual({
       sku: 'STRADIC',
-      reason: 'reparto_activo_existe',
+      reason: 'reparto_activo_qty_ok', // v1392: ajuste solo si pendiente > qtyARepartir
     });
     expect(fbDb._writes).toHaveLength(0);
   });
@@ -196,6 +196,7 @@ describe('reconcileRepartosFaltantes (E2 v1384)', () => {
     const r = await reconcileRepartosFaltantes(deps(fbDb), _snap({ STRADIC: { 11: 7 } }));
     expect(r.created).toHaveLength(1);
     const write = fbDb._writes[0];
-    expect(write.data.qtyIngresada).toBe(7); // ASIG expirada no resta
+    // v1392 §40: min(fisico - asig(0 por vencida) - conf(0), BO vigente=5) = 5
+    expect(write.data.qtyIngresada).toBe(5);
   });
 });
