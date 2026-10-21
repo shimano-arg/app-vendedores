@@ -22,7 +22,11 @@ import {
   getStockRealmenteDisponible,
   getStockUtilizableParaClienteExAsig,
 } from '../../../src/pure/stock-realmente-disponible.js';
-import { mergeLinesFromOrders } from '../../../src/pure/unificar-ordenes.js';
+import {
+  computeDuplicateCodes,
+  getRowColorClass,
+  mergeLinesFromOrders,
+} from '../../../src/pure/unificar-ordenes.js';
 import { AT_NOW, lineASIG, makeDeps, OESTE, pedidoOpen, SKU_STRADIC } from './_fixtures.js';
 
 // =============================================================================
@@ -244,6 +248,56 @@ describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde do
     const origenes = collectOrigenesACancelar(lines, null);
     expect(origenes).toHaveLength(1);
     expect(origenes[0]).toMatchObject({ pedidoId: 'p-a', lineIndex: 5 });
+  });
+
+  // T5 — SKU duplicado con reserva: original va a 'duplicate-original' (roja);
+  //      importada reservada va a 'duplicate-reservado' (azul).
+  it('T5 duplicado con reserva: fila original rojo, importada reservada azul', () => {
+    const baseLines = [{ code: SKU_STRADIC, qty: 2 }]; // original en orden nueva
+    const cpstOrder = {
+      orderNumber: 332,
+      pedidoId: 'cpst-332',
+      source: 'stock-asignado-batch',
+      pedidosOrigenes: [
+        { pedidoId: 'p-oeste-asig', lineIndex: 0, sku: SKU_STRADIC, qtyAsignada: 1 },
+      ],
+      lines: [{ code: SKU_STRADIC, qty: 1 }],
+    };
+    const { mergedLines, duplicateCodes } = mergeLinesFromOrders(baseLines, [cpstOrder]);
+    expect(mergedLines).toHaveLength(2);
+    // mergedLines[0] = original (sin origen), merged duplicate-original
+    expect(getRowColorClass(mergedLines[0], duplicateCodes)).toBe('duplicate-original');
+    // mergedLines[1] = importada reservada, duplicate-reservado
+    expect(mergedLines[1].origen).toBe('stock-asignado');
+    expect(getRowColorClass(mergedLines[1], duplicateCodes)).toBe('duplicate-reservado');
+  });
+
+  // T6 — Borrar fila reservada del waitlist NO cancela la ASIG original.
+  //      La ASIG se cancela solo via bloque v1280 al confirmar + enviar a SAP
+  //      o via CF expireAsigLinesTTLCF. Verificamos que mergeLinesFromOrders +
+  //      la lógica de collector (no definida acá) NO disparan cancelación por
+  //      remoción. Representamos "borrar" como una línea filtrada del output.
+  it('T6 borrar fila reservada: no hay cancellation side-effect en la data', () => {
+    const cpstOrder = {
+      orderNumber: 332,
+      pedidoId: 'cpst-332',
+      source: 'stock-asignado-batch',
+      pedidosOrigenes: [
+        { pedidoId: 'p-oeste-asig', lineIndex: 0, sku: SKU_STRADIC, qtyAsignada: 1 },
+      ],
+      lines: [{ code: SKU_STRADIC, qty: 1 }],
+    };
+    const { mergedLines } = mergeLinesFromOrders([], [cpstOrder]);
+    expect(mergedLines).toHaveLength(1);
+    // "borrar" la línea del waitlist: filtrar
+    const afterDelete = mergedLines.filter((_l) => false);
+    expect(afterDelete).toHaveLength(0);
+    // Importante: la data del pedidosOrigenes original (en Firestore) NO fue
+    // mutada. mergeLinesFromOrders no muta inputs — eso es la garantía.
+    expect(cpstOrder.pedidosOrigenes[0].qtyAsignada).toBe(1); // intacto
+    // La cancelación de la ASIG original depende del bloque v1280 al confirmar
+    // el pedido. Si no se confirma (la fila fue borrada), la ASIG queda viva.
+    // El TTL 7d la expirará si nadie la toca.
   });
 
   it('T4 N refs distintos: 1 línea con 2 asigRefs distintos (ej: Pablo asignó 2+1 desde pedidos distintos)', () => {

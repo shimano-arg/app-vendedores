@@ -2605,6 +2605,15 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr.merge-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
 #wcard-rows tr.merge-duplicate-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
 #wcard-rows tr.merge-duplicate-original td{background:#991b1b !important;color:#fff !important;font-weight:800}
+/* v1382 (2026-10-20): clases para lineas con origen='stock-asignado'
+   (nacidas desde CPST, directo o via unificacion).
+   - merge-reservado-imported: fila importada con reserva (sin duplicado) — AZUL #1e40af.
+   - merge-duplicate-reservado: SKU duplicado + fila con reserva — AZUL #1e40af.
+     (La original queda con merge-duplicate-original rojo.) */
+#wcard-rows tr.merge-reservado-imported td{background:#1e40af !important;color:#fff !important;font-weight:700}
+#wcard-rows tr.merge-duplicate-reservado td{background:#1e40af !important;color:#fff !important;font-weight:700}
+/* Badge inline que acompaña la fila con reserva (en celda SKU o descripcion). */
+.badge-reservado{display:inline-block;padding:2px 6px;margin-left:4px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
 /* v1322 (2026-10-15): sticky al nivel de TH individual (más confiable que
@@ -23751,6 +23760,9 @@ function _renderWaitlistCard(){
       warnQuiebra, warnDuplicado,
       // v1284: flag para pintar fila post-"Unificar orden" (ver src/pure/unificar-ordenes.js).
       importedFromOrder: (it && typeof it.importedFromOrder === 'number') ? it.importedFromOrder : null,
+      // v1382: identidad ASIG por linea (CPST o importada de CPST absorbido).
+      origen: (it && it.origen) || null,
+      asigRefs: Array.isArray(it && it.asigRefs) ? it.asigRefs : null,
     });
   });
   const statsEl = document.getElementById('wcard-stats');
@@ -23858,27 +23870,50 @@ function _renderWaitlistCard(){
     // Precedente: Mariano probó la unificación 396→447 y las filas quedaron sin
     // pintar porque _mergePure.computeDuplicateCodes aún no estaba en memoria.
     const _isImportedRow = typeof r.importedFromOrder === 'number';
+    // v1382: pasar origen al helper puro para que distinga 'reservado-imported'
+    // y 'duplicate-reservado' (color azul + badge). Compat: si r.origen es null,
+    // el comportamiento es idéntico a v1284.
+    const _lineRef = {
+      code: r.code,
+      importedFromOrder: _isImportedRow ? r.importedFromOrder : null,
+      origen: r.origen || null,
+    };
     if (_isImportedRow) {
       // Default fallback: imported (sin check de duplicado). Siempre funciona.
       let _mergeCls = 'imported';
-      // Upgrade con helper puro si está disponible (distingue duplicate-imported).
+      // Upgrade con helper puro si está disponible (distingue duplicate-imported, reservado-imported).
       if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet instanceof Set) {
-        const _c = _mergePure.getRowColorClass(
-          { code: r.code, importedFromOrder: r.importedFromOrder },
-          _wcardDupSet
-        );
+        const _c = _mergePure.getRowColorClass(_lineRef, _wcardDupSet);
         if (_c) _mergeCls = _c;
       }
       tr.classList.add('merge-' + _mergeCls);
     } else if (_mergePure && typeof _mergePure.getRowColorClass === 'function' && _wcardDupSet instanceof Set) {
       // Fila original: solo relevante si es duplicada (requiere helper).
-      const _c = _mergePure.getRowColorClass(
-        { code: r.code, importedFromOrder: null },
-        _wcardDupSet
-      );
+      const _c = _mergePure.getRowColorClass(_lineRef, _wcardDupSet);
       if (_c) tr.classList.add('merge-' + _c);
     }
-    tr.appendChild(mk(r.code, 'mono'));
+    // v1382: tooltip con info de la ASIG referenciada (si corresponde).
+    if (r.origen === 'stock-asignado' && Array.isArray(r.asigRefs) && r.asigRefs.length > 0) {
+      const _refSummary = r.asigRefs.map((ref) => (
+        'pedido ' + (ref.pedidoId || '?').slice(0, 8) + ' linea ' + ref.lineIndex + ' x' + ref.qtyAsignada
+      )).join(' | ');
+      tr.title = 'Linea con reserva (RESERVADO). Origen: ' + _refSummary;
+    }
+    // v1382: celda SKU con badge "RESERVADO" si la linea tiene origen='stock-asignado'.
+    if (r.origen === 'stock-asignado') {
+      const _tdSku = document.createElement('td');
+      _tdSku.className = 'mono';
+      const _skuSpan = document.createElement('span');
+      _skuSpan.textContent = r.code;
+      _tdSku.appendChild(_skuSpan);
+      const _badge = document.createElement('span');
+      _badge.className = 'badge-reservado';
+      _badge.textContent = '🔒 RESERVADO';
+      _tdSku.appendChild(_badge);
+      tr.appendChild(_tdSku);
+    } else {
+      tr.appendChild(mk(r.code, 'mono'));
+    }
     // v817 (2026-09-07): si la desc es "(SKU no encontrado en catalogo)", el
     // producto está en SAP (tiene stock/precio) pero no en PRODUCTS local.
     // Causa típica: no es grupo PESCA (el sync filtra ItemsGroupCode=PESCA).
@@ -24657,10 +24692,23 @@ window.waitlistUnificarOrden = async function(){
     const u = (c.items || []).reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
     return '  • ORDEN ' + (c.orderNumber || '?') + ': ' + n + ' SKU · ' + u + ' u';
   });
+  // v1382: avisar sobre lineas con reserva (CPST absorbido). Si entre los
+  // candidatos hay un CPST, agregar frase sobre el comportamiento post-unificar.
+  const _tieneCpst = candidates.some((c) =>
+    c.source === 'stock-asignado-batch' ||
+    (Array.isArray(c.pedidosOrigenes) && c.pedidosOrigenes.length > 0)
+  );
+  const _notaReservado = _tieneCpst
+    ? '\n\nATENCION: una o mas ordenes tienen lineas RESERVADAS (desde Stock Asignado).\n' +
+      '  - Los SKU reservados aparecen en AZUL con badge "RESERVADO".\n' +
+      '  - Si borras una fila RESERVADA, la ASIG del cliente queda viva — se\n' +
+      '    cancela solo al enviar a SAP o cuando expira el TTL (7 dias).'
+    : '';
   const msg = '¿Unificar las siguientes ordenes dentro de la ORDEN ' + (w.orderNumber || '?') + '?\n\n' +
     msgLines.join('\n') + '\n\n' +
     'Las ordenes viejas se van a cerrar (quedan en Firestore para audit, invisibles en lista de espera).\n' +
-    'Los SKU importados aparecen en AMARILLO. Los duplicados: original en ROJO + importada en AMARILLO.';
+    'Los SKU importados aparecen en AMARILLO. Los duplicados: original en ROJO + importada en AMARILLO.' +
+    _notaReservado;
   if (!confirm(msg)) return;
   const btn = document.getElementById('wcard-unificar-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Unificando...'; }
