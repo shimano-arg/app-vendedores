@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1396';
+const APP_VERSION = 'v1397';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17466,30 +17466,34 @@ window._cpstConfirmar = async function(){
   // v1272 (2026-10-14): mostrar cuanto va a waitlist vs cuanto queda en SA.
   // qtyAjustada = min(sk.qty, stock_libre_hoy). Si qtyAjustada < sk.qty hay
   // recorte — las unidades recortadas quedan ASIG tildadas en el pedido original.
+  // v1397 §40.5: unidades recortadas vuelven a BO (no quedan ASIG viva).
   const totalAjustado = c.skus.reduce((s, sk) => s + (Number(sk.qtyAjustada) || 0), 0);
-  const totalRecorte = c.skus.reduce((s, sk) => s + (Number(sk.qtyRecorte) || 0), 0);
+  const totalRevertAbo = c.skus.reduce((s, sk) => s + (Number(sk.qtyRecorte) || 0), 0);
   const skusVanWaitlist = c.skus.filter(sk => (Number(sk.qtyAjustada) || 0) > 0).length;
-  const skusOmitidos = c.skus.filter(sk => (Number(sk.qtyAjustada) || 0) <= 0).length;
-  const detalleRecorte = totalRecorte > 0
-    ? '\n\nRECORTE por stock insuficiente HOY:\n' +
-      '  ' + totalAjustado + 'u van a Lista de Espera.\n' +
-      '  ' + totalRecorte + 'u quedan ASIG tildadas en el pedido original (reservadas para cuando haya mas stock).'
+  const detalleRevert = totalRevertAbo > 0
+    ? '\n\n' + totalRevertAbo + ' unidades vuelven a back order (sin stock físico hoy); el SKU va a aparecer en Reparto cuando ingrese mercadería.'
     : '';
-  const detalleOmitidos = skusOmitidos > 0
-    ? '\n\n' + skusOmitidos + ' SKU(s) sin stock HOY: se omiten de la Lista de Espera y quedan ASIG tildados en los pedidos originales.'
-    : '';
-  const confirmMsg =
-    'Confirmar la creacion del pedido en LISTA DE ESPERA para:\n\n' +
-    c.nombre + '\n' +
-    skusVanWaitlist + ' SKU(s), ' + totalAjustado + ' unidad(es) van a Lista de Espera' +
-    detalleRecorte +
-    detalleOmitidos + '\n\n' +
-    'IMPORTANTE: el pedido tiene 7 dias para ser confirmado por el VDE. Pasados\n' +
-    'los 7 dias, se elimina automaticamente de la Lista de Espera y las unidades\n' +
-    'vuelven al stock asignado (quedan reservadas para el cliente igual que ahora).\n\n' +
-    'Mientras el pedido esta en Lista de Espera, las unidades siguen reservadas\n' +
-    'en el stock asignado — otro VDE no puede confirmarlas para otros clientes.\n\n' +
-    'Despues el VDE revisa el pedido + completa la forma de entrega + lo envia a SAP.';
+  let confirmMsg;
+  if (totalAjustado <= 0 && totalRevertAbo > 0) {
+    // Caso: todas las ASIG recortadas → NO crear waitlist, solo revertir.
+    confirmMsg =
+      'No hay unidades entregables; ' + totalRevertAbo + ' unidades vuelven a back order.\n\n' +
+      c.nombre + '\n\n' +
+      'No se crea pedido en lista de espera. Las ASIG se devuelven a cola BO con auditoría ' +
+      '(asig_sin_stock_revertida_a_bo). Cuando ingrese mercadería, los SKUs aparecen en Reparto ' +
+      'para que Pablo reasigne.';
+  } else {
+    confirmMsg =
+      'Confirmar la creación del pedido en LISTA DE ESPERA para:\n\n' +
+      c.nombre + '\n' +
+      skusVanWaitlist + ' SKU(s), ' + totalAjustado + ' unidad(es) van a Lista de Espera' +
+      detalleRevert + '\n\n' +
+      'IMPORTANTE: el pedido tiene 7 días para ser confirmado por el VDE. Pasados ' +
+      'los 7 días, se elimina automáticamente de la Lista de Espera.\n\n' +
+      'Mientras el pedido está en Lista de Espera, las ' + totalAjustado + ' unidades siguen reservadas ' +
+      'en el stock asignado — otro VDE no puede confirmarlas para otros clientes.\n\n' +
+      'Después el VDE revisa el pedido + completa la forma de entrega + lo envía a SAP.';
+  }
   if (!confirm(confirmMsg)) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Procesando...'; }
   const nowIso = new Date().toISOString();
@@ -17590,18 +17594,41 @@ window._cpstConfirmar = async function(){
                       errors.slice(0, 10).join('\n') +
                       (errors.length > 10 ? '\n...y ' + (errors.length - 10) + ' mas' : ''));
     }
-    if (pedidosOrigenes.length === 0) {
-      throw new Error('No hay unidades disponibles para crear el pedido. El stock físico libre para este cliente es 0 en todos los SKUs tildados.');
+    // v1397 §40.5: computar plan de reversión por SKU. Las ASIG que no entran
+    // al waitlist (porque el entregable total es menor que la nominal) revierten
+    // state=ASIG → state=BO en el pedido original — con audit (asig_sin_stock_
+    // revertida_a_bo). Idempotente: segunda llamada sobre la misma línea YA en
+    // state=BO no la toca.
+    const _computeRevertPlan =
+      (window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeCpstRevertPlan) || null;
+    /** @type {Array<{pedidoId:string, lineIndex:number, action:'split'|'revert_full', qtyKeep:number, qtyRevert:number, sku:string, state:string}>} */
+    const revertActions = [];
+    if (_computeRevertPlan) {
+      for (const sk of c.skus) {
+        const qtyAjustadaTotal = Number(sk.qtyAjustada) || 0;
+        const plan = _computeRevertPlan(sk.entries || [], qtyAjustadaTotal);
+        for (const a of plan) {
+          if (!a || a.action === 'keep') continue;
+          const e = a.entry || {};
+          revertActions.push({
+            pedidoId: String(e.pedidoId || ''),
+            lineIndex: Number(e.lineIndex),
+            action: a.action,
+            qtyKeep: Number(a.qtyKeep) || 0,
+            qtyRevert: Number(a.qtyRevert) || 0,
+            sku: sk.sku,
+            state: e.state || 'ASIG',
+          });
+        }
+      }
     }
-    // PASO 3: construir items[] del waitlist payload.
-    // v1198 (2026-10-08): usa qtyAjustada (= min(sk.qty, libreParaCliente_hoy))
-    // en vez de sk.qty original. Si las ASIG viejas expiraron y otro VDE tomo
-    // parte del stock, la card nueva refleja la realidad. SKUs con qtyAjustada=0
-    // se omiten del waitlist (no tiene sentido crear BO fantasma).
-    // v1382 (2026-10-20): identidad ASIG por linea. Cada item del CPST
-    // lleva origen='stock-asignado' + asigRefs[] (buildAsigRefsForLine).
-    // Permite al call-site de doConfirmPedido/persistPendingEntry decidir
-    // getDisp por linea sin depender del documento (compat con unificacion).
+    const totalRevertUnits = revertActions.reduce((s, a) => s + a.qtyRevert, 0);
+    // Nada que hacer? abort temprano.
+    if (pedidosOrigenes.length === 0 && totalRevertUnits === 0) {
+      throw new Error('No hay unidades para procesar. Nada tildado o todas las entries con qty=0.');
+    }
+    // v1397 §40.5: construir items[] (puede quedar vacío si recorte 100%).
+    // v1382 (2026-10-20): identidad ASIG por línea.
     const _buildAsigRefsFn =
       (window.__phase0 && window.__phase0.pure && window.__phase0.pure.buildAsigRefsForLine) || null;
     const items = c.skus
@@ -17615,73 +17642,148 @@ window._cpstConfirmar = async function(){
           code: sk.sku,
           desc: sk.desc || '',
           qty: sk.qtyAjustada,
-          qtyOriginal: sk.qty, // v1198: audit — guardar la qty originalmente asignada.
+          qtyOriginal: sk.qty,
           qtyRecorte: sk.qtyRecorte || 0,
           firstStockTotal: stk.hasData ? stk.stockTotal : null,
           firstBackorder: stk.backorder || 0,
           firstDisponible: stk.hasData ? stk.disponible : null,
-          // v1382: identidad por linea
           ...(refs.length > 0 ? { origen: 'stock-asignado', asigRefs: refs } : {}),
         };
       });
-    if (items.length === 0) {
-      throw new Error(
-        'No hay unidades disponibles para crear el pedido. Las ASIG expiraron y el stock se agotó o fue tomado por otros clientes.'
-      );
-    }
-    const payload = {
-      clientName: r.nombre || c.nombre,
-      clientProvince: r.provincia || '',
-      clientLocality: r.localidad || '',
-      clientCardCode: r.cardCode || '',
-      vendorAssigned: r.vendor || c.vendorKey || '',
-      ownerUid: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.uid : '',
-      ownerEmail: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || '') : '',
-      ownerDisplayName: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.displayName || currentUser.email || '') : '',
-      ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
-      orderNumber: ordenNum,
-      deliveryMethod: '',
-      deliveryDetails: {},
-      source: 'stock-asignado-batch',
-      items: items,
-      // v1280 (2026-10-14): pedidosOrigenes apunta a las lineas ASIG que se
-      // van a cancelar cuando el VDE confirme el waitlist (doConfirmPedido).
-      // Mientras tanto, esas lineas siguen vivas en los pedidos originales
-      // → siguen reservando stock. Si expira el waitlist (7d), se elimina sin
-      // tocar los originales (las ASIG siguen intactas).
-      pedidosOrigenes: pedidosOrigenes,
-      // v1280: TTL 7 dias. CF expireStockAsignadoWaitlistsCF corre cron
-      // diario 04:00 ART y borra waitlists con expiresAt < now + stage !=
-      // 'consumed'.
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    };
-    // v1280: solo se crea el waitlist. NO se tocan los pedidos originales.
-    const waitlistRef = fbDb.collection('revision_waitlist').doc();
-    await waitlistRef.set(payload);
-    // Optimistic update de revisionWaitlist.
-    try {
-      const optimistic = Object.assign({}, payload, {
-        _id: waitlistRef.id,
-        createdAt: { toDate: () => new Date() },
-        updatedAt: { toDate: () => new Date() },
-      });
-      if (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) {
-        revisionWaitlist.push(optimistic);
+    const createsWaitlist = items.length > 0;
+    const batch = fbDb.batch();
+    const _userEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
+    // v1397 §40.5: aplicar reversiones ASIG → BO sobre pedidos originales.
+    // Se calcula el nuevo array lines[] en memoria sobre pedidosCache, y se
+    // sube con un solo batch.update por pedido (vs updates incrementales).
+    /** @type {Map<string, any[]>} */
+    const modifiedPedidosLines = new Map();
+    for (const a of revertActions) {
+      if (!a.pedidoId) continue;
+      const p = pedidosCache.get(a.pedidoId);
+      if (!p || !Array.isArray(p.lines)) continue;
+      let newLines = modifiedPedidosLines.get(a.pedidoId);
+      if (!newLines) {
+        newLines = p.lines.map(l => Object.assign({}, l));
+        modifiedPedidosLines.set(a.pedidoId, newLines);
       }
-    } catch (_e) {}
-    try {
-      if (typeof logOp === 'function') logOp('cpst_create', 'revision_waitlist/' + waitlistRef.id, c.nombre, {
-        cliente: c.nombre, orderNumber: ordenNum, skus: c.skus.length, unidades: c.totalU,
-        pedidosOrigenes: pedidosOrigenes.length, expiresAt: payload.expiresAt,
+      const origLine = newLines[a.lineIndex];
+      if (!origLine) continue;
+      // Idempotencia: si la línea ya está en BO con el flag, no la toco (puede
+      // ser una re-corrida del CPST post-reversion previa).
+      if (origLine.state === 'BO' && origLine.asigRevertidaReason === 'asig_sin_stock_revertida_a_bo') {
+        continue;
+      }
+      if (a.action === 'revert_full') {
+        // La línea entera pasa a BO. qty se mantiene.
+        origLine.state = 'BO';
+        origLine.asigReserva = false;
+        origLine.asigRevertidaAt = nowIso;
+        origLine.asigRevertidaBy = _userEmail;
+        origLine.asigRevertidaReason = 'asig_sin_stock_revertida_a_bo';
+      } else if (a.action === 'split') {
+        // Split: baja la original a qtyKeep (ASIG viva — va al waitlist). Nueva línea BO qty=qtyRevert.
+        const origQty = Number(origLine.qty) || 0;
+        const origQo = Number(origLine.qtyOpen) || origQty;
+        origLine.qty = a.qtyKeep;
+        origLine.qtyOpen = Math.min(origQo, a.qtyKeep);
+        const boLine = Object.assign({}, origLine, {
+          state: 'BO',
+          qty: a.qtyRevert,
+          qtyOpen: a.qtyRevert,
+          asigReserva: false,
+          asigAt: null,
+          asigRevertidaAt: nowIso,
+          asigRevertidaBy: _userEmail,
+          asigRevertidaReason: 'asig_sin_stock_revertida_a_bo',
+          splitFromLineIndex: a.lineIndex,
+        });
+        delete boLine.asigRefs; // la nueva BO no refiere a ASIG original
+        newLines.push(boLine);
+      }
+    }
+    for (const [pedidoId, newLines] of modifiedPedidosLines.entries()) {
+      batch.update(fbDb.collection('pedidos').doc(pedidoId), {
+        lines: newLines,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-    } catch (_e) {}
-    if (typeof showSyncTag === 'function') showSyncTag('Pedido ORDEN ' + ordenNum + ' creado en lista de espera');
-    let msg = 'Pedido ORDEN ' + ordenNum + ' creado en LISTA DE ESPERA.\n\n' +
-              c.nombre + '\n' + c.skus.length + ' SKU(s) · ' + totalAjustado + ' unidades.\n\n' +
-              'Las unidades siguen reservadas en el pedido original hasta que el VDE confirme el waitlist.\n' +
-              'Timer: 7 dias (vence ' + new Date(payload.expiresAt).toLocaleDateString('es-AR') + '). Pasados 7 dias se elimina solo del waitlist.';
+    }
+    // v1397 §40.5: solo crear waitlist si hay items entregables.
+    let waitlistRef = null;
+    let payload = null;
+    if (createsWaitlist) {
+      payload = {
+        clientName: r.nombre || c.nombre,
+        clientProvince: r.provincia || '',
+        clientLocality: r.localidad || '',
+        clientCardCode: r.cardCode || '',
+        vendorAssigned: r.vendor || c.vendorKey || '',
+        ownerUid: (typeof currentUser !== 'undefined' && currentUser) ? currentUser.uid : '',
+        ownerEmail: _userEmail,
+        ownerDisplayName: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.displayName || currentUser.email || '') : '',
+        ownerVendor: (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '',
+        orderNumber: ordenNum,
+        deliveryMethod: '',
+        deliveryDetails: {},
+        source: 'stock-asignado-batch',
+        items: items,
+        pedidosOrigenes: pedidosOrigenes,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      waitlistRef = fbDb.collection('revision_waitlist').doc();
+      batch.set(waitlistRef, payload);
+    }
+    await batch.commit();
+    // Optimistic update de revisionWaitlist (solo si se creó).
+    if (createsWaitlist && waitlistRef && payload) {
+      try {
+        const optimistic = Object.assign({}, payload, {
+          _id: waitlistRef.id,
+          createdAt: { toDate: () => new Date() },
+          updatedAt: { toDate: () => new Date() },
+        });
+        if (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) {
+          revisionWaitlist.push(optimistic);
+        }
+      } catch (_e) {}
+      try {
+        if (typeof logOp === 'function') logOp('cpst_create', 'revision_waitlist/' + waitlistRef.id, c.nombre, {
+          cliente: c.nombre, orderNumber: ordenNum, skus: c.skus.length, unidades: c.totalU,
+          pedidosOrigenes: pedidosOrigenes.length, expiresAt: payload.expiresAt,
+          revertUnits: totalRevertUnits, revertActions: revertActions.length,
+        });
+      } catch (_e) {}
+    }
+    if (totalRevertUnits > 0) {
+      try {
+        if (typeof logOp === 'function') logOp('cpst_revert_asig_to_bo', 'pedidos', c.nombre, {
+          cliente: c.nombre,
+          unidadesRevertidas: totalRevertUnits,
+          lineasAfectadas: revertActions.length,
+          skus: Array.from(new Set(revertActions.map(a => a.sku))),
+        });
+      } catch (_e) {}
+    }
+    if (typeof showSyncTag === 'function') {
+      showSyncTag(createsWaitlist
+        ? 'Pedido ORDEN ' + ordenNum + ' creado en lista de espera'
+        : 'Revertidas ' + totalRevertUnits + ' unidades a backorder');
+    }
+    let msg;
+    if (createsWaitlist) {
+      msg = 'Pedido ORDEN ' + ordenNum + ' creado en LISTA DE ESPERA.\n\n' +
+            c.nombre + '\n' + items.length + ' SKU(s) · ' + totalAjustado + ' unidades.\n\n' +
+            (totalRevertUnits > 0
+              ? totalRevertUnits + ' unidades volvieron a back order (sin stock físico hoy); el SKU va a aparecer en Reparto cuando ingrese mercadería.\n\n'
+              : '') +
+            'Timer: 7 días (vence ' + new Date(payload.expiresAt).toLocaleDateString('es-AR') + '). Pasados 7 días se elimina solo del waitlist.';
+    } else {
+      msg = 'No se creó pedido en Lista de Espera (nada entregable).\n\n' +
+            c.nombre + '\n' +
+            totalRevertUnits + ' unidades volvieron a back order; el SKU va a aparecer en Reparto cuando ingrese mercadería.';
+    }
     alert(msg);
     closeCrearPedidoSTModal();
     try {
