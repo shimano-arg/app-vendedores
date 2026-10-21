@@ -860,3 +860,46 @@ if (state === "confirmed") {
 **Nota**: hoy `RESERVA_TTL_DAYS (7) < CONFIRMED_HARD_CAP_DAYS (60)` entonces el primer `if` corta todo. El segundo `if` es defensivo para el día que el TTL soft suba.
 
 **Precedente**: `feat-bo-sin-ttl-conf-hard-cap` 2026-10-21 (v1388). Decisión D4 Mariano. Tests `tests/unit/audit/bo-sin-ttl-7d.test.js` cubren los 3 escenarios: confirmed 3d reserva, confirmed 30d no reserva (soft), confirmed 61d no reserva (hard cap).
+
+## 39. Toda disponibilidad de stock pasa por getStockBreakdown (FINDING-04, 2026-10-21)
+
+**Regla fuerte**: ninguna pantalla, modal, badge, tooltip o CF calcula disponibilidad / reservadas / libre / pendientes de reparto por su cuenta. Toda lectura pasa por `getStockBreakdown(sku, deps, opts)` de `src/pure/stock-breakdown.js` (o copia espejo en `functions/core/pedido-snapshot-core.js`).
+
+**API**:
+```js
+getStockBreakdown(sku, deps, opts) -> {
+  sku, fisicoDep11, transitoDep12,
+  demandaSapSinCubrir,     // opt-in con opts.includeStale=true
+  backorderApp,            // {total, porCliente} con TTL §37
+  confirmadasSinFacturar,  // con TTL §38 soft 7d + hard cap 60d
+  asignadas,               // con TTL 7d
+  waitlistCpst,            // revision_waitlist source stock-asignado-batch
+  reservadasTotal, libre,
+  utilizablePara(cardCode),  // formula §33/§35
+  pendienteReparto: {qty, repartoId},
+  _version: 1,
+}
+```
+
+**TTL centralizado**: reusa `lineReservesStock()`. No reimplementar reglas de vencimiento fuera.
+
+**Wrappers vivos** (compat con shape viejo):
+- `getStockRealmenteDisponible(sku) -> breakdown.libre`
+- `getStockDesglose(sku) -> {fisico, comprometido, real, breakdown}`
+- `getStockPorCliente(sku, cardCode) -> {reservadasPorCliente, reservadasPorOtros, ...}`
+- `getStockUtilizableParaClienteExAsig(sku, cardCode) -> breakdown.utilizablePara(cardCode)`
+
+Son de 2-20 lineas y delegan al breakdown. **NO reimplementar logica dentro** — si necesitas un campo nuevo, agregarlo al breakdown primero.
+
+**reconcileRepartosFaltantes** (CF) tambien usa `breakdown.pendienteReparto.qty` como autoridad. Test `tests/functions/reconcile-breakdown-sync.test.js` falla si divergen de breakdown.
+
+**Si necesitas un bucket nuevo** (ej. "en cuarentena"):
+1. Agregarlo a `getStockBreakdown` + a la copia espejo.
+2. Actualizar schema check en `tests/unit/stock-breakdown.test.js` (test "schema shape fijo").
+3. Actualizar `tests/unit/audit/stock-breakdown-sync.test.js` (conceptos).
+4. Agregarlo a `STOCK_LABELS`.
+5. Actualizar wrappers si corresponde.
+
+**Labels de UI**: usar `STOCK_LABELS` (export) para que todas las pantallas digan lo mismo. Fuente unica.
+
+**Precedente**: `feat-stock-breakdown-unico` 2026-10-21 (v1391). FINDING-04 auditoria 20/10: el mismo SKU mostraba 5 numeros distintos en 5 pantallas (26, 11, 17, 0, 1 u para CUDC201HG). Loop E0-E5 (`docs/auditoria/17_CINCO_NUMEROS_CUDC201HG.md`, `18_VERIFICACION_V1391_BREAKDOWN.md`, `19_INFORME_COWORK_V1391.md`). 41 tests nuevos.
