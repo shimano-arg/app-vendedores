@@ -7918,6 +7918,10 @@ async function forceUpdateApp(){
     localStorage.removeItem('shimano_vendor_outlines_v10');
     localStorage.removeItem('shimano_vendor_outlines_v11');
     localStorage.removeItem('shimano_vendor_outlines_v12');
+    localStorage.removeItem('shimano_vendor_outlines_v13');
+    localStorage.removeItem('shimano_vendor_outlines_v14');
+    localStorage.removeItem('shimano_vendor_outlines_v15');
+    localStorage.removeItem('shimano_vendor_outlines_v16');
   } catch(e){}
   // Reload con cache-bust en query string.
   const base = window.location.pathname.replace(/[?#].*$/, '');
@@ -36435,6 +36439,17 @@ window.doConfirmPedido = async function(){
       savePending();
       delete orders[currentOrderKey];
       saveOrders();
+    }).finally(() => {
+      // G5.18 (v1424): reset defensivo de globals pendingPedido* en error
+      // path. Idempotente — happy path .then() ya los reseteo. En error
+      // path (.catch sin reset) el próximo pedido heredaba el source
+      // stock-asignado-batch + waitlistId + origenes → cancelaba ASIG
+      // ajenas de un pedido anterior. Precedente: audit grises 2026-10-22.
+      window._pendingPedidoOrderNumber = null;
+      window._pendingPedidoWaitlistId = null;
+      window._pendingPedidoSource = null;
+      window._pendingPedidoOrigenes = null;
+      window._pendingBypassAsigGate = null;
     });
   }
   closeConfirmDialog();

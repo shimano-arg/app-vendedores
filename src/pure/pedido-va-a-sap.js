@@ -57,6 +57,8 @@ export function sumConfirmedBruto(lines) {
     if (!l || l.state !== 'confirmed') continue;
     const qty = Number(l.qty) || 0;
     const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
+    // G5.30: finite guard (ignora Infinity/NaN).
+    if (!Number.isFinite(qty) || !Number.isFinite(price)) continue;
     if (qty > 0 && price > 0) sum += qty * price;
   }
   return sum;
@@ -89,7 +91,8 @@ export function readDiscountPct(pedido) {
 export function computeVaASap(pedido) {
   if (!pedido) return null;
   // 1. sapDocTotal real sync-eado desde SAP (fuente autoritativa).
-  if (typeof pedido.sapDocTotal === 'number' && pedido.sapDocTotal > 0) {
+  //    G5.30: Number.isFinite filtra NaN/Infinity por si entra data corrupta.
+  if (Number.isFinite(pedido.sapDocTotal) && pedido.sapDocTotal > 0) {
     return pedido.sapDocTotal;
   }
   // 2. Compute desde líneas confirmed + discountPct.
@@ -97,13 +100,14 @@ export function computeVaASap(pedido) {
   if (bruto > 0) {
     const pct = readDiscountPct(pedido);
     const neto = bruto * (1 - pct / 100);
+    if (!Number.isFinite(neto)) return null;
     return Math.round(neto);
   }
   // 3. Fallback legacy: pedidos pre-stage='confirmed' sin líneas.
-  if (typeof pedido.netAmountArs === 'number' && pedido.netAmountArs > 0) {
+  if (Number.isFinite(pedido.netAmountArs) && pedido.netAmountArs > 0) {
     return pedido.netAmountArs;
   }
-  if (typeof pedido.subtotalArs === 'number' && pedido.subtotalArs > 0) {
+  if (Number.isFinite(pedido.subtotalArs) && pedido.subtotalArs > 0) {
     return pedido.subtotalArs;
   }
   return null;
