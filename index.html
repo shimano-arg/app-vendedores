@@ -6977,7 +6977,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1418';
+const APP_VERSION = 'v1419';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27851,7 +27851,14 @@ window.viewPedido = function(stage, key, idx){
     const neto = (c.netAmountArs != null) ? c.netAmountArs : subtotal;
     const ds = c.discountSnapshot || {};
     const pctTotal = ds.pctTotal || c.discountPct || 0;
-    const montoDesc = ds.monto != null ? ds.monto : (subtotal - neto);
+    // v1418 §53 (2026-10-22): montoDesc = subtotal × pctTotal / 100 (fuente
+    // de verdad). Antes usaba ds.monto que se calculaba sólo sobre
+    // _subtotalDispArs (subtotal de líneas confirmed, no todo el pedido).
+    // Si el pedido tenía mucho backorder, ds.monto era bajo o 0 → modal
+    // mostraba "-17% / -$0" aunque el descuento real sobre el subtotal fuera
+    // significativo. Reporte Mariano 2026-10-22. Fallback: (subtotal - neto).
+    const montoDesc =
+      pctTotal > 0 ? Math.round(subtotal * pctTotal / 100) : (subtotal - neto);
     const fmtAr = (n) => '$' + Math.round(n).toLocaleString('es-AR');
     let infoHtml = '<div style="padding:14px 16px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-subtle)">';
     infoHtml += '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);margin-bottom:10px">Resumen comercial</div>';
@@ -27966,7 +27973,12 @@ window.viewPedido = function(stage, key, idx){
     //   - "No va a SAP (backorder)" rojo tenue = subtotalBackorderCalc
     //   - "Total pedido original" gris chico = c.subtotalArs (gross)
     // Si no hay backorder, "VA A SAP" == "Total pedido" (coincidencia natural).
-    const dispNeto = subtotalDispCalc * (1 - (pctTotal / 100));
+    //
+    // v1418 §53 (2026-10-22): usar computeVaASap como fuente única; devuelve
+    // el mismo valor que el Planner card y el payload SL. Fallback al cálculo
+    // local si el bundle no cargó (SW stale).
+    const _vaASapFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeVaASap;
+    const dispNeto = _vaASapFn ? _vaASapFn(c) : subtotalDispCalc * (1 - (pctTotal / 100));
     infoHtml += '<div style="display:flex;justify-content:space-between;padding:10px 0 7px 0;font-size:14px">';
     infoHtml += '<span style="font-weight:800;color:var(--text-primary)">VA A SAP</span>';
     infoHtml += '<span style="font-weight:800;color:var(--color-success);font-size:16px">' + fmtAr(dispNeto) + '</span>';
@@ -34446,35 +34458,23 @@ function _plannerFmtDate(ts) {
 // pre-calculados.
 function _plannerComputeTotal(pedido) {
   if (!pedido) return null;
-  // v1087 (2026-09-29): PRIORIDAD MAXIMA — sapDocTotal poblado por la CF
-  // syncSapDocTotalsToApp cada 30 min con el DocTotal REAL de SAP (SQ o SO).
-  // Resuelve casos donde app.lines.state='confirmed' no coincide con las
-  // lineas efectivamente en SAP (MAXERA orden 204: 5 lines confirmed suman
-  // $1.124.000 pero SAP tiene 4 lines = $822.800 porque la 5ta line fue
-  // rechazada / editada). Cuando existe sapDocTotal, es la fuente de verdad.
+  // v1418 §53 (2026-10-22): fuente única computeVaASap. El Planner card
+  // ahora muestra el "va a SAP" neto consistente con el modal detalle y el
+  // payload SL (DiscountPercent). Precedente SAP 2000425 PONTORIERO: antes
+  // el Planner usaba sumConfirmed sin descuento → mostraba $2.879.000
+  // mientras el modal mostraba "VA A SAP $2.389.570" (con descuento). Ahora
+  // ambos muestran lo mismo.
+  const _vaASapFn =
+    window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeVaASap;
+  if (_vaASapFn) {
+    const _va = _vaASapFn(pedido);
+    if (typeof _va === 'number' && _va > 0) return _va;
+    // Si computeVaASap devuelve null (pedido sin confirmed ni fallback),
+    // caer al legacy abajo para no mostrar "—" en pedidos pre-stage=confirmed.
+  }
+  // v1087 (2026-09-29): fallback legacy mantenido por compat.
   if (typeof pedido.sapDocTotal === 'number' && pedido.sapDocTotal > 0) {
     return pedido.sapDocTotal;
-  }
-  // v1083 (2026-09-29): fallback — pedidos con transferidoSAP.docNum pero
-  // sin sapDocTotal aun (CF corre cada 30 min, hay ventana de latencia).
-  // Suma solo las lineas confirmed que "deberian" haber viajado a SAP.
-  // netAmountArs sumaba tambien las BO (Backorder queda en app, no viaja a
-  // SAP), causando discrepancias como VIGNOLA 245 y YIYO 238. Facturado/
-  // Cobrado usan _plannerComputeInvoicedTotal / _plannerComputePaidTotal
-  // (invoicedAmount / paidAmount sync-eados desde SAP Invoice DocTotal).
-  const _hasSapDoc = pedido.transferidoSAP && pedido.transferidoSAP.docNum;
-  if (_hasSapDoc && Array.isArray(pedido.lines)) {
-    let sumConfirmed = 0;
-    let anyConfirmed = false;
-    for (const l of pedido.lines) {
-      if (!l || l.state !== 'confirmed') continue;
-      const qty = Number(l.qty) || 0;
-      const price = Number(l.precio) || Number(l.priceAtCreation) || Number(l.price) || 0;
-      if (qty > 0 && price > 0) { sumConfirmed += qty * price; anyConfirmed = true; }
-    }
-    if (anyConfirmed) return sumConfirmed;
-    // Sin lineas confirmed (todo quedo en BO / recycled / cancelled): fallthrough
-    // al legacy path para no mostrar "—" en cards con transferidoSAP dummy.
   }
   if (typeof pedido.totalAmountArs === 'number') return pedido.totalAmountArs;
   if (typeof pedido.netAmountArs === 'number') return pedido.netAmountArs;

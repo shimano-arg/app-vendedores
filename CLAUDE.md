@@ -1958,6 +1958,46 @@ Mi `_resolveClientVendorFromMaster` v1408 **solo leía POINTS + vendor_overrides
 
 **Precedente**: `fix-vendedor-zona-robusto` 2026-10-22 (v1412). Reporte Mariano: BURELLA orden 515 (cargada por Ioannis hoy 10:24) muestra Ioannis en Planner; COLLI orden 384 sigue "sin vendedor". Ambos Z5 Mauricio en Master Clientes.
 
+## 53. "Va a SAP" neto unificado + DiscountPercent al payload SL (2026-10-22, v1418/v1419)
+
+**Regla fuerte**: el monto "va a SAP" se calcula con `computeVaASap(pedido)` del pure helper `src/pure/pedido-va-a-sap.js`. Los 3 lugares que lo muestran o lo usan DEBEN leer de la misma fuente:
+- Modal detalle del pedido (`index.html:27976` — `dispNeto`).
+- Planner card total (`index.html:_plannerComputeTotal` — línea de total ARS en cada tarjeta).
+- Payload SL del Service Layer (`functions/core/auto-send-sap-core.js:buildQuotationPayload` — campo `DiscountPercent` del header; SAP calcula `DocTotal` desde las líneas y aplica el descuento).
+
+**Algoritmo** (fuente de verdad):
+
+```js
+va_a_sap(pedido) =
+  pedido.sapDocTotal                                   // 1ª prioridad (sync SAP real)
+  || sum(l.qty × l.precio para l.state='confirmed')    // 2ª: compute desde líneas
+     × (1 - clamp(discountPct, 0, 100) / 100)
+  || pedido.netAmountArs                               // 3ª: fallback pre-stage='confirmed'
+  || pedido.subtotalArs
+  || null
+```
+
+**Dónde se lee el descuento**:
+- Prioridad: `pedido.discountPct` (número 0-100 escrito por `index.html:doConfirmPedido`).
+- Fallback: `pedido.discountSnapshot.pctTotal`.
+- Clamp defensivo a `[0, 100]`.
+
+**Bugs corregidos en v1418/v1419**:
+
+1. **`functions/core/auto-send-sap-core.js:262` DiscountPercent hardcode 0** → ahora lee `pedido.discountPct` con fallback a snapshot. Antes el payload siempre enviaba `DiscountPercent: 0` → SAP creaba la cotización con precios brutos → DocTotal no coincidía con el "VA A SAP" del modal. Precedente SAP 2000425 PONTORIERO: modal "-17% / -$0 · VA A SAP $2.389.570" pero SAP Discount vacío.
+2. **`index.html:27854` `montoDesc = ds.monto` con fallback a `subtotal - neto`** → ahora `montoDesc = subtotal × pctTotal / 100` cuando hay descuento (`ds.monto` se calculaba sobre `_subtotalDispArs` que puede ser 0 si todo es backorder; eso provocaba el `-$0` reportado).
+3. **`index.html:_plannerComputeTotal`** antes sumaba líneas confirmed sin aplicar descuento → Planner card mostraba el gross cuando el modal mostraba el neto. Ahora delega a `computeVaASap` como primera opción.
+
+**Tests**:
+- `tests/unit/pedido-va-a-sap.test.js` (20): fixture ORDEN 524 PONTORIERO (5 líneas, 17%) → confirmed bruto $2.688.000, neto $2.231.040; cascada precio precedencia; clamp 0-100; prioridad `sapDocTotal` > compute > fallbacks; ignora BO del descuento.
+- `tests/unit/audit/sap-discount-percent.test.js` (11): grep contrato (`DiscountPercent: _discountPct`, no hardcode `0`, main.js expone helper, modal detalle delega, Planner card delega, montoDesc = subtotal × pctTotal / 100).
+
+**Suite completa post-v1418/v1419**: 2069 PASS, 0 FAIL (31 tests nuevos sobre v1417).
+
+**Precedente**: `hotfix-v1418-dup-lines` 2026-10-22 (v1418 §42.2.1 self-unify fix) + mismo PR o PR siguiente (v1419 §53 discount/va-a-SAP). Reporte Mariano: "DiscountPercent se envía en el payload del Service Layer? arreglalo + un solo monto va a SAP en modal + Planner + payload".
+
+## 52. (reservado — asignar en próximo cambio)
+
 ## 51. Reporte "Infracciones MELI (MAP)" en el modal Reportes Excel (2026-10-22, v1413)
 
 **Regla**: el reporte histórico MAP MELI está disponible desde el modal "Reportes Excel" (`#export-modal`) de la app para Mariano exclusivamente. Formato EXACTO al que Mariano dejó armado (ver `Desktop\INFRACCIONES-MELI.xlsx`).
