@@ -100,6 +100,11 @@ import { computeVirtualAsigFifo } from './pure/virtual-asig-fifo.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import {
+  buildExcludedPedidoIdsForRepetido,
+  filterYaEnOtroPedidoForLine,
+  lineCountsAsPedidoAnterior,
+} from './pure/waitlist-repetido-filter.js';
+import {
   findOpenWaitlistsForClient,
   formatWaitlistForConfirm,
 } from './pure/waitlist-unique-per-client.js';
@@ -275,6 +280,10 @@ const phase0 = {
     isWaitlistCpst,
     findOpenWaitlistsForClient,
     formatWaitlistForConfirm,
+    // v1421 §55: filtro aviso "pedido anterior" del modal Pedido en Espera.
+    buildExcludedPedidoIdsForRepetido,
+    filterYaEnOtroPedidoForLine,
+    lineCountsAsPedidoAnterior,
     // v1416 §42.2 — expuestos como `reviewGuardUnify.*` para claridad semántica
     // y por si el inline necesita invocarlos directamente (fallback inline usa
     // la copia dentro del guard; expose aquí es para tests + consumidores

@@ -363,10 +363,15 @@ describe('v1417 §45.1 — ningún fondo de fila en #wcard-rows (todas blancas)'
     expect(bg.important).toBe(true);
   });
 
-  it('celda td.pedido-final-col mantiene fondo celeste #dbeafe — PRESERVAR', () => {
-    const rule = ALL_RULES.find((r) => r.selector === '#wcard-rows tr td.pedido-final-col');
-    expect(rule, 'regla pedido-final-col desapareció').toBeTruthy();
-    expect(readProp(rule.body, 'background').value.toLowerCase()).toBe('#dbeafe');
+  it('celda td.pedido-final-col.has-value tiene fondo verde #dcfce7 (v1421 §55)', () => {
+    // v1421 §55: regla base `.pedido-final-col` sin background; verde solo
+    // cuando `.has-value` (pedidoFinal > 0). Celeste anterior removido.
+    const rule = ALL_RULES.find(
+      (r) => r.selector === '#wcard-rows tr td.pedido-final-col.has-value'
+    );
+    expect(rule, 'regla pedido-final-col.has-value desapareció').toBeTruthy();
+    expect(readProp(rule.body, 'background').value.toLowerCase()).toBe('#dcfce7');
+    expect(readProp(rule.body, 'color').value.toLowerCase()).toBe('#166534');
   });
 
   it('celda td.exc-cell mantiene fondo rojo + color blanco con !important — PRESERVAR', () => {
