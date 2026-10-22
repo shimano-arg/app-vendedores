@@ -1433,3 +1433,61 @@ Resultado: una orden manual que absorbió una línea CPST se marca badge STOCK A
 **Precaución con tooltips**: usar siempre `'\n'` (1 char, newline real) en `.title` del DOM — nunca `'\\n'` (2 chars, backslash + n). Los browsers respetan newline en el atributo `title` (al menos salto visual); `\\n` literal queda como texto crudo visible en el tooltip.
 
 **Precedente**: `fix-waitlist-contrast-blue-rows` 2026-10-22 (v1405). Reporte Mariano: orden 486 ARIEL GUSTAVO ESTEBAN SGS80MH2A/SGS90MH2A — "Libre" blanco/blanco y "Pedido final" blanco/amarillo pálido + tooltip con `\n` literal. 49 tests nuevos; suite completa 1910 PASS.
+
+## 44. El vendedor de un pedido/waitlist siempre viene del cliente master (2026-10-22, v1406)
+
+**Regla fuerte**: el vendedor que ve el Planner (y cualquier filtro por vendedor) sale **siempre del master del cliente** (OCRD/POINTS), nunca del user logueado que hizo el click. "Cargado por" queda como campo aparte (`cargadoPorUid` + `cargadoPorEmail`) y se muestra como línea secundaria.
+
+Aplica a los 3 caminos de carga + la unificación §42:
+- Manual (`reviewDejarEnEspera`, `volverAListaEspera`, `enviarBorradorAListaEspera`).
+- Excel (`revisionDejarRecalculando`).
+- CPST (`_cpstConfirmar`).
+- `doConfirmPedido` (`pedidos.add` cuando waitlist → pending/confirmed).
+- Generar Backorder manual (`_gbConfirmar`).
+
+**Shape nuevo** (pedido + revision_waitlist):
+
+```js
+{
+  // === VENDEDOR DEL CLIENTE (del master OCRD) ===
+  vendorAssigned: 'FEDERICO',             // ya existía; ahora SIEMPRE del master
+  assignedVendorUid: 'uid-federico-xyz',  // NUEVO: UID del VDE del master
+  assignedVendorEmail: 'federico@...',    // NUEVO: email del VDE del master
+  ownerVendor: 'FEDERICO',                // alineado con vendorAssigned (antes era del user logueado — BUG)
+
+  // === QUIÉN CARGÓ (preservado) ===
+  ownerUid: 'uid-pablo-pqr',    // Pablo (rules revision_waitlist exigen = auth.uid)
+  ownerEmail: 'pablo@...',
+  cargadoPorUid: 'uid-pablo-pqr',   // NUEVO: alias claro de ownerUid
+  cargadoPorEmail: 'pablo@...',     // NUEVO
+}
+```
+
+**Helpers**:
+- `src/pure/resolve-client-vendor.js`: `resolveClientVendorFromMaster({cardCode, clientName, points, vdiPartnerUsers, getEffectiveVendorForClient, sapGetClienteCode})` → `{vendorKey, vendorUid, vendorEmail, resolved}`.
+- `enrichPayloadWithClientVendor(payload, resolution, cargadoPor)` → muta el payload. **Idempotente**: si ya tiene `assignedVendorUid`, respeta (unificación §42 preserva target).
+- Wrapper DOM `window._enrichPayloadWithClientVendor(payload)` en index.html inyecta POINTS + vdiPartnerUsers + getEffectiveVendorForClient + sapGetClienteCode.
+
+**Filtro Planner**:
+- `pedidos`: cambia `where('ownerUid', '==', uid)` → `where('assignedVendorUid', '==', uid)` para VDE. Rule `pedidos` list extendida: `(isVendor() && (ownsDoc() || resource.data.assignedVendorUid == request.auth.uid))`.
+- `revision_waitlist`: filtro client-side cambia a `assignedVendorUid == uid` con fallback `ownerUid` para docs legacy (pre-§44 sin el campo). Rule `read` sigue abierto a `isReader()` → sin cambio.
+
+**UI card Planner** (`renderPlannerCard`):
+- Línea principal del vendedor: `vendorAssigned || assignedVendorKey || ownerVendor || vendorKey`. Si todos vacíos → `<span style="color:#dc2626;font-weight:700">sin vendedor</span>`.
+- Línea secundaria: `Cargado por: <cargadoPorEmail || ownerDisplayName || ownerEmail>` (solo si distinto del vendor).
+
+**Cliente sin vendedor en master**: `assignedVendorUid` queda vacío; card visible para admin/gerente (filtro por rol); invisible para VDEs (no matchean la query).
+
+**Unificación §42**: la target preserva su `assignedVendorUid` original. Si es legacy pre-§44 (sin el campo), el helper lo re-resuelve del master actual y lo setea en el `updatePayload`. **Nunca** se adopta el vendor del user que unifica.
+
+**Rule VDE create** sin cambio: `ownerUid == request.auth.uid` sigue requerido. Un VDE no puede cargar para cliente ajeno (`ownerVendor != myVendorKey()` falla). Admin/gerente/interno no tienen esa restricción.
+
+**Datos existentes**: script `scripts/audit/Q_vendedor_desalineado.cjs` (read-only) lista pedidos + waitlist abiertos con `ownerVendor` vacío o `!=` del master. `--apply` ejecuta backfill (setea los 4 campos + preserva `ownerUid`/`ownerEmail` originales como `cargadoPorUid`/`cargadoPorEmail`). Autorización explícita de Mariano requerida por doc.
+
+**Tests** (22 nuevos):
+- `tests/unit/resolve-client-vendor.test.js` (12): pure fns + edge cases.
+- `tests/unit/audit/vendedor-del-cliente-master.test.js` (10): T1-T10 cubriendo manual/Excel/CPST/VDE/sin-vendedor/unificación-target-con-vendor/unificación-target-legacy/filtro-Planner/UI-sin-vendedor/cliente-SANTI.
+
+**Suite completa post-v1406**: 1932 PASS, 0 FAIL.
+
+**Precedente**: `feat-vendedor-del-cliente-master` 2026-10-22 (v1406). Reporte Mariano: orden 483 ALBERTO PONTORIERO (C20175569635) + 491 La Lomita + 486 Esteban + 384 Colli + 475 Prat + 472 Bengochea invisibles para Federico en el Planner por `ownerUid != Federico.uid` cuando el cliente SÍ es de Federico. Dry-run del script Q pendiente de ejecución autorizada.

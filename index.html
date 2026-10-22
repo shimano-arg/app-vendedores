@@ -7069,7 +7069,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1405';
+const APP_VERSION = 'v1406';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17529,9 +17529,49 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
 // @param {object} payload - mismo shape que iba a `fbDb.collection('revision_waitlist').add(payload)`.
 // @param {'creacion_manual' | 'creacion_excel' | 'creacion_cpst'} sourceLabel
 // @param {{batch?: any}} [opts]
+// v1406 §44: helper global que resuelve el vendedor del cliente desde el
+// master (POINTS + vdiPartnerUsers + getEffectiveVendorForClient). Inyecta
+// `vendorAssigned`, `assignedVendorUid`, `assignedVendorEmail`, `ownerVendor`
+// (alineado) + `cargadoPorUid`/`cargadoPorEmail` al payload. Idempotente:
+// si el payload ya tiene `assignedVendorUid` set, respeta (unificación).
+window._resolveClientVendorFromMaster = function(args){
+  const pure = window.__phase0 && window.__phase0.pure;
+  const fn = pure && pure.resolveClientVendorFromMaster;
+  if (!fn) return { vendorKey: '', vendorUid: '', vendorEmail: '', resolved: false };
+  return fn({
+    cardCode: (args && args.cardCode) || '',
+    clientName: (args && args.clientName) || '',
+    points: (typeof POINTS !== 'undefined' && POINTS) || [],
+    vdiPartnerUsers: (typeof vdiPartnerUsers !== 'undefined' && vdiPartnerUsers) || [],
+    getEffectiveVendorForClient:
+      (typeof getEffectiveVendorForClient === 'function') ? getEffectiveVendorForClient : undefined,
+    sapGetClienteCode:
+      (typeof sapGetClienteCode === 'function') ? sapGetClienteCode : undefined,
+  });
+};
+window._enrichPayloadWithClientVendor = function(payload){
+  const pure = window.__phase0 && window.__phase0.pure;
+  const enrich = pure && pure.enrichPayloadWithClientVendor;
+  if (!enrich || !payload || typeof payload !== 'object') return payload;
+  const resolution = window._resolveClientVendorFromMaster({
+    cardCode: payload.clientCardCode || payload.cardCode || '',
+    clientName: payload.clientName || payload.cardName || '',
+  });
+  const cargadoPor = {
+    cargadoPorUid: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.uid || '') : '',
+    cargadoPorEmail: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.email || '') : '',
+  };
+  return enrich(payload, resolution, cargadoPor);
+};
+
 window._createOrUnifyWaitlistPayload = async function(payload, sourceLabel, opts){
   const externalBatch = opts && opts.batch;
   const cardCode = String((payload && payload.clientCardCode) || '').trim();
+  // v1406 §44: enriquecer el payload con el vendedor del cliente MASTER
+  // antes de proceder. Garantiza `assignedVendorUid` + `vendorAssigned` +
+  // `ownerVendor` alineados al master; `ownerUid` sigue siendo quien carga
+  // (restricción rules revision_waitlist). "Cargado por" = ownerDisplayName.
+  try { window._enrichPayloadWithClientVendor(payload); } catch (_eEnrich) { /* non-fatal */ }
   const pure = window.__phase0 && window.__phase0.pure;
   const findOpen = pure && pure.findOpenWaitlistsForClient;
   const fmt = pure && pure.formatWaitlistForConfirm;
@@ -17625,6 +17665,22 @@ window._createOrUnifyWaitlistPayload = async function(payload, sourceLabel, opts
   if (_origenesACancelar.length > 0) {
     updatePayload.pedidosOrigenes = _origenesACancelar;
     if (!target.source) updatePayload.source = 'stock-asignado-batch';
+  }
+  // v1406 §44: si el target es legacy (pre-§44, sin assignedVendorUid), re-resolver
+  // el vendor del cliente master y setearlo. El target conserva su orderNumber +
+  // vendedor del cliente (NO del user que unifica).
+  const _targetHasVendor = target.assignedVendorUid && String(target.assignedVendorUid).trim() !== '';
+  if (!_targetHasVendor) {
+    const _resUnify = window._resolveClientVendorFromMaster({
+      cardCode: target.clientCardCode || payload.clientCardCode || '',
+      clientName: target.clientName || payload.clientName || '',
+    });
+    if (_resUnify && _resUnify.resolved) {
+      updatePayload.vendorAssigned = _resUnify.vendorKey;
+      updatePayload.assignedVendorUid = _resUnify.vendorUid || '';
+      updatePayload.assignedVendorEmail = _resUnify.vendorEmail || '';
+      updatePayload.ownerVendor = _resUnify.vendorKey;
+    }
   }
   const targetRef = fbDb.collection('revision_waitlist').doc(target._id);
   batch.update(targetRef, updatePayload);
@@ -18720,6 +18776,9 @@ window._gbConfirmar = async function(){
       },
       source: 'manual-backorder',
     };
+    // v1406 §44: resolver vendor del cliente master y setear
+    // vendorAssigned/assignedVendorUid/ownerVendor + cargadoPor del user actual.
+    try { window._enrichPayloadWithClientVendor(docData); } catch (_eEnrich) { /* non-fatal */ }
     const ref = await fbDb.collection('pedidos').add(docData);
     try {
       if (typeof logOp === 'function') logOp('manual_backorder_create', 'pedidos/' + ref.id, r.nombre, {
@@ -33899,12 +33958,16 @@ async function onPlannerColDrop(ev) {
 //
 // Precedente v1092 (2026-09-29): scope VDE — para vendedor, filtrar por
 // ownerUid=uid (rules exigen ownsDoc).
+// v1406 §44 (2026-10-22): el filtro VDE pasa a assignedVendorUid (el VDE
+// DUEÑO del cliente master). Antes era ownerUid (quien cargó): si Pablo
+// cargaba una orden para un cliente de Federico, Federico no la veia. Rules
+// pedidos list extendidas para permitir el new field (ver firestore.rules).
 function _subscribePlannerPedidos() {
   if (unsubPlannerPedidos) { try { unsubPlannerPedidos(); } catch (_) { /* ignore */ } unsubPlannerPedidos = null; }
   const db = fbDb;
   let base = db.collection('pedidos');
   if (userRole === 'vendedor' && currentUser && currentUser.uid) {
-    base = base.where('ownerUid', '==', currentUser.uid);
+    base = base.where('assignedVendorUid', '==', currentUser.uid);
   }
   // v1191: always query by createdAt range. Toggle controls range depth.
   const daysBack = plannerShowClosed ? 180 : 90;
@@ -33953,8 +34016,19 @@ function attachPlannerListeners() {
       const _wlFilter = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.shouldIncludeWaitlistDoc);
       snap.forEach(d => {
         const data = d.data() || {};
-        // v1092: scope VDE — solo entries donde ownerUid = uid del usuario.
-        if (_isVDEForWaitlist && data.ownerUid !== currentUser.uid) return;
+        // v1406 §44: scope VDE — assignedVendorUid del cliente master, con
+        // fallback a ownerUid para docs legacy (pre-§44 sin el campo). Rule
+        // revision_waitlist.read sigue abierto a isReader() → sin cambio de rules.
+        if (_isVDEForWaitlist) {
+          const _assigned = String(data.assignedVendorUid || '').trim();
+          const _owner = String(data.ownerUid || '').trim();
+          if (_assigned) {
+            if (_assigned !== currentUser.uid) return;
+          } else if (_owner !== currentUser.uid) {
+            // Legacy sin assignedVendorUid: cae a ownerUid.
+            return;
+          }
+        }
         if (_wlFilter) {
           if (!_wlFilter(data)) return;
         } else {
@@ -34149,7 +34223,22 @@ function renderPlannerCard(pedido, column) {
   // (ver pedidos.add() en index.html:16534,16537,16542). El schema `cardName` / `cardCode`
   // / `vendorKey` era de un plan viejo del Planner y nunca fue el nombre real.
   const cliente = escapeHtml(pedido.clientName || pedido.cardName || pedido.clientCardCode || pedido.cardCode || '(sin cliente)');
-  const vdi = escapeHtml(pedido.ownerVendor || pedido.vendorKey || '—');
+  // v1406 §44: el vendedor que se MUESTRA es el del cliente master
+  // (vendorAssigned|assignedVendorKey|ownerVendor). "Cargado por" va como
+  // 2da línea con el email de quien hizo el click. Si no hay vendedor del
+  // cliente master → "sin vendedor" rojo.
+  const _vendorKeyRaw = String(
+    pedido.vendorAssigned || pedido.assignedVendorKey || pedido.ownerVendor || pedido.vendorKey || ''
+  ).trim();
+  const vdi = _vendorKeyRaw
+    ? escapeHtml(_vendorKeyRaw)
+    : '<span style="color:#dc2626;font-weight:700" title="El cliente no tiene vendedor asignado en el master. Admin/gerente la ven; VDEs no.">sin vendedor</span>';
+  const _cargadoPor = String(
+    pedido.cargadoPorEmail || pedido.ownerDisplayName || pedido.ownerEmail || ''
+  ).trim();
+  const _cargadoPorHtml = (_cargadoPor && _cargadoPor !== _vendorKeyRaw)
+    ? '<div class="planner-card-cargado" style="font-size:10px;color:#8e8e93;margin-top:1px;letter-spacing:-0.01em;">Cargado por: ' + escapeHtml(_cargadoPor) + '</div>'
+    : '';
   const fecha = _plannerFmtDate(pedido.createdAt || pedido.updatedAt);
   // v???(2026-10-02): badge "📅 <fecha> · <edad>" muestra cuanto hace que el
   // pedido entra a la columna actual. Pure fns en src/pure/planner-column-age.js
@@ -34233,6 +34322,7 @@ function renderPlannerCard(pedido, column) {
       ' onclick="openPlannerCardModal(\'' + escapeHtml(pedido.id) + '\')">' +
       '<div class="planner-card-cliente">' + cliente + '</div>' +
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
+      _cargadoPorHtml +
       _ageBadgeHtml +
       '<div class="planner-card-total">' + escapeHtml(total) + '</div>' +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
@@ -35802,6 +35892,9 @@ window.doConfirmPedido = async function(){
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
   if (currentUser) {
+    // v1406 §44: resolver vendor del cliente master y alinear ownerVendor +
+    // vendorAssigned + assignedVendorUid + cargadoPor antes del persist.
+    try { window._enrichPayloadWithClientVendor(docData); } catch (_eEnrich) { /* non-fatal */ }
     fbDb.collection('pedidos').add(docData).then((ref)=>{
       showSyncTag('Pedido pendiente guardado');
       // v846 (2026-09-09): reset del orderNumber pendiente — ya se persistio en docData.

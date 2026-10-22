@@ -4717,6 +4717,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1406 (2026-10-22) — Vendedor del pedido = vendedor del cliente master (§44)
+
+Rama `feat-vendedor-del-cliente-master` → `main`.
+
+**Reporte Mariano**: el Planner mostraba `—` como vendedor en órdenes cargadas por admin/Pablo/Excel. Y el filtro VDE (`where('ownerUid', '==', uid)`) escondía la card para el VDE del cliente real. Caso: orden 483 ALBERTO PONTORIERO (C20175569635) cargada por Pablo invisible para Federico aunque el cliente es de Federico. Mismo bug en 491 La Lomita / 486 Esteban / 384 Colli / 475 Prat / 472 Bengochea.
+
+**Causa**: `payload.ownerVendor = (typeof assignedVendor !== 'undefined') ? assignedVendor : ''` lee la variable global del user logueado (línea 28512). Para admin/gerente/Pablo esto es null o un vendorKey administrativo. El filtro Planner usa `ownerUid` (quien cargó).
+
+**Cambio**:
+- `src/pure/resolve-client-vendor.js` nuevo helper puro `resolveClientVendorFromMaster()` + `enrichPayloadWithClientVendor()`. Lookup OCRD/POINTS + `vdiPartnerUsers`.
+- `window._enrichPayloadWithClientVendor(payload)` wrapper DOM. Inyectado en los 4 call-sites (CPST, manual, Excel, derivados `volverA/enviarBorradorA`) via `_createOrUnifyWaitlistPayload` + los 2 `pedidos.add` directos (`doConfirmPedido`, `_gbConfirmar`).
+- Unificación §42: target preserva `assignedVendorUid` original. Legacy sin el campo → re-resuelve del master.
+- `renderPlannerCard`: muestra `vendorAssigned || ownerVendor` como principal; "sin vendedor" en rojo si vacío. Línea secundaria "Cargado por: <email>".
+- Filtro Planner VDE: `where('assignedVendorUid', '==', uid)` para pedidos; `data.assignedVendorUid === uid` con fallback a `ownerUid` para waitlist legacy.
+- `firestore.rules` extendida: `pedidos` list VDE ahora permite `ownsDoc() || resource.data.assignedVendorUid == request.auth.uid`.
+- `scripts/audit/Q_vendedor_desalineado.cjs`: read-only dry-run + `--apply`. Lista órdenes abiertas con `ownerVendor` vacío o `!=` master. **Dry-run pendiente de ejecución autorizada por Mariano** antes del `--apply`.
+
+**Tests** (22 nuevos):
+- `tests/unit/resolve-client-vendor.test.js` (12).
+- `tests/unit/audit/vendedor-del-cliente-master.test.js` (10): T1 manual, T2 Excel, T3 CPST, T4 VDE propio, T5 sin vendedor, T6 unificación preserva, T7 unificación legacy re-resuelve, T8 filtro Planner, T9 UI "sin vendedor", T10 cliente SANTI.
+
+**Suite completa post-v1406**: 1932 PASS, 0 FAIL.
+
+APP_VERSION v1405 → v1406. CACHE_VERSION v1405 → v1406.
+
+**Deploy requerido**: `firebase deploy --only firestore:rules` para activar la extensión del `pedidos` list permissions.
+
+**Rollback**: revertir CSS + helpers + CLAUDE.md §44 + rules. Pedidos ya backfilleados conservan los campos (son additive).
+
 ### v1405 (2026-10-22) — Contraste WCAG en filas azules del modal Pedido en Espera (§43)
 
 Rama `fix-waitlist-contrast-blue-rows` → `main`.
