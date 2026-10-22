@@ -1,0 +1,255 @@
+{
+  "nowIso": "2026-10-22T19:48:42.711Z",
+  "pedidosAbiertos": 362,
+  "repartosAbiertos": 61,
+  "results": [
+    {
+      "id": "G5a",
+      "label": "qtyOpen > qty activa",
+      "count": 2,
+      "unitCount": 2,
+      "pauseFlag": false,
+      "sample": [
+        {
+          "pedidoId": "K88WVskzjJuzOC0kuNWX",
+          "orderNumber": "219",
+          "lineIdx": 8,
+          "sku": "597151",
+          "qty": 1,
+          "qtyOpen": 2,
+          "state": "BO"
+        },
+        {
+          "pedidoId": "ld61r0LQ4tY4ok1VXmo6",
+          "lineIdx": 13,
+          "sku": "LDM64TE2020030H",
+          "qty": 1,
+          "qtyOpen": 2,
+          "state": "ASIG"
+        }
+      ]
+    },
+    {
+      "id": "G5b",
+      "label": "qty <= 0 activa",
+      "count": 15,
+      "unitCount": 15,
+      "pauseFlag": false,
+      "sample": [
+        {
+          "pedidoId": "JW657spsnJWOvsfRj05B",
+          "orderNumber": "159",
+          "lineIdx": 118,
+          "sku": "EXGC66MHBAR",
+          "qty": 0,
+          "qtyOpen": 0,
+          "state": "ASIG"
+        },
+        {
+          "pedidoId": "JW657spsnJWOvsfRj05B",
+          "orderNumber": "159",
+          "lineIdx": 119,
+          "sku": "EXGC66HBAR",
+          "qty": 0,
+          "qtyOpen": 0,
+          "state": "ASIG"
+        },
+        {
+          "pedidoId": "OW6Lhctl603B68KhXX6q",
+          "orderNumber": "317",
+          "lineIdx": 114,
+          "sku": "STS66MH2C",
+          "qty": 0,
+          "qtyOpen": 0,
+          "state": "ASIG"
+        },
+        {
+          "pedidoId": "RfYArH8OC5oXbOt5i0m8",
+          "orderNumber": "200",
+          "lineIdx": 76,
+          "sku": "EXGC66HBAR",
+          "qty": 0,
+          "qtyOpen": 0,
+          "state": "ASIG"
+        },
+        {
+          "pedidoId": "RfYArH8OC5oXbOt5i0m8",
+          "orderNumber": "200",
+          "lineIdx": 80,
+          "sku": "EXGC66MHBAR",
+          "qty": 0,
+          "qtyOpen": 0,
+          "state": "ASIG"
+        }
+      ]
+    },
+    {
+      "id": "G5c",
+      "label": "precio=0 + priceAtCreation=0 state!=cancelled",
+      "count": 2,
+      "unitCount": 2,
+      "pauseFlag": false,
+      "sample": [
+        {
+          "pedidoId": "UjNyVqlC4HyYedbJLPqB",
+          "orderNumber": "498",
+          "lineIdx": 0,
+          "sku": "STLSW14000XGD",
+          "state": "BO"
+        },
+        {
+          "pedidoId": "kAAvLcW6pEczeiWy19bp",
+          "lineIdx": 15,
+          "sku": "127082",
+          "state": "closed_stale"
+        }
+      ]
+    },
+    {
+      "id": "G5g",
+      "label": "origen='stock-asignado' + asigRefs vacío (REGRESIÓN H1 silenciosa)",
+      "count": 0,
+      "unitCount": 0,
+      "pauseFlag": false,
+      "sample": []
+    },
+    {
+      "id": "G5h",
+      "label": "pedidos sin líneas vivas (closedAt=null)",
+      "count": 2,
+      "unitCount": 2,
+      "pauseFlag": false,
+      "sample": [
+        {
+          "pedidoId": "ARKYXcp55oc79Wwrz0ko",
+          "orderNumber": "248",
+          "totalLines": 19,
+          "clientName": "ANATOLIO SCHEWZOW"
+        },
+        {
+          "pedidoId": "aKqPBIETuvifYKPzgh4y",
+          "orderNumber": null,
+          "totalLines": 4,
+          "clientName": "CAMINOS RAMIRO MANUEL FRANCISCO Y RIOS ERNESTO MAXIMILIANO SOCIEDAD SIMPLE"
+        }
+      ]
+    },
+    {
+      "id": "G5k",
+      "label": "ingresos_reparto.assignments.lineIndex inválido",
+      "count": 0,
+      "unitCount": 0,
+      "pauseFlag": false,
+      "sample": []
+    },
+    {
+      "id": "G5z",
+      "label": "SAP Committed vs app confirmed sin orderDocEntry (top 20)",
+      "count": 20,
+      "unitCount": 38,
+      "pauseFlag": false,
+      "sample": [
+        {
+          "sku": "CLT01047",
+          "appConfirmed": 5,
+          "sapCommitted": 0,
+          "diff": 5
+        },
+        {
+          "sku": "FX4000FCC",
+          "appConfirmed": 5,
+          "sapCommitted": 0,
+          "diff": 5
+        },
+        {
+          "sku": "597243",
+          "appConfirmed": 4,
+          "sapCommitted": 0,
+          "diff": 4
+        },
+        {
+          "sku": "CAT4000FE",
+          "appConfirmed": 3,
+          "sapCommitted": 0,
+          "diff": 3
+        },
+        {
+          "sku": "CAT2500FE",
+          "appConfirmed": 3,
+          "sapCommitted": 0,
+          "diff": 3
+        }
+      ]
+    },
+    {
+      "id": "G4.G16",
+      "label": "pedidos stage=confirmed sin transferidoSAP > 1h",
+      "count": 12,
+      "unitCount": 12,
+      "pauseFlag": false,
+      "sample": [
+        {
+          "pedidoId": "7X7cuocQZrRgCp1RQKP1",
+          "orderNumber": "318",
+          "clientName": "GUILLERMO FERRARO",
+          "ageMin": 18927,
+          "transferidoSAP": {
+            "reason": "all_lines_bo_server_detected",
+            "transferredAt": "2026-10-09T16:33:05.818Z",
+            "via": "app_only"
+          }
+        },
+        {
+          "pedidoId": "C7sNsg1vexjGIcI202Ah",
+          "orderNumber": "470",
+          "clientName": "GUILLERMO FERRARO",
+          "ageMin": 2943,
+          "transferidoSAP": {
+            "via": "manual-backorder",
+            "skipSap": true,
+            "docNum": null,
+            "docEntry": null,
+            "createdAt": "2026-10-20T18:45:51.091Z"
+          }
+        },
+        {
+          "pedidoId": "EFw2AM0lhfp8VRB52KmG",
+          "orderNumber": "467",
+          "clientName": "JUAN MIGUEL BENGOCHEA",
+          "ageMin": 3012,
+          "transferidoSAP": {
+            "via": "manual-backorder",
+            "skipSap": true,
+            "docNum": null,
+            "docEntry": null,
+            "createdAt": "2026-10-20T17:37:00.195Z"
+          }
+        },
+        {
+          "pedidoId": "Hk7v9lza8TWtbKyIJo0F",
+          "orderNumber": "463",
+          "clientName": "PABLO SEBASTIAN ROLDAN",
+          "ageMin": 3297,
+          "transferidoSAP": {
+            "via": "manual-backorder",
+            "skipSap": true,
+            "docNum": null,
+            "docEntry": null,
+            "createdAt": "2026-10-20T12:51:29.074Z"
+          }
+        },
+        {
+          "pedidoId": "Ps8et6beTqxqGvi2LAP3",
+          "clientName": "PIRACUA",
+          "ageMin": 92548,
+          "transferidoSAP": {
+            "batchId": "20260820152248.",
+            "transferredAt": "2026-08-20T15:22:52.344Z",
+            "transferredBy": "mariano.erbino@shimano.com.ar",
+            "sapDocRange": ""
+          }
+        }
+      ]
+    }
+  ]
+}
