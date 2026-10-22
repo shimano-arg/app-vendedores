@@ -2834,6 +2834,38 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    previo (sin regresion). */
 .modal-overlay{contain:content}
 .modal-box{background:var(--bg-elevated);border-radius:10px;width:min(900px,96vw);max-height:90vh;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,.35);display:flex;flex-direction:column;contain:layout style}
+/* v1410 §48 (2026-10-22): max-height robusta para modales con listas largas.
+   Antes varios usaban height:92vh / max-height:92vh fijo — en 1366x768 con
+   DPI 125% o Chrome con chrome extra, el modal sobrepasaba el viewport
+   porque .modal-overlay tiene padding:20px (línea 2824) → modal+padding
+   excedía 100vh. Fix: calc(100dvh - 40px) descuenta ese padding en ambos
+   lados. 100dvh = dynamic viewport (robusto mobile browser chrome).
+   Mariano report 2026-10-22: lista clientes CPST con 30+ clientes quedaba
+   fuera; usuario tenía que zoom-out. */
+#crear-pedido-st-modal .modal-box,
+#reparto-modal .modal-box,
+#generar-backorder-modal .modal-box,
+#backorders-modal .modal-box,
+#waitlist-card-modal .modal-box,
+#backorders-graficos-modal .modal-box,
+#estado-modal .modal-box{
+  height: calc(100dvh - 40px) !important;
+  max-height: calc(100dvh - 40px) !important;
+}
+/* Garantizar que el scrollable list interno respete flex. En CPST (6240),
+   Reparto (6849), Backorders (6155) y Generar Backorder (6294) ya está
+   configurado inline con flex:1 1 0; overflow-y:auto. Esta regla asegura
+   la invariante por si algún edit inline futuro la rompe. */
+#cpst-clientes-list,
+#cpst-preview-list,
+#backorders-list,
+#reparto-list,
+#gb-lines-list{
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
 
 /* v1301 (2026-10-14) Apple-style para modal Reparto. Aplica apple-design skill:
    §1 feedback pointerdown (scale 0.97 100ms), §7 spatial consistency,
@@ -7003,7 +7035,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1409';
+const APP_VERSION = 'v1410';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
