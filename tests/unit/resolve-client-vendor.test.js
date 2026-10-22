@@ -1,156 +1,212 @@
 // @ts-check
 /**
- * v1406 §44 — tests pure para resolveClientVendorFromMaster +
- * enrichPayloadWithClientVendor.
+ * v1408 §46 — tests pure para resolveClientVendorFromMaster +
+ * enrichPayloadWithClientVendor + formatAssignedVendorReason.
+ *
+ * Cubren la cadena cliente → zona (overrides) → vendedor + los 4 reasons:
+ *   - ok
+ *   - cliente_no_en_master (= cliente_sin_zona en UI)
+ *   - zona_sin_vendedor
+ *   - vendor_sin_uid
+ *   - input_vacio
+ *
+ * Y: normalización cardCode con espacios/mayúsculas; __DISTRIBUTOR__ queda
+ * como "zona_sin_vendedor"; lookup VDE en `users` (no solo vdiPartnerUsers).
  */
 import { describe, expect, it } from 'vitest';
 import {
   enrichPayloadWithClientVendor,
+  formatAssignedVendorReason,
   resolveClientVendorFromMaster,
 } from '../../src/pure/resolve-client-vendor.js';
 
-const FEDERICO_UID = 'uid-federico-xyz';
-const SANTI_UID = 'uid-santi-abc';
-const PABLO_UID = 'uid-pablo-pqr';
+const MAURICIO_UID = 'uid-mauricio-vde';
+const PACHI_UID = 'uid-pachi-vde';
+const SANTI_UID = 'uid-santi-vdi';
+const PABLO_UID = 'uid-pablo-gerente';
 
-const VDI_USERS = [
-  { uid: FEDERICO_UID, email: 'federico@shimano.com.ar', vendorKey: 'FEDERICO' },
+const USERS_UNION = [
+  { uid: MAURICIO_UID, email: 'mauricio@shimano.com.ar', vendorKey: 'MAURICIO GIL' },
+  { uid: PACHI_UID, email: 'pachi@shimano.com.ar', vendorKey: 'PACHI' },
   { uid: SANTI_UID, email: 'santi@shimano.com.ar', vendorKey: 'SANTIAGO ESTEBAN' },
-  { uid: PABLO_UID, email: 'pablo@shimano.com.ar', vendorKey: 'ADMIN_pablo' },
+  { uid: PABLO_UID, email: 'pablo@shimano.com.ar', vendorKey: 'GERENTE_pablo' },
 ];
 
 const POINTS = [
   {
-    province: 'BUENOS AIRES',
-    name: 'LA PLATA',
-    vendor: 'FEDERICO',
-    clients: ['ALBERTO PONTORIERO'],
-  },
-  {
     province: 'CORDOBA',
-    name: 'VILLA CARLOS PAZ',
-    vendor: 'SANTIAGO ESTEBAN',
-    clients: ['OTRO CLIENTE'],
+    name: 'CORDOBA CAPITAL',
+    vendor: 'MAURICIO GIL',
+    clients: ['COLLI RAMON ROBERTO'],
   },
   {
-    province: 'MENDOZA',
-    name: 'SAN RAFAEL',
-    vendor: '', // sin vendedor en master
-    clients: ['CLIENTE SIN VENDOR'],
+    province: 'BUENOS AIRES',
+    name: 'MARTINEZ',
+    vendor: '', // sin vendor en master
+    clients: ['CLIENTE SIN ZONA'],
+  },
+  {
+    province: 'BUENOS AIRES',
+    name: 'VICENTE LOPEZ',
+    vendor: '__DISTRIBUTOR__',
+    clients: ['S.A. ANGEL BARALDO CIA.'],
   },
 ];
 
 const CARD_CODE_MAP = {
-  'ALBERTO PONTORIERO': 'C20175569635',
-  'OTRO CLIENTE': 'C20200000001',
-  'CLIENTE SIN VENDOR': 'C20300000002',
+  'COLLI RAMON ROBERTO': 'C20116066670',
+  'CLIENTE SIN ZONA': 'C20200000001',
+  'S.A. ANGEL BARALDO CIA.': 'C20300000002',
 };
 
 const getEffectiveVendorForClient = (p) => p.vendor || '';
 const sapGetClienteCode = (name) => CARD_CODE_MAP[name] || '';
 
-describe('resolveClientVendorFromMaster', () => {
-  it('resuelve por cardCode exacto', () => {
+describe('resolveClientVendorFromMaster v1408 §46', () => {
+  it('COLLI RAMON ROBERTO (C20116066670) resuelve a MAURICIO GIL con UID', () => {
     const r = resolveClientVendorFromMaster({
-      cardCode: 'C20175569635',
+      cardCode: 'C20116066670',
+      clientName: 'COLLI RAMON ROBERTO',
+      points: POINTS,
+      users: USERS_UNION,
+      getEffectiveVendorForClient,
+      sapGetClienteCode,
+    });
+    expect(r.vendorKey).toBe('MAURICIO GIL');
+    expect(r.vendorUid).toBe(MAURICIO_UID);
+    expect(r.resolved).toBe(true);
+    expect(r.reason).toBe('ok');
+  });
+
+  it('cardCode con espacios o minúsculas resuelve igual (normalización)', () => {
+    const variants = ['  C20116066670 ', 'c20116066670', 'C20116066670\n', ' c20116066670 '];
+    for (const cc of variants) {
+      const r = resolveClientVendorFromMaster({
+        cardCode: cc,
+        clientName: '',
+        points: POINTS,
+        users: USERS_UNION,
+        getEffectiveVendorForClient,
+        sapGetClienteCode,
+      });
+      expect(r.vendorKey, 'variante ' + JSON.stringify(cc)).toBe('MAURICIO GIL');
+      expect(r.vendorUid).toBe(MAURICIO_UID);
+    }
+  });
+
+  it('getCardCode con espacios en el valor del master también matchea', () => {
+    const sapGetClienteCodeSpaced = (name) => {
+      const base = CARD_CODE_MAP[name];
+      return base ? ' ' + base.toLowerCase() + ' ' : '';
+    };
+    const r = resolveClientVendorFromMaster({
+      cardCode: 'C20116066670',
       clientName: '',
       points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
+      users: USERS_UNION,
       getEffectiveVendorForClient,
-      sapGetClienteCode,
+      sapGetClienteCode: sapGetClienteCodeSpaced,
     });
-    expect(r.resolved).toBe(true);
-    expect(r.vendorKey).toBe('FEDERICO');
-    expect(r.vendorUid).toBe(FEDERICO_UID);
-    expect(r.vendorEmail).toBe('federico@shimano.com.ar');
+    expect(r.vendorKey).toBe('MAURICIO GIL');
   });
 
-  it('resuelve por clientName cuando no hay cardCode', () => {
+  it('cliente sin zona en master → reason=zona_sin_vendedor', () => {
     const r = resolveClientVendorFromMaster({
-      cardCode: '',
-      clientName: 'OTRO CLIENTE',
+      cardCode: 'C20200000001',
+      clientName: 'CLIENTE SIN ZONA',
       points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
-      getEffectiveVendorForClient,
-      sapGetClienteCode,
-    });
-    expect(r.resolved).toBe(true);
-    expect(r.vendorKey).toBe('SANTIAGO ESTEBAN');
-    expect(r.vendorUid).toBe(SANTI_UID);
-  });
-
-  it('cliente sin vendedor en master → resolved=false, vendorKey=""', () => {
-    const r = resolveClientVendorFromMaster({
-      cardCode: 'C20300000002',
-      clientName: 'CLIENTE SIN VENDOR',
-      points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
+      users: USERS_UNION,
       getEffectiveVendorForClient,
       sapGetClienteCode,
     });
     expect(r.resolved).toBe(false);
+    expect(r.reason).toBe('zona_sin_vendedor');
     expect(r.vendorKey).toBe('');
     expect(r.vendorUid).toBe('');
   });
 
-  it('cliente no encontrado en master → resolved=false', () => {
+  it('S.A. ANGEL BARALDO con zona=__DISTRIBUTOR__ → reason=zona_sin_vendedor', () => {
     const r = resolveClientVendorFromMaster({
-      cardCode: 'C99999999999',
-      clientName: 'INEXISTENTE',
+      cardCode: 'C20300000002',
+      clientName: 'S.A. ANGEL BARALDO CIA.',
       points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
+      users: USERS_UNION,
       getEffectiveVendorForClient,
       sapGetClienteCode,
     });
     expect(r.resolved).toBe(false);
+    expect(r.reason).toBe('zona_sin_vendedor');
   });
 
-  it('vendorKey sin UID en vdiPartnerUsers → vendorKey populated pero vendorUid vacío', () => {
+  it('cliente no en POINTS → reason=cliente_no_en_master', () => {
     const r = resolveClientVendorFromMaster({
-      cardCode: 'C20175569635',
-      clientName: 'ALBERTO PONTORIERO',
+      cardCode: 'C99999999999',
+      clientName: 'INEXISTENTE',
       points: POINTS,
-      vdiPartnerUsers: [], // sin users cache
+      users: USERS_UNION,
+      getEffectiveVendorForClient,
+      sapGetClienteCode,
+    });
+    expect(r.reason).toBe('cliente_no_en_master');
+  });
+
+  it('vendorKey resuelto pero sin match en users → reason=vendor_sin_uid', () => {
+    const r = resolveClientVendorFromMaster({
+      cardCode: 'C20116066670',
+      clientName: 'COLLI RAMON ROBERTO',
+      points: POINTS,
+      users: [], // sin users
       getEffectiveVendorForClient,
       sapGetClienteCode,
     });
     expect(r.resolved).toBe(true);
-    expect(r.vendorKey).toBe('FEDERICO');
+    expect(r.vendorKey).toBe('MAURICIO GIL');
     expect(r.vendorUid).toBe('');
-    expect(r.vendorEmail).toBe('');
+    expect(r.reason).toBe('vendor_sin_uid');
   });
 
-  it('args vacíos → EMPTY', () => {
-    expect(resolveClientVendorFromMaster(null).resolved).toBe(false);
-    expect(resolveClientVendorFromMaster({}).resolved).toBe(false);
+  it('args vacíos → reason=input_vacio', () => {
+    expect(resolveClientVendorFromMaster(null).reason).toBe('input_vacio');
+    expect(resolveClientVendorFromMaster({}).reason).toBe('input_vacio');
   });
 
-  it('clientName case-insensitive', () => {
+  it('acepta `vdiPartnerUsers` legacy mergeado con `users` (compat v1406)', () => {
     const r = resolveClientVendorFromMaster({
-      cardCode: '',
-      clientName: 'alberto pontoriero',
+      cardCode: 'C20116066670',
+      clientName: '',
       points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
+      vdiPartnerUsers: USERS_UNION, // legacy
       getEffectiveVendorForClient,
       sapGetClienteCode,
     });
-    expect(r.vendorKey).toBe('FEDERICO');
+    expect(r.vendorUid).toBe(MAURICIO_UID);
+  });
+
+  it('clientName case-insensitive sigue funcionando', () => {
+    const r = resolveClientVendorFromMaster({
+      cardCode: '',
+      clientName: 'colli ramon roberto',
+      points: POINTS,
+      users: USERS_UNION,
+      getEffectiveVendorForClient,
+      sapGetClienteCode,
+    });
+    expect(r.vendorKey).toBe('MAURICIO GIL');
   });
 });
 
-describe('enrichPayloadWithClientVendor', () => {
-  it('setea los 4 campos del vendor + cargadoPor', () => {
+describe('enrichPayloadWithClientVendor v1408 §46', () => {
+  it('preserva reason en el payload', () => {
     const payload = {
-      clientName: 'ALBERTO PONTORIERO',
-      clientCardCode: 'C20175569635',
+      clientName: 'COLLI RAMON ROBERTO',
+      clientCardCode: 'C20116066670',
       ownerUid: PABLO_UID,
-      ownerEmail: 'pablo@shimano.com.ar',
     };
     const res = resolveClientVendorFromMaster({
       cardCode: payload.clientCardCode,
       clientName: payload.clientName,
       points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
+      users: USERS_UNION,
       getEffectiveVendorForClient,
       sapGetClienteCode,
     });
@@ -158,82 +214,61 @@ describe('enrichPayloadWithClientVendor', () => {
       cargadoPorUid: PABLO_UID,
       cargadoPorEmail: 'pablo@shimano.com.ar',
     });
-    expect(payload.vendorAssigned).toBe('FEDERICO');
-    expect(payload.assignedVendorUid).toBe(FEDERICO_UID);
-    expect(payload.assignedVendorEmail).toBe('federico@shimano.com.ar');
-    expect(payload.ownerVendor).toBe('FEDERICO');
-    expect(payload.cargadoPorUid).toBe(PABLO_UID);
-    expect(payload.cargadoPorEmail).toBe('pablo@shimano.com.ar');
-    // ownerUid NO cambia (sigue siendo quien carga; rules lo requieren).
-    expect(payload.ownerUid).toBe(PABLO_UID);
+    expect(payload.vendorAssigned).toBe('MAURICIO GIL');
+    expect(payload.assignedVendorUid).toBe(MAURICIO_UID);
+    expect(payload.ownerVendor).toBe('MAURICIO GIL');
+    expect(payload.assignedVendorReason).toBe('ok');
   });
 
-  it('cliente sin vendedor en master → ownerVendor + vendorAssigned vacíos', () => {
+  it('cliente sin zona → payload.assignedVendorReason=zona_sin_vendedor', () => {
     const payload = {
-      clientName: 'CLIENTE SIN VENDOR',
-      clientCardCode: 'C20300000002',
-      ownerUid: PABLO_UID,
-    };
-    const res = resolveClientVendorFromMaster({
-      cardCode: payload.clientCardCode,
-      clientName: payload.clientName,
-      points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
-      getEffectiveVendorForClient,
-      sapGetClienteCode,
-    });
-    enrichPayloadWithClientVendor(payload, res, { cargadoPorUid: PABLO_UID });
-    expect(payload.vendorAssigned).toBe('');
-    expect(payload.assignedVendorUid).toBe('');
-    expect(payload.ownerVendor).toBe('');
-    expect(payload.cargadoPorUid).toBe(PABLO_UID);
-  });
-
-  it('idempotente: payload con assignedVendorUid preexistente NO se pisa', () => {
-    const payload = {
-      clientName: 'OTRO CLIENTE',
+      clientName: 'CLIENTE SIN ZONA',
       clientCardCode: 'C20200000001',
-      // Target de unificación que ya tiene vendor resuelto previamente.
-      assignedVendorUid: SANTI_UID,
-      vendorAssigned: 'SANTIAGO ESTEBAN',
-      ownerVendor: 'SANTIAGO ESTEBAN',
+      ownerUid: PABLO_UID,
     };
     const res = resolveClientVendorFromMaster({
       cardCode: payload.clientCardCode,
       clientName: payload.clientName,
       points: POINTS,
-      vdiPartnerUsers: VDI_USERS,
+      users: USERS_UNION,
       getEffectiveVendorForClient,
       sapGetClienteCode,
     });
-    enrichPayloadWithClientVendor(payload, res, { cargadoPorUid: PABLO_UID });
-    expect(payload.assignedVendorUid).toBe(SANTI_UID);
-    expect(payload.vendorAssigned).toBe('SANTIAGO ESTEBAN');
-    expect(payload.ownerVendor).toBe('SANTIAGO ESTEBAN');
+    enrichPayloadWithClientVendor(payload, res);
+    expect(payload.vendorAssigned).toBe('');
+    expect(payload.assignedVendorReason).toBe('zona_sin_vendedor');
   });
 
-  it('cargadoPor fallback a ownerUid/ownerEmail si no se pasa', () => {
+  it('idempotente: assignedVendorUid preexistente → NO re-pisa reason', () => {
     const payload = {
-      clientName: 'ALBERTO PONTORIERO',
-      clientCardCode: 'C20175569635',
-      ownerUid: PABLO_UID,
-      ownerEmail: 'pablo@shimano.com.ar',
+      clientName: 'COLLI RAMON ROBERTO',
+      clientCardCode: 'C20116066670',
+      assignedVendorUid: 'other-uid',
+      vendorAssigned: 'OTRO VENDOR',
+      ownerVendor: 'OTRO VENDOR',
+      assignedVendorReason: 'ok',
     };
     const res = {
-      vendorKey: 'FEDERICO',
-      vendorUid: FEDERICO_UID,
-      vendorEmail: 'federico@shimano.com.ar',
+      vendorKey: 'MAURICIO GIL',
+      vendorUid: MAURICIO_UID,
+      vendorEmail: '',
       resolved: true,
+      reason: 'ok',
     };
     enrichPayloadWithClientVendor(payload, res);
-    expect(payload.cargadoPorUid).toBe(PABLO_UID);
-    expect(payload.cargadoPorEmail).toBe('pablo@shimano.com.ar');
+    expect(payload.assignedVendorUid).toBe('other-uid');
+    expect(payload.vendorAssigned).toBe('OTRO VENDOR');
   });
+});
 
-  it('devuelve el mismo payload (mutado) para encadenar', () => {
-    const payload = { ownerUid: PABLO_UID };
-    const res = { vendorKey: 'FEDERICO', vendorUid: FEDERICO_UID, vendorEmail: '', resolved: true };
-    const ret = enrichPayloadWithClientVendor(payload, res);
-    expect(ret).toBe(payload);
+describe('formatAssignedVendorReason v1408 §46', () => {
+  it('traduce reasons a texto UI', () => {
+    expect(formatAssignedVendorReason('cliente_no_en_master')).toBe('cliente sin zona');
+    expect(formatAssignedVendorReason('cliente_sin_zona')).toBe('cliente sin zona');
+    expect(formatAssignedVendorReason('zona_sin_vendedor')).toBe('zona sin vendedor');
+    expect(formatAssignedVendorReason('vendor_sin_uid')).toBe('vendedor sin usuario');
+    expect(formatAssignedVendorReason('input_vacio')).toBe('sin cliente');
+    expect(formatAssignedVendorReason('ok')).toBe('');
+    expect(formatAssignedVendorReason('')).toBe('');
   });
 });

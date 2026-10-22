@@ -1,21 +1,35 @@
 // Q — read-only prod: lista pedidos/revision_waitlist abiertos con vendedor
-// desalineado respecto al cliente master. Dos escenarios:
-//   A) ownerVendor vacío o '—'
-//   B) ownerVendor != vendorKey del cliente master (OCRD)
+// desalineado respecto al cliente master.
 //
-// Soporta --dry-run (default) + --apply (requiere OK Mariano) para backfill.
-// Backfill setea `vendorAssigned`, `assignedVendorUid`, `assignedVendorEmail`,
-// `ownerVendor` alineados al master; `cargadoPorUid`/`cargadoPorEmail`
-// copiados desde `ownerUid`/`ownerEmail` existentes (preserva "quién cargó").
+// v1408 §46 (2026-10-22) — reescrito para usar la MISMA cadena que el app:
+//   cliente (cardCode) → OCRD.SlpName (base) → vendor_overrides por shop/loc/prov → vendor efectivo.
 //
-// Autorizado por Mariano 2026-10-22 (v1406 §44).
+// Lookup del UID del vendedor: colección `roles` con filtro por rol = vendedor
+// OR interno OR gerente OR admin. Esto cubre:
+//   - VDE: role='vendedor', campo `vendor` tiene el vendorKey canónico (ej MAURICIO GIL).
+//   - VDI: role='interno', campo `vendor` o fallback a VDI_VENDOR_KEYS historico.
+//   - Gerente/Admin: `vendor` como ADMIN_<uid>, matchean el value del dropdown.
+//
+// Reasons output:
+//   - desalineado: hay vendor del master pero el pedido tiene distinto (o vacío).
+//   - cliente_no_en_ocrd: cardCode no existe en OCRD.
+//   - cliente_sin_zona: pedido sin clientCardCode populated.
+//   - zona_sin_vendedor: OCRD existe pero SlpName vacío (y sin override).
+//   - vendor_sin_uid: vendorKey resuelto pero sin user match en roles (backfill
+//     deja ownerVendor/vendorAssigned populated pero assignedVendorUid='').
+//
+// Soporta --dry-run (default) + --apply (requiere OK Mariano explícito tras
+// revisar el markdown).
 
 const PROJECT = 'app-vendedores-shimano';
 const argv = process.argv.slice(2);
 const APPLY = argv.includes('--apply');
-const COLLECTION_FILTER = argv.find((a) => a.startsWith('--only='))
-  ? argv.find((a) => a.startsWith('--only=')).split('=')[1]
-  : 'both'; // pedidos | waitlist | both
+const ONLY_ARG = argv.find((a) => a.startsWith('--only='));
+const COLLECTION_FILTER = ONLY_ARG ? ONLY_ARG.split('=')[1] : 'both';
+
+function normCardCode(cc) {
+  return String(cc || '').trim().toUpperCase();
+}
 
 async function main() {
   const admin = require('../../functions/node_modules/firebase-admin');
@@ -24,145 +38,183 @@ async function main() {
 
   const nowIso = new Date().toISOString();
   console.log('================================================================');
-  console.log('Q — Vendedor desalineado @ ' + nowIso);
+  console.log('Q v1408 — Vendedor desalineado @ ' + nowIso);
   console.log('================================================================');
   console.log('Modo:', APPLY ? 'APPLY' : 'DRY-RUN');
   console.log('Colecciones:', COLLECTION_FILTER);
   console.log();
 
-  // 1. OCRD: cardCode → vendorKey (SlpName).
+  // 1. OCRD: cardCode normalizado → {cardName, slpName, provincia, localidad}.
   const ocrdSnap = await db.collection('ocrd').get();
-  /** @type {Map<string, {cardCode:string, cardName:string, slpName:string}>} */
+  /** @type {Map<string, {cardCode:string, cardName:string, slpName:string, provincia:string, localidad:string}>} */
   const ocrd = new Map();
   ocrdSnap.forEach((d) => {
     const data = d.data() || {};
-    const cardCode = data.CardCode || d.id;
-    const slpName = (data.SlpName || '').trim();
-    const cardName = data.CardName || '';
-    if (cardCode) ocrd.set(cardCode, { cardCode, cardName, slpName });
+    const cardCode = normCardCode(data.CardCode || d.id);
+    const slpName = String(data.SlpName || '').trim();
+    const cardName = String(data.CardName || '').trim();
+    const provincia = String(data.Provincia || data.State || data.State1 || '').trim();
+    const localidad = String(data.Localidad || data.City || '').trim();
+    if (cardCode) ocrd.set(cardCode, { cardCode, cardName, slpName, provincia, localidad });
   });
   console.log('OCRD cargado:', ocrd.size, 'clientes.');
 
-  // 2. Users: vendorKey → {uid, email}.
-  const usersSnap = await db.collection('users').get();
-  /** @type {Map<string, {uid:string, email:string, vendorKey:string}>} */
-  const vendorKeyToUser = new Map();
-  usersSnap.forEach((d) => {
+  // 2. vendor_overrides: zonasKey → newVendor.
+  //    - SHOP|<prov>|<loc>|<clientName>
+  //    - LOC|<prov>|<loc>
+  //    - PROV|<prov>
+  const voSnap = await db.collection('vendor_overrides').get();
+  /** @type {Map<string, string>} */
+  const vendorOverrides = new Map();
+  voSnap.forEach((d) => {
     const data = d.data() || {};
-    const vendorKey = (data.vendor || '').trim();
-    const role = (data.role || '').trim();
+    const newVendor = String(data.newVendor || data.vendor || '').trim();
+    if (newVendor) vendorOverrides.set(d.id, newVendor);
+  });
+  console.log('vendor_overrides cargados:', vendorOverrides.size);
+
+  // 3. roles: vendorKey → {uid, email, role}.
+  const rolesSnap = await db.collection('roles').get();
+  /** @type {Map<string, {uid:string, email:string, role:string, vendorKey:string}>} */
+  const vendorKeyToUser = new Map();
+  rolesSnap.forEach((d) => {
+    const data = d.data() || {};
+    const role = String(data.role || '').trim();
+    const vendorKey = String(data.vendor || '').trim();
     if (!vendorKey) return;
-    // Preferir users con role=vendedor; fallback a cualquier user con ese vendorKey.
     const existing = vendorKeyToUser.get(vendorKey);
-    if (!existing || role === 'vendedor') {
+    // Precedencia: vendedor > interno > gerente > admin > otros.
+    const rank = { vendedor: 4, interno: 3, gerente: 2, admin: 1 };
+    const currRank = rank[role] || 0;
+    const prevRank = existing ? rank[existing.role] || 0 : -1;
+    if (!existing || currRank > prevRank) {
       vendorKeyToUser.set(vendorKey, {
         uid: d.id,
         email: data.email || '',
+        role,
         vendorKey,
       });
     }
   });
-  console.log('Users con vendorKey:', vendorKeyToUser.size);
+  console.log('Users con vendorKey (roles):', vendorKeyToUser.size);
   console.log();
 
-  // 3. Query pedidos abiertos (closedAt=null) + revision_waitlist abiertos
-  //    (stage!=consumed, closedAt=null).
+  // Helper: resolve vendor del cliente usando la cadena cliente → zona → vendedor.
+  function resolveVendor(cardCode, clientName) {
+    const cc = normCardCode(cardCode);
+    const name = String(clientName || '').trim();
+    if (!cc && !name) return { vendorKey: '', uid: '', email: '', reason: 'input_vacio' };
+    const master = cc ? ocrd.get(cc) : null;
+    if (!master) {
+      return { vendorKey: '', uid: '', email: '', reason: 'cliente_no_en_ocrd' };
+    }
+    // Cadena de overrides: SHOP > LOC > PROV > SlpName.
+    const prov = master.provincia || '';
+    const loc = master.localidad || '';
+    const nameUp = (master.cardName || name || '').trim();
+    const shopKey = 'SHOP|' + prov + '|' + loc + '|' + nameUp;
+    const locKey = 'LOC|' + prov + '|' + loc;
+    const provKey = 'PROV|' + prov;
+    let vendorKey = '';
+    if (vendorOverrides.has(shopKey)) vendorKey = vendorOverrides.get(shopKey);
+    else if (vendorOverrides.has(locKey)) vendorKey = vendorOverrides.get(locKey);
+    else if (vendorOverrides.has(provKey)) vendorKey = vendorOverrides.get(provKey);
+    else vendorKey = master.slpName || '';
+    if (vendorKey === '__DISTRIBUTOR__') vendorKey = '';
+    if (!vendorKey) {
+      return { vendorKey: '', uid: '', email: '', reason: 'zona_sin_vendedor' };
+    }
+    const user = vendorKeyToUser.get(vendorKey);
+    if (!user) {
+      return { vendorKey, uid: '', email: '', reason: 'vendor_sin_uid' };
+    }
+    return { vendorKey, uid: user.uid, email: user.email, reason: 'ok' };
+  }
+
+  // 4. Scan colecciones.
   const collections =
     COLLECTION_FILTER === 'pedidos' ? ['pedidos'] :
     COLLECTION_FILTER === 'waitlist' ? ['revision_waitlist'] :
     ['pedidos', 'revision_waitlist'];
 
   const misalignedByCol = { pedidos: [], revision_waitlist: [] };
+  const statsBefore = { pedidos: { total: 0, sinVendor: 0 }, revision_waitlist: { total: 0, sinVendor: 0 } };
 
   for (const col of collections) {
     const snap = await db.collection(col).get();
     snap.forEach((d) => {
       const data = d.data() || {};
-      // Filtros abierto.
       if (data.closedAt) return;
       if (col === 'revision_waitlist' && data.stage === 'consumed') return;
-      const cardCode = String(data.clientCardCode || data.cardCode || '').trim();
-      if (!cardCode) {
-        // Sin cardCode: no podemos resolver. Reportar aparte.
-        misalignedByCol[col].push({
-          id: d.id,
-          cardCode: '',
-          clientName: data.clientName || '',
-          orderNumber: data.orderNumber || null,
-          currentOwnerVendor: data.ownerVendor || '',
-          currentAssignedVendorUid: data.assignedVendorUid || '',
-          masterVendorKey: '(sin cardCode)',
-          masterVendorUid: '',
-          cargadoPor: data.ownerEmail || data.ownerUid || '',
-          reason: 'sin_cardcode',
-        });
-        return;
-      }
-      const master = ocrd.get(cardCode);
-      if (!master) {
-        misalignedByCol[col].push({
-          id: d.id,
-          cardCode,
-          clientName: data.clientName || '',
-          orderNumber: data.orderNumber || null,
-          currentOwnerVendor: data.ownerVendor || '',
-          currentAssignedVendorUid: data.assignedVendorUid || '',
-          masterVendorKey: '(cliente no en OCRD)',
-          masterVendorUid: '',
-          cargadoPor: data.ownerEmail || data.ownerUid || '',
-          reason: 'cliente_no_en_ocrd',
-        });
-        return;
-      }
-      const masterVendorKey = master.slpName || '';
-      const user = vendorKeyToUser.get(masterVendorKey) || null;
-      const masterVendorUid = user ? user.uid : '';
-      const curOwnerVendor = (data.ownerVendor || '').trim();
-      const curAssigned = (data.assignedVendorUid || '').trim();
+      statsBefore[col].total++;
+      const curOwnerVendor = String(data.ownerVendor || '').trim();
+      const curVendorAssigned = String(data.vendorAssigned || '').trim();
+      const curAssignedVendorUid = String(data.assignedVendorUid || '').trim();
+      const effective = curVendorAssigned || curOwnerVendor;
+      if (!effective) statsBefore[col].sinVendor++;
+
+      const cardCode = normCardCode(data.clientCardCode || data.cardCode || '');
+      const clientName = data.clientName || '';
+      const resolution = resolveVendor(cardCode, clientName);
+
+      // ¿Está desalineado?
       const needsFix =
-        !curAssigned ||
+        !curAssignedVendorUid ||
         !curOwnerVendor ||
-        curOwnerVendor !== masterVendorKey ||
-        curAssigned !== masterVendorUid;
+        curOwnerVendor !== resolution.vendorKey ||
+        curAssignedVendorUid !== resolution.uid;
       if (!needsFix) return;
+
       misalignedByCol[col].push({
         id: d.id,
         cardCode,
-        clientName: data.clientName || master.cardName || '',
+        clientName: clientName || '',
         orderNumber: data.orderNumber || null,
         currentOwnerVendor: curOwnerVendor,
-        currentAssignedVendorUid: curAssigned,
-        masterVendorKey,
-        masterVendorUid,
-        masterVendorEmail: user ? user.email : '',
-        cargadoPor: data.ownerEmail || data.ownerUid || '',
-        reason: !masterVendorKey ? 'cliente_sin_vendedor_en_master' : 'desalineado',
+        currentVendorAssigned: curVendorAssigned,
+        currentAssignedVendorUid: curAssignedVendorUid,
+        resolvedVendorKey: resolution.vendorKey,
+        resolvedUid: resolution.uid,
+        resolvedEmail: resolution.email,
+        cargadoPor: data.ownerEmail || data.cargadoPorEmail || data.ownerUid || '',
+        reason: resolution.reason,
       });
     });
   }
 
-  // 4. Print report.
+  // 5. Print report.
+  const statsAfter = { pedidos: { fixables: 0, sinVendor: 0 }, revision_waitlist: { fixables: 0, sinVendor: 0 } };
   for (const col of collections) {
     const rows = misalignedByCol[col];
-    console.log('===== ' + col + ' (' + rows.length + ' desalineados) =====');
+    console.log('===== ' + col + ' (' + rows.length + ' desalineados / ' + statsBefore[col].total + ' totales abiertos) =====');
+    console.log('  Antes: sin vendedor = ' + statsBefore[col].sinVendor);
+    const fixables = rows.filter((r) => r.reason === 'ok' || r.reason === 'vendor_sin_uid');
+    const noFix = rows.filter((r) => r.reason !== 'ok' && r.reason !== 'vendor_sin_uid');
+    statsAfter[col].fixables = fixables.length;
+    statsAfter[col].sinVendor = Math.max(0, statsBefore[col].sinVendor - fixables.length);
+    console.log('  Después (post backfill si aplicara): sin vendedor = ' + statsAfter[col].sinVendor);
+    console.log('  Fixables (reason=ok|vendor_sin_uid): ' + fixables.length);
+    console.log('  Sin fix automático: ' + noFix.length);
+    console.log();
     if (rows.length === 0) {
-      console.log('  (ninguno)');
+      console.log('  (ninguno desalineado)');
       console.log();
       continue;
     }
     rows.sort((a, b) => (a.orderNumber || 0) - (b.orderNumber || 0));
     console.log(
-      '| ORDEN | Cliente | CardCode | Actual ownerVendor | → Master vendor | Cargado por | Reason |'
+      '| ORDEN | Cliente | CardCode | Actual ownerVendor | → Resuelto | UID resuelto | Cargado por | Reason |'
     );
-    console.log('|---|---|---|---|---|---|---|');
+    console.log('|---|---|---|---|---|---|---|---|');
     for (const r of rows) {
       console.log(
         '| ' + (r.orderNumber || '-') +
-        ' | ' + (r.clientName || '').slice(0, 35) +
+        ' | ' + (r.clientName || '').slice(0, 32) +
         ' | ' + r.cardCode +
         ' | ' + (r.currentOwnerVendor || '(vacío)') +
-        ' | ' + r.masterVendorKey +
-        ' | ' + (r.cargadoPor || '').slice(0, 25) +
+        ' | ' + (r.resolvedVendorKey || '(vacío)') +
+        ' | ' + (r.resolvedUid ? r.resolvedUid.slice(0, 10) + '…' : '(sin uid)') +
+        ' | ' + (r.cargadoPor || '').slice(0, 22) +
         ' | ' + r.reason +
         ' |'
       );
@@ -170,16 +222,35 @@ async function main() {
     console.log();
   }
 
-  // 5. Markdown.
+  // 6. Markdown.
   const fs = require('node:fs');
   const path = require('node:path');
   const outPath = path.join(__dirname, '..', '..', 'docs', 'auditoria', '35_VENDEDOR_DESALINEADO.md');
   const md = [
-    '# Q — Vendedor desalineado @ ' + nowIso,
+    '# Q v1408 — Vendedor desalineado @ ' + nowIso,
     '',
     'Modo: ' + (APPLY ? 'APPLY' : 'DRY-RUN') + '. Colecciones: ' + COLLECTION_FILTER + '.',
     '',
+    'Cadena de resolución: cliente (cardCode) → OCRD base → vendor_overrides (SHOP > LOC > PROV) → vendor efectivo.',
+    'Lookup UID: colección `roles` con precedencia vendedor > interno > gerente > admin.',
+    '',
+    '## Stats globales',
+    '',
+    '| Colección | Total abiertos | Sin vendedor (antes) | Fixables | Sin vendedor (después) |',
+    '|---|---:|---:|---:|---:|',
   ];
+  for (const col of collections) {
+    md.push(
+      '| ' + col +
+      ' | ' + statsBefore[col].total +
+      ' | ' + statsBefore[col].sinVendor +
+      ' | ' + statsAfter[col].fixables +
+      ' | ' + statsAfter[col].sinVendor +
+      ' |'
+    );
+  }
+  md.push('');
+
   for (const col of collections) {
     const rows = misalignedByCol[col];
     md.push('## ' + col + ' (' + rows.length + ' desalineados)');
@@ -189,16 +260,17 @@ async function main() {
       md.push('');
       continue;
     }
-    md.push('| ORDEN | Cliente | CardCode | Actual ownerVendor | → Master vendor | Cargado por | Reason |');
-    md.push('|---|---|---|---|---|---|---|');
+    md.push('| ORDEN | Cliente | CardCode | Actual ownerVendor | → Resuelto | UID resuelto | Cargado por | Reason |');
+    md.push('|---|---|---|---|---|---|---|---|');
     for (const r of rows) {
       md.push(
         '| ' + (r.orderNumber || '-') +
-        ' | ' + (r.clientName || '').replace(/\|/g, '/').slice(0, 50) +
+        ' | ' + (r.clientName || '').replace(/\|/g, '/').slice(0, 60) +
         ' | ' + r.cardCode +
         ' | ' + (r.currentOwnerVendor || '(vacío)') +
-        ' | ' + r.masterVendorKey +
-        ' | ' + (r.cargadoPor || '').slice(0, 30) +
+        ' | ' + (r.resolvedVendorKey || '(vacío)') +
+        ' | ' + (r.resolvedUid || '(sin uid)') +
+        ' | ' + (r.cargadoPor || '').slice(0, 40) +
         ' | ' + r.reason +
         ' |'
       );
@@ -210,28 +282,30 @@ async function main() {
   console.log('Markdown escrito en:', outPath);
   console.log();
 
-  // 6. Apply backfill si corresponde.
+  // 7. Apply backfill.
   if (!APPLY) {
     console.log('DRY-RUN finalizado. Volvé a correr con --apply para persistir cambios.');
     return;
   }
   console.log('===== APLICANDO BACKFILL =====');
   for (const col of collections) {
-    const rows = misalignedByCol[col].filter((r) => r.reason === 'desalineado');
+    const rows = misalignedByCol[col].filter(
+      (r) => r.reason === 'ok' || r.reason === 'vendor_sin_uid'
+    );
     console.log('[' + col + '] backfill de ' + rows.length + ' docs...');
     let ok = 0;
     let fail = 0;
     for (const r of rows) {
       try {
         const updateData = {
-          vendorAssigned: r.masterVendorKey || '',
-          assignedVendorUid: r.masterVendorUid || '',
-          assignedVendorEmail: r.masterVendorEmail || '',
-          ownerVendor: r.masterVendorKey || '',
-          _v44BackfillAt: nowIso,
-          _v44BackfillBy: 'scripts/audit/Q_vendedor_desalineado.cjs',
+          vendorAssigned: r.resolvedVendorKey || '',
+          assignedVendorUid: r.resolvedUid || '',
+          assignedVendorEmail: r.resolvedEmail || '',
+          ownerVendor: r.resolvedVendorKey || '',
+          assignedVendorReason: r.reason,
+          _v46BackfillAt: nowIso,
+          _v46BackfillBy: 'scripts/audit/Q_vendedor_desalineado.cjs',
         };
-        // Preservar cargadoPor desde ownerUid/ownerEmail si falta.
         const docSnap = await db.collection(col).doc(r.id).get();
         const existing = docSnap.data() || {};
         if (!existing.cargadoPorUid && existing.ownerUid) {

@@ -1,72 +1,122 @@
 // @ts-check
 /**
- * v1406 (2026-10-22) §44 — resolver el vendedor del cliente desde el master
- * SIEMPRE que se cree o unifique un pedido / waitlist. El Planner filtra por
- * ese vendedor; el "Cargado por" queda como dato secundario.
+ * v1408 (2026-10-22) §46 — resolver el vendedor de un pedido/waitlist usando
+ * la MISMA cadena que el resto de la app:
+ *   cliente → zona asignada (POINT + overrides shop/loc/prov) → vendedor de la zona.
  *
- * Esta función es pure (deps-injected) para testear sin DOM. El wrapper DOM
- * `window._resolveClientVendorFromMaster` en index.html inyecta `POINTS`,
- * `vdiPartnerUsers`, `getEffectiveVendorForClient`, `sapGetClienteCode`.
+ * Firma del VDE buscada en `users` cache unificado (VDE + VDI + admin + gerente)
+ * para que el filtro Planner por UID funcione para los 4 roles. "sin vendedor"
+ * se diferencia por motivo (cliente sin zona vs zona sin vendedor).
+ *
+ * Precedente v1406: solo miraba `vdiPartnerUsers` que contiene únicamente
+ * `role='interno'`. Los VDEs (Mauricio Gil, Pachi, Gonzalo, Federico) nunca
+ * matcheaban → `vendorUid=""` → filtro Planner VDE ciego para ellos.
  */
 
 /**
  * @typedef {Object} ClientVendorResolution
- * @property {string} vendorKey - vendorKey canónico del VDE (ej. "FEDERICO"). "" si no hay.
- * @property {string} vendorUid - UID Firestore del VDE. "" si no hay.
- * @property {string} vendorEmail - email del VDE. "" si no hay.
+ * @property {string} vendorKey - vendorKey canónico (ej. "MAURICIO GIL"). "" si no hay.
+ * @property {string} vendorUid - UID Firestore del user del vendedor. "" si no hay.
+ * @property {string} vendorEmail - email del vendedor. "" si no hay.
  * @property {boolean} resolved - true si vendorKey quedó populated.
+ * @property {'ok'|'cliente_no_en_master'|'cliente_sin_zona'|'zona_sin_vendedor'|'vendor_sin_uid'|'input_vacio'} reason
  */
 
+const EMPTY = /** @type {ClientVendorResolution} */ ({
+  vendorKey: '',
+  vendorUid: '',
+  vendorEmail: '',
+  resolved: false,
+  reason: 'input_vacio',
+});
+
 /**
- * Resuelve el vendedor de un cliente desde el master OCRD/POINTS.
+ * Normaliza cardCode SAP: trim + uppercase.
+ * @param {any} cc
+ * @returns {string}
+ */
+function normCardCode(cc) {
+  return String(cc || '')
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * Resuelve el vendedor de un cliente usando la cadena cliente → zona → vendedor.
  *
- * Lookup strategy:
- *   1. Buscar POINT por `cardCode` (recorriendo `p.clients` + sapGetClienteCode).
- *   2. Si no hay match por cardCode, buscar por `clientName` exacto (case-insensitive).
- *   3. Resolver vendorKey via `getEffectiveVendorForClient(point, clientName)`.
- *   4. Buscar UID + email en `vdiPartnerUsers` por `vendorKey`.
+ * Steps:
+ *   1. Normalizar cardCode y buscar POINT por cardCode (`sapGetClienteCode`).
+ *   2. Fallback: buscar POINT por clientName exacto (case-insensitive).
+ *   3. Resolver vendorKey via `getEffectiveVendorForClient(point, name)` que
+ *      aplica overrides shop > loc > prov > `point.vendor`.
+ *   4. Lookup UID + email en `users` (unión VDE + VDI + admin + gerente).
+ *
+ * Reasons:
+ *   - `ok`: vendorKey + vendorUid resueltos.
+ *   - `vendor_sin_uid`: vendorKey OK pero sin match en users (user no cargado
+ *     en cache; vendorKey queda igual pero sin UID → el filtro Planner no
+ *     funciona hasta backfill).
+ *   - `zona_sin_vendedor`: point existe pero `getEffectiveVendorForClient`
+ *     devolvió vacío (zona sin asignar).
+ *   - `cliente_no_en_master`: no se encontró POINT para cardCode ni clientName.
+ *   - `cliente_sin_zona`: alias de `cliente_no_en_master` (cliente SAP sin
+ *     POINT local = sin zona registrada).
+ *   - `input_vacio`: args sin cardCode ni clientName.
  *
  * @param {Object} args
- * @param {string} [args.cardCode] - CardCode SAP del cliente (preferido).
+ * @param {string} [args.cardCode] - CardCode SAP (preferido).
  * @param {string} [args.clientName] - Nombre del cliente (fallback).
  * @param {Array<any>} [args.points] - Catálogo de POINTS.
- * @param {Array<{uid:string, email:string, vendorKey:string, displayName?:string}>} [args.vdiPartnerUsers] - Users cache.
+ * @param {Array<{uid:string, email?:string, vendorKey:string}>} [args.users] - Union de VDE+VDI+admin+gerente.
+ * @param {Array<{uid:string, email?:string, vendorKey:string}>} [args.vdiPartnerUsers] - DEPRECATED (compat v1406). Se mergea con users.
  * @param {(p:any, name:string) => string} [args.getEffectiveVendorForClient]
  * @param {(name:string) => string} [args.sapGetClienteCode]
  * @returns {ClientVendorResolution}
  */
 export function resolveClientVendorFromMaster(args) {
-  const EMPTY = { vendorKey: '', vendorUid: '', vendorEmail: '', resolved: false };
   if (!args) return EMPTY;
-  const cardCode = String(args.cardCode || '').trim();
+  const cardCode = normCardCode(args.cardCode);
   const clientName = String(args.clientName || '').trim();
   const points = Array.isArray(args.points) ? args.points : [];
-  const vdiPartnerUsers = Array.isArray(args.vdiPartnerUsers) ? args.vdiPartnerUsers : [];
+  // v1408 §46: aceptamos ambos nombres (users nuevo + vdiPartnerUsers legacy)
+  // y los mergeamos para que el lookup cubra los 4 roles.
+  const usersUnion = /** @type {Array<any>} */ ([]);
+  if (Array.isArray(args.users)) usersUnion.push(...args.users);
+  if (Array.isArray(args.vdiPartnerUsers)) {
+    for (const u of args.vdiPartnerUsers) {
+      if (!usersUnion.some((x) => x && x.uid === u.uid)) usersUnion.push(u);
+    }
+  }
   const getVendor =
     typeof args.getEffectiveVendorForClient === 'function'
       ? args.getEffectiveVendorForClient
       : null;
   const getCardCode = typeof args.sapGetClienteCode === 'function' ? args.sapGetClienteCode : null;
-  if (!cardCode && !clientName) return EMPTY;
-  if (points.length === 0) return EMPTY;
+
+  if (!cardCode && !clientName) {
+    return { ...EMPTY, reason: 'input_vacio' };
+  }
+  if (points.length === 0) {
+    return { ...EMPTY, reason: 'cliente_no_en_master' };
+  }
 
   /** @type {any} */
   let point = null;
   let matchName = clientName;
 
-  // 1. Buscar por cardCode.
+  // 1. Buscar por cardCode normalizado.
   if (cardCode && getCardCode) {
     for (const p of points) {
       const clients = Array.isArray(p.clients) ? p.clients : [];
       for (const n of clients) {
         try {
-          if (getCardCode(n) === cardCode) {
+          if (normCardCode(getCardCode(n)) === cardCode) {
             point = p;
             matchName = n;
             break;
           }
         } catch (_e) {
-          /* ignore */
+          /* ignore lookup errors por cliente */
         }
       }
       if (point) break;
@@ -86,9 +136,14 @@ export function resolveClientVendorFromMaster(args) {
     }
   }
 
-  if (!point) return EMPTY;
+  if (!point) {
+    return {
+      ...EMPTY,
+      reason: 'cliente_no_en_master',
+    };
+  }
 
-  // 3. vendorKey canónico.
+  // 3. vendorKey canónico desde la cadena de overrides.
   let vendorKey = '';
   if (getVendor) {
     try {
@@ -98,10 +153,17 @@ export function resolveClientVendorFromMaster(args) {
     }
   }
   if (!vendorKey) vendorKey = String(point.vendor || '').trim();
-  if (!vendorKey) return EMPTY;
+  // "__DISTRIBUTOR__" NO es un vendedor real (venta indirecta via distribuidor).
+  if (vendorKey === '__DISTRIBUTOR__') vendorKey = '';
+  if (!vendorKey) {
+    return {
+      ...EMPTY,
+      reason: 'zona_sin_vendedor',
+    };
+  }
 
-  // 4. UID + email del VDE.
-  const match = vdiPartnerUsers.find((u) => String((u && u.vendorKey) || '').trim() === vendorKey);
+  // 4. UID + email: lookup en la unión de users.
+  const match = usersUnion.find((u) => String((u && u.vendorKey) || '').trim() === vendorKey);
   const vendorUid = match ? String(match.uid || '') : '';
   const vendorEmail = match ? String(match.email || '') : '';
 
@@ -110,35 +172,34 @@ export function resolveClientVendorFromMaster(args) {
     vendorUid,
     vendorEmail,
     resolved: true,
+    reason: vendorUid ? 'ok' : 'vendor_sin_uid',
   };
 }
 
 /**
  * Enriquece un payload de pedido / waitlist con los campos del vendedor del
  * cliente. Idempotente: si ya tiene `assignedVendorUid` set (unificación),
- * NO lo pisa; solo rellena si falta. Para unificación el target conserva su
- * vendor original.
+ * NO lo pisa; solo rellena si falta.
  *
- * Campos agregados / normalizados en el payload:
- *   - `vendorAssigned`: vendorKey del VDE del cliente master (o '').
- *   - `assignedVendorUid`: UID del VDE del master (o '').
- *   - `assignedVendorEmail`: email del VDE (o '').
- *   - `ownerVendor`: alineado con `vendorAssigned` (reemplaza el valor viejo
- *      que leía `assignedVendor` del user logueado).
- *   - `cargadoPorUid`: alias de `ownerUid` (para claridad; `ownerUid` sigue
- *      siendo quien cargó por restricción de rules revision_waitlist).
- *   - `cargadoPorEmail`: alias de `ownerEmail`.
+ * Agrega el `reason` como `assignedVendorReason` para que la UI pueda
+ * mostrarlo como mensaje contextual ("sin vendedor: cliente sin zona").
  *
- * @param {any} payload - Payload mutable con shape dinámico (pedido o waitlist).
+ * @param {any} payload
  * @param {ClientVendorResolution} resolution
  * @param {{ cargadoPorUid?: string, cargadoPorEmail?: string }} [cargadoPor]
- * @returns {any} el mismo payload (mutado).
+ * @returns {any}
  */
 export function enrichPayloadWithClientVendor(payload, resolution, cargadoPor) {
   if (!payload || typeof payload !== 'object') return payload;
-  const res = resolution || { vendorKey: '', vendorUid: '', vendorEmail: '', resolved: false };
-  // Si target ya tiene assignedVendorUid NO vacío (unificación con un target
-  // existente que ya se resolvió una vez), preservar.
+  const res =
+    resolution ||
+    /** @type {ClientVendorResolution} */ ({
+      vendorKey: '',
+      vendorUid: '',
+      vendorEmail: '',
+      resolved: false,
+      reason: 'input_vacio',
+    });
   const alreadyAssigned =
     payload.assignedVendorUid && String(payload.assignedVendorUid).trim() !== '';
   if (!alreadyAssigned) {
@@ -146,8 +207,8 @@ export function enrichPayloadWithClientVendor(payload, resolution, cargadoPor) {
     payload.assignedVendorUid = res.vendorUid || '';
     payload.assignedVendorEmail = res.vendorEmail || '';
     payload.ownerVendor = res.vendorKey || '';
+    payload.assignedVendorReason = res.reason || '';
   }
-  // cargadoPor siempre set (idempotente: si ya viene, respetar; si no, inyectar).
   if (cargadoPor && typeof cargadoPor === 'object') {
     if (cargadoPor.cargadoPorUid && !payload.cargadoPorUid) {
       payload.cargadoPorUid = String(cargadoPor.cargadoPorUid);
@@ -156,7 +217,6 @@ export function enrichPayloadWithClientVendor(payload, resolution, cargadoPor) {
       payload.cargadoPorEmail = String(cargadoPor.cargadoPorEmail);
     }
   }
-  // Backfill desde ownerUid/ownerEmail si cargadoPor no provisto.
   if (!payload.cargadoPorUid && payload.ownerUid) {
     payload.cargadoPorUid = String(payload.ownerUid);
   }
@@ -164,4 +224,28 @@ export function enrichPayloadWithClientVendor(payload, resolution, cargadoPor) {
     payload.cargadoPorEmail = String(payload.ownerEmail);
   }
   return payload;
+}
+
+/**
+ * Human-readable del motivo "sin vendedor" para la UI.
+ *
+ * @param {string} reason
+ * @returns {string}
+ */
+export function formatAssignedVendorReason(reason) {
+  switch (reason) {
+    case 'ok':
+      return '';
+    case 'cliente_no_en_master':
+    case 'cliente_sin_zona':
+      return 'cliente sin zona';
+    case 'zona_sin_vendedor':
+      return 'zona sin vendedor';
+    case 'vendor_sin_uid':
+      return 'vendedor sin usuario';
+    case 'input_vacio':
+      return 'sin cliente';
+    default:
+      return reason ? String(reason) : '';
+  }
 }

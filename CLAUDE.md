@@ -1518,3 +1518,59 @@ El rojo de `.merge-duplicate-original` (SKU duplicado, fila original) y el rosad
 - 2 tests "fila reservada × celda destacada NO queda con bg azul" + "NO queda con fg blanco forzado".
 
 **Precedente**: `fix-waitlist-remove-blue-rows` 2026-10-22 (v1407). Reporte Mariano: el azul es demasiado invasivo; preferir señalización textual (badge + tooltip) sobre bloque de color. Órdenes 491 La Lomita y 486 Esteban como smoke test manual.
+
+## 46. Vendedor del cliente via `roles.where(role='vendedor')` + cardCode normalizado (2026-10-22, v1408)
+
+**Regla fuerte**: la resolución del vendedor de un pedido/waitlist usa la MISMA cadena que el resto de la app:
+1. `cardCode` normalizado (`trim + uppercase`) → POINT en `POINTS`.
+2. `getEffectiveVendorForClient(point, name)` aplica overrides `vendor_overrides` por `SHOP > LOC > PROV > point.vendor`.
+3. `vendorKey` canónico (`"MAURICIO GIL"`, `"FEDERICO CASTELANELLI"`, etc.) → UID via unión de users (VDE + VDI + admin + gerente).
+
+**Bug precedente** (v1406 §44): el helper buscaba el UID solo en `vdiPartnerUsers` que contiene únicamente `role='interno'`. Los 4 VDEs reales (Mauricio Gil, Pachi, Gonzalo, Federico) tienen `role='vendedor'` → nunca matcheaban → `assignedVendorUid=''` para todos sus pedidos → filtro Planner VDE ciego. Reportado por Mariano con COLLI RAMON ROBERTO (C20116066670, Z5=Mauricio) orden 384 y S.A. ANGEL BARALDO CIA. orden 476 "sin vendedor" en el Planner.
+
+**Diagnóstico archivo:línea**:
+- UI del Planner lee `pedido.vendorAssigned || pedido.ownerVendor` en `index.html:34152` (`renderPlannerCard`).
+- Loader `loadVdiPartnerUsers` en `index.html:32040` cargaba solo `role in {interno, admin, gerente}`.
+- Dropdown "Reasignar Zonas" (`index.html:32144-32186`): el `<option value>` guarda el `v.key` canónico ("MAURICIO GIL"), el label concatena `v.zone + ' - ' + titleCase(v.key)` → `"Z5 - Mauricio"`. **El valor almacenado NO es "Z5 - Mauricio"; es "MAURICIO GIL"**.
+- `VDE_VENDOR_KEYS` = `{'MAURICIO GIL', 'PACHI', 'GONZALO DE LA ROSA', 'FEDERICO CASTELANELLI'}` (línea 31890).
+
+**Fix v1408**:
+
+- **`src/pure/resolve-client-vendor.js`**:
+  - Normaliza cardCode con `trim + uppercase` en ambos lados (input + `sapGetClienteCode(name)`).
+  - Acepta parámetro `users` (unión) + legacy `vdiPartnerUsers` (compat); los mergea con dedup por UID.
+  - Devuelve `reason` discriminado: `ok | cliente_no_en_master | zona_sin_vendedor | vendor_sin_uid | input_vacio`.
+  - `__DISTRIBUTOR__` queda como `zona_sin_vendedor` (es venta indirecta via distribuidor; no hay VDE).
+  - Nuevo export `formatAssignedVendorReason(reason)` → texto UI ("cliente sin zona", "zona sin vendedor", etc.).
+
+- **`index.html`**:
+  - `loadVdiPartnerUsers` extendida: carga también `role='vendedor'` en `vdeUsers` (nuevo cache).
+  - `ensureVdeUsersLoaded()` nuevo: llamado al login desde `attachFirebaseListeners` para cargar VDEs eager (sin esperar al modal Zonas).
+  - `window._resolveClientVendorFromMaster` pasa la unión `vdeUsers.concat(vdiPartnerUsers).concat(otherUsers)`.
+  - Payload `enrichPayloadWithClientVendor` setea `assignedVendorReason` para diagnóstico.
+  - `renderPlannerCard`:
+    - Si `vendorAssigned` vacío: muestra `"sin vendedor: <motivo>"` en rojo (motivo via `formatAssignedVendorReason(pedido.assignedVendorReason)`).
+    - **Elimina línea "Cargado por: email"** (pedido Mariano explícito 2026-10-22). "Cargado por" queda disponible solo en el modal de detalle.
+
+- **`scripts/audit/Q_vendedor_desalineado.cjs`** reescrito para usar la cadena real:
+  - OCRD base + `vendor_overrides` (SHOP > LOC > PROV).
+  - `roles` collection con precedencia `vendedor > interno > gerente > admin`.
+  - Output: stats `antes/después` + listado con `reason` por pedido. `--apply` solo backfillea `reason ∈ {ok, vendor_sin_uid}` (los demás requieren asignar zona manualmente o cargar user).
+
+**UI motivos**:
+| Reason | Texto UI | Causa |
+|---|---|---|
+| `ok` | "" (no se muestra) | vendorKey + UID resueltos |
+| `vendor_sin_uid` | "vendedor sin usuario" | vendorKey OK, falta user en `roles` |
+| `zona_sin_vendedor` | "zona sin vendedor" | POINT existe pero vendor vacío o `__DISTRIBUTOR__` |
+| `cliente_no_en_master` | "cliente sin zona" | cardCode/clientName no en POINTS |
+| `vacio` | "sin cliente" | no cardCode ni clientName |
+
+**Tests** (37 nuevos/actualizados):
+- `tests/unit/resolve-client-vendor.test.js` (14): reasons, normalización, lookup unión, compat `vdiPartnerUsers`.
+- `tests/unit/audit/vendedor-via-zona.test.js` (13): COLLI → MAURICIO GIL con UID; BARALDO → "zona sin vendedor"; Federico/Pontoriero; cardCode normalizado (4 variantes); card Planner NO renderiza "Cargado por" (grep del render); payload incluye `assignedVendorReason`.
+- `tests/unit/audit/vendedor-del-cliente-master.test.js` (10, legacy compat): usa `vdiPartnerUsers`, pasa igual (mergeado).
+
+**Suite completa post-v1408**: 1912 PASS, 0 FAIL.
+
+**Precedente**: `fix-vendedor-via-zona` 2026-10-22 (v1408). Reporte Mariano con COLLI orden 384 y BARALDO orden 476. El bug raíz era que los 4 VDEs reales nunca estaban en el cache de users del helper.

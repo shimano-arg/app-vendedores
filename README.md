@@ -4717,6 +4717,38 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1408 (2026-10-22) — Resolución del vendedor via `roles.vendor` + cardCode normalizado (§46, extiende §44)
+
+Rama `fix-vendedor-via-zona` → `main`.
+
+**Reporte Mariano**: COLLI RAMON ROBERTO (C20116066670, Z5=Mauricio) orden 384 y S.A. ANGEL BARALDO CIA. orden 476 "sin vendedor" en el Planner post-v1406.
+
+**Diagnóstico archivo:línea**:
+- UI card lee `pedido.vendorAssigned || pedido.ownerVendor` en `index.html:34152`.
+- Loader `loadVdiPartnerUsers` en `index.html:32040` carga `role='interno'` + `admin` + `gerente` pero **NO `role='vendedor'`**.
+- Los VDEs reales ("MAURICIO GIL", "PACHI", "GONZALO DE LA ROSA", "FEDERICO CASTELANELLI" — línea 31890) nunca matcheaban en el `vdiPartnerUsers.find(u => u.vendorKey === vendorKey)` del helper → `assignedVendorUid=""` → filtro Planner VDE ciego.
+- Zona guardada canónicamente como vendorKey ("MAURICIO GIL"), **NO** como "Z5 - Mauricio" (ese es solo label de display del dropdown).
+- BARALDO: zona = `__DISTRIBUTOR__` (venta indirecta) → correctamente "zona_sin_vendedor".
+
+**Fix**:
+- `src/pure/resolve-client-vendor.js`: normalización cardCode (`trim + uppercase`), parámetro `users` unificado, nuevos `reason` discriminados (`ok | cliente_no_en_master | zona_sin_vendedor | vendor_sin_uid | input_vacio`), nuevo export `formatAssignedVendorReason()`.
+- `index.html`: cache `vdeUsers` nuevo + `ensureVdeUsersLoaded()` llamado desde `attachFirebaseListeners`. Wrapper DOM pasa unión `[vdeUsers, vdiPartnerUsers, otherUsers]`.
+- `renderPlannerCard`:
+  - Muestra `"sin vendedor: <motivo>"` en rojo con motivo claro.
+  - **Elimina línea "Cargado por: email"** (pedido Mariano). Queda solo en el modal detalle.
+- `scripts/audit/Q_vendedor_desalineado.cjs` reescrito: usa OCRD + `vendor_overrides` + `roles` precedencia vendedor > interno > gerente > admin.
+
+**Tests** (37 total):
+- `tests/unit/resolve-client-vendor.test.js` (14): reasons, normalización, lookup, compat legacy.
+- `tests/unit/audit/vendedor-via-zona.test.js` (13): COLLI → MAURICIO; BARALDO → "zona sin vendedor"; Federico/Pontoriero; cardCode normalizado (4 variantes); card Planner NO renderiza "Cargado por"; payload reason.
+- `tests/unit/audit/vendedor-del-cliente-master.test.js` (10): compat v1406 pasa igual (mergeo).
+
+**Suite completa post-v1408**: 1912 PASS, 0 FAIL.
+
+APP_VERSION v1407 → v1408. CACHE_VERSION v1407 → v1408.
+
+**Backfill prod**: `node scripts/audit/Q_vendedor_desalineado.cjs` dry-run pendiente; `--apply` esperando OK Mariano.
+
 ### v1407 (2026-10-22) — Filas reservadas sin fondo azul (§45, reverso de §43)
 
 Rama `fix-waitlist-remove-blue-rows` → `main`.
