@@ -1,4 +1,4 @@
-# M — Barrido global pedidos con key/clientName vacíos @ 2026-10-22T19:47:39.281Z
+# M — Barrido global pedidos con key/clientName vacíos @ 2026-10-22T20:22:04.168Z
 
 Pedidos de **cualquier origen** con `key` vacía/malformada o `clientName` vacío.
 
