@@ -4717,6 +4717,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1410 (2026-10-22) — Scroll vertical interno en modales con lista larga (§48)
+
+Rama `fix-modal-scroll-vertical` → `main`.
+
+**Reporte Mariano**: lista de clientes CPST en 1366×768 con muchos clientes quedaba fuera de pantalla; usuario tenía que zoom-out para ver los últimos. Mismo riesgo potencial en Stock Asignado / Backorder / Reparto / Pedido en espera / Generar Backorder.
+
+**Causa**: `.modal-overlay` global tiene `padding: 20px` (index.html:2824). Los modales usaban `height: 92vh` fijo → modal + 40px padding podía exceder el viewport con DPI 125% o Chrome con chrome extra.
+
+**Fix** (bloque CSS v1410 §48 en `index.html:2837-2868`):
+- Regla sobre los 7 modales de lista larga: `height: calc(100dvh - 40px) !important; max-height: calc(100dvh - 40px) !important`.
+- Regla sobre los 5 list containers (`cpst-clientes-list`, `cpst-preview-list`, `backorders-list`, `reparto-list`, `gb-lines-list`): `flex: 1 1 0 !important; min-height: 0 !important; overflow-y: auto !important`.
+- `100dvh` (dynamic viewport) es robusto en móvil cuando la barra URL colapsa; en desktop es igual a `vh`.
+
+**Tests** (`tests/unit/audit/modal-scroll-vertical.test.js`, 26):
+- Regla CSS presente con los 7 selectores.
+- Descuenta exactamente 40px (= 2× padding del overlay).
+- Usa `100dvh` + `!important`.
+- Las 5 listas tienen flex column + overflow-y auto.
+- Simulación 1366×768 con 30 clientes de 55px: lista supera espacio → scroll funciona.
+- Simulación con 40 SKUs de 48px en paso 2 CPST: idem.
+
+**Suite completa post-v1410**: 1948 PASS, 0 FAIL.
+
+APP_VERSION v1409 → v1410. CACHE_VERSION v1409 → v1410.
+
+**Smoke manual**: Mariano abre CPST en 1366×768 con muchos clientes → la lista scrollea internamente, los últimos quedan visibles sin zoom. Botones Cancelar/Confirmar del paso 2 siempre visibles abajo.
+
 ### v1409 (2026-10-22) — Paridad CPST vs modal Stock Asignado (§47)
 
 Rama `fix-cpst-paridad-stock-asignado` → `main`.

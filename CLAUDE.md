@@ -1618,3 +1618,64 @@ for (const p of pedidos) {
 - Grep de `index.html` confirma presencia de `asigFromReparto`, `_hasRepartoAsig`, `lineReservesStock` en `_cpstBuildCache`.
 
 **Precedente**: `fix-cpst-paridad-stock-asignado` 2026-10-22 (v1409). Reporte Mariano: BROBRO SA, SKUs 21100100100E / 21100100150W / 21100100300W (2u c/u, estado "EN DEPÓSITO"), total 51 SKUs/99 u. Verificar post-deploy: BROBRO aparece en CPST en el filtro de su VDE (`MAURICIO GIL` según master zona).
+
+## 48. Modales con lista larga respetan el viewport (scroll interno, nunca fuera) (2026-10-22, v1410)
+
+**Regla fuerte**: todo modal `#X-modal` con lista de altura variable (clientes, SKUs, pedidos, etc.) debe:
+1. Tener `.modal-box` con `max-height: calc(100dvh - 40px)` + `height: calc(100dvh - 40px)` (respeta el `padding:20px` del `.modal-overlay` global).
+2. `.modal-box` con `display: flex; flex-direction: column; overflow: hidden`.
+3. Header / buscador / filtros con `flex-shrink: 0` (fijos arriba).
+4. El contenedor de la lista con `flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain`.
+5. Botones de confirmar/cancelar con `flex-shrink: 0` (fijos abajo).
+
+**Bug precedente**: varios modales usaban `height: 92vh` o `max-height: 92vh` fijo. El `.modal-overlay` tiene `padding: 20px` (index.html:2824) → `height + 40px padding` podía exceder viewport con DPI 125% / Chrome con bookmarks / barra URL mobile. Reporte Mariano 2026-10-22: lista CPST con 30+ clientes quedaba fuera; usuario tenía que zoom-out.
+
+**Fix v1410** (bloque CSS global en `index.html:2837-2868` después del `.modal-box` default):
+
+```css
+#crear-pedido-st-modal .modal-box,
+#reparto-modal .modal-box,
+#generar-backorder-modal .modal-box,
+#backorders-modal .modal-box,
+#waitlist-card-modal .modal-box,
+#backorders-graficos-modal .modal-box,
+#estado-modal .modal-box {
+  height: calc(100dvh - 40px) !important;
+  max-height: calc(100dvh - 40px) !important;
+}
+#cpst-clientes-list,
+#cpst-preview-list,
+#backorders-list,
+#reparto-list,
+#gb-lines-list {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+```
+
+- `calc(100dvh - 40px)` descuenta el padding 2× (top + bottom) del overlay.
+- `100dvh` (dynamic viewport) en lugar de `100vh` es más robusto en móvil (ajusta cuando la barra URL colapsa).
+- `!important` necesario para pisar los `height:92vh` inline en varios modales.
+- La segunda regla con `!important` sobre los 5 list containers garantiza el patrón flex column aunque algún edit inline futuro lo rompa accidentalmente.
+
+**Si en el futuro se agrega un modal con lista larga**:
+1. Agregar su `#id .modal-box` a la primera regla CSS (línea 2847).
+2. Si tiene lista scrollable interna, agregar su `#list-id` a la segunda regla.
+3. En el HTML inline: header con `flex-shrink: 0`, lista con `flex: 1 1 0; min-height: 0`, footer con `flex-shrink: 0`.
+4. Agregar el modal a `MODALES_LISTA_LARGA` en `tests/unit/audit/modal-scroll-vertical.test.js` para prevenir regresión.
+
+**Tests** (`tests/unit/audit/modal-scroll-vertical.test.js`, 26):
+- Regla CSS v1410 §48 presente con los 7 selectores.
+- Cada uno de los 7 modales presente en el bloque.
+- Usa `100dvh` (no `100vh`).
+- Descuenta exactamente 40px (= 2× el padding del overlay).
+- Usa `!important` (necesario para pisar inline).
+- Las 5 listas scrollables tienen `flex: 1 1 0 + min-height: 0 + overflow-y: auto`.
+- Simulación 1366×768 con 30 clientes de 55px → lista supera el espacio disponible → scroll funciona.
+- Simulación 1366×768 con 40 SKUs de 48px (paso 2 CPST) → scroll funciona.
+
+**Suite completa post-v1410**: 1948 PASS, 0 FAIL.
+
+**Precedente**: `fix-modal-scroll-vertical` 2026-10-22 (v1410). Reporte Mariano con la lista CPST que crecía fuera de pantalla en 1366×768.
