@@ -1609,6 +1609,56 @@ El rojo de `.merge-duplicate-original` (SKU duplicado, fila original) y el rosad
 
 **Precedente**: `fix-waitlist-remove-blue-rows` 2026-10-22 (v1407). Reporte Mariano: el azul es demasiado invasivo; preferir señalización textual (badge + tooltip) sobre bloque de color. Órdenes 491 La Lomita y 486 Esteban como smoke test manual.
 
+## 45.1. Todas las filas del modal "Pedido en Espera" con fondo blanco (2026-10-22, v1417)
+
+**Extiende §45**. Mariano amplió el pedido original: ninguna fila `#wcard-rows tr.X` debe tener fondo de color. El estado se señala exclusivamente con **celdas** que tienen fondo propio + **badges inline** en la celda SKU.
+
+**CSS eliminado** (`index.html`):
+
+- `#wcard-rows tr.exceed td { background:#fef2f2 }` — rosado pastel por back order.
+- `#wcard-rows tr.warn-quiebra td { background:var(--color-warning-bg) }` — amarillo pastel por quiebre ≥80%.
+- `#wcard-rows tr.warn-duplicado td { background:#fecaca }` — rojo pastel por SKU ya pedido en SAP.
+- `#wcard-rows tr.repeat-sku td { background:#fff7ed }` — naranja/rosado por SKU ya en otro pedido.
+- `#wcard-rows tr.repeat-sku.exceed td, tr.repeat-sku.warn-duplicado td { background:#fef2f2 }`.
+- `#wcard-rows tr.merge-imported td { background:#d97706 !important }` — naranja por línea importada.
+- `#wcard-rows tr.merge-duplicate-imported td { background:#d97706 !important }`.
+- `#wcard-rows tr.merge-duplicate-original td { background:#991b1b !important }` — rojo por SKU duplicado tras unificación.
+- `#wcard-rows tr.no-data td { background:var(--bg-secondary) }` — gris por SKU sin snapshot.
+- Reglas hover+column override por clase warning (v1377/v1379) — removidas porque ya no hay fondo warning que contrastar.
+- Reglas `tr.X td.disp-sap-col/pedido-final-col` que pisaban las celdas destacadas cuando la fila era warning (v1125). La columna verde/celeste vuelve a su color base siempre.
+
+**CSS preservado**:
+- `#wcard-rows tr td.exc-cell { background:var(--color-danger) !important; color:#fff !important }` — celda roja Backorder Unidades cuando > 0.
+- `#wcard-rows tr td.disp-sap-col { background:var(--color-success-bg) !important }` — celda verde "Libre para la venta".
+- `#wcard-rows tr td.pedido-final-col { background:#dbeafe }` — celda celeste "Pedido Final".
+- `tdReserv.style.background = '#e0e7ff'` inline — celda celeste "Reservadas" cuando `_desgTotal > 0` (línea ~24808 `_renderWaitlistCard`).
+
+**Las clases JS siguen aplicándose** (`r.classList.add('repeat-sku' | 'merge-imported' | ...)`) por si otro consumidor (debug, logs, filtros, Playwright) las necesita identificar. No tienen efecto visual.
+
+**Badges inline nuevos** en la celda SKU (`.mono`):
+
+- `.badge-reservado` (ya existía §43): fondo `#dbeafe` + color `#1e40af`, texto "🔒 RESERVADO". Para líneas con `origen='stock-asignado'`.
+- `.badge-de-orden` (nuevo): fondo `#fef3c7` + color `#92400e`, texto "DE ORDEN N". Para líneas con `importedFromOrder` numérico (unificación §42, §42.2, §42 Unificar orden v1382).
+- `.badge-duplicado` (nuevo): fondo `#fee2e2` + color `#991b1b`, texto "DUPLICADO" o "PEDIDO ANTERIOR". Para:
+  - SKU duplicado en el pedido (`_wcardDupSet` from `computeDuplicateCodes` incluye el code 2+ veces).
+  - `r.warnDuplicado` (SKU ya pedido en SAP Asignado con stock).
+  - `yaEnOtroFiltrado.length > 0` (texto cambia a "PEDIDO ANTERIOR" por semántica — el cliente ya tiene el SKU reservado en pedido abierto previo).
+
+**Dónde renderear los badges**: bloque `{...}` en `index.html:_renderWaitlistCard` ~línea 24664 (post-tooltip ASIG). El `tr.firstChild` queda con el `_tdSku` que acumula los 3 badges condicionalmente.
+
+**Legacy removido**: badge `⚠' amber de v713.1 para `repeat-sku` reemplazado por el nuevo `.badge-duplicado` con texto "PEDIDO ANTERIOR" (más explícito).
+
+**Tests** (`tests/unit/audit/waitlist-row-contrast.test.js`, 29 total):
+- `v1417 §45.1 — ningún fondo de fila` (10): assert NO existen reglas `tr.X td { background }` para las 10 clases removidas; verifica que las 3 celdas destacadas (disp-sap-col, pedido-final-col, exc-cell) siguen con su regla.
+- `v1417 §45.1 — badges inline` (4): CSS .badge-reservado + .badge-de-orden + .badge-duplicado + grep del render SKU con los 3 badges.
+- Tests legacy §43 (WCAG), §45 (sin fondo azul) y tooltips (`\n` real) actualizados: removidas las 2 aserciones "sigue activo rojo/naranja" porque ya no hay fondo.
+
+**Suite completa post-v1417**: 2038 PASS (14 nuevos sobre v1416 §42.2).
+
+**Verificación prod**: abrir la ORDEN 524 de PONTORIERO (`C20175569635`) en Lista de Espera → todas las filas con fondo blanco; las 31 líneas unificadas muestran "DE ORDEN 524" al lado del SKU; las de origen CPST tienen "🔒 RESERVADO"; las que están duplicadas por unificación muestran "DUPLICADO".
+
+**Precedente**: `feat-filas-blancas-wcard` 2026-10-22 (v1417). Reporte Mariano: "Modal 'Pedido en espera': quitar los fondos de fila rosado claro y amarillo claro. Todas las filas con fondo blanco, sin excepción."
+
 ## 46. Vendedor del cliente via `roles.where(role='vendedor')` + cardCode normalizado (2026-10-22, v1408)
 
 **Regla fuerte**: la resolución del vendedor de un pedido/waitlist usa la MISMA cadena que el resto de la app:

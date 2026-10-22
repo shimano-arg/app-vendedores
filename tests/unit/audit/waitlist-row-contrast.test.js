@@ -285,18 +285,11 @@ describe('v1407 §45 — filas reservadas quedan SIN fondo azul (reverso de §43
     expect(String(color.value).toLowerCase()).toBe(BLUE);
   });
 
-  it('rojo .merge-duplicate-original sigue activo (NO lo tocamos)', () => {
-    const bg = computeEffective('background', ['merge-duplicate-original'], [], null);
-    expect(bg).toBe(RED);
-    const fg = computeEffective('color', ['merge-duplicate-original'], [], null);
-    const norm = (fg || '').toLowerCase().replace(/^#/, '').trim();
-    expect(['fff', 'ffffff']).toContain(norm);
-  });
-
-  it('naranja/rosado .repeat-sku sigue activo (NO lo tocamos)', () => {
-    const bg = computeEffective('background', ['repeat-sku'], [], null);
-    expect(String(bg).toLowerCase()).toBe('#fff7ed');
-  });
+  // v1417 §45.1 (2026-10-22): Mariano amplió §45 — ningún fondo de fila. Los
+  // dos tests que preservaban rojo .merge-duplicate-original y naranja
+  // .repeat-sku se removieron. Ahora están cubiertos por el describe nuevo
+  // 'v1417 §45.1 — ningún fondo de fila en #wcard-rows' que verifica la
+  // ausencia de todas las reglas tr.X td { background }.
 
   it('fila merge-reservado-imported sin otra clase → bg cae al default (no azul)', () => {
     for (const rowBase of ROW_RESERVADAS) {
@@ -324,6 +317,103 @@ describe('v1407 §45 — filas reservadas quedan SIN fondo azul (reverso de §43
         }
       }
     }
+  });
+});
+
+describe('v1417 §45.1 — ningún fondo de fila en #wcard-rows (todas blancas)', () => {
+  const FORBIDDEN_ROW_SELECTORS = [
+    'exceed',
+    'warn-quiebra',
+    'warn-duplicado',
+    'repeat-sku',
+    'merge-imported',
+    'merge-duplicate-imported',
+    'merge-duplicate-original',
+    'merge-reservado-imported',
+    'merge-duplicate-reservado',
+    'no-data',
+  ];
+
+  for (const rowClass of FORBIDDEN_ROW_SELECTORS) {
+    it(`NO existe regla \`#wcard-rows tr.${rowClass} td { background: ... }\``, () => {
+      const forbidden = ALL_RULES.filter((r) => {
+        if (!r.selector.includes('#wcard-rows')) return false;
+        // Match exacto: `#wcard-rows tr.rowClass td` o combos con esa clase y otras.
+        // Pero DEBE ser una regla que termina en `td` (no `td.disp-sap-col` etc.)
+        // porque esas son celdas destacadas que preservamos.
+        const re = new RegExp(
+          `#wcard-rows\\s+tr\\.(?:[\\w-]+\\.)*${rowClass}(?:\\.[\\w-]+)*\\s+td\\b(?!\\.)`
+        );
+        if (!re.test(r.selector)) return false;
+        const bg = readProp(r.body, 'background');
+        return !!bg;
+      });
+      const list = forbidden.map(
+        (r) => '  ' + r.selector + ' { ' + r.body.replace(/\s+/g, ' ').slice(0, 80) + ' }'
+      );
+      expect(forbidden, 'Reglas de fondo de fila todavía activas:\n' + list.join('\n')).toEqual([]);
+    });
+  }
+
+  it('celda td.disp-sap-col mantiene fondo verde (--color-success-bg) — PRESERVAR', () => {
+    const rule = ALL_RULES.find((r) => r.selector === '#wcard-rows tr td.disp-sap-col');
+    expect(rule, 'regla disp-sap-col desapareció').toBeTruthy();
+    const bg = readProp(rule.body, 'background');
+    expect(bg.value).toContain('--color-success-bg');
+    expect(bg.important).toBe(true);
+  });
+
+  it('celda td.pedido-final-col mantiene fondo celeste #dbeafe — PRESERVAR', () => {
+    const rule = ALL_RULES.find((r) => r.selector === '#wcard-rows tr td.pedido-final-col');
+    expect(rule, 'regla pedido-final-col desapareció').toBeTruthy();
+    expect(readProp(rule.body, 'background').value.toLowerCase()).toBe('#dbeafe');
+  });
+
+  it('celda td.exc-cell mantiene fondo rojo + color blanco con !important — PRESERVAR', () => {
+    const rule = ALL_RULES.find((r) => r.selector === '#wcard-rows tr td.exc-cell');
+    expect(rule, 'regla exc-cell desapareció').toBeTruthy();
+    const bg = readProp(rule.body, 'background');
+    expect(bg.important).toBe(true);
+    expect(String(bg.value).toLowerCase()).toContain('--color-danger');
+    const color = readProp(rule.body, 'color');
+    expect(String(color.value).toLowerCase()).toContain('fff');
+  });
+});
+
+describe('v1417 §45.1 — badges inline en celda SKU', () => {
+  it('.badge-reservado chip azul claro #dbeafe (CSS existente §43)', () => {
+    const rule = ALL_RULES.find((r) => r.selector === '.badge-reservado');
+    expect(rule).toBeTruthy();
+    expect(String(readProp(rule.body, 'background').value).toLowerCase()).toContain('#dbeafe');
+    expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe(BLUE);
+  });
+
+  it('.badge-de-orden chip amber #fef3c7 + texto #92400e (nuevo §45.1)', () => {
+    const rule = ALL_RULES.find((r) => r.selector === '.badge-de-orden');
+    expect(rule, 'badge-de-orden no existe en CSS').toBeTruthy();
+    expect(String(readProp(rule.body, 'background').value).toLowerCase()).toContain('#fef3c7');
+    expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe('#92400e');
+  });
+
+  it('.badge-duplicado chip rojo claro #fee2e2 + texto #991b1b (nuevo §45.1)', () => {
+    const rule = ALL_RULES.find((r) => r.selector === '.badge-duplicado');
+    expect(rule, 'badge-duplicado no existe en CSS').toBeTruthy();
+    expect(String(readProp(rule.body, 'background').value).toLowerCase()).toContain('#fee2e2');
+    expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe('#991b1b');
+  });
+
+  it('index.html render del SKU incluye lógica para los 3 badges (reservado, de orden, duplicado)', () => {
+    // El bloque del SKU es un IIFE anónimo con los 3 badges inline.
+    const slice = INDEX_HTML.slice(
+      INDEX_HTML.indexOf('v1417 §45.1: celda SKU con badges inline'),
+      INDEX_HTML.indexOf('v817 (2026-09-07): si la desc es')
+    );
+    expect(slice.length).toBeGreaterThan(400);
+    expect(slice).toMatch(/badge-reservado/);
+    expect(slice).toMatch(/badge-de-orden/);
+    expect(slice).toMatch(/badge-duplicado/);
+    expect(slice).toMatch(/DE ORDEN/);
+    expect(slice).toMatch(/DUPLICADO/);
   });
 });
 
