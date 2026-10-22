@@ -2834,14 +2834,18 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    previo (sin regresion). */
 .modal-overlay{contain:content}
 .modal-box{background:var(--bg-elevated);border-radius:10px;width:min(900px,96vw);max-height:90vh;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,.35);display:flex;flex-direction:column;contain:layout style}
-/* v1410 §48 (2026-10-22): max-height robusta para modales con listas largas.
-   Antes varios usaban height:92vh / max-height:92vh fijo — en 1366x768 con
-   DPI 125% o Chrome con chrome extra, el modal sobrepasaba el viewport
-   porque .modal-overlay tiene padding:20px (línea 2824) → modal+padding
-   excedía 100vh. Fix: calc(100dvh - 40px) descuenta ese padding en ambos
-   lados. 100dvh = dynamic viewport (robusto mobile browser chrome).
-   Mariano report 2026-10-22: lista clientes CPST con 30+ clientes quedaba
-   fuera; usuario tenía que zoom-out. */
+/* v1411 §49 (2026-10-22): patrón EXPLÍCITO pedido Mariano para modales con
+   lista larga. v1410 §48 shippeó `height: calc(100dvh - 40px)` pero Mariano
+   siguió viendo overflow (user DOM o SW cache stale). Este fix reescribe:
+   1) Modal-box: height + max-height 90vh (fijo determinado) + flex column
+      + overflow hidden. `height` determinada es imprescindible — con solo
+      max-height, los `flex:1` interiores no reciben altura (el flex container
+      se auto-ajusta al min-content). 90vh < viewport por 10% + 2× padding
+      del overlay (40px) → nunca excede.
+   2) Encabezados y buscadores no crecen (flex-shrink:0 explícito).
+   3) La lista es el ÚNICO hijo con flex:1 + overflow-y:auto.
+   4) Vista preview SKUs CPST: botones Cancelar/Confirmar fijos abajo.
+   Reglas con !important para pisar inline styles existentes. */
 #crear-pedido-st-modal .modal-box,
 #reparto-modal .modal-box,
 #generar-backorder-modal .modal-box,
@@ -2849,13 +2853,47 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #waitlist-card-modal .modal-box,
 #backorders-graficos-modal .modal-box,
 #estado-modal .modal-box{
-  height: calc(100dvh - 40px) !important;
-  max-height: calc(100dvh - 40px) !important;
+  height: 90vh !important;
+  max-height: 90vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
 }
-/* Garantizar que el scrollable list interno respete flex. En CPST (6240),
-   Reparto (6849), Backorders (6155) y Generar Backorder (6294) ya está
-   configurado inline con flex:1 1 0; overflow-y:auto. Esta regla asegura
-   la invariante por si algún edit inline futuro la rompe. */
+/* Encabezados fijos (no crecen). */
+#crear-pedido-st-modal .modal-head,
+#reparto-modal .reparto-apple-head,
+#generar-backorder-modal .modal-head,
+#backorders-modal .modal-head,
+#waitlist-card-modal .modal-head,
+#backorders-graficos-modal .modal-head,
+#estado-modal .modal-head{
+  flex-shrink: 0 !important;
+}
+/* Buscadores + filtros + summaries + totales fijos arriba/abajo (no crecen). */
+#cpst-search,
+#cpst-summary,
+#cpst-preview-meta,
+#cpst-preview-total,
+#reparto-search,
+#reparto-summary,
+#backorders-toolbar,
+#backorders-summary,
+#gb-cliente,
+#gb-cliente-meta,
+#gb-total{
+  flex-shrink: 0 !important;
+}
+/* Step containers del CPST: flex column con flex:1. Los dos steps alternan
+   display:flex / display:none; cuando están visibles DEBEN usar flex column. */
+#cpst-step-clientes[style*="flex"],
+#cpst-step-preview[style*="flex"]{
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+/* La lista es el ÚNICO hijo con flex:1 + overflow-y:auto. */
 #cpst-clientes-list,
 #cpst-preview-list,
 #backorders-list,
@@ -2865,6 +2903,10 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   min-height: 0 !important;
   overflow-y: auto !important;
   overscroll-behavior: contain;
+}
+/* Botones Cancelar/Confirmar del paso 2 CPST fijos abajo. */
+#cpst-step-preview > div:last-child{
+  flex-shrink: 0 !important;
 }
 
 /* v1301 (2026-10-14) Apple-style para modal Reparto. Aplica apple-design skill:
@@ -6270,7 +6312,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             en revision_waitlist para que el VDE lo revise y envie a SAP.
          Simplifica la gestion de stock asignado para los vendedores. -->
     <div class="modal-overlay" id="crear-pedido-st-modal" onclick="if(event.target===this)closeCrearPedidoSTModal()">
-      <div class="modal-box" style="width:min(820px,98vw);height:92vh;max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-box" style="width:min(820px,98vw)">
         <div class="modal-head" style="background:linear-gradient(135deg,#1e3a8a,#1e40af)">
           <div>
             <h2 id="cpst-title">Crear Pedido Desde Stock Asignado</h2>
@@ -6278,15 +6320,12 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           </div>
           <button class="modal-close" onclick="closeCrearPedidoSTModal()">&times;</button>
         </div>
-        <!-- v1267 (2026-10-14): min-height:0 agregado a los flex columns.
-             v1271 (2026-10-14): height:92vh fija en vez de max-height:92vh.
-             El fix v1267 no alcanzaba porque `.modal-box` global tiene
-             `contain:layout style` (v882 PERF) + `overflow:hidden`, y con
-             `max-height` el parent flex se auto-ajustaba a su contenido
-             (no al cap de viewport). Al forzar height exacta, el flex:1
-             child tiene denominador firme → scroll funciona.
-             box-sizing explicito previene que el padding:14px se sume al
-             100% y provoque overflow invisible. -->
+        <!-- v1411 §49 (2026-10-22): patrón pedido Mariano. El modal-box tiene
+             height/max-height 90vh + display:flex column + overflow:hidden
+             forzados por CSS §49 (línea 2837). Encabezado y buscador no
+             crecen (flex-shrink:0). La lista de clientes es el único hijo
+             con flex:1 + overflow-y:auto. Vista preview SKUs: botones
+             Cancelar/Confirmar fijos abajo (flex-shrink:0). -->
         <div style="padding:14px;display:flex;flex-direction:column;gap:10px;flex:1 1 0;overflow:hidden;min-height:0;box-sizing:border-box">
           <!-- Paso 1: lista clientes (visible por default) -->
           <div id="cpst-step-clientes" style="display:flex;flex-direction:column;gap:10px;flex:1 1 0;overflow:hidden;min-height:0">
@@ -7035,7 +7074,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1410';
+const APP_VERSION = 'v1411';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
