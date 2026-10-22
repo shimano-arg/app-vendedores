@@ -1350,6 +1350,61 @@ Caso 597151 BENGOCHEA post-reconcile: `Stock asignado = 2` (no 6). Las 4 unidade
 
 **Precedente**: `feat-popup-5-lineas-reconcile-sobreasig` 2026-10-21 (v1403). Reporte Mariano: popup 597151 con "Stock asignado 2 no 6" + "la reconciliación revierte el excedente proactivamente, el cliente conserva lugar en cola".
 
+## 42.1. Chequeo §42 usa lectura FRESH de Firestore (no solo cache local) (2026-10-22, v1415)
+
+**Extiende §42**. Reporte prod 2026-10-22: PONTORIERO (C20175569635) tiene 2 órdenes abiertas de CPST: ORDEN 524 (12:53, 29 SKU) y ORDEN 526 (13:38, 2 SKU). El helper `_createOrUnifyWaitlistPayload` debía interceptar al crear la 526 pero no lo hizo.
+
+**Causa raíz**: el helper usaba `findOpenWaitlistsForClient(revisionWaitlist, cardCode)` con el **cache local** del listener onSnapshot. Si el cache del creador no tenía la 524 al momento del CPST (race del listener, user recién logueado, propagación cross-browser delayed), el check devolvía `[]` → create path → 2 órdenes.
+
+**Fix v1415 §42.1** (`index.html:17624+`):
+
+```js
+// Antes:
+const openList = (findOpen && cardCode)
+  ? findOpen(revisionWaitlist || [], cardCode)
+  : [];
+
+// Después:
+let openList = [];
+if (findOpen && cardCode) {
+  let freshDocs = [];
+  try {
+    const qs = await fbDb.collection('revision_waitlist')
+      .where('clientCardCode', '==', cardCode)
+      .get();
+    qs.forEach((d) => freshDocs.push({ _id: d.id, ...d.data() }));
+  } catch (_eFresh) {
+    console.warn('[§42.1] fresh query falló, usando cache local');
+    freshDocs = Array.isArray(revisionWaitlist) ? revisionWaitlist.slice() : [];
+  }
+  // Union con cache local dedup por _id (captura optimistic no-flushed).
+  const seen = new Set(freshDocs.map((d) => d._id).filter(Boolean));
+  for (const c of (revisionWaitlist || [])) {
+    if (c && c._id && !seen.has(c._id)) freshDocs.push(c);
+  }
+  openList = findOpen(freshDocs, cardCode);
+}
+```
+
+**Decisiones**:
+- Query indexada por `clientCardCode` + sin filtro de `closedAt` (el filter `findOpenWaitlistsForClient` del pure fn ya descarta `closedAt != null` y `stage === 'consumed'`).
+- Union fresh + cache local para no perder documentos optimistic recién creados en el mismo tab que aún no fluyeron a Firestore (ej. doble click rápido en el botón).
+- Fallback a cache local si la query fresh falla (permission-denied offline, timeout).
+
+**Script merge manual** `scripts/audit/R_merge_pontoriero_524_526.cjs`:
+- Dry-run por default + `--apply` para persistir.
+- Reusa patrón v1382 Unificar orden: target (524) conserva orderNumber + vendor + createdAt; items/pedidosOrigenes del 526 se agregan; unifiedFrom audit; 526 queda `stage='consumed'` + `closedReason='unified_into_v42'` + `unifiedInto`.
+
+**Test obligatorio** (`tests/unit/audit/cpst-unify-§42-fresh-check.test.js`, 10 tests):
+- Reproduce bug: cache vacío → `findOpen` devuelve `[]`.
+- Fix §42.1: union cache + fresh devuelve la 524 aunque cache esté vacío.
+- Union captura optimistic local + fresh (sin perder docs no flushed).
+- `_createOrUnifyWaitlistPayload` tiene la fresh query + fallback + union dedup.
+
+**Suite completa post-v1415**: PASS (número exacto depende del run; agrega 10 tests nuevos sobre v1414).
+
+**Precedente**: `fix-cpst-fresh-check-§42` 2026-10-22 (v1415). Script R dry-run pendiente de ejecución autorizada por Mariano.
+
 ## 42. Un cliente tiene como máximo UNA orden abierta en lista de espera (2026-10-22, v1404)
 
 **Regla fuerte**: `revision_waitlist` admite **a lo sumo UNA orden abierta** (`closedAt==null`, `stage!=consumed`) por cardCode. Aplica a los 3 caminos de carga: manual, Excel, Crear Pedido Desde Stock Asignado (CPST).
