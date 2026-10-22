@@ -1996,7 +1996,91 @@ va_a_sap(pedido) =
 
 **Precedente**: `hotfix-v1418-dup-lines` 2026-10-22 (v1418 §42.2.1 self-unify fix) + mismo PR o PR siguiente (v1419 §53 discount/va-a-SAP). Reporte Mariano: "DiscountPercent se envía en el payload del Service Layer? arreglalo + un solo monto va a SAP en modal + Planner + payload".
 
-## 52. (reservado — asignar en próximo cambio)
+## 52. Globals compartidos cross-flow requieren `.finally()` cleanup idempotente (2026-10-22, v1425)
+
+**Regla fuerte**: cualquier flujo `async` que setea globals compartidos (`window._pendingPedido*`, `window._<state>_lock`, etc.) y los limpia solo en el `.then()` happy path DEBE agregar `.finally()` que resetee los mismos globals **idempotente**. El error path (`.catch`) sin cleanup genera leak garantizado: el próximo flow hereda el estado anterior.
+
+**Patrón canónico**:
+
+```js
+const globalsToClean = ['_pendingPedidoOrderNumber', '_pendingPedidoWaitlistId', ...];
+
+fbDb.collection('pedidos').add(docData)
+  .then((ref) => {
+    // happy path mutates refs + resets globals (ya establecido)
+    window._pendingPedidoOrderNumber = null;
+    ...
+  })
+  .catch((e) => {
+    // error path user-friendly alert, NO toca globals
+    alert('Error: ' + e.message);
+  })
+  .finally(() => {
+    // §52 (v1425): reset defensivo idempotente. Happy path ya los limpió;
+    // en error path esta es la única garantía. Previene leak al próximo flow.
+    for (const key of globalsToClean) {
+      window[key] = null;
+    }
+  });
+```
+
+**Por qué**: `.finally()` corre en TODOS los paths (resolve + reject + throw). Es idempotente — repetir el reset no tiene side effect. **Nunca** incluir operaciones no-idempotentes en `.finally()` (como `pending[].push`).
+
+**Precedente**: audit grises G5.18 2026-10-22. `doConfirmPedido` (`index.html:36442`) tenía reset en `.then()` happy path pero no en `.catch()` error path. Si Firestore `.add()` fallaba por permission-denied / network, los 5 globals (`_pendingPedidoOrderNumber`, `_pendingPedidoWaitlistId`, `_pendingPedidoSource`, `_pendingPedidoOrigenes`, `_pendingBypassAsigGate`) quedaban vivos. Próximo pedido heredaba el `source='stock-asignado-batch'` + `pedidosOrigenes` del fallido → cancelaba ASIG ajenas de otro cliente.
+
+**Dónde aplicar**: cualquier flujo con estado global compartido entre flows no-concurrentes. En doubt, agregar `.finally()`.
+
+## 54. Property-based testing para invariantes de stock (2026-10-22, v1425)
+
+**Regla fuerte**: toda regla durable de stock R1-R10 (CLAUDE.md §33-§53) con componente aritmético (sumas, caps, ordering) DEBE tener un test property-based en `tests/unit/property/` que la verifique con **≥100 runs** de inputs aleatorios. Casos unit a mano cubren el fixture conocido; property-based descubre casos borde que no se anticipan.
+
+**Lib**: `fast-check@^4.10.2` (devDependency, instalado 2026-10-22 por audit grises).
+
+**Patrón canónico**:
+
+```js
+import * as fc from 'fast-check';
+import { describe, it } from 'vitest';
+import { getStockBreakdown } from '../../../src/pure/stock-breakdown.js';
+
+const pedidoArb = fc.record({
+  _fsId: fc.string({ minLength: 10, maxLength: 20 }),
+  closedAt: fc.constant(null),
+  clientCardCode: fc.constantFrom('C001', 'C002', 'C003'),
+  lines: fc.array(lineArb, { minLength: 0, maxLength: 10 }),
+});
+
+describe('Property-based R8 (§39): breakdown invariante suma', () => {
+  it('libre + reservadasTotal <= fisicoDep11', () => {
+    fc.assert(
+      fc.property(fisicoArb, fc.array(pedidoArb, { maxLength: 8 }), (fisico, pedidos) => {
+        const b = getStockBreakdown(sku, { getStockFisico: () => fisico, pedidos });
+        return b.libre + b.reservadasTotal <= fisico;
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+```
+
+**Qué cubrir**:
+- R1 §40: BO nunca reserva (`lineReservesStock('BO') === false` siempre).
+- R2 §40.5+§40.11: sobre-asignada auto-revertida.
+- R8 §39: cap suma = `min(nominal, fisico)`; nunca negativo.
+- R9: `qtyOpen ≤ qty` por construcción (detector G5a prod).
+- R10 §46: `utilizablePara(cardCode) ≤ fisico`.
+
+**Qué NO cubrir con property-based**:
+- Tests que requieran datos reales de prod (ej. cardCode específico, SKU específico).
+- Tests que mocken Firestore (performance degrada 100× por run).
+- Reglas sin componente aritmético (ej. formato de key canónica — mejor con fixture unit).
+
+**Fast-check gotchas**:
+- `fc.hexaString` deprecated en 4.x → usar `fc.string`.
+- `numRuns` default 100; para invariantes críticas subir a 300.
+- Si falla, `Counterexample` output da el input + `seed` + `path` para repro determinístico.
+
+**Precedente**: audit grises Fase C 2026-10-22. 10 property-based tests nuevos cubriendo R1 + R8 + R9 + R10. Encontró que mi assertion inicial "BO reserva dentro de 90d" estaba basada en §34 obsoleto (reemplazado por §40 v1392). Fast-check falló → corregí mi entendimiento + el test. Sin property-based hubiera documentado la regla con la asumpción errada.
 
 ## 51. Reporte "Infracciones MELI (MAP)" en el modal Reportes Excel (2026-10-22, v1413)
 
