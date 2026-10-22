@@ -5716,7 +5716,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           <div style="border-top:1px dashed var(--border-default);margin:14px -2px 10px;padding-top:10px;display:flex;justify-content:center">
             <button type="button" onclick="openFichaClienteFromClientModal()" title="Perfil comercial para segmentar: fidelidad, tama&ntilde;o, especializaci&oacute;n, etc."
               style="padding:9px 18px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,122,255,0.22);letter-spacing:-.005em;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',system-ui,sans-serif;transition:background-color .18s cubic-bezier(.32,.72,0,1),transform .18s cubic-bezier(.32,.72,0,1)">
-              Ficha Cliente (perfil para segmentar)
+              Ficha Cliente
             </button>
           </div>
           <div id="cm-geo-status" style="font-size:10px;color:var(--text-muted);margin-top:4px;min-height:14px"></div>
@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1422';
+const APP_VERSION = 'v1423';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10083,10 +10083,12 @@ function openSapAltaInfoModal(fsId){
         '<div style="border-top:1px dashed var(--border-default);margin:8px -2px 10px;padding-top:10px;display:flex;justify-content:center">' +
           '<button type="button" onclick="openFichaClienteFromSapModal(\'' + safeFsId + '\')" title="Perfil comercial para segmentar: fidelidad, tamano, especializacion, etc."' +
             ' style="padding:9px 18px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,122,255,0.22);letter-spacing:-.005em;font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif;transition:background-color .18s cubic-bezier(.32,.72,0,1),transform .18s cubic-bezier(.32,.72,0,1)">' +
-            'Ficha Cliente (perfil para segmentar)' +
+            'Ficha Cliente' +
           '</button>' +
         '</div>' +
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
+        // v1423 §57 (2026-10-22): fila centrada (antes flex-end). Mariano pidio
+        // los 3 botones centrados horizontalmente con mismo espaciado.
+        '<div class="sap-alta-footer-row" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">' +
           // v342+: boton Guardar visible a todos (antes admin/gerente only).
           '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' +
           '<button onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\');openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:var(--bg-elevated);color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Editar direccion</button>' +
