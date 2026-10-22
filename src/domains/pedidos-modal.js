@@ -412,7 +412,7 @@ window.openSinStockDetail = function () {
 //
 // IMPORTANTE: no bloqueamos por falta de stock. SKUs sin stock salen
 // en rojo pero pueden estar en el pedido - solo advertencia visual.
-window.validateReviewAndPasarAPendientes = function () {
+window.validateReviewAndPasarAPendientes = async function () {
   try {
     console.log('[pedido] validateReviewAndPasarAPendientes: start', {
       currentOrderKey: currentOrderKey,
@@ -456,70 +456,185 @@ window.validateReviewAndPasarAPendientes = function () {
             'La gate puede contar las ASIG propias del pedido como "del cliente" y bloquear la confirmacion.'
         );
       }
-      if (cliCardCode && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-        // v1370 (2026-10-19): calcular ASIG "cubiertas" por waitlist CPST abiertos.
-        // Reporte Mariano SNAKE S.R.L: 2 CPST en espera (ORDEN 441 + 459), al
-        // intentar pasar cualquiera a Pendientes el guard contaba las ASIG del
-        // OTRO CPST como "no resueltas" → mutuo bloqueo. Fix: una ASIG que ya
-        // esta vinculada a un waitlist CPST (source='stock-asignado-batch' con
-        // pedidosOrigenes[] apuntando a esa linea) YA esta en proceso de ser
-        // resuelta — no contar. Si el VDE confirma el CPST, v1280 cancela la
-        // ASIG original.
-        /** @type {Set<string>} key = pedidoId|lineIndex */
-        const asigCubiertasPorCpst = new Set();
-        const _revWl =
-          typeof window !== 'undefined' && Array.isArray(window.revisionWaitlist)
-            ? window.revisionWaitlist
-            : null;
-        if (_revWl) {
-          for (const w of _revWl) {
-            if (!w || w.source !== 'stock-asignado-batch') continue;
-            const origenes = Array.isArray(w.pedidosOrigenes) ? w.pedidosOrigenes : [];
-            for (const org of origenes) {
-              if (!org || !org.pedidoId) continue;
-              asigCubiertasPorCpst.add(String(org.pedidoId) + '|' + Number(org.lineIndex));
-            }
-          }
-        }
-        let asigCount = 0;
-        let asigPedidos = 0;
-        const _lrsFn =
-          window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock;
-        const _nowTs = Date.now();
-        globalPedidos.forEach((p) => {
-          if (!p || p.closedAt) return;
-          if (!Array.isArray(p.lines)) return;
-          if (p._fsId === currentPedidoId) return; // saltar el pedido actual
-          const pCardCode =
-            typeof sapGetClienteCode === 'function'
-              ? sapGetClienteCode(p.clientName || '') || ''
-              : '';
-          if (pCardCode !== cliCardCode) return;
-          // v1370: filtrar ASIG que ya estan cubiertas por un waitlist CPST abierto.
-          const asigLinesOfP = p.lines.filter((l, idx) => {
-            if (!l || l.state !== 'ASIG') return false;
-            if (_lrsFn && !_lrsFn(l, _nowTs, p)) return false;
-            const key = String(p._fsId) + '|' + idx;
-            if (asigCubiertasPorCpst.has(key)) return false; // cubierta por CPST
-            return true;
+      if (cliCardCode) {
+        // v1416 §42.2 (2026-10-22): reemplazo del guard viejo (v1370 "resolve each
+        // ASIG line first") por oferta de unificación. Si el cliente tiene alguna
+        // orden abierta en `revision_waitlist` (fresh query, no cache local),
+        // ofrecer unificarla con el pedido actual antes de confirmar. §42 (v1404)
+        // garantiza como máximo UNA orden abierta por cliente — pero datos previos
+        // o races pueden tener más de una (ver §42.1).
+        //
+        // Reporte Mariano 2026-10-22: PONTORIERO con ORDEN 524 (29 SKU) + ORDEN 526
+        // (2 SKU) ambas abiertas; al intentar confirmar cualquiera, el guard viejo
+        // bloqueaba sin salida (29 líneas ASIG en los pedidos origen).
+        const openList = [];
+        try {
+          const qs = await fbDb
+            .collection('revision_waitlist')
+            .where('clientCardCode', '==', cliCardCode)
+            .get();
+          qs.forEach((/** @type {any} */ d) => {
+            const data = d.data() || {};
+            if (data.closedAt) return;
+            if (data.stage === 'consumed') return;
+            openList.push(Object.assign({ _id: d.id }, data));
           });
-          if (asigLinesOfP.length > 0) {
-            asigPedidos++;
-            asigCount += asigLinesOfP.length;
+        } catch (_eFresh) {
+          console.warn('[§42.2 review guard] fresh query fallo, no bloquea:', _eFresh);
+          // Fallback a cache local — §42.1 pattern.
+          const _cache =
+            typeof window !== 'undefined' && Array.isArray(window.revisionWaitlist)
+              ? window.revisionWaitlist
+              : [];
+          for (const w of _cache) {
+            if (!w) continue;
+            if (w.closedAt) continue;
+            if (w.stage === 'consumed') continue;
+            const wcc = String(w.clientCardCode || '').trim();
+            if (wcc !== cliCardCode) continue;
+            openList.push(w);
           }
-        });
-        if (asigCount > 0) {
-          showReviewError(
-            'Este cliente tiene ' +
-              asigCount +
-              ' linea(s) con STOCK ASIGNADO sin resolver en ' +
-              asigPedidos +
-              ' pedido(s) anterior(es). ' +
-              'Abri "Pedido en espera" del cliente desde el mapa, aceptalas o rechazalas primero, ' +
-              'y despues volve a confirmar este pedido.'
-          );
-          return;
         }
+        // Sort DESC por createdAt (más nueva primero).
+        openList.sort((/** @type {any} */ a, /** @type {any} */ b) => {
+          const _ms = (/** @type {any} */ w) => {
+            const t = w && w.createdAt;
+            if (!t) return 0;
+            if (typeof t === 'string') return Date.parse(t) || 0;
+            if (typeof t.toMillis === 'function') return t.toMillis();
+            if (typeof t.toDate === 'function') return t.toDate().getTime();
+            return 0;
+          };
+          return _ms(b) - _ms(a);
+        });
+        if (openList.length > 0) {
+          const target = openList[0];
+          const _unifyPure =
+            (window.__phase0 && window.__phase0.pure && window.__phase0.pure.reviewGuardUnify) ||
+            null;
+          // Telemetría: §42 debería haber impedido llegar aquí (una orden abierta
+          // por cliente). Si disparamos, es porque la 1a orden entró pre-§42.1 o
+          // porque el VDE armó pedido directo sin pasar por Stock Asignado.
+          console.warn(
+            '[§42.2 review guard] cliente ' +
+              cliCardCode +
+              ' con ' +
+              openList.length +
+              ' orden(es) abierta(s) en Lista de Espera: ' +
+              openList
+                .map(
+                  (/** @type {any} */ w) =>
+                    'ORDEN ' + w.orderNumber + ' (' + (w.items || []).length + ' SKU)'
+                )
+                .join(', ') +
+              ' — ofreciendo unificar la primera'
+          );
+          const msg = _unifyPure
+            ? _unifyPure.formatUnifyConfirmMessage(target)
+            : 'Este cliente tiene la ORDEN ' +
+              target.orderNumber +
+              ' abierta con ' +
+              (target.items || []).length +
+              ' linea(s) reservada(s). Unificarla con este pedido antes de confirmar?';
+          const ok = window.confirm(msg);
+          if (!ok) {
+            console.log(
+              '[§42.2 review guard] VDE cancelo unificacion de ORDEN ' + target.orderNumber
+            );
+            return;
+          }
+          // Unificar: mergear items al pedido actual + marcar waitlist consumed.
+          try {
+            const ord = orders[currentOrderKey] || [];
+            const mergeRes = _unifyPure
+              ? _unifyPure.mergeWaitlistIntoOrderLines(ord, target)
+              : (() => {
+                  // Fallback inline si el bundle no cargó el helper puro.
+                  let added = 0;
+                  let totalU = 0;
+                  for (const it of target.items || []) {
+                    if (!it || !it.code) continue;
+                    const q = Number(it.qty) || 0;
+                    if (q <= 0) continue;
+                    ord.push({
+                      code: String(it.code),
+                      qty: q,
+                      precio: Number(it.precio) || 0,
+                      desc: String(it.desc || ''),
+                      origen: it.origen || null,
+                      asigRefs: Array.isArray(it.asigRefs) ? it.asigRefs.slice() : null,
+                      importedFromOrder: Number(target.orderNumber) || null,
+                      _unifiedFromWaitlistId: target._id,
+                    });
+                    added++;
+                    totalU += q;
+                  }
+                  return { added, totalUnidades: totalU };
+                })();
+            orders[currentOrderKey] = ord;
+            if (typeof saveOrders === 'function') saveOrders();
+            const nowIso = new Date().toISOString();
+            const _unifiedBy =
+              typeof currentUser !== 'undefined' && currentUser
+                ? currentUser.email || currentUser.uid || ''
+                : '';
+            const updatePayload = _unifyPure
+              ? _unifyPure.buildUnifiedAtReviewUpdate(_unifiedBy, nowIso)
+              : {
+                  stage: 'consumed',
+                  closedAt: nowIso,
+                  closedReason: 'unified_at_review',
+                  unifiedIntoCurrentOrder: true,
+                  unifiedAt: nowIso,
+                  unifiedBy: _unifiedBy,
+                };
+            // serverTimestamp aparte (no es puro).
+            updatePayload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+            await fbDb.collection('revision_waitlist').doc(target._id).update(updatePayload);
+            console.warn(
+              '[§42.2 review guard] unificado ORDEN ' +
+                target.orderNumber +
+                ' en pedido actual (+' +
+                mergeRes.added +
+                ' lineas / ' +
+                mergeRes.totalUnidades +
+                ' u)'
+            );
+            alert(
+              'ORDEN ' +
+                target.orderNumber +
+                ' unificada: ' +
+                mergeRes.added +
+                ' linea(s) agregada(s) al pedido actual (' +
+                mergeRes.totalUnidades +
+                ' u). Revisa y confirma de nuevo.'
+            );
+            // Cerrar + re-abrir modal review para que el VDE vea las lineas nuevas.
+            try {
+              closeReviewDialog();
+            } catch (_eCloseDlg) {}
+            try {
+              openReviewDialog('crear');
+            } catch (_eOpen) {}
+            return;
+          } catch (eUnify) {
+            console.error('[§42.2 review guard] fallo unificacion:', eUnify);
+            showReviewError(
+              'No se pudo unificar la ORDEN ' +
+                target.orderNumber +
+                ': ' +
+                (eUnify && eUnify.message ? eUnify.message : String(eUnify)) +
+                '. Avisa al admin.'
+            );
+            return;
+          }
+        }
+        // Sin orden abierta: §42 garantiza que las ASIG previas del cliente
+        // o bien están cubiertas por un waitlist (que ya fue consumed por este
+        // mismo path) o son residuales (Pablo asignó manual sin generar CPST,
+        // o CPST canceladas por §40.6/§40.7). No bloquear: el flow de
+        // confirmación sigue + al transferir a SAP el bloque v1280/§33
+        // cancela las ASIG referenciadas por `line.asigRefs`.
       }
     } catch (_e) {
       console.warn('[pedido] validacion ASIG previa fallo (no bloquea):', _e);

@@ -67,6 +67,15 @@ import {
   formatAssignedVendorReason,
   resolveClientVendorFromMaster,
 } from './pure/resolve-client-vendor.js';
+// v1416 §42.2 (2026-10-22): guard "Revisá tu pedido" ofrece unificación en vez
+// de bloqueo seco. Reusa helpers §42 (findOpenWaitlistsForClient) + pure helpers
+// propios de merge (mergeWaitlistIntoOrderLines, buildUnifiedAtReviewUpdate,
+// formatUnifyConfirmMessage).
+import {
+  buildUnifiedAtReviewUpdate,
+  formatUnifyConfirmMessage,
+  mergeWaitlistIntoOrderLines,
+} from './pure/review-guard-unify.js';
 import { matchesAllTokens } from './pure/search.js';
 import { getStockBreakdown, STOCK_LABELS } from './pure/stock-breakdown.js';
 import {
@@ -263,6 +272,15 @@ const phase0 = {
     isWaitlistCpst,
     findOpenWaitlistsForClient,
     formatWaitlistForConfirm,
+    // v1416 §42.2 — expuestos como `reviewGuardUnify.*` para claridad semántica
+    // y por si el inline necesita invocarlos directamente (fallback inline usa
+    // la copia dentro del guard; expose aquí es para tests + consumidores
+    // futuros).
+    reviewGuardUnify: {
+      mergeWaitlistIntoOrderLines,
+      buildUnifiedAtReviewUpdate,
+      formatUnifyConfirmMessage,
+    },
     resolveClientVendorFromMaster,
     enrichPayloadWithClientVendor,
     formatAssignedVendorReason,
