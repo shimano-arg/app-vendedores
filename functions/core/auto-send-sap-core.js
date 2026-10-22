@@ -421,7 +421,12 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   const docRef = deps.fbDb.collection('pedidos').doc(pedidoId);
   const now = deps.now ? deps.now() : Date.now();
   const sessionId = deps.genSessionId ? deps.genSessionId() : 'cf-' + now;
-  const lockTtlMs = deps.lockTtlMs ?? 300000;
+  // G1.G15 (v1425 audit grises): subido de 300000 (5min) a 900000 (15min).
+  // Precedente 2026-08-21: SAP SL respondía POST >5min cuando congestionado;
+  // el lock expiraba, un re-trigger pisaba y creaba SQ duplicada. El check
+  // idempotente (sapGet) mitigaba pero fallback fail-open bajo timeout
+  // podía igual duplicar. TTL 15min cubre el p99 observado del POST.
+  const lockTtlMs = deps.lockTtlMs ?? 900000;
   try {
     await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
       const snap = await tx.get(docRef);

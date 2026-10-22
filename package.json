@@ -20,6 +20,7 @@
     "@biomejs/biome": "^2.5.6",
     "@firebase/rules-unit-testing": "^5.0.1",
     "esbuild": "^0.28.1",
+    "fast-check": "^4.10.2",
     "fast-glob": "^3.3.2",
     "lighthouse": "^13.4.1",
     "mapshaper": "^0.7.61",
