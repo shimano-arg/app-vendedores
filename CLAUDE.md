@@ -2082,6 +2082,49 @@ describe('Property-based R8 (§39): breakdown invariante suma', () => {
 
 **Precedente**: audit grises Fase C 2026-10-22. 10 property-based tests nuevos cubriendo R1 + R8 + R9 + R10. Encontró que mi assertion inicial "BO reserva dentro de 90d" estaba basada en §34 obsoleto (reemplazado por §40 v1392). Fast-check falló → corregí mi entendimiento + el test. Sin property-based hubiera documentado la regla con la asumpción errada.
 
+## 55. Scripts de backfill guardan snapshot del valor anterior (2026-10-22, v1425 post-audit grises)
+
+**Regla fuerte**: todo script en `scripts/audit/*.cjs` o `scripts/backfill_*.{cjs,py}` que modifique un campo Firestore DEBE persistir el valor anterior del campo en el mismo doc antes de pisarlo, usando el convention `<nombreCampo>_before_<slug>` o un sub-objeto `_backfill.<slug> = { <campo>: valorAnterior, by: 'scripts/...', at: nowIso }`.
+
+**Patrón canónico** (sub-objeto `_backfill`):
+
+```js
+const docSnap = await db.collection('pedidos').doc(pedidoId).get();
+const data = docSnap.data() || {};
+const previousValues = {
+  ownerVendor: data.ownerVendor || '',
+  vendorAssigned: data.vendorAssigned || '',
+};
+await db.collection('pedidos').doc(pedidoId).update({
+  ownerVendor: newVendor,
+  vendorAssigned: newVendor,
+  // Snapshot ANTES de pisar:
+  _backfill: Object.assign({}, data._backfill, {
+    [`${slug}_${nowIsoShort}`]: {
+      previousValues,
+      by: 'scripts/audit/Q_vendedor_desalineado.cjs',
+      at: nowIso,
+    },
+  }),
+  _lastBackfillAt: nowIso,
+  _lastBackfillBy: 'scripts/audit/Q_vendedor_desalineado.cjs',
+});
+```
+
+**Por qué**: sin snapshot, revertir un backfill es imposible sin re-derivar el valor viejo. En audit grises stock 2026-10-22 el script `Q_vendedor_desalineado.cjs` pisó `ownerVendor` + `vendorAssigned` + `assignedVendorUid` + `assignedVendorEmail` para 377 pedidos sin guardar snapshot. Resultado: para 365 pedidos ya facturados o enviados a SAP, la única forma de aproximar el vendor viejo fue derivar `cargadoPorUid → roles.vendor`, lo que falló para 70 pedidos (admin/gerente/VDI partner sin vendor canónico en `roles`).
+
+El Mariano decidió "opción A" (dejar como está, no revertir) justamente porque la reversión completa no era posible sin snapshot. Si lo hubiera decidido al revés, 70 pedidos quedarían con atribución incorrecta permanente.
+
+**Qué snapshot**: TODOS los campos que el script modifica. No basta con "el campo principal" — múltiples campos compuestos (ej. en Q los 4 campos vendedor forman una unidad) deben guardarse juntos para reversibilidad atómica.
+
+**Formato del slug**: `<scriptName>_<fecha>_<versión>`, ej. `Q_vendor_realignment_2026-10-22_v1425`. Permite múltiples backfills coexistir en el mismo doc sin pisar snapshots viejos.
+
+**No aplica a**:
+- Scripts de limpieza que setean `cancelled`/`closedAt` (son estados terminales — "revertir" significa cambiar el pedido a estado anterior lo cual es decisión de negocio, no cosmética).
+- Backfills de campos derivados reconstruibles (ej. `key` canónica — se re-deriva desde `clientName + province + locName + cardCode`).
+
+**Precedente**: script `Q_vendedor_desalineado.cjs` v1 (ago-oct 2026) sin snapshot. Script `M_pedidos_key_o_clientname_vacio.cjs` v2 (v1425 extended con `--apply`) sin snapshot pero OK porque `key` es derivado. Fix retroactivo del patrón pendiente para la próxima versión del script Q (opción futura si Mariano cambia de opinión).
+
 ## 51. Reporte "Infracciones MELI (MAP)" en el modal Reportes Excel (2026-10-22, v1413)
 
 **Regla**: el reporte histórico MAP MELI está disponible desde el modal "Reportes Excel" (`#export-modal`) de la app para Mariano exclusivamente. Formato EXACTO al que Mariano dejó armado (ver `Desktop\INFRACCIONES-MELI.xlsx`).
