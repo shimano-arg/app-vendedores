@@ -2651,9 +2651,14 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr td.left-align{text-align:left}
 /* v575 (2026-08-21): columnas destacadas de celdas de datos. Siempre con
    su fondo propio, independiente del estado de la fila (que ahora es
-   blanca sin excepción — ver §45.1). */
+   blanca sin excepción — ver §45.1).
+   v1421 §55 (2026-10-22): pedido-final-col SIN fondo base. Fondo verde claro
+   SOLO cuando .has-value (pedido final > 0 → stock que va a SAP). Cuando
+   es 0, sin color. Pedido Mariano: diferenciar visualmente lo que va vs
+   lo que queda en backorder. */
 #wcard-rows tr td.disp-sap-col{background:var(--color-success-bg) !important;color:#14532d}
-#wcard-rows tr td.pedido-final-col{background:#dbeafe}
+#wcard-rows tr td.pedido-final-col{/* sin background base — ver .has-value */}
+#wcard-rows tr td.pedido-final-col.has-value{background:#dcfce7;color:#166534}
 #wcard-rows tr td.chg-neg{color:var(--color-danger);font-weight:700}
 #wcard-rows tr td.chg-pos{color:#059669;font-weight:700}
 #wcard-rows tr td.chg-none{color:var(--text-muted)}
@@ -6977,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1420';
+const APP_VERSION = 'v1421';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24446,10 +24451,29 @@ function _renderWaitlistCard(){
     totalUnid += r.qty;
     // v713.1: pre-computar yaEnOtroPedido para poder mostrar el summary
     // ANTES del render de la tabla (el render también lo re-computa).
+    // v1421 §55 (2026-10-22): excluir pedidos origen de las asignaciones
+    // (pedidosOrigenes del waitlist + asigRefs de cada item) para que las
+    // líneas con origen=stock-asignado NO disparen falsos positivos.
     if (r.hasData && typeof window.getStockPorCliente === 'function' && w && w.clientCardCode) {
       const _pc = window.getStockPorCliente(r.code, w.clientCardCode);
-      r._yaEnOtroPedido = (Array.isArray(_pc.yaEnOtroPedido) ? _pc.yaEnOtroPedido : [])
-        .filter(x => x && x.pedidoId !== w._id);
+      const _rawYaEnOtro = Array.isArray(_pc.yaEnOtroPedido) ? _pc.yaEnOtroPedido : [];
+      const _repetidoPure =
+        window.__phase0 && window.__phase0.pure
+          ? {
+              buildExcluded: window.__phase0.pure.buildExcludedPedidoIdsForRepetido,
+              filterLine: window.__phase0.pure.filterYaEnOtroPedidoForLine,
+            }
+          : null;
+      if (_repetidoPure && _repetidoPure.buildExcluded && _repetidoPure.filterLine) {
+        const _excluded = _repetidoPure.buildExcluded(w);
+        r._yaEnOtroPedido = _repetidoPure.filterLine(r, _rawYaEnOtro, _excluded);
+      } else {
+        // Fallback: comportamiento legacy (excluir solo el propio waitlist).
+        r._yaEnOtroPedido =
+          r.origen === 'stock-asignado'
+            ? []
+            : _rawYaEnOtro.filter((x) => x && x.pedidoId !== w._id);
+      }
     } else {
       r._yaEnOtroPedido = [];
     }
@@ -24492,7 +24516,11 @@ function _renderWaitlistCard(){
   if (repetidos > 0) {
     const s3 = document.createElement('div');
     s3.style.cssText = 'color:#9a3412;background:#fff7ed;border-left:3px solid #f97316;padding:6px 10px;font-weight:700;margin-top:6px;font-size:11px;border-radius:4px';
-    s3.textContent = '' + repetidos + ' SKU(S) QUE ESTE CLIENTE YA TENIA EN PEDIDOS ANTERIORES (MARCADOS CON ). PUEDE SER DUPLICADO (SE OLVIDÓ DEL PEDIDO PREVIO) O REFUERZO INTENCIONAL. CONFIRMA CON EL CLIENTE ANTES DE PASAR A PENDIENTES.';
+    // v1421 §55: texto sin referencia al badge "MARCADOS CON" (removido).
+    s3.textContent =
+      '' +
+      repetidos +
+      ' SKU(S) SIN RESERVA DE ESTE CLIENTE QUE YA ESTAN EN OTRO PEDIDO ABIERTO O CONFIRMADO SIN FACTURAR. PUEDE SER DUPLICADO (SE OLVIDO DEL PEDIDO PREVIO) O REFUERZO INTENCIONAL. CONFIRMA CON EL CLIENTE ANTES DE PASAR A PENDIENTES.';
     statsEl.appendChild(s3);
   }
   const tbody = document.getElementById('wcard-rows');
@@ -24665,8 +24693,25 @@ function _renderWaitlistCard(){
       ? window.getStockPorCliente(r.code, w.clientCardCode || '')
       : { fisico: 0, reservadasPorCliente: 0, reservadasPorOtros: 0, libreParaCliente: 0, disponibleReal: 0, yaEnOtroPedido: [] };
     const yaEnOtro = Array.isArray(porCli.yaEnOtroPedido) ? porCli.yaEnOtroPedido : [];
-    // Filtrar pedidos que no sean el actual (w._id) para no contar la misma linea que estamos viendo.
-    const yaEnOtroFiltrado = yaEnOtro.filter(x => x && x.pedidoId !== w._id);
+    // v1421 §55 (2026-10-22): excluir el propio waitlist + pedidos origen de
+    // las asignaciones (pedidosOrigenes + asigRefs). Para líneas con
+    // origen=stock-asignado, el filtro devuelve [] (el badge RESERVADO ya
+    // cubre el contexto; evitar "falso pedido anterior").
+    const _repetidoPureR =
+      window.__phase0 && window.__phase0.pure
+        ? {
+            buildExcluded: window.__phase0.pure.buildExcludedPedidoIdsForRepetido,
+            filterLine: window.__phase0.pure.filterYaEnOtroPedidoForLine,
+          }
+        : null;
+    let yaEnOtroFiltrado;
+    if (_repetidoPureR && _repetidoPureR.buildExcluded && _repetidoPureR.filterLine) {
+      const _excludedR = _repetidoPureR.buildExcluded(w);
+      yaEnOtroFiltrado = _repetidoPureR.filterLine(r, yaEnOtro, _excludedR);
+    } else {
+      yaEnOtroFiltrado =
+        r.origen === 'stock-asignado' ? [] : yaEnOtro.filter((x) => x && x.pedidoId !== w._id);
+    }
     r._yaEnOtroPedido = yaEnOtroFiltrado;
     // v767 (2026-09-01): UNIDADES RESERVADAS mostraba solo state='ASIG'.
     // v962 (2026-09-17): REVERTIDO a confirmed+ASIG.
@@ -24791,20 +24836,14 @@ function _renderWaitlistCard(){
       tdLibre.textContent = '-';
     }
     tr.appendChild(tdLibre);
-    // v1417 §45.1: alerta "SKU reservado en pedido anterior" ahora se señala con
-    // un badge PEDIDO ANTERIOR en la celda SKU (no con fondo de fila).
-    // La clase `repeat-sku` sigue aplicándose por si otro consumidor la
-    // necesita, pero sin fondo CSS. Reemplaza el badge ⚠ legacy de v713.1.
+    // v1421 §55 (2026-10-22): badge "PEDIDO ANTERIOR" REMOVIDO por pedido Mariano.
+    // En líneas con origen=stock-asignado (badge RESERVADO) el aviso era falso
+    // por construcción. Para líneas sin reserva con SKU en otro pedido abierto,
+    // el aviso naranja del encabezado sigue mostrándose (ahora filtrado por
+    // v1421 §55 pure helper). La clase `repeat-sku` queda para que otros
+    // consumidores (debug, filtros) la identifiquen, pero sin efecto visual.
     if (yaEnOtroFiltrado.length > 0) {
       tr.classList.add('repeat-sku');
-      const codeTd = tr.firstChild; // primera td es el SKU
-      if (codeTd) {
-        const badge = document.createElement('span');
-        badge.className = 'badge-duplicado';
-        badge.textContent = 'PEDIDO ANTERIOR';
-        badge.title = 'El cliente ya tiene ' + porCli.reservadasPorCliente + ' u de ' + r.code + ' reservadas en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es). Confirma con el cliente antes de pasar a Pendientes.';
-        codeTd.appendChild(badge);
-      }
     }
     // v467: qty editable inline. Input number con onchange que persiste.
     const tdQty = document.createElement('td');
@@ -24842,17 +24881,21 @@ function _renderWaitlistCard(){
     const pedidoFinal = Math.max(0, Math.min(Number(r.qty) || 0, Number(r.disponible) || 0));
     const tdFinal = document.createElement('td');
     // v1125 (2026-10-01): class CSS en vez de inline background para que las
-    // rules de tr.repeat-sku puedan ganar via !important (el inline style
-    // pisaba el amarillo del row). Fontweight+color siguen inline por ser
-    // dependientes del valor.
-    tdFinal.className = 'num pedido-final-col';
+    // rules de tr.repeat-sku puedan ganar via !important.
+    // v1421 §55 (2026-10-22): clase `.has-value` cuando pedidoFinal > 0 →
+    // fondo verde claro + texto verde oscuro (CSS §55). Sin value → sin
+    // color, texto muted. Diferencia visualmente lo que va a SAP de lo que
+    // queda en backorder (pedido Mariano).
+    const _hasPedidoFinal = r.hasData && pedidoFinal > 0;
+    tdFinal.className = 'num pedido-final-col' + (_hasPedidoFinal ? ' has-value' : '');
     tdFinal.textContent = r.hasData ? String(pedidoFinal) : '-';
     tdFinal.title = r.hasData
       ? 'Pedido Final = min(Pedido ' + r.qty + ', Libre ' + r.disponible + ') = ' + pedidoFinal + ' u\nEs lo que va a SAP como confirmed.'
       : '';
     tdFinal.style.fontWeight = '800';
-    // Color muted cuando pedidoFinal=0 o sin datos (info secundaria, no accionable).
-    tdFinal.style.color = (r.hasData && pedidoFinal > 0) ? '#1e40af' : '#94a3b8';
+    // v1421 §55: color texto heredado del CSS cuando has-value (verde oscuro
+    // #166534 — ratio 10.7 con #dcfce7, AAA). Muted gris cuando pedidoFinal=0.
+    if (!_hasPedidoFinal) tdFinal.style.color = '#94a3b8';
     tr.appendChild(tdFinal);
     // v1193 (2026-10-08): columna "Subtotal (Pendiente)" eliminada por pedido
     // Mariano — identica a Subtotal Final post-v1189.
