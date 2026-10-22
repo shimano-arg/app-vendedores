@@ -51,6 +51,9 @@ import {
   summarizeStorageUsage,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
+// v1418 §53 (2026-10-22): computeVaASap unifica el "va a SAP" en los 3 lugares
+// (modal detalle, Planner card, payload SL). Fixture ORDEN 524 PONTORIERO.
+import { computeVaASap, readDiscountPct, sumConfirmedBruto } from './pure/pedido-va-a-sap.js';
 import {
   columnBreakdown,
   columnEnteredAt,
@@ -298,6 +301,10 @@ const phase0 = {
     buildAsigRefsForLine,
     splitPedidoLine,
     reenrichPedidoLine,
+    // v1418 §53 (2026-10-22): "va a SAP" neto unificado.
+    computeVaASap,
+    readDiscountPct,
+    sumConfirmedBruto,
     redistributeAsigLine,
     columnEnteredAt,
     columnBreakdown,

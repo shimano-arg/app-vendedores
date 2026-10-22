@@ -251,6 +251,22 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     typeof deps.appSeriesId === 'number' && Number.isFinite(deps.appSeriesId)
       ? { Series: deps.appSeriesId }
       : {};
+  // v1418 §53 (2026-10-22): DiscountPercent del header SL leído del
+  // pedido.discountPct persistido en Firestore. Antes hardcode 0 → SAP
+  // recibía precios brutos sin descuento → cotización con total mayor
+  // que el "va a SAP" mostrado al VDE. Reporte Mariano 2026-10-22:
+  // modal "-17% / -$0" + VA A SAP $2.389.570 pero SAP Discount vacío.
+  //
+  // Fuente de verdad: pedido.discountPct (número 0-100) escrito en
+  // index.html:doConfirmPedido. Fallback a discountSnapshot.pctTotal si el
+  // flat no existe. Clamp [0, 100] como defensa contra data corrupta.
+  /** @type {any} */
+  const _pedidoAny = pedido || {};
+  const _rawPct =
+    Number(_pedidoAny.discountPct) ||
+    (_pedidoAny.discountSnapshot && Number(_pedidoAny.discountSnapshot.pctTotal)) ||
+    0;
+  const _discountPct = Math.max(0, Math.min(100, _rawPct));
   const payload = {
     CardCode: cardCode,
     DocDate: docDate,
@@ -259,7 +275,7 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     SalesPersonCode: slpCode,
     Comments: comments,
     NumAtCard: pedidoId,
-    DiscountPercent: 0,
+    DiscountPercent: _discountPct,
     U_AppOrigen: 'SHIMANO_APP_VENDEDORES',
     U_AppOrderId: pedidoId,
     U_AppBatchId: batchId,
