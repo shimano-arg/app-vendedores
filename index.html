@@ -4354,6 +4354,14 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           <div class="exp-icon" style="background:#047857"></div>
           <div class="exp-body"><h3>Ventas &times; art&iacute;culo &times; cliente / vendedor</h3></div>
         </div>
+        <!-- v1413 §51 (2026-10-22): resumen historico MAP MELI. Mariano-only.
+             Lee doc 'meli_infracciones_resumen/current' publicado por el
+             pipeline MI (map-daily.yml) y genera xlsx client-side con formato
+             exacto (ver mercado-intelligence/scripts/export_infracciones_meli_formato.py). -->
+        <div class="exp-opt" data-exp-kind="INFRACCIONES_MELI" id="exp-opt-infracciones-meli" style="display:none" title="Historico MAP: publicaciones unicas por cliente debajo del precio sugerido desde que arrancamos a controlar. Solo Mariano." onclick="closeExportDialog();exportInfraccionesMeli()">
+          <div class="exp-icon" style="background:#dc2626"></div>
+          <div class="exp-body"><h3>Infracciones MELI (MAP)</h3></div>
+        </div>
       </div>
     </div>
   </div>
@@ -7074,7 +7082,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1412';
+const APP_VERSION = 'v1413';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

@@ -862,6 +862,14 @@ service cloud.firestore {
       allow read: if isMariano();
       allow write: if false;
     }
+    // v1413 §51 (2026-10-22): resumen historico cliente x SKU para el modal
+    // "Reportes Excel > Infracciones MELI". Publicado por el pipeline MI
+    // (map-daily.yml step publish_infracciones_firestore.py) con SA
+    // mi-sync-writer. Mariano-only read.
+    match /meli_infracciones_resumen/{docId} {
+      allow read: if isMariano();
+      allow write: if false;
+    }
     match /meli_map_alerts_history/{itemId} {
       allow read: if isMariano();
       allow write: if false;

@@ -1817,3 +1817,70 @@ Mi `_resolveClientVendorFromMaster` v1408 **solo leía POINTS + vendor_overrides
 4. Para debug: en Chrome DevTools Console, buscar logs `[v1412 resolveVendor]`.
 
 **Precedente**: `fix-vendedor-zona-robusto` 2026-10-22 (v1412). Reporte Mariano: BURELLA orden 515 (cargada por Ioannis hoy 10:24) muestra Ioannis en Planner; COLLI orden 384 sigue "sin vendedor". Ambos Z5 Mauricio en Master Clientes.
+
+## 51. Reporte "Infracciones MELI (MAP)" en el modal Reportes Excel (2026-10-22, v1413)
+
+**Regla**: el reporte histórico MAP MELI está disponible desde el modal "Reportes Excel" (`#export-modal`) de la app para Mariano exclusivamente. Formato EXACTO al que Mariano dejó armado (ver `Desktop\INFRACCIONES-MELI.xlsx`).
+
+**Pipeline MELI** (repo `mercado-intelligence`):
+- `scripts/publish_infracciones_firestore.py`: compute cliente × SKU + publish a doc `meli_infracciones_resumen/current` del Firestore project `app-vendedores-shimano` database `(default)`.
+- Workflow GHA `.github/workflows/map-daily.yml` extendido: después del `check_map.py`, step `Publish infracciones resumen a Firestore` corre con `if: always()` (sobrevive a fallos del email). Se saltea si falta secret `APP_VENDEDORES_SA_KEY`.
+- Config `config/clientes_meli_shimano.csv`: fuente de verdad del flag `esCliente` (`SI` / `NO`) por `seller_nickname`. Editable y versionado.
+
+**Shape del Firestore doc**:
+```js
+{
+  generatedAt: 'ISO',
+  snapshotsCount: 15792,
+  rowsCount: 40,
+  firstSnapshotDate: 'YYYY-MM-DD',
+  lastSnapshotDate: 'YYYY-MM-DD',
+  rows: [
+    {cliente, sku, diferenciaPct, precioPublicado,
+     precioSugerido, cantHistoricas, esCliente},
+    ...
+  ]
+}
+```
+
+**Firestore rules** (`firestore.rules:865-868`):
+```
+match /meli_infracciones_resumen/{docId} {
+  allow read: if isMariano();
+  allow write: if false;  // publicado por SA del pipeline MI
+}
+```
+
+**App Vendedores**:
+- Botón nuevo en `index.html:4357` `<div class="exp-opt" data-exp-kind="INFRACCIONES_MELI" id="exp-opt-infracciones-meli" style="display:none">`. Default oculto; `exportToExcel` lo muestra solo si `email === erbinomariano@gmail.com`.
+- Handler `window.exportInfraccionesMeli` en `src/domains/exports-advanced.js`. Flujo:
+  1. Lee doc `meli_infracciones_resumen/current` de Firestore.
+  2. Si no existe → alert "corre el workflow MI primero".
+  3. Carga ExcelJS lazy.
+  4. Genera xlsx con el formato exacto que Mariano definió.
+  5. Descarga como `INFRACCIONES-MELI.xlsx`.
+
+**Formato xlsx exacto** (matcheado a `export_infracciones_meli_formato.py`):
+- Hoja `Infracciones`, freeze A2, autofilter A1:G{n}, no gridlines.
+- 7 columnas con widths A=38, B=20, C=15.66, D=18, E=16, F=14.55, G=8.89.
+- Header fondo theme=8 tint −0.5 (azul petroleum oscuro), font Calibri 11 bold blanco, align center/center wrap, row height 28.8.
+- Datos `esCliente=SI` → fondo theme=8 tint +0.6 (azul claro), font theme=8 tint −0.5 (azul oscuro) bold center.
+- Datos `esCliente=NO` → fondo theme=5 tint −0.5 (rojo oscuro), font theme=0 (blanco) bold center.
+- Formato moneda D (2 decimales ARS) y E (sin decimales ARS).
+- Col 6 header con DOUBLE SPACE: `Cant. Historicas  de Infracciones` (preservar).
+
+**Requerido para que funcione en prod**:
+1. En GitHub Secrets del repo `mercado-intelligence`: agregar `APP_VENDEDORES_SA_KEY` = contenido JSON del service account `mi-sync-writer@app-vendedores-shimano.iam.gserviceaccount.com` con rol `roles/datastore.user`.
+2. PR del MI repo (feat-publish-infracciones-firestore) mergeado + 1 run del workflow map-daily (manual trigger o aguardar 16:00 ART).
+3. Rules + bundle del app-vendedores deployed.
+
+**Tests** (`tests/unit/audit/infracciones-meli-export.test.js`, 22):
+- Modal entry presente + display:none + onclick + icono rojo.
+- Gate Mariano-only por email en `exportToExcel`.
+- Handler lee doc Firestore + genera xlsx con el formato exacto (colores theme/tint, column widths, headers con double-space, freeze, autofilter, moneda).
+- Chunk stubs sincronizados en `build.js` + `src/main.js` + `sw.js`.
+- Rules permiten read Mariano-only + bloquean write.
+
+**Suite completa post-v1413**: 1985 PASS, 0 FAIL.
+
+**Precedente**: `feat-infracciones-meli-export` 2026-10-22 (v1413). Pedido Mariano: integrar al modal "Reportes Excel". Reusa el formato que Mariano dejó armado en `Desktop\INFRACCIONES-MELI.xlsx` (header turquesa oscuro, SI turquesa claro, NO rojo oscuro).
