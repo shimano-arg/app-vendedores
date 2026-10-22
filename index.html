@@ -7082,7 +7082,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1414';
+const APP_VERSION = 'v1415';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17634,9 +17634,40 @@ window._createOrUnifyWaitlistPayload = async function(payload, sourceLabel, opts
   const fmt = pure && pure.formatWaitlistForConfirm;
   const mergeLines = pure && pure.mergeLinesFromOrders;
   const buildUnifiedAudit = pure && pure.buildUnifiedFromAudit;
-  const openList = (findOpen && cardCode)
-    ? findOpen(revisionWaitlist || [], cardCode)
-    : [];
+  // v1415 §42.1 (2026-10-22): LECTURA FRESH de Firestore (no confiar solo en
+  // cache local). Antes: `findOpen(revisionWaitlist || [], cardCode)` → si el
+  // cache del creator no tenía la orden existente (race del listener onSnapshot,
+  // user recién logueado, propagación cross-browser delayed), el check devolvía
+  // [] y el helper caía al create path → 2 órdenes abiertas (violación §42).
+  // Precedente prod 2026-10-22: PONTORIERO ORDEN 524 (12:53) + 526 (13:38)
+  // ambas CPST, el cache de la 526 no tenía la 524 → no interceptó.
+  // Fix: query directa a Firestore `where clientCardCode == X and closedAt
+  // == null`. Fallback a cache local si la query falla (ej. permission-denied
+  // o offline). Compat: todavía usamos cache como union para no perder docs
+  // optimistic no-flushed.
+  /** @type {Array<any>} */
+  let openList = [];
+  if (findOpen && cardCode) {
+    let freshDocs = /** @type {Array<any>} */ ([]);
+    try {
+      const qs = await fbDb.collection('revision_waitlist')
+        .where('clientCardCode', '==', cardCode)
+        .get();
+      qs.forEach((d) => freshDocs.push(Object.assign({ _id: d.id }, d.data() || {})));
+    } catch (_eFresh) {
+      console.warn('[§42.1] fresh query falló, usando cache local:', _eFresh && _eFresh.message);
+      freshDocs = Array.isArray(revisionWaitlist) ? revisionWaitlist.slice() : [];
+    }
+    // Union con cache (dedup por _id) para capturar optimistic locals + persisted.
+    const seen = new Set(freshDocs.map((d) => d._id).filter(Boolean));
+    for (const c of (Array.isArray(revisionWaitlist) ? revisionWaitlist : [])) {
+      if (c && c._id && !seen.has(c._id)) {
+        freshDocs.push(c);
+        seen.add(c._id);
+      }
+    }
+    openList = findOpen(freshDocs, cardCode);
+  }
   if (openList.length === 0 || !cardCode) {
     // Flow normal: crear.
     if (externalBatch) {
