@@ -53,6 +53,20 @@ service cloud.firestore {
         ];
     }
 
+    // v1414 §51.1 (2026-10-22): whitelist especifica para el reporte
+    // "Infracciones MELI (MAP)" del modal Reportes Excel. Mas amplio que
+    // isMariano() porque Diego (dir Shimano UY) tambien necesita el reporte.
+    // Mantener sincronizado con el gate client-side en
+    // src/domains/exports-core.js (INFRACCIONES_MELI_READERS).
+    function canReadInfraccionesMeli() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'erbinomariano@gmail.com',
+          'mariano.erbino@shimano.com.ar',
+          'diego.valsi@shimano.uy'
+        ];
+    }
+
     match /roles/{uid} {
       // Planner Task 2: agregado isMariano() para que onPlannerStageChanged CF
       // pueda leer roles/{uid}.email server-side al enviar notif VDI.
@@ -862,12 +876,14 @@ service cloud.firestore {
       allow read: if isMariano();
       allow write: if false;
     }
-    // v1413 §51 (2026-10-22): resumen historico cliente x SKU para el modal
-    // "Reportes Excel > Infracciones MELI". Publicado por el pipeline MI
-    // (map-daily.yml step publish_infracciones_firestore.py) con SA
-    // mi-sync-writer. Mariano-only read.
+    // v1413 §51 + v1414 §51.1 (2026-10-22): resumen historico cliente x SKU
+    // para el modal "Reportes Excel > Infracciones MELI". Publicado por el
+    // pipeline MI (map-daily.yml step publish_infracciones_firestore.py) con
+    // SA mi-sync-writer. Readers: Mariano (2 emails) + Diego Valsi.
+    // Ver canReadInfraccionesMeli() arriba — mantener sincronizado con
+    // src/domains/exports-core.js INFRACCIONES_MELI_READERS.
     match /meli_infracciones_resumen/{docId} {
-      allow read: if isMariano();
+      allow read: if canReadInfraccionesMeli();
       allow write: if false;
     }
     match /meli_map_alerts_history/{itemId} {

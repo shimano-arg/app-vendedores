@@ -40,14 +40,22 @@ describe('v1413 §51 — modal entry presente', () => {
   });
 });
 
-describe('v1413 §51 — exportToExcel gate Mariano-only para INFRACCIONES_MELI', () => {
-  it('exports-core.js checkea email === erbinomariano@gmail.com', () => {
-    expect(EXPORTS_CORE).toMatch(/INFRACCIONES_MELI/);
-    expect(EXPORTS_CORE).toMatch(/erbinomariano@gmail\.com/);
+describe('v1414 §51.1 — exportToExcel whitelist 3 emails para INFRACCIONES_MELI', () => {
+  it('exports-core.js tiene INFRACCIONES_MELI_READERS con los 3 emails', () => {
+    expect(EXPORTS_CORE).toMatch(/INFRACCIONES_MELI_READERS/);
+    expect(EXPORTS_CORE).toMatch(/'erbinomariano@gmail\.com'/);
+    expect(EXPORTS_CORE).toMatch(/'mariano\.erbino@shimano\.com\.ar'/);
+    expect(EXPORTS_CORE).toMatch(/'diego\.valsi@shimano\.uy'/);
   });
 
-  it('oculta la opción cuando no es Mariano', () => {
-    expect(EXPORTS_CORE).toMatch(/kind === 'INFRACCIONES_MELI' && !_isMariano/);
+  it('usa includes() case-insensitive sobre el email del user', () => {
+    expect(EXPORTS_CORE).toMatch(
+      /INFRACCIONES_MELI_READERS\.includes\(\(currentUser\.email \|\| ''\)\.toLowerCase\(\)\)/
+    );
+  });
+
+  it('oculta la opción cuando el user no está en la whitelist', () => {
+    expect(EXPORTS_CORE).toMatch(/kind === 'INFRACCIONES_MELI' && !_canReadInfraccionesMeli/);
   });
 });
 
@@ -124,10 +132,17 @@ describe('v1413 §51 — chunk stubs sincronizados', () => {
   });
 });
 
-describe('v1413 §51 — firestore rules', () => {
-  it('rules permiten read Mariano-only sobre meli_infracciones_resumen', () => {
+describe('v1414 §51.1 — firestore rules canReadInfraccionesMeli()', () => {
+  it('rules definen canReadInfraccionesMeli() con los 3 emails', () => {
+    expect(RULES).toMatch(/function canReadInfraccionesMeli\(\)/);
     expect(RULES).toMatch(
-      /match \/meli_infracciones_resumen\/\{[^}]*\}\s*\{[\s\S]*?allow read:\s*if\s+isMariano\(\)/
+      /canReadInfraccionesMeli[\s\S]*?'erbinomariano@gmail\.com'[\s\S]*?'mariano\.erbino@shimano\.com\.ar'[\s\S]*?'diego\.valsi@shimano\.uy'/
+    );
+  });
+
+  it('match meli_infracciones_resumen read usa canReadInfraccionesMeli()', () => {
+    expect(RULES).toMatch(
+      /match \/meli_infracciones_resumen\/\{[^}]*\}\s*\{[\s\S]*?allow read:\s*if\s+canReadInfraccionesMeli\(\)/
     );
   });
 
