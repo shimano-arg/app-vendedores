@@ -62,6 +62,8 @@ const LAZY_CHUNKS = {
     'openExportFormatModal',
     'closeExportFormatModal',
     'exportDatasetZip',
+    // v1413 §51 (2026-10-22): Mariano-only, INFRACCIONES MELI desde Firestore.
+    'exportInfraccionesMeli',
   ],
   'admin-users': [
     'addAllowedEmail',

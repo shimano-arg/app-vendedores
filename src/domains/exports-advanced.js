@@ -1270,6 +1270,172 @@ window.exportDatasetZip = async function () {
   }
 };
 
+// =====================================================================
+// v1413 §51 (2026-10-22): exportInfraccionesMeli — Mariano-only.
+// Lee doc Firestore `meli_infracciones_resumen/current` (publicado por el
+// pipeline MI map-daily.yml) y genera xlsx client-side con el formato que
+// Mariano dejó armado:
+//   - Hoja "Infracciones" con 7 columnas: Cliente, SKU, Diferencia %,
+//     Precio publicado, Precio Sugerido, Cant. Historicas de Infracciones,
+//     ¿Cliente?
+//   - Header fondo theme=8 (azul petroleum oscuro) tint -0.5 + font blanco
+//     bold Calibri 11, align center/center, row height 28.8.
+//   - Filas SI: fondo theme=8 tint +0.6 (azul claro) + font theme=8 tint
+//     -0.5 (azul oscuro) + bold center.
+//   - Filas NO: fondo theme=5 tint -0.5 (rojo oscuro) + font theme=0
+//     (blanco) + bold center.
+//   - Freeze A2, autofilter A1:G{n}, no gridlines.
+//   - Formato moneda D (2 dec) y E (sin dec).
+//   - Column widths: A=38, B=20, C=15.66, D=18, E=16, F=14.55, G=8.89.
+// Match 1:1 con mercado-intelligence/scripts/export_infracciones_meli_formato.py
+// =====================================================================
+window.exportInfraccionesMeli = async function () {
+  if (!fbDb) {
+    alert('Firestore no disponible.');
+    return;
+  }
+  try {
+    const docRef = fbDb.collection('meli_infracciones_resumen').doc('current');
+    const snap = await docRef.get();
+    if (!snap.exists) {
+      alert(
+        'No hay datos de infracciones MELI aún.\n\n' +
+          'El pipeline MI corre todos los días a las 16:00 ART y publica el ' +
+          'snapshot a Firestore. Si no corre nunca o falta el secret ' +
+          'APP_VENDEDORES_SA_KEY en GitHub Actions, el doc nunca se genera.\n\n' +
+          'Trigger manual: GitHub Actions > "MAP Monitor daily" > Run workflow.'
+      );
+      return;
+    }
+    const data = snap.data() || {};
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    if (rows.length === 0) {
+      alert('El doc existe pero no tiene filas de infracciones.');
+      return;
+    }
+
+    try {
+      await loadExcelJS();
+    } catch (e) {
+      alert('No se pudo cargar ExcelJS: ' + (e && e.message ? e.message : e));
+      return;
+    }
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet('Infracciones', {
+      views: [{ state: 'frozen', ySplit: 1, showGridLines: false }],
+    });
+    const headers = [
+      'Cliente',
+      'SKU',
+      'Diferencia %',
+      'Precio publicado',
+      'Precio Sugerido',
+      'Cant. Historicas  de Infracciones',
+      '¿Cliente?',
+    ];
+    const widths = [38, 20, 15.66, 18, 16, 14.55, 8.89];
+    const moneyFmt2 = '_-"$"\\ * #,##0.00_-;\\-"$"\\ * #,##0.00_-;_-"$"\\ * "-"??_-;_-@_-';
+    const moneyFmt0 = '_-"$"\\ * #,##0_-;\\-"$"\\ * #,##0_-;_-"$"\\ * "-"??_-;_-@_-';
+
+    // Header row.
+    ws.addRow(headers);
+    const header = ws.getRow(1);
+    header.height = 28.8;
+    header.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { theme: 8, tint: -0.499984740745262 },
+      };
+      cell.font = {
+        name: 'Calibri',
+        size: 11,
+        bold: true,
+        color: { argb: 'FFFFFFFF' },
+      };
+      cell.alignment = { horizontal: 'center', vertical: 'center', wrapText: true };
+    });
+
+    // Data rows ordenadas por cliente, sku.
+    const sorted = rows.slice().sort((a, b) => {
+      const ca = String(a.cliente || '').toUpperCase();
+      const cb = String(b.cliente || '').toUpperCase();
+      if (ca !== cb) return ca < cb ? -1 : 1;
+      const sa = String(a.sku || '');
+      const sb = String(b.sku || '');
+      return sa < sb ? -1 : sa > sb ? 1 : 0;
+    });
+    for (const r of sorted) {
+      const row = ws.addRow([
+        r.cliente || '',
+        r.sku || '',
+        typeof r.diferenciaPct === 'number' ? r.diferenciaPct : 0,
+        typeof r.precioPublicado === 'number' ? r.precioPublicado : 0,
+        typeof r.precioSugerido === 'number' ? r.precioSugerido : 0,
+        typeof r.cantHistoricas === 'number' ? r.cantHistoricas : 0,
+        r.esCliente === 'SI' ? 'SI' : 'NO',
+      ]);
+      const isCliente = r.esCliente === 'SI';
+      const fill = isCliente
+        ? {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { theme: 8, tint: 0.5999938962981048 },
+          }
+        : {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { theme: 5, tint: -0.499984740745262 },
+          };
+      const font = isCliente
+        ? {
+            name: 'Calibri',
+            size: 11,
+            bold: true,
+            color: { theme: 8, tint: -0.499984740745262 },
+          }
+        : {
+            name: 'Calibri',
+            size: 11,
+            bold: true,
+            color: { theme: 0 },
+          };
+      row.eachCell((cell) => {
+        cell.fill = fill;
+        cell.font = font;
+        cell.alignment = { horizontal: 'center' };
+      });
+      row.getCell(4).numFmt = moneyFmt2; // Precio publicado
+      row.getCell(5).numFmt = moneyFmt0; // Precio Sugerido
+    }
+
+    // Widths.
+    for (let i = 0; i < widths.length; i++) {
+      ws.getColumn(i + 1).width = widths[i];
+    }
+    // Autofilter.
+    ws.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: ws.rowCount, column: headers.length },
+    };
+
+    const buf = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buf], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    _downloadBlob(blob, 'INFRACCIONES-MELI.xlsx');
+
+    if (typeof showSyncTag === 'function') {
+      const si = sorted.filter((r) => r.esCliente === 'SI').length;
+      const no = sorted.length - si;
+      showSyncTag('INFRACCIONES-MELI: ' + sorted.length + ' filas (' + si + ' SI + ' + no + ' NO)');
+    }
+  } catch (e) {
+    console.error('[exportInfraccionesMeli]', e);
+    alert('Error al bajar el reporte: ' + (e && e.message ? e.message : e));
+  }
+};
+
 // === Exports a window ===
 // Todas las funciones window.foo = function... ya están verbatim.
 if (typeof window.todayStr === 'undefined') window.todayStr = todayStr;

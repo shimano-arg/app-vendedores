@@ -611,9 +611,17 @@ window.exportToExcel = function () {
     interno: new Set(['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES']),
   };
   const allowed = allowedByRole[userRole] || null; // null = ver todo
+  // v1413 §51 (2026-10-22): INFRACCIONES_MELI gate adicional Mariano-only.
+  // Mariano es admin, pasa el gate role above; filtramos aquí por email.
+  const _isMariano =
+    typeof currentUser !== 'undefined' &&
+    currentUser &&
+    (currentUser.email || '').toLowerCase() === 'erbinomariano@gmail.com';
   document.querySelectorAll('#export-modal .exp-opt').forEach((el) => {
     const kind = el.dataset.expKind || '';
-    el.style.display = !allowed || allowed.has(kind) ? '' : 'none';
+    let show = !allowed || allowed.has(kind);
+    if (kind === 'INFRACCIONES_MELI' && !_isMariano) show = false;
+    el.style.display = show ? '' : 'none';
   });
   document.getElementById('export-modal').classList.add('open');
 };

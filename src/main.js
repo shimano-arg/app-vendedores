@@ -152,6 +152,8 @@ installChunkStubs('exports-advanced', [
   'openExportFormatModal',
   'closeExportFormatModal',
   'exportDatasetZip',
+  // v1413 §51 (2026-10-22): Mariano-only, Reportes Excel > Infracciones MELI.
+  'exportInfraccionesMeli',
 ]);
 installChunkStubs('admin-users', [
   'addAllowedEmail',
