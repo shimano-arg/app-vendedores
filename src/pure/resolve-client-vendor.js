@@ -58,17 +58,35 @@ function normCardCode(cc) {
  *     funciona hasta backfill).
  *   - `zona_sin_vendedor`: point existe pero `getEffectiveVendorForClient`
  *     devolvió vacío (zona sin asignar).
- *   - `cliente_no_en_master`: no se encontró POINT para cardCode ni clientName.
+ *   - `cliente_no_en_master`: no se encontró POINT ni approvedAlta para
+ *     cardCode ni clientName.
  *   - `cliente_sin_zona`: alias de `cliente_no_en_master` (cliente SAP sin
  *     POINT local = sin zona registrada).
  *   - `input_vacio`: args sin cardCode ni clientName.
+ *
+ * v1412 §50 (2026-10-22) — EXTIENDE §46: agrega `approvedAltas` como SEGUNDA
+ * fuente del master. Las altas SAP huérfanas (clientes sync-SAP sin POINT
+ * histórico) viven en `approvedAltasList` con `assignedVendor` directo. El
+ * Master Clientes las muestra desde ahí; el helper previo las descartaba.
+ * Reporte Mariano: BURELLA (C20203196122) y COLLI (C20116066670) con zona
+ * Z5 Mauricio en Master Clientes pero sin vendedor en Planner.
+ *
+ * Lookup strategy post-v1412:
+ *   1. POINTS por cardCode → `getEffectiveVendorForClient(point, name)`.
+ *   2. POINTS por clientName → `getEffectiveVendorForClient(point, name)`.
+ *   3. **NUEVO**: `approvedAltas` por `cardCodeSap === cardCode` → `a.assignedVendor`.
+ *   4. **NUEVO**: `approvedAltas` por `comercio|fantasia === clientName` → `a.assignedVendor`.
+ *
+ * Además: normalización vendorKey ante guardados históricos como label
+ * ("Z5 - Mauricio Gil") en lugar de key canónica.
  *
  * @param {Object} args
  * @param {string} [args.cardCode] - CardCode SAP (preferido).
  * @param {string} [args.clientName] - Nombre del cliente (fallback).
  * @param {Array<any>} [args.points] - Catálogo de POINTS.
- * @param {Array<{uid:string, email?:string, vendorKey:string}>} [args.users] - Union de VDE+VDI+admin+gerente.
- * @param {Array<{uid:string, email?:string, vendorKey:string}>} [args.vdiPartnerUsers] - DEPRECATED (compat v1406). Se mergea con users.
+ * @param {Array<any>} [args.approvedAltas] - approvedAltasList (altas SAP huérfanas).
+ * @param {Array<{uid:string, email?:string, vendorKey:string}>} [args.users] - Union VDE+VDI+admin+gerente.
+ * @param {Array<{uid:string, email?:string, vendorKey:string}>} [args.vdiPartnerUsers] - DEPRECATED (compat v1406).
  * @param {(p:any, name:string) => string} [args.getEffectiveVendorForClient]
  * @param {(name:string) => string} [args.sapGetClienteCode]
  * @returns {ClientVendorResolution}
@@ -78,6 +96,7 @@ export function resolveClientVendorFromMaster(args) {
   const cardCode = normCardCode(args.cardCode);
   const clientName = String(args.clientName || '').trim();
   const points = Array.isArray(args.points) ? args.points : [];
+  const approvedAltas = Array.isArray(args.approvedAltas) ? args.approvedAltas : [];
   // v1408 §46: aceptamos ambos nombres (users nuevo + vdiPartnerUsers legacy)
   // y los mergeamos para que el lookup cubra los 4 roles.
   const usersUnion = /** @type {Array<any>} */ ([]);
@@ -96,16 +115,13 @@ export function resolveClientVendorFromMaster(args) {
   if (!cardCode && !clientName) {
     return { ...EMPTY, reason: 'input_vacio' };
   }
-  if (points.length === 0) {
-    return { ...EMPTY, reason: 'cliente_no_en_master' };
-  }
 
   /** @type {any} */
   let point = null;
   let matchName = clientName;
 
-  // 1. Buscar por cardCode normalizado.
-  if (cardCode && getCardCode) {
+  // 1. Buscar POINT por cardCode normalizado.
+  if (cardCode && getCardCode && points.length > 0) {
     for (const p of points) {
       const clients = Array.isArray(p.clients) ? p.clients : [];
       for (const n of clients) {
@@ -123,8 +139,8 @@ export function resolveClientVendorFromMaster(args) {
     }
   }
 
-  // 2. Fallback por clientName.
-  if (!point && clientName) {
+  // 2. Fallback POINT por clientName.
+  if (!point && clientName && points.length > 0) {
     const target = clientName.toLowerCase();
     for (const p of points) {
       const clients = Array.isArray(p.clients) ? p.clients : [];
@@ -136,23 +152,64 @@ export function resolveClientVendorFromMaster(args) {
     }
   }
 
-  if (!point) {
+  let vendorKey = '';
+  let sourceLabel = '';
+  /** @type {any} */
+  let alta = null;
+
+  if (point) {
+    // 3. vendorKey canónico desde la cadena de overrides POINTS.
+    if (getVendor) {
+      try {
+        vendorKey = String(getVendor(point, matchName) || '').trim();
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+    if (!vendorKey) vendorKey = String(point.vendor || '').trim();
+    sourceLabel = 'point';
+  } else if (approvedAltas.length > 0) {
+    // v1412 §50 NEW: buscar en approvedAltasList (altas SAP huérfanas).
+    // 4. Buscar alta por cardCodeSap normalizado.
+    if (cardCode) {
+      alta = approvedAltas.find(
+        (/** @type {any} */ a) => a && normCardCode(a.cardCodeSap) === cardCode
+      );
+    }
+    // 5. Fallback alta por nombre (comercio o fantasia).
+    if (!alta && clientName) {
+      const target = clientName.toLowerCase();
+      alta = approvedAltas.find(
+        (/** @type {any} */ a) =>
+          a &&
+          (String(a.comercio || '')
+            .trim()
+            .toLowerCase() === target ||
+            String(a.fantasia || '')
+              .trim()
+              .toLowerCase() === target)
+      );
+    }
+    if (alta) {
+      vendorKey = String(alta.assignedVendor || '').trim();
+      sourceLabel = 'approvedAlta';
+    }
+  }
+
+  // Si no se encontró ni POINT ni alta → cliente no está en el master.
+  if (!point && !alta) {
     return {
       ...EMPTY,
       reason: 'cliente_no_en_master',
     };
   }
 
-  // 3. vendorKey canónico desde la cadena de overrides.
-  let vendorKey = '';
-  if (getVendor) {
-    try {
-      vendorKey = String(getVendor(point, matchName) || '').trim();
-    } catch (_e) {
-      /* ignore */
-    }
+  // Normalizar vendorKey: si vino como label "Z<N> - Nombre" (histórico mal
+  // formateado), extraer el nombre y uppercase. Idempotente para keys canónicas.
+  const labelMatch = vendorKey.match(/^Z\d+\s*[-–—]\s*(.+)$/i);
+  if (labelMatch) {
+    vendorKey = labelMatch[1].trim().toUpperCase();
   }
-  if (!vendorKey) vendorKey = String(point.vendor || '').trim();
   // "__DISTRIBUTOR__" NO es un vendedor real (venta indirecta via distribuidor).
   if (vendorKey === '__DISTRIBUTOR__') vendorKey = '';
   if (!vendorKey) {
@@ -162,18 +219,43 @@ export function resolveClientVendorFromMaster(args) {
     };
   }
 
-  // 4. UID + email: lookup en la unión de users.
-  const match = usersUnion.find((u) => String((u && u.vendorKey) || '').trim() === vendorKey);
+  // UID + email: lookup en la unión de users.
+  // v1412 §50: fallback case-insensitive + primer nombre si no hay match exacto.
+  let match = usersUnion.find(
+    (/** @type {any} */ u) => String((u && u.vendorKey) || '').trim() === vendorKey
+  );
+  if (!match) {
+    const vkLc = vendorKey.toLowerCase();
+    match = usersUnion.find(
+      (/** @type {any} */ u) =>
+        String((u && u.vendorKey) || '')
+          .trim()
+          .toLowerCase() === vkLc
+    );
+  }
+  if (!match) {
+    const vkFirst = vendorKey.split(/\s+/)[0].toUpperCase();
+    if (vkFirst && vkFirst.length >= 3) {
+      match = usersUnion.find((/** @type {any} */ u) => {
+        const key = String((u && u.vendorKey) || '')
+          .trim()
+          .toUpperCase();
+        return key === vkFirst || key.startsWith(vkFirst + ' ');
+      });
+    }
+  }
   const vendorUid = match ? String(match.uid || '') : '';
   const vendorEmail = match ? String(match.email || '') : '';
 
-  return {
+  const result = /** @type {any} */ ({
     vendorKey,
     vendorUid,
     vendorEmail,
     resolved: true,
     reason: vendorUid ? 'ok' : 'vendor_sin_uid',
-  };
+    source: sourceLabel,
+  });
+  return result;
 }
 
 /**
