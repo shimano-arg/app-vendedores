@@ -89,7 +89,11 @@ service cloud.firestore {
     // Pedidos: get (por id) abierto a reader; list restringido para vendedor a own.
     match /pedidos/{pedidoId} {
       allow get: if isReader();
-      allow list: if isAdminOrGerente() || isInterno() || (isVendor() && ownsDoc());
+      // v1406 §44 (2026-10-22): VDE list permite OR ownerUid=self (compat
+      // pre-§44) OR assignedVendorUid=self (nuevo campo, Planner filtra ahí).
+      // El filtro Firestore debe matchear uno de los dos para pasar.
+      allow list: if isAdminOrGerente() || isInterno()
+        || (isVendor() && (ownsDoc() || resource.data.assignedVendorUid == request.auth.uid));
       // v991 (2026-09-18, SecAudit run-1 HIGH #5): validar ownerVendor en
       // create. Antes: un VDE con devtools/curl podia crear un pedido con
       // `ownerUid=self` + `ownerVendor='<victim>'` -> trigger

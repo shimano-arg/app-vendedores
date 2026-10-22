@@ -62,6 +62,10 @@ import { suggestForSku } from './pure/product-suggestions.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
+import {
+  enrichPayloadWithClientVendor,
+  resolveClientVendorFromMaster,
+} from './pure/resolve-client-vendor.js';
 import { matchesAllTokens } from './pure/search.js';
 import { getStockBreakdown, STOCK_LABELS } from './pure/stock-breakdown.js';
 import {
@@ -256,6 +260,8 @@ const phase0 = {
     isWaitlistCpst,
     findOpenWaitlistsForClient,
     formatWaitlistForConfirm,
+    resolveClientVendorFromMaster,
+    enrichPayloadWithClientVendor,
     computeCpstRevertPlan,
     sumRevertUnits,
     collectAsigRefsForCancel,
