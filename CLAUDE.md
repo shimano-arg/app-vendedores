@@ -1765,3 +1765,55 @@ for (const p of pedidos) {
 3. Si versión actual pero sigue mal: `getComputedStyle(.modal-box).height` debe ser `691.2px` (= 90vh en 1366×768). Si NO lo es, hay otro CSS sobreescribiendo con mayor specificity + `!important`.
 
 **Precedente**: `fix-cpst-scroll-v2` 2026-10-22 (v1411). Reporte Mariano post-v1410: la lista seguía fuera de pantalla con 21 clientes.
+
+## 50. `approvedAltas` como SEGUNDA fuente del master (altas SAP huérfanas) (2026-10-22, v1412)
+
+**Extiende §46**. Mariano reportó post-v1408 que **JOSE LUIS BURELLA (C20203196122) orden 515 cargada por Ioannis mostraba "IOANNIS PALKOUDAKIS" en Planner** y **COLLI RAMON ROBERTO (C20116066670) orden 384 seguía "sin vendedor"**. Ambos con zona Z5 Mauricio en Master Clientes.
+
+**Diagnóstico**: `getAllStoreEntries` del Master Clientes (`src/domains/master-clientes.js:181-262`) tiene DOS fuentes:
+- POINTS confirmados → `getEffectiveVendorForClient(p, n)`.
+- `approvedAltasList` (altas SAP huérfanas, clientes sync-SAP cuyo nombre no matchea POINTS histórico) → `a.assignedVendor` DIRECTO.
+
+Las dos fuentes se escriben de forma distinta:
+- POINTS: reasignación via Reasignar Zonas → `vendor_overrides` collection.
+- Altas: reasignación via `saveMcProvisorioVendor` o modal → `client_applications.assignedVendor` field.
+
+Mi `_resolveClientVendorFromMaster` v1408 **solo leía POINTS + vendor_overrides**. Las altas quedaban invisibles → clientes como BURELLA / COLLI con zona asignada en Master Clientes seguían sin vendor en el Planner.
+
+**Fix v1412** (`src/pure/resolve-client-vendor.js`):
+
+1. Nuevo parámetro `approvedAltas` (array). Si no se encuentra point, el helper busca el alta por:
+   - `cardCodeSap === normCardCode(cardCode)`.
+   - `comercio === clientName` o `fantasia === clientName` (case-insensitive).
+2. Si encuentra alta: `vendorKey = alta.assignedVendor`.
+3. **Normalización de vendorKey**: si vino con formato label histórico `"Z<N> - Nombre"`, strip prefix → uppercase canónico (`"MAURICIO GIL"`). Idempotente para keys canónicas.
+4. **Lookup UID con fallbacks**: exact → case-insensitive → primer nombre (ej. `"MAURICIO"` → `"MAURICIO GIL"`).
+5. Nuevo campo en el resolution: `source ∈ {'point', 'approvedAlta', ''}` para debug.
+6. Reason `cliente_no_en_master` ahora significa "no está en POINTS ni en approvedAltas"; `zona_sin_vendedor` cuando se encontró pero `assignedVendor` vacío.
+
+**Wrapper DOM** (`index.html`): `window._resolveClientVendorFromMaster` pasa `approvedAltasList` + loggea con `console.debug` cuando `reason !== 'ok'` para auditar casos borderline en prod.
+
+**Script audit** (`scripts/audit/Q_vendedor_desalineado.cjs`) reescrito:
+- Lee `client_applications` collection + crea maps `altasByCardCode` + `altasByName`.
+- Resolve con prioridad OCRD + overrides → fallback `client_applications`.
+- Normalización label + fallback case-insensitive + primer nombre en user lookup.
+
+**Tests** (`tests/unit/audit/vendedor-approved-altas.test.js`, 9):
+- BURELLA sin POINT → resuelve via alta a MAURICIO GIL con UID.
+- COLLI sin POINT → mismo.
+- Alta con `assignedVendor` label `"Z5 - Mauricio Gil"` → normaliza a `MAURICIO GIL`.
+- Alta con `assignedVendor` vacío → `zona_sin_vendedor` (no `cliente_no_en_master`).
+- Cliente no en POINTS ni altas → `cliente_no_en_master`.
+- Match por `fantasia` + match por `comercio` case-insensitive.
+- POINT con cliente duplicado en alta → gana POINT (`source='point'`).
+- Payload enriquecido pisa `ownerVendor="IOANNIS PALKOUDAKIS"` legacy con `MAURICIO GIL` resuelto.
+
+**Suite completa post-v1412**: 1963 PASS.
+
+**Si en el futuro aparece un cliente con zona asignada pero sin vendor en Planner**:
+1. Verificar que esté en `POINTS[].clients[]` o en `client_applications` (via console: `window.approvedAltasList.find(a => a.cardCodeSap === 'CXXX')`).
+2. Si está en altas pero `assignedVendor` vacío: asignar via Master Clientes.
+3. Si está en POINTS con vendor incorrecto: usar Reasignar Zonas (escribe `vendor_overrides`).
+4. Para debug: en Chrome DevTools Console, buscar logs `[v1412 resolveVendor]`.
+
+**Precedente**: `fix-vendedor-zona-robusto` 2026-10-22 (v1412). Reporte Mariano: BURELLA orden 515 (cargada por Ioannis hoy 10:24) muestra Ioannis en Planner; COLLI orden 384 sigue "sin vendedor". Ambos Z5 Mauricio en Master Clientes.

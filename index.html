@@ -7074,7 +7074,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1411';
+const APP_VERSION = 'v1412';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17562,22 +17562,41 @@ window._resolveClientVendorFromMaster = function(args){
   const fn = pure && pure.resolveClientVendorFromMaster;
   if (!fn) return { vendorKey: '', vendorUid: '', vendorEmail: '', resolved: false, reason: 'input_vacio' };
   // v1408 §46: pasar la UNION de users (VDE + VDI + admin + gerente) para
-  // que el lookup de UID funcione para los 4 roles. Antes solo pasaba
-  // vdiPartnerUsers -> VDEs quedaban con vendorUid='' aunque vendorKey OK.
+  // que el lookup de UID funcione para los 4 roles.
+  // v1412 §50: pasar `approvedAltas` como SEGUNDA fuente del master. Las
+  // altas SAP huerfanas (sync-SAP sin POINT) viven en approvedAltasList con
+  // `assignedVendor` directo. Antes se descartaban → BURELLA/COLLI quedaban
+  // sin vendedor en Planner aunque Master Clientes mostraba Z5 Mauricio.
   const _vde = (typeof vdeUsers !== 'undefined' && vdeUsers) || [];
   const _vdi = (typeof vdiPartnerUsers !== 'undefined' && vdiPartnerUsers) || [];
   const _oth = (typeof otherUsers !== 'undefined' && otherUsers) || [];
   const union = _vde.concat(_vdi).concat(_oth);
-  return fn({
+  const _altas = (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList))
+    ? approvedAltasList : [];
+  const resolution = fn({
     cardCode: (args && args.cardCode) || '',
     clientName: (args && args.clientName) || '',
     points: (typeof POINTS !== 'undefined' && POINTS) || [],
+    approvedAltas: _altas,
     users: union,
     getEffectiveVendorForClient:
       (typeof getEffectiveVendorForClient === 'function') ? getEffectiveVendorForClient : undefined,
     sapGetClienteCode:
       (typeof sapGetClienteCode === 'function') ? sapGetClienteCode : undefined,
   });
+  // v1412 §50 logging: para auditar casos borderline en prod.
+  if (resolution.reason !== 'ok' && (args && (args.cardCode || args.clientName))) {
+    try {
+      console.debug('[v1412 resolveVendor]', {
+        cardCode: args.cardCode, clientName: args.clientName,
+        resolution,
+        pointsCount: ((typeof POINTS !== 'undefined' && POINTS) || []).length,
+        altasCount: _altas.length,
+        usersCount: union.length,
+      });
+    } catch (_e) { /* ignore */ }
+  }
+  return resolution;
 };
 window._enrichPayloadWithClientVendor = function(payload){
   const pure = window.__phase0 && window.__phase0.pure;

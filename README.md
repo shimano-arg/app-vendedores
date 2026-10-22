@@ -4717,6 +4717,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1412 (2026-10-22) — `approvedAltas` como 2da fuente del master (§50, extiende §46)
+
+Rama `fix-vendedor-zona-robusto` → `main`.
+
+**Reporte Mariano post-v1408**: BURELLA (C20203196122) orden 515 cargada por Ioannis mostraba "IOANNIS PALKOUDAKIS" en Planner. COLLI (C20116066670) orden 384 seguía "sin vendedor". Ambos con zona Z5 Mauricio en Master Clientes.
+
+**Diagnóstico**: Master Clientes tiene DOS fuentes (POINTS + `approvedAltasList`). Mi helper v1408 solo consultaba POINTS → clientes sync-SAP sin POINT histórico quedaban invisibles.
+
+**Fix** (`src/pure/resolve-client-vendor.js`):
+- Nuevo parámetro `approvedAltas`. Fallback por `cardCodeSap` o `comercio`/`fantasia`.
+- Normalización vendorKey (strip label histórico `"Z<N> - Nombre"`).
+- Lookup UID con fallbacks: exact → case-insensitive → primer nombre.
+- Nuevo campo `source` en resolution + `console.debug` para audit.
+
+**Wrapper DOM** (`index.html`) pasa `approvedAltasList`. **Script audit** (`Q_vendedor_desalineado.cjs`) reescrito con 2da fuente.
+
+**Tests** (`tests/unit/audit/vendedor-approved-altas.test.js`, 9): BURELLA + COLLI resuelven a MAURICIO GIL con UID. Alta con label histórico normaliza. Payload pisa `ownerVendor="IOANNIS PALKOUDAKIS"` legacy con el resuelto. POINT prioridad sobre alta duplicada.
+
+**Suite completa post-v1412**: 1963 PASS, 0 FAIL.
+
+APP_VERSION v1411 → v1412. CACHE_VERSION v1411 → v1412.
+
+**Backfill prod pendiente**: `node scripts/audit/Q_vendedor_desalineado.cjs` dry-run. `--apply` esperando OK Mariano. Esperamos BURELLA 515 + COLLI 384 ambos resuelvan a MAURICIO GIL con `source=approvedAlta`.
+
 ### v1411 (2026-10-22) — Patrón scroll modales reescrito: 90vh + flex explícito (§49, reemplaza §48)
 
 Rama `fix-cpst-scroll-v2` → `main`.

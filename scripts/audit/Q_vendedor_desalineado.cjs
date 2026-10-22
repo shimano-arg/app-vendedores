@@ -1,6 +1,15 @@
 // Q — read-only prod: lista pedidos/revision_waitlist abiertos con vendedor
 // desalineado respecto al cliente master.
 //
+// v1412 §50 (2026-10-22) — EXTIENDE §46 agregando `client_applications` como
+// 2da fuente del master. Las altas SAP huérfanas viven ahí con
+// `assignedVendor` directo (NO en vendor_overrides). Antes el script y el
+// helper client-side las descartaban → BURELLA y COLLI quedaban sin vendor.
+//
+// Cadena de resolución post-v1412:
+//   1. OCRD + vendor_overrides (shop/loc/prov) → vendor base.
+//   2. Si (1) no da nada: client_applications por cardCodeSap → assignedVendor.
+//
 // v1408 §46 (2026-10-22) — reescrito para usar la MISMA cadena que el app:
 //   cliente (cardCode) → OCRD.SlpName (base) → vendor_overrides por shop/loc/prov → vendor efectivo.
 //
@@ -73,6 +82,27 @@ async function main() {
   });
   console.log('vendor_overrides cargados:', vendorOverrides.size);
 
+  // 2.5. v1412 §50: client_applications (altas SAP) → map cardCodeSap → {assignedVendor}.
+  const altasSnap = await db.collection('client_applications').get();
+  /** @type {Map<string, {cardCodeSap:string, comercio:string, assignedVendor:string}>} */
+  const altasByCardCode = new Map();
+  /** @type {Array<any>} */
+  const altasByName = [];
+  altasSnap.forEach((d) => {
+    const data = d.data() || {};
+    const cardCodeSap = normCardCode(data.cardCodeSap);
+    const assignedVendor = String(data.assignedVendor || '').trim();
+    const comercio = String(data.comercio || '').trim();
+    const fantasia = String(data.fantasia || '').trim();
+    if (cardCodeSap) {
+      altasByCardCode.set(cardCodeSap, { cardCodeSap, comercio, assignedVendor });
+    }
+    if (comercio || fantasia) {
+      altasByName.push({ comercio, fantasia, assignedVendor, cardCodeSap });
+    }
+  });
+  console.log('client_applications (altas SAP) cargadas:', altasByCardCode.size);
+
   // 3. roles: vendorKey → {uid, email, role}.
   const rolesSnap = await db.collection('roles').get();
   /** @type {Map<string, {uid:string, email:string, role:string, vendorKey:string}>} */
@@ -99,36 +129,88 @@ async function main() {
   console.log('Users con vendorKey (roles):', vendorKeyToUser.size);
   console.log();
 
-  // Helper: resolve vendor del cliente usando la cadena cliente → zona → vendedor.
+  // Helper: resolve vendor del cliente. Prioridad: OCRD + overrides > alta.
   function resolveVendor(cardCode, clientName) {
     const cc = normCardCode(cardCode);
     const name = String(clientName || '').trim();
-    if (!cc && !name) return { vendorKey: '', uid: '', email: '', reason: 'input_vacio' };
+    if (!cc && !name) return { vendorKey: '', uid: '', email: '', reason: 'input_vacio', source: '' };
     const master = cc ? ocrd.get(cc) : null;
-    if (!master) {
-      return { vendorKey: '', uid: '', email: '', reason: 'cliente_no_en_ocrd' };
-    }
-    // Cadena de overrides: SHOP > LOC > PROV > SlpName.
-    const prov = master.provincia || '';
-    const loc = master.localidad || '';
-    const nameUp = (master.cardName || name || '').trim();
-    const shopKey = 'SHOP|' + prov + '|' + loc + '|' + nameUp;
-    const locKey = 'LOC|' + prov + '|' + loc;
-    const provKey = 'PROV|' + prov;
     let vendorKey = '';
-    if (vendorOverrides.has(shopKey)) vendorKey = vendorOverrides.get(shopKey);
-    else if (vendorOverrides.has(locKey)) vendorKey = vendorOverrides.get(locKey);
-    else if (vendorOverrides.has(provKey)) vendorKey = vendorOverrides.get(provKey);
-    else vendorKey = master.slpName || '';
+    let source = '';
+    if (master) {
+      // Cadena de overrides: SHOP > LOC > PROV > SlpName.
+      const prov = master.provincia || '';
+      const loc = master.localidad || '';
+      const nameUp = (master.cardName || name || '').trim();
+      const shopKey = 'SHOP|' + prov + '|' + loc + '|' + nameUp;
+      const locKey = 'LOC|' + prov + '|' + loc;
+      const provKey = 'PROV|' + prov;
+      if (vendorOverrides.has(shopKey)) vendorKey = vendorOverrides.get(shopKey);
+      else if (vendorOverrides.has(locKey)) vendorKey = vendorOverrides.get(locKey);
+      else if (vendorOverrides.has(provKey)) vendorKey = vendorOverrides.get(provKey);
+      else vendorKey = master.slpName || '';
+      source = vendorKey ? 'ocrd' : '';
+    }
+    // v1412 §50: fallback a client_applications (altas SAP huérfanas).
+    if (!vendorKey && cc) {
+      const alta = altasByCardCode.get(cc);
+      if (alta && alta.assignedVendor) {
+        vendorKey = alta.assignedVendor;
+        source = 'approvedAlta';
+      }
+    }
+    if (!vendorKey && name) {
+      const target = name.toLowerCase();
+      const alta = altasByName.find(
+        (a) =>
+          a &&
+          (String(a.comercio || '').toLowerCase() === target ||
+            String(a.fantasia || '').toLowerCase() === target)
+      );
+      if (alta && alta.assignedVendor) {
+        vendorKey = alta.assignedVendor;
+        source = 'approvedAlta';
+      }
+    }
+    // Normalizar label histórico "Z<N> - Nombre".
+    if (vendorKey) {
+      const m = vendorKey.match(/^Z\d+\s*[-–—]\s*(.+)$/i);
+      if (m) vendorKey = m[1].trim().toUpperCase();
+    }
     if (vendorKey === '__DISTRIBUTOR__') vendorKey = '';
+    if (!master && !source) {
+      return { vendorKey: '', uid: '', email: '', reason: 'cliente_no_en_ocrd', source: '' };
+    }
     if (!vendorKey) {
-      return { vendorKey: '', uid: '', email: '', reason: 'zona_sin_vendedor' };
+      return { vendorKey: '', uid: '', email: '', reason: 'zona_sin_vendedor', source };
     }
-    const user = vendorKeyToUser.get(vendorKey);
+    // Lookup user con fallback case-insensitive.
+    let user = vendorKeyToUser.get(vendorKey);
     if (!user) {
-      return { vendorKey, uid: '', email: '', reason: 'vendor_sin_uid' };
+      for (const [k, u] of vendorKeyToUser) {
+        if (k.toLowerCase() === vendorKey.toLowerCase()) {
+          user = u;
+          break;
+        }
+      }
     }
-    return { vendorKey, uid: user.uid, email: user.email, reason: 'ok' };
+    if (!user) {
+      // Fallback primer nombre.
+      const first = vendorKey.split(/\s+/)[0].toUpperCase();
+      if (first && first.length >= 3) {
+        for (const [k, u] of vendorKeyToUser) {
+          const ku = k.toUpperCase();
+          if (ku === first || ku.startsWith(first + ' ')) {
+            user = u;
+            break;
+          }
+        }
+      }
+    }
+    if (!user) {
+      return { vendorKey, uid: '', email: '', reason: 'vendor_sin_uid', source };
+    }
+    return { vendorKey, uid: user.uid, email: user.email, reason: 'ok', source };
   }
 
   // 4. Scan colecciones.
