@@ -4717,6 +4717,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1425 (2026-10-22) — Audit grises stock E0-E4: 5 fixes + property-based tests
+
+Rama `audit-grises-stock` → `main`.
+
+**Metodología**: loop engineering + superpowers (brainstorming, writing-plans, dispatching-parallel-agents, test-driven-development, verification-before-completion). 80 turnos budget. 5 etapas E0-E4.
+
+**Entregables E0-E2**: `docs/auditoria/40_INVENTARIO_STOCK*.md` (4 agentes paralelos, 35 CFs cross-check) + `41_GRISES_*.md` (5 agentes, 98 grises) + `42_GRISES_PROD.md` (15 queries, 362 pedidos abiertos).
+
+**Fixes E3 shipped (TDD red→green)**:
+- **G5.14 SW cache coherency**: test regresión bump coherente.
+- **G5.15 vendor_outlines cleanup**: extiende v13-v16 (antes v4-v12).
+- **G5.18 pending globals leak**: `.finally()` post-catch en `doConfirmPedido` resetea 5 globals pendingPedido*.
+- **G5.30 computeVaASap NaN/Infinity guard**: `Number.isFinite()` en 3 branches.
+- **G1.G05 revertSobreAsignadas**: test idempotencia (sin cambio código).
+- **G1.G15 sendingSapLock 5min → 15min**: `SAP_LOCK_TTL_MS=900000` + default CF. Precedente v577 2026-08-21 + p99 POST SL audit 2026-10-22.
+
+**Property-based tests fast-check** (10 tests, invariantes R1-R10 con 100-300 runs c/u).
+
+**Grises diferidos** (L a design doc separado): G1.G01/G02/G04/G09/G13/G14/G16, G2.03/G2.05, G3.05, G4.03.
+
+**Hallazgos prod E2 (--apply pendiente OK Mariano)**: M (61), Q (377+11), G5a/b/c/h (2+15+2+2 líneas), audit-waitlist (27 alertas).
+
+**Suite v1425**: 2201 PASS, 0 FAIL. +44 vs v1424.
+
+**Dependencia**: `fast-check@^4.10.2` devDependency.
+
+**Deploy functions**: `firebase deploy --only functions:onPedidoConfirmedSendToSap,functions:sapProxy,functions:updateAsigLineStateCF` (G1.G15 toca `auto-send-sap-core.js` compartido).
+
+APP_VERSION v1424 → v1425. CACHE_VERSION v1424 → v1425.
+
 ### v1412 (2026-10-22) — `approvedAltas` como 2da fuente del master (§50, extiende §46)
 
 Rama `fix-vendedor-zona-robusto` → `main`.
