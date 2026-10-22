@@ -464,9 +464,18 @@ window.validateReviewAndPasarAPendientes = async function () {
         // garantiza como máximo UNA orden abierta por cliente — pero datos previos
         // o races pueden tener más de una (ver §42.1).
         //
-        // Reporte Mariano 2026-10-22: PONTORIERO con ORDEN 524 (29 SKU) + ORDEN 526
-        // (2 SKU) ambas abiertas; al intentar confirmar cualquiera, el guard viejo
-        // bloqueaba sin salida (29 líneas ASIG en los pedidos origen).
+        // v1418 §42.2.1 HOTFIX (2026-10-22): excluir la waitlist que ORIGINÓ este
+        // pedido (window._pendingPedidoWaitlistId setado por
+        // _waitlistPasarAPendientesContinuar). SIN este excludeId el guard
+        // encontraba la propia waitlist, ofrecía "unificar" y mergeaba sus líneas
+        // al ord[] que YA las tenía desde la carga del waitlist → líneas duplicadas
+        // en SAP. Precedente SAP 2000425 PONTORIERO ORDEN 524 2026-10-22 14:47:
+        // qty 1→2, 2→4, 3→6, 4→8, 2→4 ($4.876.000 vs $2.879.000 app).
+        /** @type {string | null} */
+        const _excludeWlId =
+          typeof window !== 'undefined' && window._pendingPedidoWaitlistId
+            ? String(window._pendingPedidoWaitlistId)
+            : null;
         const openList = [];
         try {
           const qs = await fbDb
@@ -474,6 +483,10 @@ window.validateReviewAndPasarAPendientes = async function () {
             .where('clientCardCode', '==', cliCardCode)
             .get();
           qs.forEach((/** @type {any} */ d) => {
+            // v1418 §42.2.1: self-unify guard. Nunca mergear la waitlist que
+            // originó este pedido; sus líneas ya están en orders[currentOrderKey]
+            // porque _waitlistPasarAPendientesContinuar las copió al abrir el review.
+            if (_excludeWlId && d.id === _excludeWlId) return;
             const data = d.data() || {};
             if (data.closedAt) return;
             if (data.stage === 'consumed') return;
@@ -490,6 +503,8 @@ window.validateReviewAndPasarAPendientes = async function () {
             if (!w) continue;
             if (w.closedAt) continue;
             if (w.stage === 'consumed') continue;
+            // v1418 §42.2.1: idem exclude en fallback cache.
+            if (_excludeWlId && String(w._id) === _excludeWlId) continue;
             const wcc = String(w.clientCardCode || '').trim();
             if (wcc !== cliCardCode) continue;
             openList.push(w);
