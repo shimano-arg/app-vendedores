@@ -1491,3 +1491,30 @@ Aplica a los 3 caminos de carga + la unificación §42:
 **Suite completa post-v1406**: 1932 PASS, 0 FAIL.
 
 **Precedente**: `feat-vendedor-del-cliente-master` 2026-10-22 (v1406). Reporte Mariano: orden 483 ALBERTO PONTORIERO (C20175569635) + 491 La Lomita + 486 Esteban + 384 Colli + 475 Prat + 472 Bengochea invisibles para Federico en el Planner por `ownerUid != Federico.uid` cuando el cliente SÍ es de Federico. Dry-run del script Q pendiente de ejecución autorizada.
+
+## 45. Filas reservadas importadas del modal Pedido en Espera SIN fondo azul (2026-10-22, v1407)
+
+**Regla fuerte**: las filas `tr.merge-reservado-imported` y `tr.merge-duplicate-reservado` del modal `#wcard-rows` **NO llevan fondo diferenciado**. La reserva se señaliza con **dos elementos textuales**:
+
+1. El chip inline `.badge-reservado` (fondo `#dbeafe`, texto `#1e40af`, "RESERVADO") renderizado junto al código SKU.
+2. El `title` tooltip de la celda SKU/descripción explica el origen de la unificación (`"importada de ORDEN N — Y u de ASIG en pedido X"`).
+
+El rojo de `.merge-duplicate-original` (SKU duplicado, fila original) y el rosado de `.repeat-sku` (SKU repetido en otro pedido del mismo cliente) **siguen activos**. No se tocan.
+
+**Revierte §43 v1405**. Las reglas CSS eliminadas:
+- `tr.merge-reservado-imported td { background:#1e40af !important; color:#fff !important; }`
+- `tr.merge-duplicate-reservado td { background:#1e40af !important; color:#fff !important; }`
+- El bloque §43 completo con combinaciones `× disp-sap-col × pedido-final-col × repeat-sku × warn-* × hover`.
+
+**Las clases JS se preservan**: `src/pure/unificar-ordenes.js:getRowColorClass()` sigue devolviendo `merge-reservado-imported` / `merge-duplicate-reservado` por si otro consumidor (debug, log, test) las necesita identificar. Solo desaparece el CSS.
+
+**Si en el futuro se quiere volver al fondo diferenciado**: agregar reglas CSS en `index.html` cerca del comentario v1382 (línea ~2608). Los tests actuales validan la **ausencia** de reglas azules; si se re-agregan, hay que actualizar `tests/unit/audit/waitlist-row-contrast.test.js` con el nuevo comportamiento esperado.
+
+**Tests** (`tests/unit/audit/waitlist-row-contrast.test.js` v1407 §45):
+- 2 tests "CSS no contiene reglas con `background:#1e40af` sobre las 2 clases".
+- 1 test `.badge-reservado` sigue activo (`#dbeafe` bg + `#1e40af` fg).
+- 1 test `.merge-duplicate-original` sigue en rojo `#991b1b`.
+- 1 test `.repeat-sku` sigue en naranja pastel `#fff7ed`.
+- 2 tests "fila reservada × celda destacada NO queda con bg azul" + "NO queda con fg blanco forzado".
+
+**Precedente**: `fix-waitlist-remove-blue-rows` 2026-10-22 (v1407). Reporte Mariano: el azul es demasiado invasivo; preferir señalización textual (badge + tooltip) sobre bloque de color. Órdenes 491 La Lomita y 486 Esteban como smoke test manual.

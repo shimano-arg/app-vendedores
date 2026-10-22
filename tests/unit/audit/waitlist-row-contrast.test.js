@@ -223,6 +223,7 @@ function ratio(bgHex, fgHex) {
 }
 
 const BLUE = '#1e40af';
+const RED = '#991b1b';
 
 describe('v1405 §43 — specificity del parser', () => {
   it('`#wcard-rows tr.A td.B` = [1,2,2]', () => {
@@ -241,64 +242,85 @@ const CELLS = [
   { name: 'disp-sap-col', classes: ['num', 'disp-sap-col'] },
   { name: 'pedido-final-col', classes: ['num', 'pedido-final-col'] },
 ];
-const COMBOS = [
-  { name: 'base', extra: [] },
-  { name: 'repeat-sku', extra: ['repeat-sku'] },
-  { name: 'warn-quiebra', extra: ['warn-quiebra'] },
-  { name: 'warn-duplicado', extra: ['warn-duplicado'] },
-  { name: 'exceed', extra: ['exceed'] },
-];
-const PSEUDOS = [null, 'hover'];
 
-describe('v1405 §43 — contraste WCAG filas reservadas × celdas destacadas', () => {
-  for (const rowBase of ROW_RESERVADAS) {
-    for (const combo of COMBOS) {
-      for (const cell of CELLS) {
-        for (const pseudo of PSEUDOS) {
-          const rowClasses = [rowBase, ...combo.extra];
-          const label =
-            'tr.' + rowClasses.join('.') + (pseudo ? ':' + pseudo : '') + ' × ' + cell.name;
-          it('contraste >=4.5 en ' + label, () => {
-            const bg = computeEffective('background', rowClasses, cell.classes, pseudo);
-            const fg = computeEffective('color', rowClasses, cell.classes, pseudo);
-            expect(bg, 'bg nulo para ' + label).toBeTruthy();
-            expect(fg, 'fg nulo para ' + label).toBeTruthy();
-            const r = ratio(bg, fg);
-            expect(r, 'ratio nulo bg=' + bg + ' fg=' + fg).not.toBeNull();
-            expect(
-              r,
-              label + ' bg=' + bg + ' fg=' + fg + ' ratio=' + (r || 0).toFixed(2)
-            ).toBeGreaterThanOrEqual(4.5);
-          });
-        }
-      }
-    }
-  }
+describe('v1407 §45 — filas reservadas quedan SIN fondo azul (reverso de §43)', () => {
+  // Mariano 2026-10-22: eliminar el fondo azul de las filas con reserva
+  // importada. La reserva se señaliza con el badge RESERVADO junto al SKU y
+  // el tooltip de la celda, no con el bg. El rojo .merge-duplicate-original
+  // y el rosado .repeat-sku siguen activos.
+  it('CSS NO contiene reglas que setean background:#1e40af sobre tr.merge-reservado-imported', () => {
+    const forbidden = ALL_RULES.filter((r) => {
+      if (!r.selector.includes('merge-reservado-imported')) return false;
+      if (!r.selector.includes('#wcard-rows')) return false;
+      const bg = readProp(r.body, 'background');
+      if (!bg) return false;
+      const val = String(resolveVar(bg.value) || bg.value).toLowerCase();
+      return val === '#1e40af' || val.includes('1e40af');
+    });
+    const list = forbidden.map(
+      (r) => '  ' + r.selector + ' -> ' + r.body.replace(/\s+/g, ' ').slice(0, 80)
+    );
+    expect(forbidden, 'Reglas de bg azul todavía activas:\n' + list.join('\n')).toEqual([]);
+  });
 
-  it('fg efectivo es blanco en toda combinación reservada × destacada', () => {
+  it('CSS NO contiene reglas que setean background:#1e40af sobre tr.merge-duplicate-reservado', () => {
+    const forbidden = ALL_RULES.filter((r) => {
+      if (!r.selector.includes('merge-duplicate-reservado')) return false;
+      if (!r.selector.includes('#wcard-rows')) return false;
+      const bg = readProp(r.body, 'background');
+      if (!bg) return false;
+      const val = String(resolveVar(bg.value) || bg.value).toLowerCase();
+      return val === '#1e40af' || val.includes('1e40af');
+    });
+    expect(forbidden.map((r) => r.selector)).toEqual([]);
+  });
+
+  it('.badge-reservado chip sigue siendo azul (indicador textual junto al SKU)', () => {
+    const badge = ALL_RULES.find((r) => r.selector === '.badge-reservado');
+    expect(badge, 'regla .badge-reservado desapareció del CSS').toBeTruthy();
+    const bg = readProp(badge.body, 'background');
+    expect(bg).toBeTruthy();
+    expect(String(bg.value).toLowerCase()).toContain('#dbeafe');
+    const color = readProp(badge.body, 'color');
+    expect(String(color.value).toLowerCase()).toBe(BLUE);
+  });
+
+  it('rojo .merge-duplicate-original sigue activo (NO lo tocamos)', () => {
+    const bg = computeEffective('background', ['merge-duplicate-original'], [], null);
+    expect(bg).toBe(RED);
+    const fg = computeEffective('color', ['merge-duplicate-original'], [], null);
+    const norm = (fg || '').toLowerCase().replace(/^#/, '').trim();
+    expect(['fff', 'ffffff']).toContain(norm);
+  });
+
+  it('naranja/rosado .repeat-sku sigue activo (NO lo tocamos)', () => {
+    const bg = computeEffective('background', ['repeat-sku'], [], null);
+    expect(String(bg).toLowerCase()).toBe('#fff7ed');
+  });
+
+  it('fila merge-reservado-imported sin otra clase → bg cae al default (no azul)', () => {
     for (const rowBase of ROW_RESERVADAS) {
-      for (const combo of COMBOS) {
-        for (const cell of CELLS) {
-          const fg = computeEffective('color', [rowBase, ...combo.extra], cell.classes, null);
-          const normalized = (fg || '').toLowerCase().replace(/^#/, '').trim();
-          expect(
-            ['fff', 'ffffff'],
-            'fg no blanco en ' + rowBase + '/' + combo.name + '/' + cell.name + ' = ' + fg
-          ).toContain(normalized);
-        }
+      for (const cell of CELLS) {
+        const bg = computeEffective('background', [rowBase], cell.classes, null);
+        // Nunca azul.
+        const val = (bg || '').toLowerCase();
+        expect(val, 'fila ' + rowBase + ' × ' + cell.name + ' quedó bg=' + val).not.toContain(
+          '1e40af'
+        );
       }
     }
   });
 
-  it('bg efectivo es azul #1e40af en reservada × destacada', () => {
+  it('fg efectivo NO es blanco forzado en combo reservada × destacada', () => {
     for (const rowBase of ROW_RESERVADAS) {
-      for (const combo of COMBOS) {
-        for (const cell of CELLS) {
-          const bg = computeEffective('background', [rowBase, ...combo.extra], cell.classes, null);
-          expect(
-            bg,
-            'bg no azul en ' + rowBase + '/' + combo.name + '/' + cell.name + ' = ' + bg
-          ).toBe(BLUE);
+      for (const cell of CELLS) {
+        const fg = computeEffective('color', [rowBase], cell.classes, null);
+        // Si acaso cayó un color default, no debe ser blanco (ya no hay fila azul).
+        if (fg) {
+          const norm = String(fg).toLowerCase().replace(/^#/, '').trim();
+          expect(['fff', 'ffffff'], 'fg blanco en ' + rowBase + ' × ' + cell.name).not.toContain(
+            norm
+          );
         }
       }
     }

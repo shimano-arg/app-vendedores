@@ -4717,6 +4717,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1407 (2026-10-22) — Filas reservadas sin fondo azul (§45, reverso de §43)
+
+Rama `fix-waitlist-remove-blue-rows` → `main`.
+
+**Reporte Mariano**: el fondo azul de las filas con `merge-reservado-imported` y `merge-duplicate-reservado` es demasiado invasivo. Pasan a fondo claro como el resto; la reserva ya se señaliza con el badge RESERVADO (azul chip `#dbeafe` + texto `#1e40af`) junto al SKU y el tooltip de la celda.
+
+**Cambio** (`index.html`): eliminadas las reglas CSS del bloque v1382 (base) y el bloque §43 v1405 (combinaciones × celdas destacadas × hover). Comentario reemplazado por nota explicando que las clases JS siguen seteándose pero sin CSS. Rojo `merge-duplicate-original` y rosado `repeat-sku` NO se tocan.
+
+**Tests** (`tests/unit/audit/waitlist-row-contrast.test.js` reescrito, 14):
+- CSS no contiene reglas con `background:#1e40af` sobre las 2 clases reservadas.
+- `.badge-reservado` chip sigue activo con el azul.
+- Rojo `.merge-duplicate-original` + rosado `.repeat-sku` siguen activos.
+- Fila reservada × celda destacada: bg no es azul, fg no es blanco forzado.
+
+**Suite completa post-v1407**: 1897 PASS, 0 FAIL (14 menos que v1406 porque los 40 tests parametrizados de contraste positivo se consolidaron en 2 tests de "ausencia de regla").
+
+APP_VERSION v1406 → v1407. CACHE_VERSION v1406 → v1407.
+
+**Smoke manual pedido Mariano**: órdenes 491 (La Lomita) y 486 (Esteban) en el modal Pedido en Espera deberían verse con filas claras + badge RESERVADO azul junto al SKU.
+
+**Rollback**: re-agregar reglas CSS v1382 + §43 (archivo backup en `fix-waitlist-contrast-blue-rows` del PR #1141).
+
 ### v1406 (2026-10-22) — Vendedor del pedido = vendedor del cliente master (§44)
 
 Rama `feat-vendedor-del-cliente-master` → `main`.

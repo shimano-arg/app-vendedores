@@ -2605,83 +2605,17 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr.merge-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
 #wcard-rows tr.merge-duplicate-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
 #wcard-rows tr.merge-duplicate-original td{background:#991b1b !important;color:#fff !important;font-weight:800}
-/* v1382 (2026-10-20): clases para lineas con origen='stock-asignado'
-   (nacidas desde CPST, directo o via unificacion).
-   - merge-reservado-imported: fila importada con reserva (sin duplicado) — AZUL #1e40af.
-   - merge-duplicate-reservado: SKU duplicado + fila con reserva — AZUL #1e40af.
-     (La original queda con merge-duplicate-original rojo.) */
-#wcard-rows tr.merge-reservado-imported td{background:#1e40af !important;color:#fff !important;font-weight:700}
-#wcard-rows tr.merge-duplicate-reservado td{background:#1e40af !important;color:#fff !important;font-weight:700}
-/* v1405 §43 (2026-10-22): en filas azules reservadas, las columnas destacadas
-   (td.disp-sap-col y td.pedido-final-col) heredan el AZUL + BLANCO en vez de
-   conservar su bg claro (verde/azul-claro/naranja/rojo pastel). Reporte Mariano:
-   ARIEL GUSTAVO ESTEBAN orden 486, SGS80MH2A/SGS90MH2A quedaban con "Libre"
-   blanco-sobre-blanco y "Pedido final" blanco-sobre-amarillo-pálido.
-   Causa pre-fix: td.disp-sap-col fijaba bg --color-success-bg !important y
-   tr.repeat-sku td.disp-sap-col fijaba bg #fff7ed !important ganando por
-   specificity sobre tr.merge-reservado-imported td !important azul. Mismo
-   issue con td.pedido-final-col cuando ademas hay repeat-sku. Fix: regla por
-   combinacion con specificity >= las existentes para pisar bg + color.
-   Specificity target 0,4,2 base y 0,5,2 para repeat-sku/warn-* x hover. */
-#wcard-rows tr.merge-reservado-imported td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported td.disp-sap-col div,
-#wcard-rows tr.merge-reservado-imported td.pedido-final-col div,
-#wcard-rows tr.merge-duplicate-reservado td.disp-sap-col div,
-#wcard-rows tr.merge-duplicate-reservado td.pedido-final-col div,
-#wcard-rows tr.merge-reservado-imported.repeat-sku td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.repeat-sku td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.warn-quiebra td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.warn-quiebra td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.warn-duplicado td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.warn-duplicado td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.exceed td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.exceed td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.repeat-sku td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.repeat-sku td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-quiebra td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-quiebra td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-duplicado td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-duplicado td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.exceed td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.exceed td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported:hover td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported:hover td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported:focus-within td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported:focus-within td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.highlighted td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.highlighted td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.selected td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.selected td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado:hover td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado:hover td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado:focus-within td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado:focus-within td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.highlighted td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.highlighted td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.selected td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.selected td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.repeat-sku:hover td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.repeat-sku:hover td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.warn-quiebra:hover td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.warn-quiebra:hover td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.warn-duplicado:hover td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.warn-duplicado:hover td.pedido-final-col,
-#wcard-rows tr.merge-reservado-imported.exceed:hover td.disp-sap-col,
-#wcard-rows tr.merge-reservado-imported.exceed:hover td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.repeat-sku:hover td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.repeat-sku:hover td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-quiebra:hover td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-quiebra:hover td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-duplicado:hover td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.warn-duplicado:hover td.pedido-final-col,
-#wcard-rows tr.merge-duplicate-reservado.exceed:hover td.disp-sap-col,
-#wcard-rows tr.merge-duplicate-reservado.exceed:hover td.pedido-final-col{
-  background:#1e40af !important;
-  color:#ffffff !important;
-}
+/* v1382 (2026-10-20): clases merge-reservado-imported / merge-duplicate-reservado
+   para lineas con origen='stock-asignado' (nacidas desde CPST, directo o via
+   unificacion). Las clases SIGUEN seteandose desde src/pure/unificar-ordenes.js:
+   getRowColorClass() para que la logica JS pueda identificarlas si hace falta,
+   pero v1407 (2026-10-22) QUITA el fondo azul por pedido Mariano: las filas
+   reservadas pasan a fondo claro como las demas. La reserva ya se senaliza con
+   el badge RESERVADO (clase .badge-reservado) junto al SKU y el tooltip de la
+   celda muestra el origen de la unificacion. Si en el futuro se quiere volver
+   al fondo diferenciado, agregar aqui las reglas CSS correspondientes.
+   v1405 §43 reglas eliminadas (ya no hay fondo que contrastar). CLAUDE.md §43
+   y §45 documentan el flow. */
 /* Badge inline que acompaña la fila con reserva (en celda SKU o descripcion). */
 .badge-reservado{display:inline-block;padding:2px 6px;margin-left:4px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
 /* v470: celdas centradas por default. */
@@ -7069,7 +7003,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1406';
+const APP_VERSION = 'v1407';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
