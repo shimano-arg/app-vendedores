@@ -6977,7 +6977,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1419';
+const APP_VERSION = 'v1420';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11927,7 +11927,10 @@ function openFichaClienteFromClientModal(){
   // v1260 (2026-10-14): Credito cheque (ARS) movido aca desde #client-modal.
   // Gate: solo admin/gerente ve el bloque. El guardado sigue vivendo en
   // saveClientCreditoChequeFromModal (bundle) que lee docId del #client-modal.
-  var isAdminLikeFc = (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'gerente'));
+  // v1420 §54 (2026-10-22): tambien se muestra para usuarios con el flag
+  // fichaClienteEditorFull=true (Ioannis + Santiago).
+  var isAdminLikeFc = (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'gerente'))
+    || (typeof window !== 'undefined' && window.currentUserFichaEditor === true);
   var credBlockFc = document.getElementById('cm-credito-cheque-block');
   if (credBlockFc) credBlockFc.style.display = isAdminLikeFc ? '' : 'none';
   var credInputFc = document.getElementById('cm-credito-cheque');
@@ -29882,6 +29885,11 @@ async function fetchAndApplyRole(){
   assignedVendor = data.vendor || null;
   myWhatsappNumber = data.whatsapp || null;
   myRendicionesApproverUid = data.rendicionesApproverUid || null;
+  // v1420 §54 (2026-10-22): flag opt-in para editar la Ficha Cliente de
+  // cualquier cliente. Mantiene canonical en roles/{uid}.fichaClienteEditorFull.
+  // Habilitado para Ioannis + Santiago Esteban (role=interno). Rules reflejan
+  // el flag via isFichaClienteEditor() en firestore.rules.
+  window.currentUserFichaEditor = data.fichaClienteEditorFull === true;
   // Sentry (v324): setear tags de rol/vendor apenas conocemos el role.
   // El helper es best-effort; si Sentry todavia no cargo, no rompe.
   try {

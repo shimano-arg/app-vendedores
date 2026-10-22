@@ -2734,7 +2734,17 @@ window.onMcAddrInput = function (input, docId, originalSaved) {
 // cliente operativo (que queda detras). Default sigue siendo 'cm-cli-status'
 // para preservar el feedback del dropdown cliTipo que no pasa el 3er arg.
 window.saveClientCategoriaFromModal = async function (fieldName, sel, statusElId) {
-  if (typeof canWrite === 'function' && !canWrite()) {
+  // v1420 §54 (2026-10-22): además de canWrite() (admin/vendedor/gerente),
+  // permitir usuarios con flag fichaClienteEditorFull=true (Ioannis + Santiago,
+  // role=interno). El flag se setea en el fetch de /roles al login y expone en
+  // window.currentUserFichaEditor. Las rules Firestore reflejan la misma lógica
+  // via isFichaClienteEditor() helper.
+  const _canEditFichaCliente = () => {
+    if (typeof canWrite === 'function' && canWrite()) return true;
+    if (typeof window !== 'undefined' && window.currentUserFichaEditor === true) return true;
+    return false;
+  };
+  if (!_canEditFichaCliente()) {
     alert('Tu rol no permite cambiar la categorizacion del cliente.');
     const modalEl = document.getElementById('client-modal');
     const cmData = clientMasterCache.get(modalEl.dataset.docId) || {};
@@ -2756,7 +2766,11 @@ window.saveClientCategoriaFromModal = async function (fieldName, sel, statusElId
   sel.disabled = true;
   try {
     const update = Object.assign({}, meta, {
+      // v1420 §54: auditoría — además de updatedBy (email), guardamos UID
+      // para tener audit robusto cuando el email cambie o esté vacío.
       updatedBy: currentUser.email || '',
+      updatedByUid: currentUser.uid || '',
+      updatedByFichaEditor: typeof window !== 'undefined' && window.currentUserFichaEditor === true,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     update[fieldName] = newVal;
@@ -2787,7 +2801,14 @@ window.saveClientCategoriaFromModal = async function (fieldName, sel, statusElId
 // Guarda en client_master.creditoCheque (+ updatedAt/By). onblur para no
 // tirar un write por cada tecla. Number >= 0 o vacio (elimina el campo).
 window.saveClientCreditoChequeFromModal = async function (inputEl) {
-  if (typeof canWrite === 'function' && !canWrite()) {
+  // v1420 §54: mismo gate que saveClientCategoriaFromModal — admin/gerente/
+  // vendedor o cualquier user con fichaClienteEditorFull=true.
+  const _canEditFichaCliente = () => {
+    if (typeof canWrite === 'function' && canWrite()) return true;
+    if (typeof window !== 'undefined' && window.currentUserFichaEditor === true) return true;
+    return false;
+  };
+  if (!_canEditFichaCliente()) {
     alert('Tu rol no permite modificar el credito de cheque.');
     return;
   }
@@ -2819,7 +2840,10 @@ window.saveClientCreditoChequeFromModal = async function (inputEl) {
     };
     const update = Object.assign({}, meta, {
       creditoCheque: parsed === null ? null : parsed,
+      // v1420 §54: auditoría — ver saveClientCategoriaFromModal.
       updatedBy: currentUser.email || '',
+      updatedByUid: currentUser.uid || '',
+      updatedByFichaEditor: typeof window !== 'undefined' && window.currentUserFichaEditor === true,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     await fbDb.collection('client_master').doc(docId).set(update, { merge: true });

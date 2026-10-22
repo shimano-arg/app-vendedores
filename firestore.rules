@@ -53,6 +53,18 @@ service cloud.firestore {
         ];
     }
 
+    // v1420 §54 (2026-10-22): editores de Ficha Cliente opt-in. Usuarios con
+    // `roles/{uid}.fichaClienteEditorFull == true` pueden escribir TODOS los
+    // campos de la ficha (fidelidad, prefContacto, tamano, especializacion,
+    // tipoLocal, cliTipo, creditoCheque) para CUALQUIER cliente, no solo los
+    // de su zona. Habilitado para Ioannis Palkoudakis + Santiago Esteban
+    // (role=interno). Admin/gerente ya tienen el permiso por isAdminOrGerente().
+    function isFichaClienteEditor() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.fichaClienteEditorFull == true;
+    }
+
     // v1414 §51.1 (2026-10-22): whitelist especifica para el reporte
     // "Infracciones MELI (MAP)" del modal Reportes Excel. Mas amplio que
     // isMariano() porque Diego (dir Shimano UY) tambien necesita el reporte.
@@ -359,7 +371,11 @@ service cloud.firestore {
       // esperados por saveDefaultDelivery + _saveDefaultDeliveryFromWaitlist
       // (index.html: tipo, transpNombre/Direccion, sucursalDireccion,
       // retiroNombre/Apellido/Dni/Patente, clienteDireccion + updatedAt/By).
+      // v1420 §54: Ficha Cliente editor opt-in. Users con el flag
+      // fichaClienteEditorFull=true en su rol pueden crear/updatear cualquier
+      // campo de la ficha (como admin/gerente), para cualquier cliente.
       allow create: if isAdminOrGerente()
+        || isFichaClienteEditor()
         || (isReader()
             && request.resource.data.keys().hasOnly(['defaultDelivery'])
             && request.resource.data.defaultDelivery is map
@@ -374,6 +390,7 @@ service cloud.firestore {
               'updatedAt', 'updatedBy'
             ]));
       allow update: if isAdminOrGerente()
+        || isFichaClienteEditor()
         || (isReader()
             && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['defaultDelivery'])
