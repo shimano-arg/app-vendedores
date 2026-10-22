@@ -1350,6 +1350,41 @@ Caso 597151 BENGOCHEA post-reconcile: `Stock asignado = 2` (no 6). Las 4 unidade
 
 **Precedente**: `feat-popup-5-lineas-reconcile-sobreasig` 2026-10-21 (v1403). Reporte Mariano: popup 597151 con "Stock asignado 2 no 6" + "la reconciliación revierte el excedente proactivamente, el cliente conserva lugar en cola".
 
+## 42.2. Guard "Revisá tu pedido" ofrece UNIFICACIÓN en vez de bloqueo (2026-10-22, v1416)
+
+**Reemplaza** el guard v1370 "N líneas con STOCK ASIGNADO sin resolver en pedidos anteriores" en `src/domains/pedidos-modal.js` (función `validateReviewAndPasarAPendientes`). Antes bloqueaba sin salida ante órdenes grandes (precedente PONTORIERO ORDEN 524 con 29 SKU ASIG).
+
+**Flow nuevo** (`validateReviewAndPasarAPendientes` ahora es `async`):
+1. Fresh query `fbDb.collection('revision_waitlist').where('clientCardCode', '==', cliCardCode).get()` (patrón §42.1).
+2. Fallback a `window.revisionWaitlist` si fresh falla (offline / permission-denied).
+3. Filtrar `closedAt==null && stage!=consumed`.
+4. Si `openList.length > 0`:
+   - Log telemetría: `console.warn('[§42.2 review guard] cliente CXXX con N orden(es) abierta(s): ORDEN A (M SKU), ORDEN B (K SKU) — ofreciendo unificar la primera')`.
+   - `confirm()` nativo con `formatUnifyConfirmMessage(target)` que menciona orderNumber + SKU + unidades.
+   - Cancelar → `return` (vuelve a editar).
+   - OK → `mergeWaitlistIntoOrderLines(ord, target)` + `fbDb.collection('revision_waitlist').doc(target._id).update(buildUnifiedAtReviewUpdate(user, now))` + `alert('ORDEN N unificada: M linea(s)...')` + `closeReviewDialog()` + `openReviewDialog('crear')` + `return`.
+   - El VDE ve el pedido ampliado y presiona Confirmar de nuevo. En el 2do pase el waitlist ya está `stage=consumed` → §42.2 NO dispara → sigue flow normal (forma de pago + entrega + `doConfirmPedido`).
+5. Si `openList.length === 0`: NO bloquear (§42 garantiza 1 orden abierta por cliente; sin orden abierta nada que unificar).
+
+**Pure helpers** (`src/pure/review-guard-unify.js`, expuestos en `window.__phase0.pure.reviewGuardUnify.*`):
+- `mergeWaitlistIntoOrderLines(ord, waitlist)` → `{added, totalUnidades}`. Append puro (sin dedupe por SKU — Mariano decide). Preserva `origen` + `asigRefs` → bloque v1280/§33 cancela las ASIG originales al transferir a SAP. Marca `importedFromOrder` + `_unifiedFromWaitlistId` para auditoría visual (CSS `merge-reservado-imported`).
+- `buildUnifiedAtReviewUpdate(unifiedBy, nowIso)` → payload Firestore: `stage='consumed'`, `closedAt`, `closedReason='unified_at_review'`, `unifiedIntoCurrentOrder=true`, `unifiedAt`, `unifiedBy`.
+- `formatUnifyConfirmMessage(waitlist)` → texto confirm nativo con 'OK = Unificar / Cancelar = Volver a editar'.
+
+**Fallback inline del guard**: si el bundle no cargó `__phase0.pure.reviewGuardUnify` (SW stale-while-revalidate), el guard tiene copia inline del merge + payload Firestore para no bloquear.
+
+**Telemetría obligatoria**: si el guard dispara, significa que §42 falló en el momento del CPST (cache local sin la 1a orden al crearse la 2a; o VDE armó pedido directo sin pasar por Stock Asignado). El `console.warn('[§42.2 review guard]')` queda como señal para audit.
+
+**Caso real** PONTORIERO (`C20175569635`) 2026-10-22: ORDEN 524 (29 SKU, 174 u) + ORDEN 526 (2 SKU, 6 u) ambas abiertas pre-fix. Alguien unificó manualmente (verificado en Firestore: `revision_waitlist/KvE9Dol8pGTWXIMJzUGi` orderNumber=524 ahora tiene 31 items; 526 absorbida). Para casos futuros, el guard §42.2 ofrece la unificación automática.
+
+**Tests**:
+- `tests/unit/review-guard-unify.test.js` (12): merge preservando campos + edge cases (items sin code/qty 0/null) + payload consumed + mensaje format + caso real PONTORIERO 526+524 = 31 líneas con 31 asigRefs.
+- `tests/unit/audit/review-guard-unify-flow.test.js` (14): grep contrato (async, fresh query, fallback cache, log telemetría, close+open review, merge via pure helper o fallback inline, update consumed).
+
+**Suite completa post-v1416**: 2023 PASS, 0 FAIL (26 tests nuevos sobre v1415).
+
+**Precedente**: `feat-guard-review-unify-§42` 2026-10-22 (v1416). Pedido Mariano: "con §42 ese guard se reemplaza por una oferta de unificación".
+
 ## 42.1. Chequeo §42 usa lectura FRESH de Firestore (no solo cache local) (2026-10-22, v1415)
 
 **Extiende §42**. Reporte prod 2026-10-22: PONTORIERO (C20175569635) tiene 2 órdenes abiertas de CPST: ORDEN 524 (12:53, 29 SKU) y ORDEN 526 (13:38, 2 SKU). El helper `_createOrUnifyWaitlistPayload` debía interceptar al crear la 526 pero no lo hizo.
