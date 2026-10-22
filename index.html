@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1421';
+const APP_VERSION = 'v1422';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -9170,7 +9170,14 @@ let _vendorOutlinesCache = null; // {vendor: [{outer, inners}, ...]} (v965)
 // v966 (2026-09-17): bumped v13→v14 porque ahora se filtran los inners
 // chicos (perim<0.5°) como artefactos. Caches viejos tenían huecos
 // espurios que aparecían como "grietas" en el mapa.
-const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v16';
+// v1422 §56 (2026-10-22): bumped v16→v17 para invalidar caches degenerados
+// de todos los browsers. Pre-v1422 _outlinesSignature leía v.vendor pero
+// el schema real de vendor_overrides es v.newVendor → firma siempre
+// 'O:k:|O:k2:' (strings vacíos) → nunca cambiaba con overrides nuevos →
+// cache stale de Pablo/Santiago nunca se invalidaba contra el estado
+// actual de Firestore. Reporte Mariano 2026-10-22: "Santiago y Pablo
+// ven zonas grises que yo no veo".
+const VENDOR_OUTLINES_CACHE_KEY = 'shimano_vendor_outlines_v17';
 // Firma del estado que impacta en los outlines: si el usuario reasigna
 // zonas en el modal ZONAS, la firma cambia -> cache stale -> se recomputa
 // en el proximo load automaticamente (sin tener que apretar el boton
@@ -9182,7 +9189,9 @@ function _outlinesSignature(){
     Object.entries(PROVINCE_VENDOR_OVERRIDE).sort().forEach(([k, v]) => parts.push('P:' + k + ':' + v));
   }
   if (typeof vendorOverrides !== 'undefined' && vendorOverrides) {
-    Object.entries(vendorOverrides).sort().forEach(([k, v]) => parts.push('O:' + k + ':' + (v && v.vendor || '')));
+    // v1422 §56: field correcto newVendor (antes v.vendor → siempre undefined,
+    // la firma era degenerada y nunca detectaba cambios de overrides).
+    Object.entries(vendorOverrides).sort().forEach(([k, v]) => parts.push('O:' + k + ':' + ((v && v.newVendor) || '')));
   }
   return parts.join('|') || '(empty)';
 }
