@@ -4717,6 +4717,36 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1409 (2026-10-22) — Paridad CPST vs modal Stock Asignado (§47)
+
+Rama `fix-cpst-paridad-stock-asignado` → `main`.
+
+**Reporte Mariano**: BROBRO SA aparecía en el modal "Stock Asignado" principal con 51 SKUs / 99 u (SKUs 21100100100E, 21100100150W, 21100100300W, 2u c/u, estado "EN DEPÓSITO") pero NO en el modal "Crear Pedido Desde Stock Asignado" (CPST, 11 clientes / 142 u).
+
+**Diagnóstico archivo:línea**:
+- Modal principal Stock Asignado usa `computeBackorderSkuMap(pedidos, 'asignacion', ...)` en `src/pure/backorder-sku-map.js:519`. Fix **v1344** (líneas 284-291) incluye pedidos `stage !== 'confirmed'` con al menos una línea `state='ASIG' + asigFromReparto=true`. Comentario literal: *"Caso real BROBRO SA (pedido x347Ul5b9cRtVPjEEN4T, SKU 21100150150E, transferidoSAP #25938): pedido migrado via sync SAP viene con stage=undefined; v1340 habilito el reparto sobre pedidos ya en SAP"*.
+- CPST usa `_cpstBuildCache` propio en `index.html:16797`. Línea 16838 pre-fix: `if (!p || p.closedAt || p.stage !== 'confirmed' || !Array.isArray(p.lines)) continue;` → **excluía pedidos sync-SAP** con `stage=undefined` + ASIG real `asigFromReparto=true`.
+- `computeVirtualAsigFifo` (`src/pure/virtual-asig-fifo.js`): consumido por el drawer "Stock asignado del cliente" dentro del `waitlist-card` modal (`index.html:23101` + `index.html:26132` dentro de `_findAsigDelCliente`). NO lo usa el modal principal ni CPST. Se preserva.
+
+**Fix** (`index.html:16837-16858`): replicar el gate de v1344 en `_cpstBuildCache` + aplicar `lineReservesStock` para filtrar vencidas (TTL §36/§38). Ambos modales ahora leen líneas ASIG con los mismos filtros → paridad exacta.
+
+**Tests** (`tests/unit/audit/cpst-paridad-stock-asignado.test.js`, 10):
+- BROBRO SA → aparece en ambos (6 u / 3 SKUs en el fixture).
+- Cliente ASIG `stage='confirmed'`: ambos.
+- Cliente solo BO con stock: NINGUNO (va a Reparto).
+- Pedido `stage=undefined` SIN `asigFromReparto`: no entra.
+- ASIG vencida (>7d): no entra.
+- Totales encabezado modal CPST = suma del compute.
+- Grep de `index.html` verifica el fix.
+
+**BO con stock físico sin ASIG** no aparece en Stock Asignado ni en CPST. La CF `reconcileRepartosFaltantes` (`onDep11IncreaseCreateReparto`) crea el reparto automáticamente para que Pablo lo asigne.
+
+**Suite completa post-v1409**: 1922 PASS, 0 FAIL.
+
+APP_VERSION v1408 → v1409. CACHE_VERSION v1408 → v1409.
+
+Smoke manual: BROBRO SA debería aparecer ahora en CPST con sus 3+ SKUs, en el filtro del VDE del cliente master (vía fix v1408 §46).
+
 ### v1408 (2026-10-22) — Resolución del vendedor via `roles.vendor` + cardCode normalizado (§46, extiende §44)
 
 Rama `fix-vendedor-via-zona` → `main`.

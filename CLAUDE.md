@@ -1574,3 +1574,47 @@ El rojo de `.merge-duplicate-original` (SKU duplicado, fila original) y el rosad
 **Suite completa post-v1408**: 1912 PASS, 0 FAIL.
 
 **Precedente**: `fix-vendedor-via-zona` 2026-10-22 (v1408). Reporte Mariano con COLLI orden 384 y BARALDO orden 476. El bug raíz era que los 4 VDEs reales nunca estaban en el cache de users del helper.
+
+## 47. Paridad CPST / modal Stock Asignado: ambos aceptan pedidos stage!=confirmed con `asigFromReparto` (2026-10-22, v1409)
+
+**Regla fuerte**: el modal "Crear Pedido Desde Stock Asignado" (CPST) y el modal "Stock Asignado" principal muestran **exactamente la misma lista** de clientes/SKUs/unidades. Ambos iteran `globalPedidos.lines` con `state='ASIG'` y aplican idénticos filtros:
+1. Pedido abierto (`closedAt==null`).
+2. Pedido con `stage='confirmed'` **O** con al menos una línea `state='ASIG' + asigFromReparto=true + qtyOpen>0` (fix v1344).
+3. Línea `state='ASIG' + qtyOpen>0`.
+4. `lineReservesStock(line, now, pedido)` true (TTL §36/§38 vigente).
+
+**Bug precedente**: `_cpstBuildCache` (`index.html:16837`) tenía filtro `p.stage !== 'confirmed'` continue como primera guard — EXCLUÍA pedidos sync-SAP con `stage=undefined` + ASIG reales asignadas por Pablo via modal Reparto. El modal principal ya los incluía (fix v1344, `src/pure/backorder-sku-map.js:284-291`). Reporte Mariano: BROBRO SA aparecía con 51 SKUs/99 u en Stock Asignado pero NO en CPST.
+
+**Fix v1409** (`index.html:16837-16858`):
+```js
+for (const p of pedidos) {
+  if (!p || p.closedAt || !Array.isArray(p.lines)) continue;
+  if (p.stage !== 'confirmed') {
+    const _hasRepartoAsig = p.lines.some(
+      (l) => l && l.state === 'ASIG' && l.asigFromReparto && Number(l.qtyOpen) > 0
+    );
+    if (!_hasRepartoAsig) continue;
+  }
+  // ...
+  const _lrs = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+  if (_lrs && !_lrs(l, Date.now(), p)) continue;
+  // ...
+}
+```
+
+**Consumidores de `computeVirtualAsigFifo`** (`src/pure/virtual-asig-fifo.js`):
+- `index.html:23101` y `index.html:26132` (`_findAsigDelCliente`): alimentan el **drawer "Stock asignado del cliente"** dentro del `waitlist-card` modal (listado secundario por cliente ya en lista de espera). **No** alimentan la pantalla principal "Stock Asignado" ni CPST (ambos usan `computeBackorderSkuMap` / filtro directo). Se preserva por ahora; eliminar es tarea aparte.
+
+**BO con stock físico no aparece en Stock Asignado ni en CPST**. Es demanda que requiere reparto. Si no hay reparto abierto, `reconcileRepartosFaltantes` (CF `onDep11IncreaseCreateReparto`) lo crea automáticamente al próximo cambio de stock snapshot.
+
+**Tests** (`tests/unit/audit/cpst-paridad-stock-asignado.test.js`, 10):
+- BROBRO SA (`stage=undefined` + `asigFromReparto=true`) aparece en AMBOS con 6 u / 3 SKUs.
+- Cliente ASIG `stage='confirmed'`: aparece en ambos.
+- Cliente solo BO con stock: aparece en NINGUNO (va a Reparto).
+- Mezcla ASIG + BO: solo ASIG aparece.
+- Pedido `stage=undefined` SIN `asigFromReparto`: no entra (venta normal sin reparto manual).
+- ASIG vencida (>7d): no entra en ninguno.
+- Totales encabezado = suma del compute (sin fuentes dobles).
+- Grep de `index.html` confirma presencia de `asigFromReparto`, `_hasRepartoAsig`, `lineReservesStock` en `_cpstBuildCache`.
+
+**Precedente**: `fix-cpst-paridad-stock-asignado` 2026-10-22 (v1409). Reporte Mariano: BROBRO SA, SKUs 21100100100E / 21100100150W / 21100100300W (2u c/u, estado "EN DEPÓSITO"), total 51 SKUs/99 u. Verificar post-deploy: BROBRO aparece en CPST en el filtro de su VDE (`MAURICIO GIL` según master zona).
