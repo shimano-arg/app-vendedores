@@ -611,16 +611,22 @@ window.exportToExcel = function () {
     interno: new Set(['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES']),
   };
   const allowed = allowedByRole[userRole] || null; // null = ver todo
-  // v1413 §51 (2026-10-22): INFRACCIONES_MELI gate adicional Mariano-only.
-  // Mariano es admin, pasa el gate role above; filtramos aquí por email.
-  const _isMariano =
+  // v1413 §51 + v1414 §51.1 (2026-10-22): INFRACCIONES_MELI whitelist por
+  // email. Mantener sincronizado con canReadInfraccionesMeli() de
+  // firestore.rules. Readers: Mariano (2 emails) + Diego Valsi.
+  const INFRACCIONES_MELI_READERS = [
+    'erbinomariano@gmail.com',
+    'mariano.erbino@shimano.com.ar',
+    'diego.valsi@shimano.uy',
+  ];
+  const _canReadInfraccionesMeli =
     typeof currentUser !== 'undefined' &&
     currentUser &&
-    (currentUser.email || '').toLowerCase() === 'erbinomariano@gmail.com';
+    INFRACCIONES_MELI_READERS.includes((currentUser.email || '').toLowerCase());
   document.querySelectorAll('#export-modal .exp-opt').forEach((el) => {
     const kind = el.dataset.expKind || '';
     let show = !allowed || allowed.has(kind);
-    if (kind === 'INFRACCIONES_MELI' && !_isMariano) show = false;
+    if (kind === 'INFRACCIONES_MELI' && !_canReadInfraccionesMeli) show = false;
     el.style.display = show ? '' : 'none';
   });
   document.getElementById('export-modal').classList.add('open');
