@@ -64,6 +64,7 @@ import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import {
   enrichPayloadWithClientVendor,
+  formatAssignedVendorReason,
   resolveClientVendorFromMaster,
 } from './pure/resolve-client-vendor.js';
 import { matchesAllTokens } from './pure/search.js';
@@ -262,6 +263,7 @@ const phase0 = {
     formatWaitlistForConfirm,
     resolveClientVendorFromMaster,
     enrichPayloadWithClientVendor,
+    formatAssignedVendorReason,
     computeCpstRevertPlan,
     sumRevertUnits,
     collectAsigRefsForCancel,

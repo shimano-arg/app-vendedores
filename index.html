@@ -7003,7 +7003,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1407';
+const APP_VERSION = 'v1408';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17471,12 +17471,19 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
 window._resolveClientVendorFromMaster = function(args){
   const pure = window.__phase0 && window.__phase0.pure;
   const fn = pure && pure.resolveClientVendorFromMaster;
-  if (!fn) return { vendorKey: '', vendorUid: '', vendorEmail: '', resolved: false };
+  if (!fn) return { vendorKey: '', vendorUid: '', vendorEmail: '', resolved: false, reason: 'input_vacio' };
+  // v1408 §46: pasar la UNION de users (VDE + VDI + admin + gerente) para
+  // que el lookup de UID funcione para los 4 roles. Antes solo pasaba
+  // vdiPartnerUsers -> VDEs quedaban con vendorUid='' aunque vendorKey OK.
+  const _vde = (typeof vdeUsers !== 'undefined' && vdeUsers) || [];
+  const _vdi = (typeof vdiPartnerUsers !== 'undefined' && vdiPartnerUsers) || [];
+  const _oth = (typeof otherUsers !== 'undefined' && otherUsers) || [];
+  const union = _vde.concat(_vdi).concat(_oth);
   return fn({
     cardCode: (args && args.cardCode) || '',
     clientName: (args && args.clientName) || '',
     points: (typeof POINTS !== 'undefined' && POINTS) || [],
-    vdiPartnerUsers: (typeof vdiPartnerUsers !== 'undefined' && vdiPartnerUsers) || [],
+    users: union,
     getEffectiveVendorForClient:
       (typeof getEffectiveVendorForClient === 'function') ? getEffectiveVendorForClient : undefined,
     sapGetClienteCode:
@@ -31931,6 +31938,12 @@ var plannerDragged = null;  // {id, from} of card being dragged
 var plannerShowClosed = (typeof localStorage !== 'undefined' && localStorage.getItem('plannerShowClosed') === '1');
 let vdiPartnerUsers = []; // usuarios con rol 'interno' (VDIs) para el dropdown
 let otherUsers = []; // usuarios con rol 'admin' u otros -> seccion "Otros"
+// v1408 §46 (2026-10-22): cache de users con role='vendedor' (los VDEs reales:
+// Mauricio Gil, Pachi, Gonzalo, Federico). Antes NO se cargaban -> el helper
+// `_resolveClientVendorFromMaster` no encontraba el UID -> filtro Planner VDE
+// ciego para los 4 VDEs. loadVdiPartnerUsers() ahora los carga en vdeUsers +
+// _resolveClientVendorFromMaster hace lookup en la union [vde, vdi, otros].
+let vdeUsers = [];
 
 function zonasKey(scope, province, locName, clientName){
   if (scope === 'prov') return 'PROV|' + province;
@@ -32041,11 +32054,17 @@ async function loadVdiPartnerUsers(){
   // Carga usuarios para el dropdown del modal Zonas:
   // - role='interno' -> grupo "Vendedores internos (VDI)"
   // - role='admin' -> grupo "Otros"
+  // - role='gerente' -> grupo "Gerentes"
+  // - role='vendedor' -> cache vdeUsers (v1408 §46) para el lookup
+  //   assignedVendorUid de pedidos. NO va al dropdown Zonas (ya se arma
+  //   desde VENDORS/VDE_VENDOR_KEYS); solo se usa para resolver UID por
+  //   vendorKey canonico en _resolveClientVendorFromMaster.
   // Si el displayName del VDI matchea Ioannis/Santiago, usamos el vendor key
   // historico (IOANNIS PALKOUDAKIS / SANTIAGO ESTEBAN) en vez del sintetico
   // VDI_<uid>. Asi las reasignaciones encajan con los POINTS existentes.
   vdiPartnerUsers = [];
   otherUsers = [];
+  vdeUsers = [];
   if (!fbDb || !currentUser) return;
   try {
     const qsi = await fbDb.collection('roles').where('role', '==', 'interno').get();
@@ -32087,8 +32106,48 @@ async function loadVdiPartnerUsers(){
         roleKind: 'gerente',
       });
     });
-    console.log('[Zonas] VDIs:', vdiPartnerUsers.length, 'Otros (admin+gerente):', otherUsers.length);
+    // v1408 §46: VDEs (role='vendedor'). vendorKey viene del campo roles.vendor
+    // (populado al asignar role via admin panel). Sin ese campo no entra en el
+    // lookup del helper -> reason='vendor_sin_uid'.
+    const qsv = await fbDb.collection('roles').where('role', '==', 'vendedor').get();
+    qsv.forEach(d => {
+      const v = d.data() || {};
+      const vendorKey = String(v.vendor || '').trim();
+      if (!vendorKey) return; // user vendedor sin vendor assignado (edge raro).
+      vdeUsers.push({
+        uid: d.id,
+        email: v.email || '',
+        displayName: v.displayName || v.email || d.id,
+        vendorKey: vendorKey,
+      });
+    });
+    console.log('[Zonas] VDIs:', vdiPartnerUsers.length, 'Otros (admin+gerente):', otherUsers.length, 'VDEs:', vdeUsers.length);
   } catch(e) { console.warn('loadVdiPartnerUsers', e); }
+}
+
+// v1408 §46: carga eager de VDEs al login (independiente del modal Zonas) para
+// que `_resolveClientVendorFromMaster` tenga el cache listo apenas se cree una
+// orden. Sin esto, un VDE/admin que cree una orden ANTES de abrir el modal
+// Zonas quedaria con vendorUid='' aunque vendorKey resuelva bien.
+async function ensureVdeUsersLoaded(){
+  if (vdeUsers.length > 0) return;
+  if (!fbDb || !currentUser) return;
+  try {
+    const qsv = await fbDb.collection('roles').where('role', '==', 'vendedor').get();
+    vdeUsers = [];
+    qsv.forEach(d => {
+      const v = d.data() || {};
+      const vendorKey = String(v.vendor || '').trim();
+      if (!vendorKey) return;
+      vdeUsers.push({
+        uid: d.id,
+        email: v.email || '',
+        displayName: v.displayName || v.email || d.id,
+        vendorKey: vendorKey,
+      });
+    });
+    console.log('[v1408] VDEs cargados:', vdeUsers.length);
+  } catch(e) { console.warn('ensureVdeUsersLoaded', e); }
 }
 
 function populateZonasFilters(){
@@ -34157,22 +34216,26 @@ function renderPlannerCard(pedido, column) {
   // (ver pedidos.add() en index.html:16534,16537,16542). El schema `cardName` / `cardCode`
   // / `vendorKey` era de un plan viejo del Planner y nunca fue el nombre real.
   const cliente = escapeHtml(pedido.clientName || pedido.cardName || pedido.clientCardCode || pedido.cardCode || '(sin cliente)');
-  // v1406 §44: el vendedor que se MUESTRA es el del cliente master
-  // (vendorAssigned|assignedVendorKey|ownerVendor). "Cargado por" va como
-  // 2da línea con el email de quien hizo el click. Si no hay vendedor del
-  // cliente master → "sin vendedor" rojo.
+  // v1406 §44 + v1408 §46: el vendedor que se MUESTRA es el del cliente master
+  // (vendorAssigned|assignedVendorKey|ownerVendor). Si no hay vendedor del
+  // cliente master -> "sin vendedor: <motivo>" rojo. Quien cargo la orden se
+  // ve en el MODAL de detalle del pedido (no en la card por pedido Mariano).
   const _vendorKeyRaw = String(
     pedido.vendorAssigned || pedido.assignedVendorKey || pedido.ownerVendor || pedido.vendorKey || ''
   ).trim();
+  const _reasonFmt = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.formatAssignedVendorReason) || null;
+  const _motivo = _reasonFmt && pedido.assignedVendorReason
+    ? _reasonFmt(pedido.assignedVendorReason)
+    : '';
   const vdi = _vendorKeyRaw
     ? escapeHtml(_vendorKeyRaw)
-    : '<span style="color:#dc2626;font-weight:700" title="El cliente no tiene vendedor asignado en el master. Admin/gerente la ven; VDEs no.">sin vendedor</span>';
-  const _cargadoPor = String(
-    pedido.cargadoPorEmail || pedido.ownerDisplayName || pedido.ownerEmail || ''
-  ).trim();
-  const _cargadoPorHtml = (_cargadoPor && _cargadoPor !== _vendorKeyRaw)
-    ? '<div class="planner-card-cargado" style="font-size:10px;color:#8e8e93;margin-top:1px;letter-spacing:-0.01em;">Cargado por: ' + escapeHtml(_cargadoPor) + '</div>'
-    : '';
+    : (
+        '<span style="color:#dc2626;font-weight:700" title="' +
+        escapeHtml(_motivo
+          ? ('El vendedor del cliente no se puede resolver: ' + _motivo + '. Admin/gerente ven la card; VDEs no.')
+          : 'El cliente no tiene vendedor asignado en el master. Admin/gerente la ven; VDEs no.') +
+        '">sin vendedor' + (_motivo ? ': ' + escapeHtml(_motivo) : '') + '</span>'
+      );
   const fecha = _plannerFmtDate(pedido.createdAt || pedido.updatedAt);
   // v???(2026-10-02): badge "📅 <fecha> · <edad>" muestra cuanto hace que el
   // pedido entra a la columna actual. Pure fns en src/pure/planner-column-age.js
@@ -34256,7 +34319,6 @@ function renderPlannerCard(pedido, column) {
       ' onclick="openPlannerCardModal(\'' + escapeHtml(pedido.id) + '\')">' +
       '<div class="planner-card-cliente">' + cliente + '</div>' +
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
-      _cargadoPorHtml +
       _ageBadgeHtml +
       '<div class="planner-card-total">' + escapeHtml(total) + '</div>' +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
@@ -35193,6 +35255,12 @@ function detachFirebaseListeners(){
 function attachFirebaseListeners(){
   if (!currentUser) return;
   detachFirebaseListeners();
+  // v1408 §46: cache eager de VDEs (role='vendedor') para que la resolucion
+  // del vendedor del cliente (`_resolveClientVendorFromMaster`) encuentre el
+  // UID antes de la primera creacion/unificacion de orden. Antes dependia
+  // de abrir el modal Zonas (loadVdiPartnerUsers), que no se ejecuta en el
+  // flow del VDE comun -> vendorUid='' en todos sus pedidos.
+  try { if (typeof ensureVdeUsersLoaded === 'function') ensureVdeUsersLoaded(); } catch(_e){}
   // Iniciar listener de sap_config + auto-send Service Layer al login para
   // admin/gerente. Antes solo se iniciaba al abrir el panel SAP, lo que
   // significaba que el auto-envio no funcionaba a menos que el admin
