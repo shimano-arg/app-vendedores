@@ -92,8 +92,10 @@ export function computeVaASap(pedido) {
   if (!pedido) return null;
   // 1. sapDocTotal real sync-eado desde SAP (fuente autoritativa).
   //    G5.30: Number.isFinite filtra NaN/Infinity por si entra data corrupta.
-  if (Number.isFinite(pedido.sapDocTotal) && pedido.sapDocTotal > 0) {
-    return pedido.sapDocTotal;
+  //    Number() narrow para TS (sapDocTotal es optional).
+  const sapDocTotal = Number(pedido.sapDocTotal);
+  if (Number.isFinite(sapDocTotal) && sapDocTotal > 0) {
+    return sapDocTotal;
   }
   // 2. Compute desde líneas confirmed + discountPct.
   const bruto = sumConfirmedBruto(pedido.lines);
@@ -104,11 +106,13 @@ export function computeVaASap(pedido) {
     return Math.round(neto);
   }
   // 3. Fallback legacy: pedidos pre-stage='confirmed' sin líneas.
-  if (Number.isFinite(pedido.netAmountArs) && pedido.netAmountArs > 0) {
-    return pedido.netAmountArs;
+  const netAmount = Number(pedido.netAmountArs);
+  if (Number.isFinite(netAmount) && netAmount > 0) {
+    return netAmount;
   }
-  if (Number.isFinite(pedido.subtotalArs) && pedido.subtotalArs > 0) {
-    return pedido.subtotalArs;
+  const subtotal = Number(pedido.subtotalArs);
+  if (Number.isFinite(subtotal) && subtotal > 0) {
+    return subtotal;
   }
   return null;
 }
