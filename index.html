@@ -7003,7 +7003,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1408';
+const APP_VERSION = 'v1409';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -16834,8 +16834,21 @@ function _cpstBuildCache(){
   // qtyAsignada=0 en strict mode cuando stock=0).
   /** @type {Record<string, {nombre:string, ciudad:string, provincia:string, vendorKey:string, totalU:number, skus:Record<string, {sku:string, desc:string, qty:number, entries:Array<{pedidoId:string, qty:number, state:string}>}>}>} */
   const mapRaw = {};
+  // v1409 §47 (2026-10-22): paridad total con el modal Stock Asignado principal.
+  // Antes: filtro `p.stage !== 'confirmed'` excluía pedidos sync-SAP con
+  // `stage=undefined` + líneas `state='ASIG' + asigFromReparto=true` (Pablo las
+  // asignó via modal Reparto). El modal principal los incluye desde v1344
+  // (ver src/pure/backorder-sku-map.js:284-291) pero CPST los descartaba.
+  // Caso real BROBRO SA: 51 SKUs/99 u visibles en Stock Asignado pero
+  // invisibles en CPST. Fix: replicar el mismo gate de v1344 acá.
   for (const p of pedidos) {
-    if (!p || p.closedAt || p.stage !== 'confirmed' || !Array.isArray(p.lines)) continue;
+    if (!p || p.closedAt || !Array.isArray(p.lines)) continue;
+    if (p.stage !== 'confirmed') {
+      const _hasRepartoAsig = p.lines.some(
+        (l) => l && l.state === 'ASIG' && l.asigFromReparto && Number(l.qtyOpen) > 0
+      );
+      if (!_hasRepartoAsig) continue;
+    }
     const nombre = String(p.clientName || '').trim();
     if (!nombre) continue;
     const nombreUp = nombre.toUpperCase();
@@ -16845,6 +16858,11 @@ function _cpstBuildCache(){
       if (!l || l.state !== 'ASIG') continue;
       const qo = Number(l.qtyOpen) || 0;
       if (qo <= 0) continue;
+      // v1409 §47: aplicar lineReservesStock (TTL §36/§38) para no incluir
+      // ASIG vencidas. Mismo filtro que el modal principal y que
+      // getStockBreakdown.asignadas (fuente de verdad §39).
+      const _lrs = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.lineReservesStock);
+      if (_lrs && !_lrs(l, Date.now(), p)) continue;
       const skuUp = String(l.code || '').trim().toUpperCase();
       if (!skuUp) continue;
       // v1371: skip si esta ASIG ya tiene un CPST en Lista de Espera.
