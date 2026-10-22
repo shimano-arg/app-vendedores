@@ -6,7 +6,11 @@
  * no-finite devuelve `null`, no "Infinity" o "NaN" en el modal detalle.
  */
 import { describe, expect, it } from 'vitest';
-import { computeVaASap, readDiscountPct, sumConfirmedBruto } from '../../../src/pure/pedido-va-a-sap.js';
+import {
+  computeVaASap,
+  readDiscountPct,
+  sumConfirmedBruto,
+} from '../../../src/pure/pedido-va-a-sap.js';
 
 describe('G5.30 — computeVaASap guards contra NaN/Infinity', () => {
   it('sapDocTotal=Infinity → cae a compute (no retorna Infinity)', () => {

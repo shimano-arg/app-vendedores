@@ -18,7 +18,9 @@ describe('G5.18 — pending globals cleanup en error path', () => {
     const _idx = INDEX_HTML.indexOf("fbDb.collection('pedidos').add(docData).then");
     expect(_idx).toBeGreaterThan(0);
     const snippet = INDEX_HTML.slice(_idx, _idx + 30000);
-    expect(snippet).toMatch(/\.finally\s*\(\s*\(?\s*\)?\s*=>\s*\{[\s\S]*?_pendingPedidoOrderNumber\s*=\s*null/);
+    expect(snippet).toMatch(
+      /\.finally\s*\(\s*\(?\s*\)?\s*=>\s*\{[\s\S]*?_pendingPedidoOrderNumber\s*=\s*null/
+    );
     expect(snippet).toMatch(/_pendingPedidoWaitlistId\s*=\s*null/);
     expect(snippet).toMatch(/_pendingPedidoSource\s*=\s*null/);
     expect(snippet).toMatch(/_pendingPedidoOrigenes\s*=\s*null/);

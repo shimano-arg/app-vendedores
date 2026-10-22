@@ -20,8 +20,8 @@
  */
 import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { lineReservesStock } from '../../../src/pure/stock-realmente-disponible.js';
 import { getStockBreakdown } from '../../../src/pure/stock-breakdown.js';
+import { lineReservesStock } from '../../../src/pure/stock-realmente-disponible.js';
 
 const SKU_POOL = ['SKU-A', 'SKU-B', 'SKU-C'];
 const CARDCODE_POOL = ['C001', 'C002', 'C003', 'C004'];
@@ -37,11 +37,11 @@ const lineArb = fc.record({
   precio: fc.option(fc.integer({ min: 0, max: 10000 }), { nil: undefined }),
   asigAt: fc.option(
     fc.constantFrom(
-      '2026-10-15T10:00:00Z',  // 7d
-      '2026-10-20T10:00:00Z',  // 2d
-      '2026-10-01T10:00:00Z',  // 21d
-      null,
-    ),
+      '2026-10-15T10:00:00Z', // 7d
+      '2026-10-20T10:00:00Z', // 2d
+      '2026-10-01T10:00:00Z', // 21d
+      null
+    )
   ),
 });
 
@@ -67,7 +67,7 @@ describe('Property-based R1 (§40 v1392): BO nunca reserva', () => {
         // §40 invirtió §34: BO NO reserva. Solo ASIG + confirmed + wlCpst reservan.
         return lineReservesStock(line, NOW, pedido) === false;
       }),
-      { numRuns: 300 },
+      { numRuns: 300 }
     );
   });
 
@@ -84,18 +84,14 @@ describe('Property-based R1 (§40 v1392): BO nunca reserva', () => {
     fc.assert(
       fc.property(fisicoArb, fc.array(pedidoArb, { maxLength: 8 }), (fisico, pedidos) => {
         for (const sku of SKU_POOL) {
-          const b = getStockBreakdown(
-            sku,
-            { getStockFisico: () => fisico, pedidos },
-            { now: NOW },
-          );
+          const b = getStockBreakdown(sku, { getStockFisico: () => fisico, pedidos }, { now: NOW });
           // reservadasTotal = min(confirmadas + asignadas, fisico); NUNCA incluye backorderApp.
           const nominal = b.confirmadasSinFacturar.total + b.asignadas.total;
           if (b.reservadasTotal !== Math.min(nominal, fisico)) return false;
         }
         return true;
       }),
-      { numRuns: 100 },
+      { numRuns: 100 }
     );
   });
 });
@@ -105,16 +101,12 @@ describe('Property-based R8 (§39): breakdown invariante suma', () => {
     fc.assert(
       fc.property(fisicoArb, fc.array(pedidoArb, { maxLength: 8 }), (fisico, pedidos) => {
         for (const sku of SKU_POOL) {
-          const b = getStockBreakdown(
-            sku,
-            { getStockFisico: () => fisico, pedidos },
-            { now: NOW },
-          );
+          const b = getStockBreakdown(sku, { getStockFisico: () => fisico, pedidos }, { now: NOW });
           if (b.libre + b.reservadasTotal > fisico) return false;
         }
         return true;
       }),
-      { numRuns: 100 },
+      { numRuns: 100 }
     );
   });
 
@@ -122,16 +114,12 @@ describe('Property-based R8 (§39): breakdown invariante suma', () => {
     fc.assert(
       fc.property(fisicoArb, fc.array(pedidoArb, { maxLength: 8 }), (fisico, pedidos) => {
         for (const sku of SKU_POOL) {
-          const b = getStockBreakdown(
-            sku,
-            { getStockFisico: () => fisico, pedidos },
-            { now: NOW },
-          );
+          const b = getStockBreakdown(sku, { getStockFisico: () => fisico, pedidos }, { now: NOW });
           if (b.libre < 0) return false;
         }
         return true;
       }),
-      { numRuns: 100 },
+      { numRuns: 100 }
     );
   });
 
@@ -139,17 +127,13 @@ describe('Property-based R8 (§39): breakdown invariante suma', () => {
     fc.assert(
       fc.property(fisicoArb, fc.array(pedidoArb, { maxLength: 8 }), (fisico, pedidos) => {
         for (const sku of SKU_POOL) {
-          const b = getStockBreakdown(
-            sku,
-            { getStockFisico: () => fisico, pedidos },
-            { now: NOW },
-          );
+          const b = getStockBreakdown(sku, { getStockFisico: () => fisico, pedidos }, { now: NOW });
           const nominal = b.confirmadasSinFacturar.total + b.asignadas.total;
           if (b.reservadasTotal !== Math.min(nominal, fisico)) return false;
         }
         return true;
       }),
-      { numRuns: 100 },
+      { numRuns: 100 }
     );
   });
 });
@@ -178,16 +162,16 @@ describe('Property-based R10 (§46): utilizablePara nunca excede físico', () =>
             const b = getStockBreakdown(
               sku,
               { getStockFisico: () => fisico, pedidos },
-              { now: NOW },
+              { now: NOW }
             );
             const util = b.utilizablePara(cardCode);
             if (util > fisico) return false;
             if (util < 0) return false;
           }
           return true;
-        },
+        }
       ),
-      { numRuns: 100 },
+      { numRuns: 100 }
     );
   });
 });
@@ -199,7 +183,7 @@ describe('Property-based: estado cancelled/invoiced NO reserva', () => {
         if (line.state !== 'cancelled') return true;
         return lineReservesStock(line, NOW, pedido) === false;
       }),
-      { numRuns: 200 },
+      { numRuns: 200 }
     );
   });
 
@@ -209,7 +193,7 @@ describe('Property-based: estado cancelled/invoiced NO reserva', () => {
         if (line.state !== 'invoiced') return true;
         return lineReservesStock(line, NOW, pedido) === false;
       }),
-      { numRuns: 200 },
+      { numRuns: 200 }
     );
   });
 });

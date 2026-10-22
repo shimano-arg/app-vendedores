@@ -35,10 +35,14 @@ describe('G1.G05 — revertSobreAsignadas idempotent', () => {
       ],
     };
 
-    const breakdown = getStockBreakdown('SKU-A', {
-      getStockFisico: () => 2,
-      pedidos: [pedidoPostRevert],
-    }, { now: Date.parse('2026-10-21T12:00:00Z') });
+    const breakdown = getStockBreakdown(
+      'SKU-A',
+      {
+        getStockFisico: () => 2,
+        pedidos: [pedidoPostRevert],
+      },
+      { now: Date.parse('2026-10-21T12:00:00Z') }
+    );
 
     expect(breakdown.asignadas.total).toBe(2);
     const sobreAsignadas = (breakdown.asignadas.detalle || []).filter((d) => d.sobreAsignada > 0);
@@ -56,10 +60,14 @@ describe('G1.G05 — revertSobreAsignadas idempotent', () => {
       clientName: 'CLIENTE X',
       lines: [{ code: 'SKU-A', state: 'ASIG', qty: 6, qtyOpen: 6, asigAt: '2026-10-20T10:00:00Z' }],
     };
-    const breakdown = getStockBreakdown('SKU-A', {
-      getStockFisico: () => 2,
-      pedidos: [pedidoPreRevert],
-    }, { now: Date.parse('2026-10-21T12:00:00Z') });
+    const breakdown = getStockBreakdown(
+      'SKU-A',
+      {
+        getStockFisico: () => 2,
+        pedidos: [pedidoPreRevert],
+      },
+      { now: Date.parse('2026-10-21T12:00:00Z') }
+    );
     const sobreAsignadas = (breakdown.asignadas.detalle || []).filter((d) => d.sobreAsignada > 0);
     expect(sobreAsignadas).toHaveLength(1);
     expect(sobreAsignadas[0].sobreAsignada).toBe(4);
