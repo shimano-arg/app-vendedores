@@ -1,11 +1,15 @@
-// M — read-only prod: barrido global de pedidos de CUALQUIER origen con
+// M — prod: barrido global de pedidos de CUALQUIER origen con
 // `key` vacía/malformada o `clientName` vacío. No se limita a manual-backorder.
 //
-// Dry-run only. Mariano decide por caso qué hacer.
+// Dry-run por default. --apply backfillea `key` canónica desde campos
+// ya presentes (clientCardCode + province + locName + clientName).
+// Autorizado por Mariano 2026-10-22 audit grises stock v1425.
 //
-// Autorizado por Mariano 2026-10-21.
+// Reversible: SÍ (script inverso setea key=''). key es derivado, no
+// autoritativo. No afecta stock (solo agrupamiento en modal UI).
 
 const PROJECT = 'app-vendedores-shimano';
+const APPLY = process.argv.includes('--apply');
 
 async function main() {
   const admin = require('../../functions/node_modules/firebase-admin');
@@ -76,7 +80,7 @@ async function main() {
   for (const [k, v] of Object.entries(porOrigen)) console.log('  ' + k + ': ' + v);
   console.log();
 
-  console.log('===== DRY-RUN (NO escribe) =====');
+  console.log('===== ' + (APPLY ? 'APPLY' : 'DRY-RUN (NO escribe)') + ' =====');
   for (const r of affected) {
     console.log('pedidos/' + r.pedidoId + ' ORDEN=' + r.orderNumber + ' origen=' + r.origen);
     console.log('  issue=' + r.issue + ' stage=' + r.stage + ' confirmedAt=' + r.confirmedAt);
@@ -90,6 +94,34 @@ async function main() {
       console.log('  → NO backfilleable (requiere identificación manual)');
     }
     console.log('');
+  }
+
+  // APPLY: backfillea key canónica para los que son backfilleables.
+  let applied = 0;
+  let skipped = 0;
+  const errors = [];
+  if (APPLY) {
+    console.log();
+    console.log('===== APLICANDO backfill (' + affected.filter((a) => a.backfillable).length + ' candidates) =====');
+    for (const r of affected) {
+      if (!r.backfillable) { skipped++; continue; }
+      try {
+        await db.collection('pedidos').doc(r.pedidoId).update({
+          key: r.backfillKey,
+          keyBackfilledAt: nowIso,
+          keyBackfilledReason: 'M_backfill_key_canonica_v1425',
+          updatedAt: nowIso,
+        });
+        applied++;
+      } catch (e) {
+        errors.push('pedidos/' + r.pedidoId + ': ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+    console.log('Aplicados: ' + applied + ' | Skipped (no backfilleable): ' + skipped + ' | Errores: ' + errors.length);
+    if (errors.length > 0) {
+      console.log('ERRORES:');
+      for (const e of errors) console.log('  ' + e);
+    }
   }
 
   // Markdown.
