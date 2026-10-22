@@ -52,7 +52,8 @@ async function main() {
       { getStockFisico: () => fisico, pedidos },
       { now: nowMs }
     );
-    const totalSobre = breakdown.asignadas.totalSobreAsignada || 0;
+    // v1403 §40.11: top-level eliminado — sumamos directo desde detalle[].
+    const totalSobre = (breakdown.asignadas.detalle || []).reduce((s, d) => s + (Number(d.sobreAsignada) || 0), 0);
     if (totalSobre <= 0) continue;
     for (const d of breakdown.asignadas.detalle || []) {
       if (d.sobreAsignada <= 0) continue;

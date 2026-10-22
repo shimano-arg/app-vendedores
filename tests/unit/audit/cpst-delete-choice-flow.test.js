@@ -181,12 +181,8 @@ describe('v1398 §40.6 CPST delete-choice flow', () => {
         },
       ],
     };
-    expect(isWaitlistCpst(waitlistUnificada)).toBe(false); // sin source, sin pedidosOrigenes
-    // Nota: el bundle en runtime detecta CPST via source OR pedidosOrigenes.
-    // Las órdenes unificadas tienen items[].asigRefs pero pueden carecer de
-    // pedidosOrigenes al nivel documento → fallback: isCpst se decide también
-    // mirando asigRefs. En producción el flujo abre modal igual porque el
-    // caller detecta source=stock-asignado-batch heredado via mergeLinesFromOrders.
+    // v1404 §42: isWaitlistCpst AHORA detecta por items[].origen (true).
+    expect(isWaitlistCpst(waitlistUnificada)).toBe(true);
     // Lo relevante: collectAsigRefsForCancel debe extraer AMBAS fuentes.
     const refs = collectAsigRefsForCancel(waitlistUnificada);
     expect(refs).toHaveLength(2);

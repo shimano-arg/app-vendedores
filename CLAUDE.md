@@ -1349,3 +1349,64 @@ Caso 597151 BENGOCHEA post-reconcile: `Stock asignado = 2` (no 6). Las 4 unidade
 - Suite completa: 1843 PASS, 0 FAIL.
 
 **Precedente**: `feat-popup-5-lineas-reconcile-sobreasig` 2026-10-21 (v1403). Reporte Mariano: popup 597151 con "Stock asignado 2 no 6" + "la reconciliación revierte el excedente proactivamente, el cliente conserva lugar en cola".
+
+## 42. Un cliente tiene como máximo UNA orden abierta en lista de espera (2026-10-22, v1404)
+
+**Regla fuerte**: `revision_waitlist` admite **a lo sumo UNA orden abierta** (`closedAt==null`, `stage!=consumed`) por cardCode. Aplica a los 3 caminos de carga: manual, Excel, Crear Pedido Desde Stock Asignado (CPST).
+
+**Flow al crear**: antes del `fbDb.collection('revision_waitlist').add/set(payload)`:
+1. Buscar órdenes abiertas del `payload.clientCardCode`.
+2. Si **existe una** → modal `confirm`: "Este cliente ya tiene la ORDEN 445 (3 SKU, 12 unidades, cargada el DD/MM por X). ¿Unificar con esa?" con 2 opciones: **OK = Unificar**, **Cancelar = no crear nada**. **No existe la opción de crear una segunda orden**.
+3. Si **existen varias** (datos previos a §42) → unificar contra la más nueva (`createdAt` DESC) y absorber las demás en el mismo batch (patrón v1382 "Unificar orden").
+
+**Unificación** (reusa `mergeLinesFromOrders`):
+- Las líneas nuevas se agregan a la orden existente sin deduplicar SKUs.
+- Preserva `origen='stock-asignado'` + `asigRefs` por línea (fila azul, badge RESERVADO).
+- Propaga `pedidosOrigenes` con `arrayUnion`-equivalente (dedup por `pedidoId|lineIndex`).
+- `unifiedFrom[]` registra el origen con `source ∈ { 'creacion_manual', 'creacion_excel', 'creacion_cpst', 'unificacion_absorbida' }` + `timestamp` + `by`.
+- La orden existente mantiene su `orderNumber`, `vendorAssigned`, `createdAt` original.
+- Si target no tenía `source` y el incoming es CPST → se hereda `source='stock-asignado-batch'` para read-side legacy.
+- Órdenes absorbidas (`others`) se marcan `stage='consumed'` con `closedReason='unified_into_v42'`, `unifiedInto`, `unifiedIntoOrderNumber`.
+
+**Helper global** `window._createOrUnifyWaitlistPayload(payload, sourceLabel, opts)` en `index.html`:
+- Si no hay órdenes abiertas → crea doc nuevo (con batch externo opcional via `opts.batch`).
+- Si existe → confirm + unificación atómica (batch propio o externo).
+- Devuelve `{ docRef, unified, cancelled, absorbedOrderNumbers, targetOrderNumber }`.
+
+**5 call-sites interceptados** (todos los `revision_waitlist.add/set` del index.html):
+1. `_cpstConfirmar` (línea 17442): CPST. Usa batch externo para preservar atomicidad con reversions ASIG→BO.
+2. `revisionDejarRecalculando` (línea 21758): Excel.
+3. `reviewDejarEnEspera` (línea 25784): Manual (desde modal review).
+4. `volverAListaEspera` (línea 36358): pending → espera.
+5. `enviarBorradorAListaEspera` (línea 36457): borrador → espera.
+
+**Permisos**: quien crea unifica, sin importar quién cargó la orden original. La orden conserva `vendorAssigned`/`ownerVendor` del target; el `unifiedFrom[].by` queda registrado.
+
+**Sidebar/badge CPST** — `isWaitlistCpst(w)` (`src/pure/wl-sidebar-classes.js`) ampliado a 3 fuentes:
+1. `source === 'stock-asignado-batch'`.
+2. `pedidosOrigenes[]` populated.
+3. **v1404 NEW**: `items[].origen === 'stock-asignado'` para al menos una línea.
+
+Resultado: una orden manual que absorbió una línea CPST se marca badge STOCK ASIG + color naranja en el sidebar.
+
+**Datos existentes** (`scripts/audit/P_clientes_multiple_waitlists.cjs` 2026-10-22):
+- 0 clientes con múltiples waitlists abiertas en prod HOY.
+- Script read-only para detectar casos futuros. No unifica automáticamente — el VDE decide al abrir la orden.
+
+**Tests** (`tests/unit/waitlist-unique-per-client.test.js` + `tests/unit/audit/waitlist-unify-flow.test.js`, 15 total):
+- `findOpenWaitlistsForClient`: filtra closedAt, consumed; sort DESC; cardCode vacío.
+- `formatWaitlistForConfirm`: formato con `ORDEN N (N SKU, N unidades, DD/MM por X)`.
+- `isWaitlistCpst` ampliado: detecta por `items[].origen`.
+- Simula flow helper (6 casos pedidos):
+  - T1 manual con orden abierta → unify.
+  - T2 CPST con orden abierta → unify preservando origen+asigRefs.
+  - T3 sin orden abierta → create.
+  - T4 múltiples abiertas → absorbe en más nueva.
+  - T5 Cancelar → no escribe.
+  - T6 sidebar pinta naranja una orden manual con línea CPST absorbida (via `isWaitlistCpst`).
+
+**Suite completa post-v1404**: 1861 PASS, 0 FAIL.
+
+**Rollback**: revertir el helper global + los 5 call-sites a `fbDb.collection('revision_waitlist').add(payload)` directo. Las órdenes ya unificadas quedan como están (no auto-restaurables sin inverse script). CLAUDE.md: dropear §42.
+
+**Precedente**: `feat-waitlist-una-orden-por-cliente` 2026-10-22 (v1404).
