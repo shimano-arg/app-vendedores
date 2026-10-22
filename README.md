@@ -4717,6 +4717,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1405 (2026-10-22) — Contraste WCAG en filas azules del modal Pedido en Espera (§43)
+
+Rama `fix-waitlist-contrast-blue-rows` → `main`.
+
+**Reporte Mariano**: orden 486 ARIEL GUSTAVO ESTEBAN, SKUs SGS80MH2A/SGS90MH2A — filas azules (reservadas con `merge-reservado-imported`) tenían celdas "Libre para la venta" en blanco-sobre-blanco y "Pedido final" en blanco-sobre-amarillo-pálido. Además tooltip de "Pedido final" mostraba `\n` literal.
+
+**Causa**:
+- `td.disp-sap-col { background: var(--color-success-bg) !important }` resuelve a bg transparente en light mode (la var sólo está definida para dark); specificity 0,2,2 ganaba sobre `tr.merge-reservado-imported td { bg:#1e40af !important }` (0,2,1). Fila terminaba con bg transparente heredado del tbody (blanco) + color blanco → ilegible.
+- Para `td.pedido-final-col` cuando la fila es también `.repeat-sku`: `tr.repeat-sku td.pedido-final-col { bg:#fff7ed !important }` (0,3,2) ganaba el azul por specificity + color blanco de la fila → blanco sobre naranja pálido.
+- 3 tooltips (`tdReserv.title`, `tdLibre.title`, `tdFinal.title`) usaban `'\\n'` (2 chars: backslash + n) en vez de `'\n'` (newline real).
+
+**Cambio** (`index.html`):
+- CSS §43 agrega reglas específicas que pisan bg + color en toda combinación `tr.merge-reservado-imported` o `tr.merge-duplicate-reservado` × celda destacada (`disp-sap-col`, `pedido-final-col`) × combinación (`repeat-sku`, `warn-quiebra`, `warn-duplicado`, `exceed`) × pseudo (`hover`, `focus-within`, `highlighted`, `selected`). Specificity target 0,4,2 base y 0,5,2 para combos × hover. Pattern: bg `#1e40af` + color `#ffffff` ambos `!important`.
+- Los 3 tooltips cambiados de `'\\n'` a `'\n'`.
+
+**Tests** (`tests/unit/audit/waitlist-row-contrast.test.js`, 49):
+- Parser CSS con specificity + !important + source-order; resuelve `var()` de light mode (`--color-success-bg` → null); computa cascade por combinación.
+- 40 tests parametrizados (2 filas × 5 combos × 2 cells × 2 pseudos) verifican contraste WCAG ≥ 4.5 + bg esperado `#1e40af` + fg esperado blanco.
+- Test "nunca blanco sobre claro": grep de todas las reglas `#wcard-rows tr.X td { color:#fff !important; background:<X> !important }` + luma check sobre bg declarado.
+- 3 tests tooltip (no `\\n` literal).
+
+**Suite completa post-v1405**: 1910 PASS, 0 FAIL.
+
+APP_VERSION v1404 → v1405. CACHE_VERSION v1404 → v1405.
+
+**Rollback**: revertir CSS §43 + revertir los 3 `\n` a `\\n`. No afecta datos.
+
 ### v1391 (2026-10-21) — Una sola fuente de verdad: getStockBreakdown (FINDING-04)
 
 Loop E0-E5 metodología superpowers (systematic-debugging + writing-plans + TDD + verification-before-completion). Rama `feat-stock-breakdown-unico` → `main`.
