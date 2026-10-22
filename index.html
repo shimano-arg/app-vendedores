@@ -2575,49 +2575,29 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    thead sticky). #wcard-rows pierde la optimizacion de render but gana el
    sticky header funcional. */
 #revision-rows tr{content-visibility:auto;contain-intrinsic-size:auto 40px}
-/* v454: card individual + listado de pedidos en espera. */
-#wcard-rows tr.exceed td{background:#fef2f2;color:var(--color-danger-strong);font-weight:700}
-#wcard-rows tr.exceed td.exc-cell{background:var(--color-danger);color:#fff}
-/* v1298 (2026-10-14): la celda .exc-cell siempre fondo rojo + numeros blancos,
-   gana sobre warn-duplicado, repeat-sku, warn-quiebra. Pedido Mariano:
-   "quiero que los numeros de Backorder Unidades se pinten de blanco". */
+/* v454: card individual + listado de pedidos en espera.
+   v1417 §45.1 (2026-10-22): TODAS las filas con fondo blanco por pedido Mariano.
+   Eliminados backgrounds de fila para tr.exceed/warn-quiebra/warn-duplicado/
+   repeat-sku/merge-imported/merge-duplicate-imported/merge-duplicate-original/
+   no-data. El estado queda en:
+   - Celda roja td.exc-cell (Backorder Unidades, cuando > 0).
+   - Celda celeste tdReserv inline (Reservadas, cuando > 0).
+   - Celda celeste td.pedido-final-col (Pedido Final, siempre).
+   - Celda verde td.disp-sap-col (Libre para la venta, siempre).
+   - Badges inline en celda SKU: .badge-reservado, .badge-de-orden, .badge-duplicado.
+   Las clases JS (exceed, warn-*, repeat-sku, merge-*) siguen activas desde
+   src/pure/unificar-ordenes.js: getRowColorClass() + render warnDuplicado
+   por si otro consumidor (debug, logs, filtros) las necesita identificar.
+   CLAUDE.md §43 (badges), §45 (removí azul reservado), §47 (removí azul rows
+   reservadas) y §45.1 (removí warn+merge backgrounds) documentan el flow. */
+/* Celda roja .exc-cell SIEMPRE con fondo rojo + número blanco cuando hay
+   back order (independiente de la fila). Preservada por pedido Mariano v1298:
+   "los números de Backorder Unidades se pintan de blanco". */
 #wcard-rows tr td.exc-cell{background:var(--color-danger) !important;color:#fff !important;font-weight:800}
-/* v479: SKU pedido >= 80% del Disponible SAP -> amarillo (quebramos stock
-   para el resto de clientes que pidan lo mismo). */
-#wcard-rows tr.warn-quiebra td{background:var(--color-warning-bg);color:#78350f;font-weight:700}
-/* v479: SKU ya esta pedido en SAP Asignado - Con Stock del cliente -> rojo
-   fuerte (evitar duplicar el pedido, el cliente ya tiene esas unidades). */
-#wcard-rows tr.warn-duplicado td{background:#fecaca;color:#7f1d1d;font-weight:800}
-/* v713.1 (2026-08-28): SKU repetido - el mismo cliente ya tiene ese SKU
-   reservado en un pedido anterior (state=BO/ASIG/confirmed open). Naranja
-   suave para llamar la atencion sin bloquear. Prioridad inferior a exceed
-   y warn-duplicado (rojos) porque puede ser intencional (cliente quiere mas). */
-#wcard-rows tr.repeat-sku td{background:#fff7ed;color:#9a3412;font-weight:700}
-#wcard-rows tr.repeat-sku.exceed td, #wcard-rows tr.repeat-sku.warn-duplicado td{
-  background:#fef2f2;
-  color:var(--color-danger-strong);
-}
-/* v1284 (2026-10-20): clases de merge por "Unificar orden".
-   - merge-imported: fila importada de orden vieja (sin duplicado) — AMARILLO #d97706.
-   - merge-duplicate-original: SKU duplicado, fila original del pedido nuevo — ROJO #991b1b.
-   - merge-duplicate-imported: SKU duplicado, fila que vino de orden vieja — AMARILLO #d97706.
-   Prioridad sobre warn-*/exceed porque el merge color es información clave post-unificación. */
-#wcard-rows tr.merge-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
-#wcard-rows tr.merge-duplicate-imported td{background:#d97706 !important;color:#fff !important;font-weight:700}
-#wcard-rows tr.merge-duplicate-original td{background:#991b1b !important;color:#fff !important;font-weight:800}
-/* v1382 (2026-10-20): clases merge-reservado-imported / merge-duplicate-reservado
-   para lineas con origen='stock-asignado' (nacidas desde CPST, directo o via
-   unificacion). Las clases SIGUEN seteandose desde src/pure/unificar-ordenes.js:
-   getRowColorClass() para que la logica JS pueda identificarlas si hace falta,
-   pero v1407 (2026-10-22) QUITA el fondo azul por pedido Mariano: las filas
-   reservadas pasan a fondo claro como las demas. La reserva ya se senaliza con
-   el badge RESERVADO (clase .badge-reservado) junto al SKU y el tooltip de la
-   celda muestra el origen de la unificacion. Si en el futuro se quiere volver
-   al fondo diferenciado, agregar aqui las reglas CSS correspondientes.
-   v1405 §43 reglas eliminadas (ya no hay fondo que contrastar). CLAUDE.md §43
-   y §45 documentan el flow. */
-/* Badge inline que acompaña la fila con reserva (en celda SKU o descripcion). */
+/* Badges inline que acompañan la celda SKU. Señalan estado sin ensuciar la fila. */
 .badge-reservado{display:inline-block;padding:2px 6px;margin-left:4px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
+.badge-de-orden{display:inline-block;padding:2px 6px;margin-left:4px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
+.badge-duplicado{display:inline-block;padding:2px 6px;margin-left:4px;background:#fee2e2;color:#991b1b;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
 /* v1322 (2026-10-15): sticky al nivel de TH individual (más confiable que
@@ -2661,104 +2641,19 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr:focus-within td.pedido-final-col,
 #wcard-rows tr.highlighted td.pedido-final-col,
 #wcard-rows tr.selected td.pedido-final-col{color:#ffffff !important}
-/* v1379 (2026-10-20): fix regresion de v1377. En warning rows (repeat-sku,
-   warn-quiebra, warn-duplicado) el bg de td.disp-sap-col y td.pedido-final-col
-   NO pasa a azul marino en hover — reglas 2663-2672 .CLASS + !important ganan
-   por specificity sobre apple-design.css:5290. Entonces mi texto blanco (v1377)
-   sobre bg claro queda invisible. Override por warning class con el color
-   oscuro acorde. Reporte Mariano 2026-10-20 post-v1377 (ORDEN 448 ADRIAN
-   HORACIO VALIÑA, SKU EXGTVS70MH4AR en repeat-sku con bg naranja pastel). */
-#wcard-rows tr.repeat-sku:hover td.disp-sap-col,
-#wcard-rows tr.repeat-sku:focus-within td.disp-sap-col,
-#wcard-rows tr.repeat-sku.highlighted td.disp-sap-col,
-#wcard-rows tr.repeat-sku.selected td.disp-sap-col,
-#wcard-rows tr.repeat-sku:hover td.disp-sap-col div,
-#wcard-rows tr.repeat-sku:focus-within td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.highlighted td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.selected td.disp-sap-col div,
-#wcard-rows tr.repeat-sku:hover td.pedido-final-col,
-#wcard-rows tr.repeat-sku:focus-within td.pedido-final-col,
-#wcard-rows tr.repeat-sku.highlighted td.pedido-final-col,
-#wcard-rows tr.repeat-sku.selected td.pedido-final-col{color:#9a3412 !important}
-#wcard-rows tr.warn-quiebra:hover td.disp-sap-col,
-#wcard-rows tr.warn-quiebra:focus-within td.disp-sap-col,
-#wcard-rows tr.warn-quiebra.highlighted td.disp-sap-col,
-#wcard-rows tr.warn-quiebra.selected td.disp-sap-col,
-#wcard-rows tr.warn-quiebra:hover td.disp-sap-col div,
-#wcard-rows tr.warn-quiebra:focus-within td.disp-sap-col div,
-#wcard-rows tr.warn-quiebra.highlighted td.disp-sap-col div,
-#wcard-rows tr.warn-quiebra.selected td.disp-sap-col div,
-#wcard-rows tr.warn-quiebra:hover td.pedido-final-col,
-#wcard-rows tr.warn-quiebra:focus-within td.pedido-final-col,
-#wcard-rows tr.warn-quiebra.highlighted td.pedido-final-col,
-#wcard-rows tr.warn-quiebra.selected td.pedido-final-col{color:#78350f !important}
-#wcard-rows tr.warn-duplicado:hover td.disp-sap-col,
-#wcard-rows tr.warn-duplicado:focus-within td.disp-sap-col,
-#wcard-rows tr.warn-duplicado.highlighted td.disp-sap-col,
-#wcard-rows tr.warn-duplicado.selected td.disp-sap-col,
-#wcard-rows tr.warn-duplicado:hover td.disp-sap-col div,
-#wcard-rows tr.warn-duplicado:focus-within td.disp-sap-col div,
-#wcard-rows tr.warn-duplicado.highlighted td.disp-sap-col div,
-#wcard-rows tr.warn-duplicado.selected td.disp-sap-col div,
-#wcard-rows tr.warn-duplicado:hover td.pedido-final-col,
-#wcard-rows tr.warn-duplicado:focus-within td.pedido-final-col,
-#wcard-rows tr.warn-duplicado.highlighted td.pedido-final-col,
-#wcard-rows tr.warn-duplicado.selected td.pedido-final-col{color:#7f1d1d !important}
-/* Combinaciones repeat-sku.exceed y repeat-sku.warn-duplicado tienen bg
-   #fef2f2 (rosa pastel) con !important (regla 2669-2672). Mismo issue. */
-#wcard-rows tr.repeat-sku.exceed:hover td.disp-sap-col,
-#wcard-rows tr.repeat-sku.exceed:focus-within td.disp-sap-col,
-#wcard-rows tr.repeat-sku.exceed.highlighted td.disp-sap-col,
-#wcard-rows tr.repeat-sku.exceed.selected td.disp-sap-col,
-#wcard-rows tr.repeat-sku.exceed:hover td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.exceed:focus-within td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.exceed.highlighted td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.exceed.selected td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.exceed:hover td.pedido-final-col,
-#wcard-rows tr.repeat-sku.exceed:focus-within td.pedido-final-col,
-#wcard-rows tr.repeat-sku.exceed.highlighted td.pedido-final-col,
-#wcard-rows tr.repeat-sku.exceed.selected td.pedido-final-col,
-#wcard-rows tr.repeat-sku.warn-duplicado:hover td.disp-sap-col,
-#wcard-rows tr.repeat-sku.warn-duplicado:focus-within td.disp-sap-col,
-#wcard-rows tr.repeat-sku.warn-duplicado.highlighted td.disp-sap-col,
-#wcard-rows tr.repeat-sku.warn-duplicado.selected td.disp-sap-col,
-#wcard-rows tr.repeat-sku.warn-duplicado:hover td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.warn-duplicado:focus-within td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.warn-duplicado.highlighted td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.warn-duplicado.selected td.disp-sap-col div,
-#wcard-rows tr.repeat-sku.warn-duplicado:hover td.pedido-final-col,
-#wcard-rows tr.repeat-sku.warn-duplicado:focus-within td.pedido-final-col,
-#wcard-rows tr.repeat-sku.warn-duplicado.highlighted td.pedido-final-col,
-#wcard-rows tr.repeat-sku.warn-duplicado.selected td.pedido-final-col{color:var(--color-danger-strong) !important}
+/* v1417 §45.1 (2026-10-22): eliminados los overrides de color por clase
+   warning (repeat-sku, warn-quiebra, warn-duplicado y combos) sobre
+   td.disp-sap-col + td.pedido-final-col. Sin fondo de fila warning no
+   hace falta forzar color específico — queda el hover default blanco de
+   apple-design.css:5290-5299. */
 #wcard-rows tr td.mono{font-family:monospace;font-size:10px;text-align:center}
 #wcard-rows tr td.num{text-align:center;font-weight:600}
 #wcard-rows tr td.left-align{text-align:left}
-#wcard-rows tr.no-data td{background:var(--bg-secondary);color:var(--text-muted);font-style:italic}
-/* v575 (2026-08-21): fondo amarillo pastel en columna Disponible SAP con
-   !important — GANA sobre las reglas de warning (exceed/warn-quiebra/
-   warn-duplicado/no-data) para que la columna clave siempre quede visible
-   sin importar el estado de la fila. Pedido explicito de Mariano. */
+/* v575 (2026-08-21): columnas destacadas de celdas de datos. Siempre con
+   su fondo propio, independiente del estado de la fila (que ahora es
+   blanca sin excepción — ver §45.1). */
 #wcard-rows tr td.disp-sap-col{background:var(--color-success-bg) !important;color:#14532d}
-/* v1125 (2026-10-01): columna Pedido Final — mismo pattern que disp-sap-col
-   pero azul claro #dbeafe. Antes era inline style que no se podia overridear
-   cuando la fila era repeat-sku (naranja pastel) -> amarillo quedaba pisado. */
 #wcard-rows tr td.pedido-final-col{background:#dbeafe}
-/* v1125 (2026-10-01): cuando la fila esta en estado warning (repeat-sku /
-   warn-quiebra / warn-duplicado), el color de la fila GANA sobre las columnas
-   destacadas (disp-sap-col + pedido-final-col). Pedido Mariano: "que el
-   amarillo no quede pisado por otras columnas". Reemplaza el intent de v575
-   solo cuando hay un flag de warning en la fila — si la fila es "normal"
-   (sin repeat/exceed/etc), disp-sap-col sigue en verde. */
-#wcard-rows tr.repeat-sku td.disp-sap-col,
-#wcard-rows tr.repeat-sku td.pedido-final-col{background:#fff7ed !important;color:#9a3412}
-#wcard-rows tr.warn-quiebra td.disp-sap-col,
-#wcard-rows tr.warn-quiebra td.pedido-final-col{background:var(--color-warning-bg) !important;color:#78350f}
-#wcard-rows tr.warn-duplicado td.disp-sap-col,
-#wcard-rows tr.warn-duplicado td.pedido-final-col{background:#fecaca !important;color:#7f1d1d}
-#wcard-rows tr.repeat-sku.exceed td.disp-sap-col,
-#wcard-rows tr.repeat-sku.warn-duplicado td.disp-sap-col,
-#wcard-rows tr.repeat-sku.exceed td.pedido-final-col,
-#wcard-rows tr.repeat-sku.warn-duplicado td.pedido-final-col{background:#fef2f2 !important;color:var(--color-danger-strong)}
 #wcard-rows tr td.chg-neg{color:var(--color-danger);font-weight:700}
 #wcard-rows tr td.chg-pos{color:#059669;font-weight:700}
 #wcard-rows tr td.chg-none{color:var(--text-muted)}
@@ -7082,7 +6977,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1416';
+const APP_VERSION = 'v1417';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24661,20 +24556,48 @@ function _renderWaitlistCard(){
       )).join(' | ');
       tr.title = 'Linea con reserva (RESERVADO). Origen: ' + _refSummary;
     }
-    // v1382: celda SKU con badge "RESERVADO" si la linea tiene origen='stock-asignado'.
-    if (r.origen === 'stock-asignado') {
+    // v1417 §45.1: celda SKU con badges inline (reservado, de orden, duplicado).
+    // Sin fondo de fila (§45.1): el estado se señala con celdas destacadas (Reservadas
+    // celeste, Pedido Final celeste, Backorder Unidades rojo) + estos badges.
+    // Las clases JS de la fila (merge-*, warn-*, repeat-sku) siguen activas por si
+    // otros consumidores las necesitan, pero no afectan el fondo visual.
+    {
       const _tdSku = document.createElement('td');
       _tdSku.className = 'mono';
       const _skuSpan = document.createElement('span');
       _skuSpan.textContent = r.code;
       _tdSku.appendChild(_skuSpan);
-      const _badge = document.createElement('span');
-      _badge.className = 'badge-reservado';
-      _badge.textContent = '🔒 RESERVADO';
-      _tdSku.appendChild(_badge);
+      // Badge RESERVADO (§43): línea con origen='stock-asignado'.
+      if (r.origen === 'stock-asignado') {
+        const _badge = document.createElement('span');
+        _badge.className = 'badge-reservado';
+        _badge.textContent = '🔒 RESERVADO';
+        _tdSku.appendChild(_badge);
+      }
+      // Badge DE ORDEN N: línea importada por unificación (§42 Unificar orden +
+      // §42.2 unificación al review). r.importedFromOrder viene de v1284.
+      if (typeof r.importedFromOrder === 'number' && r.importedFromOrder > 0) {
+        const _badge = document.createElement('span');
+        _badge.className = 'badge-de-orden';
+        _badge.textContent = 'DE ORDEN ' + r.importedFromOrder;
+        _badge.title = 'Línea importada por unificación desde ORDEN ' + r.importedFromOrder + '.';
+        _tdSku.appendChild(_badge);
+      }
+      // Badge DUPLICADO: SKU repetido en el mismo pedido (unificación con
+      // mismo SKU) o duplicación con SAP Asignado (warnDuplicado v479).
+      // _wcardDupSet se computa arriba (línea ~24608) con codes que aparecen 2+ veces.
+      const _codeU = String(r.code || '').toUpperCase();
+      const _isDupCode = _wcardDupSet instanceof Set && _wcardDupSet.has(_codeU);
+      if (_isDupCode || r.warnDuplicado) {
+        const _badge = document.createElement('span');
+        _badge.className = 'badge-duplicado';
+        _badge.textContent = 'DUPLICADO';
+        _badge.title = r.warnDuplicado
+          ? 'El cliente ya tiene este SKU reservado en SAP con stock. Revisá con el cliente antes de pasar a Pendientes.'
+          : 'Este SKU aparece más de una vez en el pedido (unificación o repetición manual). Revisá con el cliente.';
+        _tdSku.appendChild(_badge);
+      }
       tr.appendChild(_tdSku);
-    } else {
-      tr.appendChild(mk(r.code, 'mono'));
     }
     // v817 (2026-09-07): si la desc es "(SKU no encontrado en catalogo)", el
     // producto está en SAP (tiene stock/precio) pero no en PRODUCTS local.
@@ -24865,22 +24788,19 @@ function _renderWaitlistCard(){
       tdLibre.textContent = '-';
     }
     tr.appendChild(tdLibre);
-    // v713.1: Alerta visual cuando el SKU se repite - resaltar fila y marcar summary.
+    // v1417 §45.1: alerta "SKU reservado en pedido anterior" ahora se señala con
+    // un badge PEDIDO ANTERIOR en la celda SKU (no con fondo de fila).
+    // La clase `repeat-sku` sigue aplicándose por si otro consumidor la
+    // necesita, pero sin fondo CSS. Reemplaza el badge ⚠ legacy de v713.1.
     if (yaEnOtroFiltrado.length > 0) {
-      // Agregar clase visual "repeat-sku" para pintar fondo suave anaranjado.
       tr.classList.add('repeat-sku');
-      // Marcar el codigo con un badge.
       const codeTd = tr.firstChild; // primera td es el SKU
       if (codeTd) {
         const badge = document.createElement('span');
-        badge.textContent = ' ';
-        badge.title = 'El cliente ya tiene ' + porCli.reservadasPorCliente + ' u de ' + r.code + ' reservadas en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es). Puede ser duplicado.';
-        badge.style.cssText = 'color:var(--color-warning);font-weight:900;cursor:help';
+        badge.className = 'badge-duplicado';
+        badge.textContent = 'PEDIDO ANTERIOR';
+        badge.title = 'El cliente ya tiene ' + porCli.reservadasPorCliente + ' u de ' + r.code + ' reservadas en ' + yaEnOtroFiltrado.length + ' pedido(s) anterior(es). Confirma con el cliente antes de pasar a Pendientes.';
         codeTd.appendChild(badge);
-        // v1162 (2026-10-06): boton "Fusionar (+N)" REMOVIDO. Separacion de
-        // flows — ASIG viejas se resuelven desde "Crear Pedido - ST" (v1145).
-        // Historia: v714.1 (2026-08-28) agrego el boton. v787 (2026-09-04)
-        // lo gatearon por stock fisico. v1162 lo elimina por simplificacion UX.
       }
     }
     // v467: qty editable inline. Input number con onchange que persiste.
