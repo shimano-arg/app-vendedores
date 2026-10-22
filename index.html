@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1423';
+const APP_VERSION = 'v1424';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10039,22 +10039,20 @@ function openSapAltaInfoModal(fsId){
         // v342+ (2026-07-28): fantasia editable a todos (antes admin/gerente only).
         '<input type="text" id="sai-fantasia-input" value="' + escapeAttr(curFant) + '" placeholder="Ej: PESCAPLAY"' +
           ' style="width:100%;padding:9px 11px;border:1.5px solid var(--border-default);border-radius:6px;font-size:13px;outline:none;margin-bottom:14px"/>' +
-        // v396 (2026-08-04): 3 botones ESTADO solo para LEADs (sin CardCode).
-        // Registra en cual etapa esta el follow-up del vendedor: contactado con
-        // docs enviados / contactado sin docs / lead descartado.
-        (isLead ?
-          '<div style="background:var(--bg-secondary);border:1.5px solid var(--border-subtle);border-radius:8px;padding:10px 12px;margin-bottom:14px">' +
-            '<div style="font-size:11px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Estado del LEAD</div>' +
-            (curLeadEstado ?
-              '<div style="font-size:11px;color:var(--text-primary);margin-bottom:8px">Actual: <b style="color:' + LEAD_ESTADO_COLORS[curLeadEstado] + '">' + LEAD_ESTADO_LABELS[curLeadEstado] + '</b></div>'
-              : '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-style:italic">Sin marcar</div>') +
-            '<div style="display:flex;flex-direction:column;gap:6px">' +
-              '<button onclick="setLeadEstado(\'' + safeFsId + '\',\'contactado_con_doc\')" style="padding:9px 12px;border:none;border-radius:6px;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:left">CONTACTADO - ENVI&Oacute; DOCUMENTACI&Oacute;N</button>' +
-              '<button onclick="setLeadEstado(\'' + safeFsId + '\',\'contactado_sin_doc\')" style="padding:9px 12px;border:none;border-radius:6px;background:var(--color-warning);color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:left">CONTACTADO - SIN DOCUMENTACI&Oacute;N A&Uacute;N</button>' +
-              '<button onclick="setLeadEstado(\'' + safeFsId + '\',\'eliminar\')" style="padding:9px 12px;border:none;border-radius:6px;background:var(--color-danger);color:#fff;font-size:12px;font-weight:700;cursor:pointer;text-align:left">LEAD PARA ELIMINAR</button>' +
-            '</div>' +
-          '</div>'
-          : '') +
+        // v1424 §58 (2026-10-22): bloque "Estado del LEAD" REMOVIDO del modal
+        // por pedido Mariano. El campo `client_applications.leadEstado` +
+        // audits (leadEstadoAt, leadEstadoBy) PERSISTEN en Firestore y los
+        // docs existentes mantienen su historial. La función setLeadEstado +
+        // helpers LEAD_ESTADO_LABELS/COLORS siguen disponibles por compat con
+        // la BigQuery view `vista_client_applications` (JSON_VALUE $.leadEstado
+        // → PowerBI). Si Mariano decide resucitar la UI en el futuro, el
+        // backend está intacto. Precedente: v396 (2026-08-04) introdujo el
+        // bloque + 3 botones (contactado_con_doc / contactado_sin_doc /
+        // eliminar); v1266 removió el badge visual de las cards del sidebar;
+        // v1424 remueve el último punto de edición (este bloque).
+        // isLead flag + curLeadEstado siguen leyéndose arriba sin uso aquí —
+        // los dejamos por si el bloque vuelve. '' marker:
+        '' +
         // Toggle "Cliente con precaucion": SOLO visible para admin/gerente.
         // La info es sensible (mora con otros distribuidores, cheques
         // rechazados) y no queremos que los vendedores vean el motivo o
