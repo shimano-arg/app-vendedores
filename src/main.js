@@ -82,6 +82,10 @@ import {
 import { computeVirtualAsigFifo } from './pure/virtual-asig-fifo.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
+import {
+  findOpenWaitlistsForClient,
+  formatWaitlistForConfirm,
+} from './pure/waitlist-unique-per-client.js';
 import { computeWaitlistCardClasses, isWaitlistCpst } from './pure/wl-sidebar-classes.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
@@ -250,6 +254,8 @@ const phase0 = {
     computeHasExceed,
     computeWaitlistCardClasses,
     isWaitlistCpst,
+    findOpenWaitlistsForClient,
+    formatWaitlistForConfirm,
     computeCpstRevertPlan,
     sumRevertUnits,
     collectAsigRefsForCancel,

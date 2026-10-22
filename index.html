@@ -6999,7 +6999,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1403';
+const APP_VERSION = 'v1404';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17438,6 +17438,157 @@ window._adjustAsigQty = async function(sku, pedidoId, clienteNombre, delta){
 // fue removido junto con el modal. La funcionalidad se cumple ahora con
 // `window._adjustAsigQty` inline en el listado del modal Stock Asignado.
 
+// v1404 §42 (2026-10-22): un cliente tiene como máximo UNA orden abierta en
+// lista de espera. Antes de crear, se chequea si el cliente ya tiene una
+// orden abierta. Si sí, confirm con 2 opciones: "Unificar" (OK) o "Cancelar".
+// No existe la opción de crear una segunda orden.
+//
+// Si hay más de una (datos previos a §42) → unificar contra la más nueva y
+// absorber las demás como fase de "Unificar orden" (v1382 pattern).
+//
+// La unificación reusa mergeLinesFromOrders — líneas no se deduplican SKU,
+// preservan origen/asigRefs/importedFromOrder, y se marca unifiedFrom[] con
+// source ∈ { 'creacion_manual', 'creacion_excel', 'creacion_cpst' }.
+//
+// Retorna { docRef, unified, cancelled, absorbedOrderNumbers }. El caller
+// chequea `cancelled` para abortar su mensaje de éxito.
+//
+// Si `opts.batch` se pasa, las operaciones se agregan al batch externo (sin
+// commit — el caller debe commit). Si no, el helper hace su propio commit.
+//
+// @param {object} payload - mismo shape que iba a `fbDb.collection('revision_waitlist').add(payload)`.
+// @param {'creacion_manual' | 'creacion_excel' | 'creacion_cpst'} sourceLabel
+// @param {{batch?: any}} [opts]
+window._createOrUnifyWaitlistPayload = async function(payload, sourceLabel, opts){
+  const externalBatch = opts && opts.batch;
+  const cardCode = String((payload && payload.clientCardCode) || '').trim();
+  const pure = window.__phase0 && window.__phase0.pure;
+  const findOpen = pure && pure.findOpenWaitlistsForClient;
+  const fmt = pure && pure.formatWaitlistForConfirm;
+  const mergeLines = pure && pure.mergeLinesFromOrders;
+  const buildUnifiedAudit = pure && pure.buildUnifiedFromAudit;
+  const openList = (findOpen && cardCode)
+    ? findOpen(revisionWaitlist || [], cardCode)
+    : [];
+  if (openList.length === 0 || !cardCode) {
+    // Flow normal: crear.
+    if (externalBatch) {
+      const newRef = fbDb.collection('revision_waitlist').doc();
+      externalBatch.set(newRef, payload);
+      return { docRef: newRef, unified: false, cancelled: false, absorbedOrderNumbers: [] };
+    }
+    const docRef = await fbDb.collection('revision_waitlist').add(payload);
+    return { docRef, unified: false, cancelled: false, absorbedOrderNumbers: [] };
+  }
+  const target = openList[0];
+  const others = openList.slice(1);
+  const targetDesc = fmt ? fmt(target) : ('ORDEN ' + (target.orderNumber || '?'));
+  let msg = 'Este cliente ya tiene la ' + targetDesc + ' en lista de espera.\n\n';
+  msg += '¿Unificar con esa?\n\n';
+  msg += 'OK = Unificar (las líneas nuevas se agregan a esa orden; la orden conserva su número, vendedor y fecha original).\n';
+  msg += 'Cancelar = no crear nada.';
+  if (others.length > 0) {
+    msg += '\n\nNota: existen ' + others.length + ' orden(es) abierta(s) adicional(es) del mismo cliente (datos pre-§42). Se absorberán en la unificación.';
+  }
+  if (!confirm(msg)) {
+    return { docRef: null, unified: false, cancelled: true, absorbedOrderNumbers: [] };
+  }
+  // UNIFICAR. mergeLinesFromOrders reusa el pattern v1382.
+  const existingLines = Array.isArray(target.items) ? target.items.slice() : [];
+  const incomingLines = Array.isArray(payload.items) ? payload.items.slice() : [];
+  // Marcar las incoming como importedFromOrder = 0 (pseudo "nueva creación")
+  // Para others: absorber líneas en el merge también.
+  const importedBatches = [{ orderNumber: 0, lines: incomingLines }];
+  for (const o of others) {
+    if (Array.isArray(o.items)) {
+      importedBatches.push({ orderNumber: Number(o.orderNumber) || 0, lines: o.items });
+    }
+  }
+  // mergeLinesFromOrders devuelve { mergedLines, duplicateCodes }; usamos solo mergedLines.
+  const _mergeResult = mergeLines
+    ? mergeLines(existingLines, importedBatches)
+    : null;
+  const mergedLines = _mergeResult
+    ? _mergeResult.mergedLines
+    : existingLines.concat(incomingLines);
+  // pedidosOrigenes: union del target + todos los others + el nuevo.
+  const _origenesACancelar = [];
+  const _seenOrigenes = new Set();
+  const _pushOrigen = (r) => {
+    if (!r || !r.pedidoId) return;
+    const key = r.pedidoId + '|' + (r.lineIndex != null ? r.lineIndex : '');
+    if (_seenOrigenes.has(key)) return;
+    _seenOrigenes.add(key);
+    _origenesACancelar.push(r);
+  };
+  (Array.isArray(target.pedidosOrigenes) ? target.pedidosOrigenes : []).forEach(_pushOrigen);
+  for (const o of others) (Array.isArray(o.pedidosOrigenes) ? o.pedidosOrigenes : []).forEach(_pushOrigen);
+  (Array.isArray(payload.pedidosOrigenes) ? payload.pedidosOrigenes : []).forEach(_pushOrigen);
+  const nowIso = new Date().toISOString();
+  const byUser = (currentUser && (currentUser.email || currentUser.uid)) || '';
+  // unifiedFrom del target: union existing + absorbed.
+  const existingUnifiedFrom = Array.isArray(target.unifiedFrom) ? target.unifiedFrom : [];
+  /** @type {Array<{orderNumber: number, source: string, timestamp: string, by: string}>} */
+  const unifiedFromNew = [];
+  // Entrada por el payload creacion:
+  unifiedFromNew.push({
+    orderNumber: Number(payload.orderNumber) || 0,
+    source: sourceLabel || 'creacion_manual',
+    timestamp: nowIso,
+    by: byUser,
+  });
+  // Entrada por cada orden absorbida:
+  for (const o of others) {
+    unifiedFromNew.push({
+      orderNumber: Number(o.orderNumber) || 0,
+      source: 'unificacion_absorbida',
+      timestamp: nowIso,
+      by: byUser,
+    });
+  }
+  const batch = externalBatch || fbDb.batch();
+  const updatePayload = {
+    items: mergedLines,
+    unifiedFrom: existingUnifiedFrom.concat(unifiedFromNew),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  if (_origenesACancelar.length > 0) {
+    updatePayload.pedidosOrigenes = _origenesACancelar;
+    if (!target.source) updatePayload.source = 'stock-asignado-batch';
+  }
+  const targetRef = fbDb.collection('revision_waitlist').doc(target._id);
+  batch.update(targetRef, updatePayload);
+  // Absorber others: marcar consumed con unifiedInto.
+  for (const o of others) {
+    if (!o || !o._id) continue;
+    batch.update(fbDb.collection('revision_waitlist').doc(o._id), {
+      stage: 'consumed',
+      closedAt: nowIso,
+      closedReason: 'unified_into_v42',
+      unifiedInto: target._id,
+      unifiedIntoOrderNumber: target.orderNumber || null,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+  if (!externalBatch) await batch.commit();
+  try {
+    if (typeof logOp === 'function') logOp('waitlist_unificar_v42', 'revision_waitlist/' + target._id, target.clientName, {
+      cardCode, source: sourceLabel,
+      targetOrderNumber: target.orderNumber,
+      incomingItems: incomingLines.length,
+      absorbedCount: others.length,
+      absorbedOrderNumbers: others.map((o) => o.orderNumber).filter(Boolean),
+    });
+  } catch (_e) {}
+  return {
+    docRef: targetRef,
+    unified: true,
+    cancelled: false,
+    absorbedOrderNumbers: others.map((o) => o.orderNumber).filter(Boolean),
+    targetOrderNumber: target.orderNumber,
+  };
+};
+
 
 window._cpstConfirmar = async function(){
   const c = _cpstSelected;
@@ -17713,8 +17864,14 @@ window._cpstConfirmar = async function(){
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       };
-      waitlistRef = fbDb.collection('revision_waitlist').doc();
-      batch.set(waitlistRef, payload);
+      // v1404 §42: delegamos al helper (recibe batch externo). Si el cliente
+      // ya tiene una orden abierta, el helper abre confirm y hace unify
+      // dentro del mismo batch; si cancela, abortamos todo el flow.
+      const _uniRes = await window._createOrUnifyWaitlistPayload(payload, 'creacion_cpst', { batch });
+      if (_uniRes.cancelled) {
+        throw new Error('Cancelado por el usuario (§42 unificación rechazada).');
+      }
+      waitlistRef = _uniRes.docRef;
     }
     await batch.commit();
     // Optimistic update de revisionWaitlist (solo si se creó).
@@ -21859,7 +22016,15 @@ window.revisionDejarRecalculando = async function(){
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     };
-    const docRef = await fbDb.collection('revision_waitlist').add(payload);
+    // v1404 §42: delegamos al helper. Si el cliente ya tiene una orden abierta,
+    // confirm abre modal; si cancela, abortamos sin crear nada.
+    const _uniRes = await window._createOrUnifyWaitlistPayload(payload, 'creacion_excel');
+    if (_uniRes.cancelled) {
+      btn.disabled = false;
+      btn.textContent = originalTxt;
+      return;
+    }
+    const docRef = _uniRes.docRef;
     // v848 (2026-09-09): si el user subio un Excel, sube los bytes a Storage
     // y guarda el path + name en el doc para que notify_waitlist_new.py lo
     // adjunte al email. Fire-and-forget — no bloquea el flujo si falla.
@@ -25854,12 +26019,16 @@ window.reviewDejarEnEspera = async function(){
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
   try {
-    await fbDb.collection('revision_waitlist').add(payload);
+    // v1404 §42: helper decide create vs unify. Cancel aborta.
+    const _uniRes = await window._createOrUnifyWaitlistPayload(payload, 'creacion_manual');
+    if (_uniRes.cancelled) return;
     // v785 (2026-09-04): persistir datos de entrega como default del cliente
     // igual que en el flow Revision Excel — asi el proximo pedido/waitlist
     // viene precargado sin importar cual de los 2 paths se uso.
     _saveDefaultDeliveryFromWaitlist(currentOrderClient.province, currentOrderClient.locName, currentOrderClient.name, deliveryMethod, deliveryDetails);
-    showSyncTag('Pedido dejado en Espera (ORDEN ' + ordenNum + ')');
+    showSyncTag(_uniRes.unified
+      ? ('Unificado con ORDEN ' + _uniRes.targetOrderNumber)
+      : ('Pedido dejado en Espera (ORDEN ' + ordenNum + ')'));
     // Limpiar el borrador del pedido actual + cerrar review + volver al mapa.
     delete orders[currentOrderKey];
     try { saveOrders(); } catch(e){}
@@ -36353,9 +36522,10 @@ window.volverAListaEspera = async function(){
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
-  // 1) Crear doc en revision_waitlist.
+  // 1) Crear doc en revision_waitlist (v1404 §42: unificar si existe orden abierta).
   try {
-    await fbDb.collection('revision_waitlist').add(payload);
+    const _uniRes = await window._createOrUnifyWaitlistPayload(payload, 'creacion_manual');
+    if (_uniRes.cancelled) return;
   } catch(e) {
     console.error('volverAListaEspera add waitlist', e);
     alert('NO se pudo crear el pedido en la lista de espera: ' + (e.message || e) + '\n\nEl pedido pendiente NO se movio - sigue en Pendientes.');
@@ -36454,7 +36624,9 @@ window.enviarBorradorAListaEspera = async function(){
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
   try {
-    await fbDb.collection('revision_waitlist').add(payload);
+    // v1404 §42: unificar si existe orden abierta.
+    const _uniRes = await window._createOrUnifyWaitlistPayload(payload, 'creacion_manual');
+    if (_uniRes.cancelled) return;
   } catch(e) {
     console.error('enviarBorradorAListaEspera add waitlist', e);
     alert('NO se pudo crear el pedido en la lista de espera: ' + (e.message || e) + '\n\nEl borrador NO se movio - sigue en el modal.');

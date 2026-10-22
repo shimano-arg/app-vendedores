@@ -16,19 +16,27 @@
  */
 
 /**
- * ¿El waitlist viene de "Crear Pedido Desde Stock Asignado"?
+ * ¿El waitlist viene (o contiene línea) de "Crear Pedido Desde Stock Asignado"?
  *
- * Primario: `source === 'stock-asignado-batch'` (escrito en _cpstConfirmar).
- * Fallback: `pedidosOrigenes[]` populated — también se escribe en el write
- * original, útil cuando el cache local trae un snapshot stale sin `source`.
+ * Chequea 3 fuentes (OR):
+ *   1. `source === 'stock-asignado-batch'` (documento nacido como CPST).
+ *   2. `pedidosOrigenes[]` populated (document-level, pattern v1280).
+ *   3. **v1404 §42**: `items[].origen === 'stock-asignado'` (al menos una
+ *      línea importada de ASIG). Una orden manual que absorbió un CPST via
+ *      Unificar se marca igual que una CPST nativa.
  *
- * @param {{ source?: string, pedidosOrigenes?: Array<unknown> } | null | undefined} w
+ * @param {{ source?: string, pedidosOrigenes?: Array<unknown>, items?: Array<{ origen?: string }> } | null | undefined} w
  * @returns {boolean}
  */
 export function isWaitlistCpst(w) {
   if (!w || typeof w !== 'object') return false;
   if (w.source === 'stock-asignado-batch') return true;
   if (Array.isArray(w.pedidosOrigenes) && w.pedidosOrigenes.length > 0) return true;
+  if (Array.isArray(w.items)) {
+    for (const it of w.items) {
+      if (it && it.origen === 'stock-asignado') return true;
+    }
+  }
   return false;
 }
 
