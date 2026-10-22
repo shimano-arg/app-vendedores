@@ -593,14 +593,16 @@ describe('handleAutoSendSap — idempotencia', () => {
     expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_LOCKED);
     expect(deps.sl.fetch).not.toHaveBeenCalled();
   });
-  it('OK: lock EXPIRADO (>5min) — override + envia', async () => {
+  it('OK: lock EXPIRADO (>15min) — override + envia (G1.G15 v1425)', async () => {
     const now = 1700000000000;
     const deps = makeDeps({
       now,
+      // G1.G15: lockTtlMs default subió de 5min a 15min. Un lock de 400000ms
+      // (6.6min) ya NO expira; necesitamos >900000ms (15min) para que override.
       dbDocs: {
         'pedidos/p1': {
           ...validPedido,
-          sendingSapLock: { sessionId: 'stale', at: now - 400000, by: 'stale-user' },
+          sendingSapLock: { sessionId: 'stale', at: now - 1000000, by: 'stale-user' },
         },
       },
     });

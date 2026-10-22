@@ -15,8 +15,8 @@ import { SAP_LOCK_TTL_MS } from '../../src/domains/sap-lock-constants.js';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
 describe('SAP_LOCK_TTL_MS', () => {
-  it('vale 300000 (5 min) — mismo valor que v577 subio el listener tras el incidente Ioannis+Jonatan', () => {
-    expect(SAP_LOCK_TTL_MS).toBe(300000);
+  it('vale 900000 (15 min) — v1425 G1.G15 audit grises (precedente v577 ya era 5min; 2026-10-22 subido a 15min por p99 POST SL)', () => {
+    expect(SAP_LOCK_TTL_MS).toBe(900000);
   });
 
   it('coincide con el default del CF core (functions/core/auto-send-sap-core.js lockTtlMs ?? X)', () => {
