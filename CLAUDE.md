@@ -1410,3 +1410,26 @@ Resultado: una orden manual que absorbió una línea CPST se marca badge STOCK A
 **Rollback**: revertir el helper global + los 5 call-sites a `fbDb.collection('revision_waitlist').add(payload)` directo. Las órdenes ya unificadas quedan como están (no auto-restaurables sin inverse script). CLAUDE.md: dropear §42.
 
 **Precedente**: `feat-waitlist-una-orden-por-cliente` 2026-10-22 (v1404).
+
+## 43. Filas azules del modal #wcard-rows nunca dejan texto blanco sobre fondo claro (2026-10-22, v1405)
+
+**Regla fuerte**: cualquier fila `tr.merge-reservado-imported` o `tr.merge-duplicate-reservado` (líneas con reserva ASIG, color azul por §40.5/§40.6/§42) en el modal "Pedido en Espera" (`#wcard-rows`) tiene que mostrar **todas las celdas con bg azul `#1e40af` + color `#ffffff`**, incluyendo las columnas destacadas `td.disp-sap-col` y `td.pedido-final-col`. Jamás blanco sobre fondo claro.
+
+**Por qué**: dos regresiones recurrentes del CSS cascade:
+
+1. `td.disp-sap-col { background: var(--color-success-bg) !important }` resuelve a `transparent` en light mode (la var sólo está definida para dark). Specificity 0,2,2 gana sobre `tr.merge-reservado-imported td { background:#1e40af !important }` (0,2,1). La fila termina con bg transparente heredado + color blanco → ilegible.
+2. `tr.repeat-sku td.pedido-final-col { background:#fff7ed !important }` (0,3,2) gana por specificity cuando la fila es reservada + repeat-sku; mismo issue con warn-quiebra/warn-duplicado/exceed.
+
+**Fix v1405** (CSS en `index.html` después de las reglas base `tr.merge-reservado-imported td`): regla por combinación con specificity target **0,4,2** base y **0,5,2** para `.X:hover`. Lista exhaustiva de las filas × celdas destacadas × combinaciones (`repeat-sku`, `warn-quiebra`, `warn-duplicado`, `exceed`) × pseudos (`hover`, `focus-within`, `highlighted`, `selected`). Todos los selectores agrupados en un bloque con `background:#1e40af !important; color:#ffffff !important`.
+
+**Test de contraste** (`tests/unit/audit/waitlist-row-contrast.test.js`):
+- Parsea CSS inline + `styles/apple-design.css` + strippa comentarios + resuelve `var()` light mode.
+- Para cada `[rowBase, ...combo] × cell × pseudo` computa el cascade real (specificity + !important + source order) y assert `ratio(bg, fg) >= 4.5`.
+- Test extra "nunca blanco sobre claro": grep de reglas con `color:#fff !important + background:<X> !important` + luma check sobre bg.
+- Tests tooltip: 3 `title` del modal (`tdReserv`, `tdLibre`, `tdFinal`) no contienen `\\n` literal (dos chars) sino `\n` real (newline).
+
+**Si en el futuro agregás una nueva clase destacada con bg propio** (ej. `td.subtotal-col { background:#X !important }`), hay que extender el bloque §43 con las combinaciones `tr.merge-reservado-imported.* td.subtotal-col` + hover/focus/highlighted/selected. El test fallará si olvidás alguna combinación en la que la fila reservada no fuerza bg + color.
+
+**Precaución con tooltips**: usar siempre `'\n'` (1 char, newline real) en `.title` del DOM — nunca `'\\n'` (2 chars, backslash + n). Los browsers respetan newline en el atributo `title` (al menos salto visual); `\\n` literal queda como texto crudo visible en el tooltip.
+
+**Precedente**: `fix-waitlist-contrast-blue-rows` 2026-10-22 (v1405). Reporte Mariano: orden 486 ARIEL GUSTAVO ESTEBAN SGS80MH2A/SGS90MH2A — "Libre" blanco/blanco y "Pedido final" blanco/amarillo pálido + tooltip con `\n` literal. 49 tests nuevos; suite completa 1910 PASS.

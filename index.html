@@ -2612,6 +2612,76 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
      (La original queda con merge-duplicate-original rojo.) */
 #wcard-rows tr.merge-reservado-imported td{background:#1e40af !important;color:#fff !important;font-weight:700}
 #wcard-rows tr.merge-duplicate-reservado td{background:#1e40af !important;color:#fff !important;font-weight:700}
+/* v1405 §43 (2026-10-22): en filas azules reservadas, las columnas destacadas
+   (td.disp-sap-col y td.pedido-final-col) heredan el AZUL + BLANCO en vez de
+   conservar su bg claro (verde/azul-claro/naranja/rojo pastel). Reporte Mariano:
+   ARIEL GUSTAVO ESTEBAN orden 486, SGS80MH2A/SGS90MH2A quedaban con "Libre"
+   blanco-sobre-blanco y "Pedido final" blanco-sobre-amarillo-pálido.
+   Causa pre-fix: td.disp-sap-col fijaba bg --color-success-bg !important y
+   tr.repeat-sku td.disp-sap-col fijaba bg #fff7ed !important ganando por
+   specificity sobre tr.merge-reservado-imported td !important azul. Mismo
+   issue con td.pedido-final-col cuando ademas hay repeat-sku. Fix: regla por
+   combinacion con specificity >= las existentes para pisar bg + color.
+   Specificity target 0,4,2 base y 0,5,2 para repeat-sku/warn-* x hover. */
+#wcard-rows tr.merge-reservado-imported td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported td.disp-sap-col div,
+#wcard-rows tr.merge-reservado-imported td.pedido-final-col div,
+#wcard-rows tr.merge-duplicate-reservado td.disp-sap-col div,
+#wcard-rows tr.merge-duplicate-reservado td.pedido-final-col div,
+#wcard-rows tr.merge-reservado-imported.repeat-sku td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.repeat-sku td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.warn-quiebra td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.warn-quiebra td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.warn-duplicado td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.warn-duplicado td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.exceed td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.exceed td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.repeat-sku td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.repeat-sku td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-quiebra td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-quiebra td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-duplicado td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-duplicado td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.exceed td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.exceed td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported:hover td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported:hover td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported:focus-within td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported:focus-within td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.highlighted td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.highlighted td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.selected td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.selected td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado:hover td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado:hover td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado:focus-within td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado:focus-within td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.highlighted td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.highlighted td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.selected td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.selected td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.repeat-sku:hover td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.repeat-sku:hover td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.warn-quiebra:hover td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.warn-quiebra:hover td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.warn-duplicado:hover td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.warn-duplicado:hover td.pedido-final-col,
+#wcard-rows tr.merge-reservado-imported.exceed:hover td.disp-sap-col,
+#wcard-rows tr.merge-reservado-imported.exceed:hover td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.repeat-sku:hover td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.repeat-sku:hover td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-quiebra:hover td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-quiebra:hover td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-duplicado:hover td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.warn-duplicado:hover td.pedido-final-col,
+#wcard-rows tr.merge-duplicate-reservado.exceed:hover td.disp-sap-col,
+#wcard-rows tr.merge-duplicate-reservado.exceed:hover td.pedido-final-col{
+  background:#1e40af !important;
+  color:#ffffff !important;
+}
 /* Badge inline que acompaña la fila con reserva (en celda SKU o descripcion). */
 .badge-reservado{display:inline-block;padding:2px 6px;margin-left:4px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
 /* v470: celdas centradas por default. */
@@ -6999,7 +7069,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1404';
+const APP_VERSION = 'v1405';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24603,15 +24673,15 @@ function _renderWaitlistCard(){
       const _bk = (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(r.code) : null;
       const _repartoQty = _bk && _bk.repartoAbierto ? _bk.repartoAbierto.qty : 0;
       const _repartoLine = _repartoQty > 0
-        ? ('Reparto abierto: ' + _repartoQty + ' u (no reserva)\\n')
+        ? ('Reparto abierto: ' + _repartoQty + ' u (no reserva)\n')
         : '';
       const _boLine = _bdBO > 0
-        ? ('Back order (no reserva): ' + _bdBO + ' u — cola de clientes esperando\\n')
+        ? ('Back order (no reserva): ' + _bdBO + ' u — cola de clientes esperando\n')
         : '';
-      tdReserv.title = 'Reservadas (§40.1 — solo ASIG + Confirmed): ' + _desgTotal + ' u\\n' +
-        '= Confirmed ' + _bdConfirmed + ' + ASIG ' + _bdASIG + '\\n' +
+      tdReserv.title = 'Reservadas (§40.1 — solo ASIG + Confirmed): ' + _desgTotal + ' u\n' +
+        '= Confirmed ' + _bdConfirmed + ' + ASIG ' + _bdASIG + '\n' +
         _boLine + _repartoLine +
-        (_bdWCPST > 0 ? 'Waitlist CPST (no reserva): ' + _bdWCPST + ' u\\n' : '') +
+        (_bdWCPST > 0 ? 'Waitlist CPST (no reserva): ' + _bdWCPST + ' u\n' : '') +
         'De ESTE cliente: ' + porCli.reservadasPorCliente + ' u · De OTROS: ' + porCli.reservadasPorOtros + ' u';
     }
     tr.appendChild(tdReserv);
@@ -24639,10 +24709,10 @@ function _renderWaitlistCard(){
       const libreVal = r.disponible || 0;
       tdLibre.textContent = String(libreVal);
       tdLibre.style.fontWeight = '700';
-      tdLibre.title = 'Libre para la venta: ' + libreVal + ' u\\n' +
-        '= firmes TUYAS (ASIG+confirmed de ' + (w.clientName || 'este cliente') + ') + sobrante del stock general despues de descontar todas las reservas\\n' +
-        'Stock fisico dep 11: ' + stockDep11Only + '\\n' +
-        'Reservas globales del SKU: confirmed ' + _confN + ' · BO ' + _boN + ' · ASIG ' + _asigN + '\\n' +
+      tdLibre.title = 'Libre para la venta: ' + libreVal + ' u\n' +
+        '= firmes TUYAS (ASIG+confirmed de ' + (w.clientName || 'este cliente') + ') + sobrante del stock general despues de descontar todas las reservas\n' +
+        'Stock fisico dep 11: ' + stockDep11Only + '\n' +
+        'Reservas globales del SKU: confirmed ' + _confN + ' · BO ' + _boN + ' · ASIG ' + _asigN + '\n' +
         'La columna RESERVADAS muestra el agregado del SKU (todos los clientes); LIBRE es especifico para vos.';
     } else {
       tdLibre.textContent = '-';
@@ -24708,7 +24778,7 @@ function _renderWaitlistCard(){
     tdFinal.className = 'num pedido-final-col';
     tdFinal.textContent = r.hasData ? String(pedidoFinal) : '-';
     tdFinal.title = r.hasData
-      ? 'Pedido Final = min(Pedido ' + r.qty + ', Libre ' + r.disponible + ') = ' + pedidoFinal + ' u\\nEs lo que va a SAP como confirmed.'
+      ? 'Pedido Final = min(Pedido ' + r.qty + ', Libre ' + r.disponible + ') = ' + pedidoFinal + ' u\nEs lo que va a SAP como confirmed.'
       : '';
     tdFinal.style.fontWeight = '800';
     // Color muted cuando pedidoFinal=0 o sin datos (info secundaria, no accionable).
