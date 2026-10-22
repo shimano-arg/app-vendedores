@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * v1410 §48 — tests del fix "scroll vertical dentro del modal".
+ * v1411 §49 — tests del fix "scroll vertical dentro del modal".
  *
  * Reporte Mariano: lista de clientes CPST en 1366x768 con 30+ clientes
  * quedaba fuera de pantalla; usuario tenía que hacer zoom-out. Mismo riesgo
@@ -10,7 +10,7 @@
  * Causa: `.modal-overlay` global tiene `padding:20px` (línea 2824). Los
  * modales usaban `height:92vh` o `max-height:92vh` fijo → modal + padding
  * (20+20=40px) excedía el viewport cuando DPI o Chrome chrome reducía
- * viewport efectivo. Fix: regla CSS global v1410 §48 fuerza
+ * viewport efectivo. Fix: regla CSS global v1411 §49 fuerza
  * `max-height: calc(100dvh - 40px)` + `height: calc(100dvh - 40px)`
  * con !important sobre los 7 modales de lista larga.
  */
@@ -40,44 +40,79 @@ const MODALES_LISTA_LARGA = [
   { id: 'estado-modal', label: 'Estado pedidos' },
 ];
 
-describe('v1410 §48 — regla CSS fuerza calc(100dvh - 40px) sobre los 7 modales', () => {
-  it('existe el bloque CSS v1410 §48 con los 7 selectores', () => {
-    // Buscar el bloque que agrupa los 7 selectores + aplica calc(100dvh - 40px).
+describe('v1411 §49 — regla CSS fuerza max-height 90vh + flex column sobre los 7 modales', () => {
+  it('existe el bloque CSS v1411 §49 con los 7 selectores', () => {
     const block = CSS.match(
-      /#crear-pedido-st-modal \.modal-box[,\s\S]*?max-height:\s*calc\(100dvh - 40px\)\s*!important/
+      /#crear-pedido-st-modal \.modal-box[,\s\S]*?max-height:\s*90vh\s*!important/
     );
-    expect(block, 'bloque CSS v1410 §48 no encontrado').toBeTruthy();
+    expect(block, 'bloque CSS v1411 §49 no encontrado').toBeTruthy();
   });
 
   for (const m of MODALES_LISTA_LARGA) {
-    it('selector `#' + m.id + ' .modal-box` presente en el bloque §48 (' + m.label + ')', () => {
+    it('selector `#' + m.id + ' .modal-box` presente en el bloque §49 (' + m.label + ')', () => {
       const re = new RegExp('#' + m.id + '\\s*\\.modal-box');
       expect(CSS).toMatch(re);
     });
   }
 
-  it('la regla usa 100dvh (dynamic viewport), no 100vh', () => {
-    // dvh es más robusto en mobile; en desktop es idéntico a vh.
-    expect(CSS).toMatch(/calc\(100dvh - 40px\)/);
-  });
-
-  it('descuenta exactamente 40px (padding del .modal-overlay)', () => {
-    // 40px = padding:20px × 2 (top + bottom).
-    const overlayPadding = CSS.match(/\.modal-overlay\s*\{[^}]*padding:\s*(\d+)px/);
-    expect(overlayPadding).toBeTruthy();
-    const padding = Number(overlayPadding[1]);
-    expect(padding * 2, 'calc debe descontar 2× padding').toBe(40);
-  });
-
-  it('usa !important para pisar inline styles height:92vh de los modales', () => {
+  it('la regla usa 90vh (lo pedido Mariano explícito)', () => {
     const block = CSS.match(
-      /#crear-pedido-st-modal \.modal-box[\s\S]*?max-height:\s*calc\(100dvh - 40px\)\s*!important/
+      /#crear-pedido-st-modal \.modal-box[\s\S]*?max-height:\s*90vh\s*!important/
     );
-    expect(block[0]).toMatch(/height:\s*calc\(100dvh - 40px\)\s*!important/);
+    expect(block).toBeTruthy();
+  });
+
+  it('tiene height determinada (requerida por flex:1 children)', () => {
+    const block = CSS.match(
+      /#crear-pedido-st-modal \.modal-box[\s\S]{0,500}?height:\s*90vh\s*!important/
+    );
+    expect(block, 'height:90vh !important faltante').toBeTruthy();
+  });
+
+  it('tiene display:flex + flex-direction:column + overflow:hidden forzados', () => {
+    const block = CSS.match(/#crear-pedido-st-modal \.modal-box[\s\S]{0,800}?\}/);
+    expect(block).toBeTruthy();
+    expect(block[0]).toMatch(/display:\s*flex\s*!important/);
+    expect(block[0]).toMatch(/flex-direction:\s*column\s*!important/);
+    expect(block[0]).toMatch(/overflow:\s*hidden\s*!important/);
   });
 });
 
-describe('v1410 §48 — scrollable lists tienen flex column + overflow-y auto', () => {
+describe('v1411 §49 — encabezados y buscadores son flex-shrink:0', () => {
+  it('modal-heads tienen flex-shrink:0 !important', () => {
+    const block = CSS.match(
+      /#crear-pedido-st-modal \.modal-head[\s\S]{0,500}?flex-shrink:\s*0\s*!important/
+    );
+    expect(block, 'regla flex-shrink:0 para modal-heads no encontrada').toBeTruthy();
+  });
+
+  for (const id of ['cpst-search', 'cpst-summary', 'cpst-preview-meta', 'cpst-preview-total']) {
+    it('#' + id + ' tiene flex-shrink:0', () => {
+      // Puede estar en un bloque agrupado — busca el id dentro de un bloque con flex-shrink:0.
+      const blocks = Array.from(CSS.matchAll(/([^{}]+)\{([^}]*)\}/g));
+      const found = blocks.some((m) => m[1].includes('#' + id) && /flex-shrink:\s*0/.test(m[2]));
+      expect(found, 'regla flex-shrink:0 para #' + id + ' no encontrada').toBe(true);
+    });
+  }
+});
+
+describe('v1411 §49 — modal-box CPST NO tiene inline height:92vh (eliminado)', () => {
+  it('inline del modal-box CPST solo tiene width (sin height ni max-height inline)', () => {
+    const match = INDEX_HTML.match(
+      /id="crear-pedido-st-modal"[\s\S]{0,400}?<div class="modal-box"[^>]*style="([^"]*)"/
+    );
+    expect(match, 'modal-box CPST no encontrado').toBeTruthy();
+    const style = match[1];
+    expect(style, 'style inline del modal-box CPST todavía tiene height:92vh').not.toMatch(
+      /height:\s*92vh/
+    );
+    expect(style, 'style inline del modal-box CPST todavía tiene max-height:92vh').not.toMatch(
+      /max-height:\s*92vh/
+    );
+  });
+});
+
+describe('v1411 §49 — scrollable lists tienen flex column + overflow-y auto', () => {
   const LISTS = [
     { id: 'cpst-clientes-list', modal: 'CPST — paso 1 lista clientes' },
     { id: 'cpst-preview-list', modal: 'CPST — paso 2 SKUs del cliente' },
@@ -113,7 +148,7 @@ describe('v1410 §48 — scrollable lists tienen flex column + overflow-y auto',
   }
 });
 
-describe('v1410 §48 — invariantes de estructura (los modales mantienen flex column)', () => {
+describe('v1411 §49 — invariantes de estructura (los modales mantienen flex column)', () => {
   for (const m of MODALES_LISTA_LARGA) {
     it('#' + m.id + ' mantiene display:flex + flex-direction:column (' + m.label + ')', () => {
       const chunk = INDEX_HTML.match(new RegExp('id="' + m.id + '"[\\s\\S]{0,3500}', 'i'));
@@ -136,7 +171,7 @@ describe('v1410 §48 — invariantes de estructura (los modales mantienen flex c
   }
 });
 
-describe('v1410 §48 — simulación 1366x768 con 30 clientes (CPST)', () => {
+describe('v1411 §49 — simulación 1366x768 con 30 clientes (CPST)', () => {
   // Validamos que el modal-box efectivo cabe en 1366x768 con padding del
   // overlay. 100dvh = 768 → calc(100dvh - 40px) = 728px. Cabe exacto.
   const VIEWPORT_H = 768;

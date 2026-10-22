@@ -1679,3 +1679,89 @@ for (const p of pedidos) {
 **Suite completa post-v1410**: 1948 PASS, 0 FAIL.
 
 **Precedente**: `fix-modal-scroll-vertical` 2026-10-22 (v1410). Reporte Mariano con la lista CPST que crecía fuera de pantalla en 1366×768.
+
+## 49. Patrón scroll vertical modales: `height:90vh` + `max-height:90vh` + flex column (2026-10-22, v1411)
+
+**Reemplaza §48**. Mariano reportó post-v1410 que la lista CPST SEGUÍA sin scrollear. Dos causas probables:
+1. SW cache sirviendo HTML v1409 al user (cache HTML viejo).
+2. El `calc(100dvh - 40px)` no era determinante para el flex layout.
+
+**Fix v1411** (reescritura explícita):
+
+```css
+#crear-pedido-st-modal .modal-box,
+#reparto-modal .modal-box,
+#generar-backorder-modal .modal-box,
+#backorders-modal .modal-box,
+#waitlist-card-modal .modal-box,
+#backorders-graficos-modal .modal-box,
+#estado-modal .modal-box {
+  height: 90vh !important;
+  max-height: 90vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+#crear-pedido-st-modal .modal-head,
+#reparto-modal .reparto-apple-head,
+/* ... los 7 ... */ {
+  flex-shrink: 0 !important;
+}
+#cpst-search, #cpst-summary, #cpst-preview-meta, #cpst-preview-total,
+#reparto-search, #reparto-summary,
+#backorders-toolbar, #backorders-summary,
+#gb-cliente, #gb-cliente-meta, #gb-total {
+  flex-shrink: 0 !important;
+}
+#cpst-step-clientes[style*="flex"],
+#cpst-step-preview[style*="flex"] {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+#cpst-clientes-list, #cpst-preview-list,
+#backorders-list, #reparto-list, #gb-lines-list {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+#cpst-step-preview > div:last-child {
+  flex-shrink: 0 !important;
+}
+```
+
+**Decisiones clave**:
+- `height: 90vh` + `max-height: 90vh` fijos **con !important**. `height` determinada es imprescindible — con solo `max-height`, los `flex:1` interiores no reciben altura (flex container se auto-ajusta al min-content). `90vh < viewport por 10% + 40px padding del overlay (= 94.8% para que quepa holgado en 1366×768)` → **nunca** excede viewport.
+- `display:flex + flex-direction:column + overflow:hidden` forzados por `!important` por si CSS Containment (`contain:layout style` del `.modal-box` global) interfiere con otro approach.
+- **Elimina el inline `height:92vh;max-height:92vh`** del modal-box CPST — las reglas CSS son fuente única de verdad. Antes el inline era "redundante" pero contaminaba. Un futuro desarrollador que mire el inline y vea `92vh` se confundía respecto al global `90vh`.
+- Encabezados, buscadores, filtros, totales y footer de botones todos con `flex-shrink: 0 !important`.
+- La lista es el **único** hijo con `flex:1 + overflow-y:auto`.
+- `#cpst-step-clientes[style*="flex"]` matchea solo cuando `display:flex` está activo (vista paso 1). Idem para `step-preview` (vista paso 2). Alternancia display:none / display:flex del inline respetada.
+
+**Service Worker**: `CACHE_VERSION` bumpeada a `v1411`. El `activate` event borra caches `v1410`. Users con HTML viejo recibirán el nuevo al próximo navigate (network-first). **Si el user sigue viendo el bug tras el deploy**: hacer **hard reload** (`Ctrl+Shift+R`) para bypass completo del SW.
+
+**Verificación DOM (DevTools)**:
+1. Inspect `.modal-box` del CPST → Computed → `height` = `691.2px` (= 768 × 0.9) en 1366×768.
+2. Computed → `max-height` = `691.2px`.
+3. Computed → `display` = `flex`, `flex-direction` = `column`, `overflow` = `hidden`.
+4. Inspect `#cpst-clientes-list` → `flex` = `1 1 0px`, `overflow-y` = `auto`.
+5. Rueda del mouse sobre la lista → scrolleo interno sin bubbling.
+
+**Tests** (`tests/unit/audit/modal-scroll-vertical.test.js`, 32):
+- Regla CSS v1411 §49 con `height:90vh !important + max-height:90vh !important` presente para los 7 modales.
+- `display:flex + flex-direction:column + overflow:hidden` forzados con !important.
+- Encabezados y buscadores (modal-heads + cpst-search + cpst-summary + preview-meta + preview-total) con `flex-shrink:0`.
+- Modal-box del CPST NO tiene `height:92vh` ni `max-height:92vh` inline (anti-regresión v1410).
+- Las 5 listas con `flex:1 1 0 + min-height:0 + overflow-y:auto`.
+- Simulación 1366×768 con 21 clientes (caso Mariano): `90vh` = 691.2 px → la lista disponible (~500 px) < 1155 px totales → **scroll funciona**.
+- Simulación con 40 SKUs: idem.
+
+**Si en el futuro el bug reaparece**:
+1. Primero: confirmar que `APP_VERSION` del DOM = versión actual (`document.querySelector('html').outerHTML.includes('v1411')` o la que vigencia).
+2. Si versión vieja: hard reload (`Ctrl+Shift+R`).
+3. Si versión actual pero sigue mal: `getComputedStyle(.modal-box).height` debe ser `691.2px` (= 90vh en 1366×768). Si NO lo es, hay otro CSS sobreescribiendo con mayor specificity + `!important`.
+
+**Precedente**: `fix-cpst-scroll-v2` 2026-10-22 (v1411). Reporte Mariano post-v1410: la lista seguía fuera de pantalla con 21 clientes.

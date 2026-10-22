@@ -4717,6 +4717,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1411 (2026-10-22) — Patrón scroll modales reescrito: 90vh + flex explícito (§49, reemplaza §48)
+
+Rama `fix-cpst-scroll-v2` → `main`.
+
+**Reporte Mariano post-v1410**: la lista CPST (21 clientes) seguía fuera de pantalla; últimos solo visibles con zoom-out.
+
+**Diagnóstico prod post-v1410**:
+- `APP_VERSION` + `CACHE_VERSION` en prod = `v1410` (verificado con `curl`).
+- CSS §48 (`calc(100dvh - 40px) !important`) presente en el HTML prod.
+- Inline del modal-box CPST todavía con `height:92vh;max-height:92vh`.
+- Fix v1410 teóricamente `!important` pisaba el inline, pero el user seguía viendo el bug.
+
+**Hipótesis**: SW cache HTML v1409 persistía en el browser del user, o `calc(100dvh - 40px)` no se evaluaba como `height` determinada para los flex children.
+
+**Fix v1411** (reescritura explícita):
+- CSS §49: `height: 90vh !important` + `max-height: 90vh !important` + `display:flex + flex-direction:column + overflow:hidden !important`.
+- Elimina `height:92vh;max-height:92vh` inline del modal-box CPST → CSS es fuente única.
+- Encabezados, buscadores, filtros, totales y footers con `flex-shrink:0 !important`.
+- Steps CPST con `flex:1 1 0 + display:flex column + overflow:hidden !important`.
+- Lista es el **único** hijo con `flex:1 + overflow-y:auto`.
+- `CACHE_VERSION` bumpea `v1410 → v1411` → forza invalidación del SW cache.
+
+**Tests** (`tests/unit/audit/modal-scroll-vertical.test.js`, 32):
+- Regla CSS §49 presente con `height:90vh + max-height:90vh !important`.
+- `display:flex + flex-direction:column + overflow:hidden` forzados por !important.
+- Encabezados + buscadores con `flex-shrink:0`.
+- Modal-box CPST ya NO tiene `height:92vh` ni `max-height:92vh` inline (anti-regresión).
+- 5 listas con `flex:1 1 0 + min-height:0 + overflow-y:auto`.
+- Simulación 1366×768 con 21 clientes de 55px = 1155 px totales > 500 px disponibles → scroll funciona.
+- Simulación 40 SKUs paso 2 → scroll + botones fijos abajo.
+
+**Suite completa post-v1411**: 1954 PASS, 0 FAIL.
+
+APP_VERSION v1410 → v1411. CACHE_VERSION v1410 → v1411.
+
+**Smoke prod post-deploy**: Mariano confirma hard reload (`Ctrl+Shift+R`) si el bug persiste tras ver "v1411" como versión activa. En DevTools: `getComputedStyle(document.querySelector('#crear-pedido-st-modal .modal-box')).height` debe ser `691.2px` (= 90vh en 1366×768). `#cpst-clientes-list` `overflow-y:auto`.
+
 ### v1410 (2026-10-22) — Scroll vertical interno en modales con lista larga (§48)
 
 Rama `fix-modal-scroll-vertical` → `main`.
