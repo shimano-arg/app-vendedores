@@ -25,27 +25,33 @@
 --   * nro_fiscal           IFNULL(FolNumTo, DocNum). Mismo criterio que Juan.
 --   * nro_fiscal_completo  Formato "00003-00043006" cuando FolioPrefixString esta
 --                          disponible; sino NULL.
---   * costo_finanzas_ars   OITM.AvgPrice × Qty × sign con snapshot semanal del
---                          primer lunes posterior al ultimo dia del mes de
---                          doc_date (criterio Juan). Lee de costo_snapshot_semanal
---                          FILTRANDO cost_source LIKE 'paiva_import%' o
---                          'oitm_avg_price%' (2026-10-23). Los snapshots con
---                          cost_source='sap_items_bike_raw.cost_avg_ars' NO se
---                          usan porque esa fuente es ItemPrices[PriceList=11,
---                          Currency=ARS], no OITM.AvgPrice real: validacion
---                          empirica contra snapshot Paiva sep 2026 dio 0% de
---                          exactos y solo 10% dentro de 1%. Mientras no entre
---                          Paiva nueva (planilla mensual) o AvgPrice confirmado
---                          via SL, costo_finanzas_ars queda NULL para esos
---                          meses. NUNCA se "aproxima" con la lista 11.
---                          2026-10-23 segunda ronda: SL de Shimano tampoco
---                          expone AvgPrice singular (HTTP 400 "Property
---                          'AvgPrice' of 'Item' is invalid", mismo error que
---                          AvgStdPrice). Verificado con
---                          scripts/test_sl_avg_price_singular.py sobre 3 SKUs
---                          (EMFTZ5007428, ESHRX910MCL01S4300S, Y5YC98140).
---                          Carga manual mensual Paiva (planilla Juan) queda
---                          como fuente oficial permanente.
+--   * costo_finanzas_ars   OITM.AvgPrice × Qty × sign.
+--                          Logica (2026-10-24, PR mes abierto):
+--                            * Si el mes de doc_date esta CERRADO (primer lunes
+--                              post fin de mes <= CURRENT_DATE ART), usa el
+--                              snapshot especifico de ese cierre. Si no existe,
+--                              NULL (no se interpola con el mes previo).
+--                            * Si el mes de doc_date esta ABIERTO (primer lunes
+--                              post fin de mes > CURRENT_DATE ART), usa el
+--                              ULTIMO snapshot paiva_import disponible
+--                              (snapshot_week_start <= CURRENT_DATE ART).
+--                          cost_source filtrado a 'paiva_import%' o
+--                          'oitm_avg_price%' en ambos casos.
+--                          Los snapshots con cost_source=
+--                          'sap_items_bike_raw.cost_avg_ars' NO se usan: esa
+--                          fuente es ItemPrices[PriceList=11, Currency=ARS], no
+--                          OITM.AvgPrice (0/1327 exactos vs Paiva sep 2026). SL
+--                          de Shimano tampoco expone AvgPrice (HTTP 400,
+--                          confirmado 2026-10-23 con test_sl_avg_price_singular.py).
+--                          Fuente oficial permanente = planilla manual Juan Paiva.
+--   * costo_finanzas_fuente STRING. cost_source del snapshot usado (ver arriba).
+--                          NULL si no hay snapshot aplicable.
+--   * costo_finanzas_cierre BOOL. TRUE si costo_finanzas_ars viene del snapshot
+--                          de cierre especifico del mes (ya cerrado y con
+--                          planilla cargada). FALSE si es provisorio (mes
+--                          abierto, usando ultimo snapshot disponible). NULL si
+--                          no hay snapshot aplicable (p.ej. ene-ago 2026 sin
+--                          planilla Paiva cargada).
 --
 -- NOTA — `fecha_contable` es un campo DERIVADO (no es la fecha contable de SAP):
 --   * Para FACTURAS: fecha_contable = doc_date (= OINV.DocDate propia).
@@ -86,6 +92,24 @@ sum_lines_per_doc AS (
   FROM invoices_and_cns,
        UNNEST(JSON_EXTRACT_ARRAY(lines_json)) AS ln
   GROUP BY doc_kind, doc_entry
+),
+-- 2026-10-24: Ultimo snapshot paiva_import disponible por item (fallback para
+-- meses abiertos). CURRENT_DATE('America/Argentina/Buenos_Aires') es la cutoff
+-- para evitar tomar snapshots de un mes aun no empezado si en el futuro se
+-- cargan planillas por adelantado.
+latest_paiva_import AS (
+  SELECT item_code, cost_avg_ars, cost_source, snapshot_week_start
+  FROM (
+    SELECT item_code, cost_avg_ars, cost_source, snapshot_week_start,
+      ROW_NUMBER() OVER (
+        PARTITION BY item_code
+        ORDER BY snapshot_week_start DESC
+      ) AS rn
+    FROM `app-vendedores-shimano.shimano_app.costo_snapshot_semanal`
+    WHERE cost_source LIKE 'paiva_import%'
+      AND snapshot_week_start <= CURRENT_DATE('America/Argentina/Buenos_Aires')
+  )
+  WHERE rn = 1
 )
 SELECT
   -- ====== CLAVES ======
@@ -233,15 +257,55 @@ SELECT
       THEN '00003-' || LPAD(CAST(inv.fol_num_to AS STRING), 8, '0')
     ELSE NULL
   END AS nro_fiscal_completo,
-  -- Snapshot OITM.AvgPrice del primer lunes POSTERIOR al ultimo dia del mes de
-  -- doc_date (criterio Juan Paiva). NULL si el snapshot para esa semana todavia
-  -- no se cargo a costo_snapshot_semanal. Usa doc_date (NO fecha_contable; ver
-  -- nota al tope de la vista) para que el agrupamiento mensual coincida con Juan.
+  -- Snapshot OITM.AvgPrice (criterio Juan Paiva). Logica:
+  --   * Mes CERRADO (primer lunes post fin de mes <= CURRENT_DATE ART):
+  --     usa el snapshot de ese cierre (css_cierre). Si no existe, NULL.
+  --   * Mes ABIERTO (primer lunes post fin de mes > CURRENT_DATE ART):
+  --     usa el ultimo snapshot paiva_import disponible (lp).
+  -- Usa doc_date (NO fecha_contable). Ver detalle en cabecera de la vista.
   (
-    css.cost_avg_ars
+    CASE
+      WHEN DATE_ADD(
+            LAST_DAY(inv.doc_date, MONTH),
+            INTERVAL CASE
+              WHEN EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)) = 2 THEN 7
+              ELSE MOD(9 - EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)), 7)
+            END DAY
+          ) <= CURRENT_DATE('America/Argentina/Buenos_Aires')
+        THEN css_cierre.cost_avg_ars
+      ELSE lp.cost_avg_ars
+    END
     * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
     * inv.sign
   ) AS costo_finanzas_ars,
+  -- cost_source del snapshot efectivamente usado. NULL si no hay.
+  CASE
+    WHEN DATE_ADD(
+          LAST_DAY(inv.doc_date, MONTH),
+          INTERVAL CASE
+            WHEN EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)) = 2 THEN 7
+            ELSE MOD(9 - EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)), 7)
+          END DAY
+        ) <= CURRENT_DATE('America/Argentina/Buenos_Aires')
+      THEN css_cierre.cost_source
+    ELSE lp.cost_source
+  END AS costo_finanzas_fuente,
+  -- TRUE = snapshot especifico del cierre (mes cerrado y con planilla cargada).
+  -- FALSE = provisorio (mes abierto, usando ultimo disponible).
+  -- NULL = no hay snapshot aplicable (ni cierre ni fallback).
+  CASE
+    WHEN DATE_ADD(
+          LAST_DAY(inv.doc_date, MONTH),
+          INTERVAL CASE
+            WHEN EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)) = 2 THEN 7
+            ELSE MOD(9 - EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)), 7)
+          END DAY
+        ) <= CURRENT_DATE('America/Argentina/Buenos_Aires')
+      THEN
+        CASE WHEN css_cierre.cost_avg_ars IS NOT NULL THEN TRUE ELSE NULL END
+    ELSE
+      CASE WHEN lp.cost_avg_ars IS NOT NULL THEN FALSE ELSE NULL END
+  END AS costo_finanzas_cierre,
 
   -- ====== METADATA ======
   inv._sync_timestamp                                 -- cuando se sincronizo el raw (ver refresh en CONTRATO_PBI.md)
@@ -277,9 +341,9 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
 --
 -- Resultado: en meses sin planilla Paiva cargada, costo_finanzas_ars queda
 -- NULL. NUNCA se "aproxima" con la lista 11.
-LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css
-  ON css.item_code = JSON_VALUE(line, '$.ItemCode')
-  AND css.snapshot_week_start = DATE_ADD(
+LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css_cierre
+  ON css_cierre.item_code = JSON_VALUE(line, '$.ItemCode')
+  AND css_cierre.snapshot_week_start = DATE_ADD(
     LAST_DAY(inv.doc_date, MONTH),
     INTERVAL CASE
       WHEN EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)) = 2 THEN 7
@@ -287,9 +351,12 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css
     END DAY
   )
   AND (
-    css.cost_source LIKE 'paiva_import%'
-    OR css.cost_source LIKE 'oitm_avg_price%'
+    css_cierre.cost_source LIKE 'paiva_import%'
+    OR css_cierre.cost_source LIKE 'oitm_avg_price%'
   )
+-- 2026-10-24: fallback para mes abierto (ultimo snapshot paiva_import <= today).
+LEFT JOIN latest_paiva_import lp
+  ON lp.item_code = JSON_VALUE(line, '$.ItemCode')
 LEFT JOIN (
   SELECT card_code, item_code, fecha_contab, cantidad, costo_total_paiva_ars
   FROM (
