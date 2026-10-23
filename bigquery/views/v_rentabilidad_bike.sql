@@ -191,13 +191,16 @@ SELECT
   -- IFNULL(FolioNumberTo, DocNum). Para facturas con fiscal AFIP, FolNumTo esta
   -- poblado; sino fallback a doc_num.
   CAST(COALESCE(inv.fol_num_to, inv.doc_num) AS INT64) AS nro_fiscal,
-  -- Formato "00003-00043006" cuando FolioPrefixString + FolioNumberTo estan
-  -- disponibles. En NC/Orders/PO puede ser NULL (no todos tienen folio AFIP).
+  -- Formato "00003-00043006": prefijo PV (5 digitos) + '-' + fol_num_to (8
+  -- digitos). FolioPrefixString viene NULL en SL de Shimano (0/10233 populated,
+  -- verificado 2026-10-23). D4 (2026-10-23 opcion B): hardcode series->prefijo
+  -- validado contra factura impresa.
+  --   series=4 (99.3% facturas) -> '00003' (confirmado Mariano con factura
+  --     impresa).
+  --   series=5 (0.7% facturas)  -> NULL (sin confirmar; pending David).
   CASE
-    WHEN inv.folio_pref IS NOT NULL AND inv.fol_num_to IS NOT NULL
-      THEN LPAD(CAST(inv.folio_pref AS STRING), 5, '0')
-        || '-'
-        || LPAD(CAST(inv.fol_num_to AS STRING), 8, '0')
+    WHEN inv.series = 4 AND inv.fol_num_to IS NOT NULL
+      THEN '00003-' || LPAD(CAST(inv.fol_num_to AS STRING), 8, '0')
     ELSE NULL
   END AS nro_fiscal_completo,
   -- Snapshot OITM.AvgPrice del primer lunes POSTERIOR al ultimo dia del mes de
