@@ -70,7 +70,7 @@ export async function commitPedidoCore(deps, payload) {
   // 1. Validación básica payload.
   const validation = validatePayload(payload);
   if (!validation.ok) {
-    return makeError('VALIDATION_ERROR', validation.message, validation.data);
+    return makeError('VALIDATION_ERROR', validation.message || '', validation.data);
   }
 
   // 2. Chequeo min_app_version.
@@ -136,7 +136,7 @@ export async function commitPedidoCore(deps, payload) {
   while (attempts < MAX_RETRY_ATTEMPTS) {
     attempts++;
     try {
-      const result = await deps.fbDb.runTransaction(async (tx) => {
+      const result = await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
         return commitInTransaction(deps, tx, payload, now, nowIso);
       });
       log('commitPedidoCore OK', { draftId: payload.draftId, attempts, pedidoId: result.pedidoId });
@@ -166,6 +166,11 @@ export async function commitPedidoCore(deps, payload) {
 
 /**
  * Lógica dentro de runTransaction. Throws errores de negocio con _errorCode.
+ * @param {any} deps
+ * @param {any} tx
+ * @param {any} payload
+ * @param {number} now
+ * @param {string} nowIso
  */
 async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // 5.1 Lee stock_snapshot/{SKU} para cada SKU del payload.
@@ -209,8 +214,9 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // En E2 Fase 1 leemos TODOS los pedidos abiertos (como hace el trigger existente).
   // En Fase 2 se puede optimizar con query por SKU + index.
   const pedidosSnap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
+  /** @type {any[]} */
   const pedidos = [];
-  pedidosSnap.forEach((d) => {
+  pedidosSnap.forEach((/** @type {any} */ d) => {
     pedidos.push({ _fsId: d.id, ...d.data() });
   });
 
@@ -219,8 +225,9 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     .collection('ingresos_reparto')
     .where('status', 'in', ['pending', 'in_progress'])
     .get();
+  /** @type {any[]} */
   const repartosActivos = [];
-  repartoActiveSnap.forEach((d) => repartosActivos.push({ _fsId: d.id, ...d.data() }));
+  repartoActiveSnap.forEach((/** @type {any} */ d) => repartosActivos.push({ _fsId: d.id, ...d.data() }));
 
   // 5.6 Compute breakdown por SKU + decide por línea.
   /** @type {Array<any>} */
@@ -241,7 +248,7 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
         getStockFisico: () => fisicoDep11,
         getStockTransito: () => transitoDep12,
         pedidos,
-        repartos: repartosActivos,
+        ingresosRepartoActivos: repartosActivos,
       },
       { now }
     );
@@ -334,6 +341,11 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
 
 /**
  * Cancela las ASIG originales referenciadas en el payload (origen='cpst').
+ * @param {any} deps
+ * @param {any} tx
+ * @param {any} payload
+ * @param {string} newPedidoId
+ * @param {string} nowIso
  */
 async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIso) {
   /** @type {Map<string, Array<any>>} */
@@ -343,7 +355,8 @@ async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIs
     for (const r of l.asigRefs) {
       if (!r || !r.pedidoId) continue;
       if (!refsByPedido.has(r.pedidoId)) refsByPedido.set(r.pedidoId, []);
-      refsByPedido.get(r.pedidoId).push(r);
+      const arr = /** @type {any[]} */ (refsByPedido.get(r.pedidoId));
+      if (arr) arr.push(r);
     }
   }
   for (const [pedidoOrigenId, refs] of refsByPedido) {
@@ -351,7 +364,7 @@ async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIs
     const snap = await tx.get(refDoc);
     if (!snap.exists) continue;
     const data = snap.data() || {};
-    const newLines = Array.isArray(data.lines) ? data.lines.map((l) => ({ ...l })) : [];
+    const newLines = Array.isArray(data.lines) ? data.lines.map((/** @type {any} */ l) => ({ ...l })) : [];
     for (const r of refs) {
       const li = Number(r.lineIndex);
       if (!newLines[li]) continue;
@@ -373,6 +386,7 @@ async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIs
 /**
  * Build pedido doc data.
  */
+/** @param {any} payload @param {any[]} docLines @param {string} nowIso @param {any} deps */
 function buildPedidoDocData(payload, docLines, nowIso, deps) {
   const FieldValue = deps.FieldValue || null;
   const base = {
@@ -407,6 +421,7 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
   return base;
 }
 
+/** @param {any[]} lines */
 function computeNetAmount(lines) {
   let s = 0;
   for (const l of lines) {
@@ -416,12 +431,13 @@ function computeNetAmount(lines) {
   return s;
 }
 
+/** @param {any[]} lineasResultado @param {any} payload */
 function computeDiffVsClient(lineasResultado, payload) {
   // Simple: si alguna línea tiene qtyBO > 0 vs lo que cliente mostraba.
   // Para E2 Fase 1 solo marcamos si hubo back order inesperado.
   const changed = [];
   for (const l of lineasResultado) {
-    const original = payload.lines.find((p) => String(p.sku).toUpperCase() === l.sku);
+    const original = payload.lines.find((/** @type {any} */ p) => String(p.sku).toUpperCase() === l.sku);
     if (!original) continue;
     if (l.qtyBO > 0) {
       changed.push({
@@ -440,6 +456,7 @@ function computeDiffVsClient(lineasResultado, payload) {
   };
 }
 
+/** @param {any} payload */
 function validatePayload(payload) {
   if (!payload || typeof payload !== 'object') {
     return { ok: false, message: 'payload vacío', data: null };
@@ -472,6 +489,7 @@ function validatePayload(payload) {
   return { ok: true };
 }
 
+/** @param {string} a @param {string} b */
 function isVersionLessThan(a, b) {
   // Simplicfied: 'v1430' < 'v1500'. Spliteá por 'v' + number compare.
   const na = Number(String(a).replace(/^v/, '')) || 0;
@@ -479,6 +497,7 @@ function isVersionLessThan(a, b) {
   return na < nb;
 }
 
+/** @param {any} deps @param {string} draftId */
 async function findExistingByDraftId(deps, draftId) {
   if (!draftId) return null;
   const q = await deps.fbDb.collection('pedidos').where('_draftId', '==', draftId).limit(1).get();
@@ -487,6 +506,7 @@ async function findExistingByDraftId(deps, draftId) {
   return { id: doc.id, data: doc.data() };
 }
 
+/** @param {any} pedidoData */
 function deriveLinesFromExisting(pedidoData) {
   const result = [];
   const linesByCode = new Map();
@@ -510,6 +530,7 @@ function deriveLinesFromExisting(pedidoData) {
   return result;
 }
 
+/** @param {any} deps @param {string} cardCode */
 async function findOpenWaitlistForClient(deps, cardCode) {
   if (!cardCode) return null;
   const q = await deps.fbDb
@@ -526,6 +547,7 @@ async function findOpenWaitlistForClient(deps, cardCode) {
   return null;
 }
 
+/** @param {string} code @param {string} message @param {any} [data] */
 function throwError(code, message, data) {
   const e = new Error(message);
   /** @type {any} */ (e)._errorCode = code;
@@ -533,6 +555,7 @@ function throwError(code, message, data) {
   throw e;
 }
 
+/** @param {string} code @param {string} message @param {any} [data] */
 function makeError(code, message, data) {
   return { ok: false, errorCode: code, message, data: data || {} };
 }

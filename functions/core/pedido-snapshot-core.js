@@ -597,6 +597,11 @@ async function writePerSkuShadowSnapshot(deps, perSku, nowIso) {
   return { written };
 }
 
+/**
+ * @param {SnapshotDeps} deps
+ * @param {string} snapshotDocPath
+ * @param {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>} perSku
+ */
 async function writeSnapshot(deps, snapshotDocPath, perSku) {
   if (!perSku.size) return;
   // v554+ (bugfix): NO usar `set({field: {}}, {merge: true})` con maps vacios
@@ -680,7 +685,7 @@ async function writeSnapshot(deps, snapshotDocPath, perSku) {
  * Recalcula el snapshot app-source para los SKUs afectados.
  * @param {SnapshotDeps} deps
  * @param {Set<string>} affectedSkus
- * @returns {Promise<{mode: 'shadow'|'active', skusRecalculated: number, snapshotDoc: string, totals: Record<string, {bo: number, asig: number}>}>}
+ * @returns {Promise<{mode: 'shadow'|'active', skusRecalculated: number, snapshotDoc: string, totals: Record<string, {bo: number, asig: number}>, perSkuShadowWritten?: number}>}
  */
 export async function recalcSnapshotForSkus(deps, affectedSkus) {
   const log = deps.log || (() => {});
