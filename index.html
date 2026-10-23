@@ -17692,6 +17692,12 @@ window._tryCommitPedidoCF = async function(docData){
     formaEntrega: docData.formaEntrega || null,
     condicionPago: docData.condicionPago || '',
     observaciones: docData.observaciones || '',
+    // §57 (2026-10-23): pasa `waitlistOrigenId` para que la CF excluya la
+    // propia waitlist del chequeo CLIENT_HAS_OPEN_WAITLIST y la marque
+    // `stage='consumed'` dentro de la misma transacción. Antes el cliente lo
+    // hacía POST pedidos.add → carrera que disparaba false positive 23/10 11:37.
+    // El cliente ya persistía este campo en docData.waitlistOrigenId (v1058).
+    waitlistOrigenId: docData.waitlistOrigenId || null,
   };
 
   const callable = firebase.app().functions('southamerica-east1').httpsCallable('commitPedidoCF');
@@ -36391,7 +36397,9 @@ window.doConfirmPedido = async function(){
         }
       });
       // Flow continúa como si .add() hubiera retornado — pero el CF ya hizo
-      // casi todo (crear pedido + cancel ASIG si cpst). Solo falta pending[].push + rerender.
+      // casi todo (crear pedido + cancel ASIG si cpst + §57 marcar waitlist
+      // origen consumed/closedAt dentro de la misma transacción). Solo falta
+      // pending[].push + rerender.
       try {
         if (!pending[currentOrderKey]) pending[currentOrderKey] = [];
         pending[currentOrderKey].push({ _fsId: _commitCfResult.pedidoId, month: monthLabel, monthIdx: mesIdx, year: parseInt(anio), confirmedAt: docData.confirmedAt, lines: docData.lines });
@@ -36400,6 +36408,18 @@ window.doConfirmPedido = async function(){
         saveOrders();
         if (typeof renderPedidosTab === 'function') renderPedidosTab();
       } catch(_e){ console.warn('post-commitCF local update', _e); }
+      // §57 (2026-10-23): best-effort DELETE del doc revision_waitlist si el
+      // pedido venia de una (CF ya la marco consumed+closedAt dentro de la
+      // misma transaccion, el listener sidebar la esconde por filter stage!=
+      // consumed). El delete limpia el doc fisicamente para que no acumule
+      // historia muerta en Firestore. Non-fatal: si falla, el update ya
+      // persistio con closedReason='consumed_by_commitPedidoCF'.
+      const _wlIdPostCF = docData.waitlistOrigenId || window._pendingPedidoWaitlistId || null;
+      if (_wlIdPostCF && typeof fbDb !== 'undefined' && fbDb) {
+        fbDb.collection('revision_waitlist').doc(_wlIdPostCF).delete().catch((_e) => {
+          console.warn('[§57] delete waitlist origen post-CF fallo (no bloquea, update ya persistio):', _e && _e.message);
+        });
+      }
       // Reset globals (igual que el flow legacy).
       window._pendingPedidoOrderNumber = null;
       window._pendingPedidoWaitlistId = null;
@@ -36419,7 +36439,21 @@ window.doConfirmPedido = async function(){
       if (code === 'VERSION_OLD') {
         if (confirm(msg + '\n\nActualizar la app ahora?')) location.reload();
       } else if (code === 'CLIENT_HAS_OPEN_WAITLIST') {
-        alert(msg + '\n\nEl cliente ya tiene una orden abierta en lista de espera.');
+        // §57 (2026-10-23): mensaje ya está en `msg` desde el CF (lo trae en
+        // `_commitCfResult.message`). Antes concatenábamos un texto adicional
+        // casi idéntico → línea repetida en el alert.
+        //
+        // CF ya excluye la waitlist origen (payload.waitlistOrigenId); si
+        // llegamos acá es porque hay OTRA orden abierta ajena. El guard
+        // informativo del cliente (§42.2 en pedidos-modal) debería haberla
+        // ofrecido unificar antes de llegar a la CF.
+        const _data = _commitCfResult.data || {};
+        let _detalle = '';
+        if (_data.orderNumber) {
+          _detalle = '\n\nOrden conflictiva: ORDEN ' + _data.orderNumber;
+          if (_data.waitlistId) _detalle += ' (' + _data.waitlistId + ')';
+        }
+        alert(msg + _detalle);
       } else if (code === 'STOCK_CHANGED') {
         // Permitir reintentar aceptando el diff.
         if (confirm(msg + '\n\n¿Confirmar con back order?')) {

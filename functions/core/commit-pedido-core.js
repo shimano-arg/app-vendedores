@@ -52,6 +52,7 @@
  */
 
 import { getStockBreakdown, lineReservesStock } from './pedido-snapshot-core.js';
+import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 
 const SNAPSHOT_MAX_AGE_MS = 45 * 60 * 1000; // 45 min
 const MAX_RETRY_ATTEMPTS = 5;
@@ -129,23 +130,51 @@ export async function commitPedidoCore(deps, payload) {
     };
   }
 
-  // 4. CLIENT_HAS_OPEN_WAITLIST check (§42).
-  // Para origen != 'cpst' validamos que el cliente no tenga waitlist abierto.
-  if (payload.origen !== 'cpst') {
-    const existingWaitlist = await findOpenWaitlistForClient(deps, payload.cardCode);
-    if (existingWaitlist) {
-      return makeError(
-        'CLIENT_HAS_OPEN_WAITLIST',
-        'El cliente ya tiene una orden abierta en lista de espera',
-        {
-          waitlistId: existingWaitlist.id,
-          orderNumber: existingWaitlist.data.orderNumber || null,
-          items: Array.isArray(existingWaitlist.data.items)
-            ? existingWaitlist.data.items.length
-            : 0,
-        }
-      );
-    }
+  // 4. CLIENT_HAS_OPEN_WAITLIST check (§42) + §57 exclude self.
+  //
+  // §57 (2026-10-23) — hotfix root cause reporte 23/10 11:37: la CF
+  // devolvía CLIENT_HAS_OPEN_WAITLIST sobre la propia waitlist que originó
+  // el pedido (todavía abierta porque el cliente la marcaba `stage='consumed'`
+  // POST `pedidos.add` legacy). Fix:
+  //  (a) Si el pedido nace de waitlist (`origen='cpst'` siempre; manual/excel
+  //      con `waitlistOrigenId` explícito desde la UI waitlist→pending flow),
+  //      excluir ese ID del chequeo.
+  //  (b) `origen='cpst'` SIN `waitlistOrigenId` es error del cliente
+  //      (nunca adivinar).
+  //  (c) `origen='manual'/'excel'` SIN `waitlistOrigenId` sigue el chequeo
+  //      histórico (pedido directo, cualquier waitlist abierta ajena bloquea).
+  //
+  // La waitlist origen se marca `stage='consumed'` dentro del `runTransaction`
+  // (ver `commitInTransaction`), no desde el cliente.
+  const waitlistOrigenId = payload.waitlistOrigenId || null;
+  if (payload.origen === 'cpst' && !waitlistOrigenId) {
+    return makeError(
+      'VALIDATION_ERROR',
+      'cpst requiere waitlistOrigenId (la waitlist que originó el pedido)',
+      { field: 'waitlistOrigenId' }
+    );
+  }
+  // Para pedidos directos (manual/excel sin waitlistOrigenId) o pedidos que
+  // nacen de waitlist (cpst, o manual/excel con waitlistOrigenId): aplicar
+  // el check SIEMPRE excluyendo la propia waitlist cuando corresponde.
+  // §42 permite a lo sumo UNA orden abierta por cliente; si el pedido viene
+  // de esa única orden, el check debe ignorarla.
+  const openWaitlists = await findOpenWaitlistsForClientExcludingSelf(
+    deps,
+    payload.cardCode,
+    waitlistOrigenId
+  );
+  if (openWaitlists.length > 0) {
+    const first = openWaitlists[0];
+    return makeError(
+      'CLIENT_HAS_OPEN_WAITLIST',
+      'El cliente ya tiene una orden abierta en lista de espera',
+      {
+        waitlistId: first._id,
+        orderNumber: first.orderNumber || null,
+        items: Array.isArray(first.items) ? first.items.length : 0,
+      }
+    );
   }
 
   // 5. runTransaction atómica.
@@ -350,6 +379,32 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     await cancelAsigRefsInTransaction(deps, tx, payload, pedidoRef.id, nowIso);
   }
 
+  // 5.10 §57 (2026-10-23) — marcar waitlist origen `stage='consumed'` + `closedAt`
+  // DENTRO de la misma transacción. Antes el cliente lo hacía POST
+  // `pedidos.add` → ventana de carrera donde la CF (en el mismo tick de
+  // Firestore) encontraba la waitlist "aún abierta" y disparaba
+  // CLIENT_HAS_OPEN_WAITLIST sobre sí misma. Fix: aquí.
+  //
+  // Idempotente: si ya está consumed por un reintento post-hoc, update
+  // sobrescribe los mismos campos (noop semántico).
+  if (payload.waitlistOrigenId) {
+    const wlRef = deps.fbDb.collection('revision_waitlist').doc(payload.waitlistOrigenId);
+    const wlSnap = await tx.get(wlRef);
+    if (wlSnap.exists) {
+      tx.update(wlRef, {
+        stage: 'consumed',
+        consumedByPedidoId: pedidoRef.id,
+        consumedAt: nowIso,
+        closedAt: nowIso,
+        closedReason: 'consumed_by_commitPedidoCF',
+        updatedAt: nowIso,
+      });
+    }
+    // Si no existe (edge case: la waitlist fue borrada entre la UI y la CF),
+    // no bloqueamos — el pedido ya se persistió. El cliente puede detectarlo
+    // por metadata del response si fuera necesario.
+  }
+
   return {
     ok: true,
     pedidoId: pedidoRef.id,
@@ -439,6 +494,10 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
     ownerVendor: payload.ownerVendor || null,
     cargadoPorUid: payload.ownerUid || null,
     cargadoPorEmail: payload.ownerEmail || null,
+    // §57 (2026-10-23): preserva link al waitlist origen para auditoría +
+    // consumers legacy (bloque v1058 que ya persistía `waitlistOrigenId`
+    // desde el cliente). CF ahora es la autoridad.
+    waitlistOrigenId: payload.waitlistOrigenId || null,
   };
   return base;
 }
@@ -510,6 +569,17 @@ function validatePayload(payload) {
   if (!payload.clientVersion || typeof payload.clientVersion !== 'string') {
     return { ok: false, message: 'clientVersion requerido', data: { field: 'clientVersion' } };
   }
+  // §57 (2026-10-23): waitlistOrigenId es opcional pero si viene DEBE ser
+  // string no-vacío. Permite null/undefined para pedidos directos.
+  if (payload.waitlistOrigenId !== undefined && payload.waitlistOrigenId !== null) {
+    if (typeof payload.waitlistOrigenId !== 'string' || !payload.waitlistOrigenId.trim()) {
+      return {
+        ok: false,
+        message: 'waitlistOrigenId debe ser string no-vacío si viene',
+        data: { field: 'waitlistOrigenId' },
+      };
+    }
+  }
   return { ok: true };
 }
 
@@ -554,21 +624,30 @@ function deriveLinesFromExisting(pedidoData) {
   return result;
 }
 
-/** @param {any} deps @param {string} cardCode */
-async function findOpenWaitlistForClient(deps, cardCode) {
-  if (!cardCode) return null;
+/**
+ * §57: delega al pure helper después de leer de Firestore. Lee TODAS las
+ * waitlists del cliente (sin filtro de `closedAt` para capturar también los
+ * documentos recientes con escritura optimistic). La función pura filtra
+ * los campos relevantes.
+ *
+ * @param {any} deps
+ * @param {string} cardCode
+ * @param {string | null | undefined} excludeWaitlistId
+ * @returns {Promise<Array<any>>} Waitlists abiertas filtradas (sin la de origen).
+ */
+async function findOpenWaitlistsForClientExcludingSelf(deps, cardCode, excludeWaitlistId) {
+  if (!cardCode) return [];
   const q = await deps.fbDb
     .collection('revision_waitlist')
     .where('clientCardCode', '==', cardCode)
     .get();
-  if (q.empty) return null;
-  for (const doc of q.docs) {
-    const data = doc.data();
-    if (data.closedAt) continue;
-    if (data.stage === 'consumed') continue;
-    return { id: doc.id, data };
-  }
-  return null;
+  if (q.empty) return [];
+  /** @type {Array<any>} */
+  const docs = [];
+  q.forEach((/** @type {any} */ d) => {
+    docs.push({ _id: d.id, ...d.data() });
+  });
+  return findOpenWaitlistsPure(cardCode, excludeWaitlistId, docs);
 }
 
 /** @param {string} code @param {string} message @param {any} [data] */

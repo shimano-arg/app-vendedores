@@ -21,8 +21,11 @@ describe('E3 — doConfirmPedido usa commitPedidoCF', () => {
   });
 
   it('_tryCommitPedidoCF llama a httpsCallable("commitPedidoCF")', () => {
+    // §57 (2026-10-23): el body del helper creció con la adición del campo
+    // `waitlistOrigenId` en el payload + comentario explicativo. Subido
+    // el rango de {0,2000} a {0,3500} para que el regex alcance al callable.
     const match = INDEX_HTML.match(
-      /window\._tryCommitPedidoCF\s*=[\s\S]{0,2000}httpsCallable\(['"]commitPedidoCF['"]\)/
+      /window\._tryCommitPedidoCF\s*=[\s\S]{0,3500}httpsCallable\(['"]commitPedidoCF['"]\)/
     );
     expect(match, '_tryCommitPedidoCF debe llamar httpsCallable(commitPedidoCF)').toBeTruthy();
   });

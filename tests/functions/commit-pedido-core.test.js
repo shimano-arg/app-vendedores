@@ -366,7 +366,7 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
       expect(r.data.orderNumber).toBe(445);
     });
 
-    it('pasa si origen=cpst (waitlist esperado para CPST)', async () => {
+    it('pasa si origen=cpst (waitlist esperado para CPST, excluida por waitlistOrigenId §57)', async () => {
       const state = baseStateWithStock('SKU-A', 10, []);
       state.revision_waitlist['wl_1'] = {
         clientCardCode: 'C001',
@@ -384,6 +384,9 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
           origen: 'cpst',
           lines: [{ sku: 'SKU-A', cantidad: 1, precio: 100 }],
           clientVersion: 'v1430',
+          // §57 (2026-10-23): cpst requiere waitlistOrigenId para excluir
+          // la propia waitlist origen del chequeo.
+          waitlistOrigenId: 'wl_1',
         }
       );
       expect(r.ok).toBe(true);
@@ -438,6 +441,16 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
           { code: 'SKU-A', state: 'ASIG', qty: 3, qtyOpen: 3, asigAt: '2026-10-22T10:00:00Z' },
         ],
       };
+      // §57 (2026-10-23): cpst requiere waitlistOrigenId. Agregamos el doc
+      // en revision_waitlist como el que originó el pedido.
+      state.revision_waitlist = state.revision_waitlist || {};
+      state.revision_waitlist['wl_cpst_asig'] = {
+        clientCardCode: 'C001',
+        orderNumber: 500,
+        items: [{ code: 'SKU-A', qty: 3 }],
+        closedAt: null,
+        stage: 'pending',
+      };
       const { fbDb, _written } = makeMockDb(state);
       const r = await commitPedidoCore(
         { fbDb, now: () => nowRef },
@@ -456,6 +469,9 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
             },
           ],
           clientVersion: 'v1430',
+          // §57 (2026-10-23): waitlistOrigenId presente y la waitlist se
+          // marca consumed dentro de la misma transacción.
+          waitlistOrigenId: 'wl_cpst_asig',
         }
       );
       expect(r.ok).toBe(true);

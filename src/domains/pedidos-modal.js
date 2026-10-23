@@ -476,21 +476,24 @@ window.validateReviewAndPasarAPendientes = async function () {
           typeof window !== 'undefined' && window._pendingPedidoWaitlistId
             ? String(window._pendingPedidoWaitlistId)
             : null;
-        const openList = [];
+        // §57 (2026-10-23): delega al pure helper `findOpenWaitlistsForClient`
+        // (src/pure/open-waitlists.js). Antes se re-implementaba inline
+        // (fresh query + filter + sort). Ahora la lógica vive una sola vez
+        // y la CF usa el espejo (functions/core/open-waitlists.js).
+        const _findOpenPure =
+          typeof window !== 'undefined' &&
+          window.__phase0 &&
+          window.__phase0.pure &&
+          window.__phase0.pure.openWaitlists &&
+          window.__phase0.pure.openWaitlists.findOpenWaitlistsForClient;
+        let docs = [];
         try {
           const qs = await fbDb
             .collection('revision_waitlist')
             .where('clientCardCode', '==', cliCardCode)
             .get();
           qs.forEach((/** @type {any} */ d) => {
-            // v1418 §42.2.1: self-unify guard. Nunca mergear la waitlist que
-            // originó este pedido; sus líneas ya están en orders[currentOrderKey]
-            // porque _waitlistPasarAPendientesContinuar las copió al abrir el review.
-            if (_excludeWlId && d.id === _excludeWlId) return;
-            const data = d.data() || {};
-            if (data.closedAt) return;
-            if (data.stage === 'consumed') return;
-            openList.push(Object.assign({ _id: d.id }, data));
+            docs.push(Object.assign({ _id: d.id }, d.data() || {}));
           });
         } catch (_eFresh) {
           console.warn('[§42.2 review guard] fresh query fallo, no bloquea:', _eFresh);
@@ -499,29 +502,35 @@ window.validateReviewAndPasarAPendientes = async function () {
             typeof window !== 'undefined' && Array.isArray(window.revisionWaitlist)
               ? window.revisionWaitlist
               : [];
-          for (const w of _cache) {
-            if (!w) continue;
-            if (w.closedAt) continue;
-            if (w.stage === 'consumed') continue;
-            // v1418 §42.2.1: idem exclude en fallback cache.
-            if (_excludeWlId && String(w._id) === _excludeWlId) continue;
-            const wcc = String(w.clientCardCode || '').trim();
-            if (wcc !== cliCardCode) continue;
-            openList.push(w);
-          }
+          docs = _cache.slice();
         }
-        // Sort DESC por createdAt (más nueva primero).
-        openList.sort((/** @type {any} */ a, /** @type {any} */ b) => {
-          const _ms = (/** @type {any} */ w) => {
-            const t = w && w.createdAt;
-            if (!t) return 0;
-            if (typeof t === 'string') return Date.parse(t) || 0;
-            if (typeof t.toMillis === 'function') return t.toMillis();
-            if (typeof t.toDate === 'function') return t.toDate().getTime();
-            return 0;
-          };
-          return _ms(b) - _ms(a);
-        });
+        const openList = _findOpenPure
+          ? _findOpenPure(cliCardCode, _excludeWlId, docs)
+          : (() => {
+              // Fallback inline si el bundle no cargó el helper puro (SW stale).
+              const _filtered = [];
+              for (const w of docs) {
+                if (!w) continue;
+                if (_excludeWlId && String(w._id || '') === _excludeWlId) continue;
+                if (w.closedAt) continue;
+                if (w.stage === 'consumed') continue;
+                const wcc = String(w.clientCardCode || '').trim();
+                if (wcc !== cliCardCode) continue;
+                _filtered.push(w);
+              }
+              _filtered.sort((a, b) => {
+                const _ms = (w) => {
+                  const t = w && w.createdAt;
+                  if (!t) return 0;
+                  if (typeof t === 'string') return Date.parse(t) || 0;
+                  if (typeof t.toMillis === 'function') return t.toMillis();
+                  if (typeof t.toDate === 'function') return t.toDate().getTime();
+                  return 0;
+                };
+                return _ms(b) - _ms(a);
+              });
+              return _filtered;
+            })();
         if (openList.length > 0) {
           const target = openList[0];
           const _unifyPure =

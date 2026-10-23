@@ -26,23 +26,33 @@ describe('v1418 §42.2.1 — guard no self-unifica la waitlist propia', () => {
     expect(PEDIDOS_MODAL).toMatch(/_excludeWlId\s*=[\s\S]{0,80}window\._pendingPedidoWaitlistId/);
   });
 
-  it('en fresh query descarta d.id === _excludeWlId ANTES de leer data()', () => {
+  it('§57 (2026-10-23): delega al pure helper openWaitlists.findOpenWaitlistsForClient', () => {
+    // v1418 §42.2.1 inline filter (d.id === _excludeWlId) fue refactoreado a
+    // la pura `src/pure/open-waitlists.js:findOpenWaitlistsForClient` que
+    // acepta cardCode + excludeId + docs. El filter inline se mantiene como
+    // fallback cuando el bundle no cargó (SW stale).
     const guardSlice = PEDIDOS_MODAL.slice(
       PEDIDOS_MODAL.indexOf('v1418 §42.2.1 HOTFIX'),
       PEDIDOS_MODAL.indexOf('Forma de pago obligatoria')
     );
     expect(guardSlice.length).toBeGreaterThan(500);
-    expect(guardSlice).toMatch(
-      /if\s*\(\s*_excludeWlId\s*&&\s*d\.id\s*===\s*_excludeWlId\s*\)\s*return/
-    );
+    // Debe invocar el helper puro con cardCode + excludeId + docs.
+    expect(guardSlice).toMatch(/_findOpenPure\s*\(\s*cliCardCode\s*,\s*_excludeWlId\s*,\s*docs\s*\)/);
+    // Debe acceder al helper por `window.__phase0.pure.openWaitlists.findOpenWaitlistsForClient`.
+    expect(guardSlice).toMatch(/openWaitlists[\s\S]{0,80}findOpenWaitlistsForClient/);
   });
 
-  it('en fallback cache también descarta la waitlist propia', () => {
+  it('fallback inline mantiene la exclusión por _excludeWlId para SW stale', () => {
+    // Si el bundle no cargó el helper puro (SW stale sirviendo versión vieja),
+    // el guard tiene un fallback inline que replica la lógica. Debe también
+    // excluir la waitlist propia.
     const guardSlice = PEDIDOS_MODAL.slice(
       PEDIDOS_MODAL.indexOf('v1418 §42.2.1 HOTFIX'),
       PEDIDOS_MODAL.indexOf('Forma de pago obligatoria')
     );
-    expect(guardSlice).toMatch(/_excludeWlId[\s\S]{0,120}String\(w\._id\)\s*===\s*_excludeWlId/);
+    expect(guardSlice).toMatch(
+      /_excludeWlId[\s\S]{0,150}String\(w\._id[\s\S]{0,20}\)\s*===\s*_excludeWlId/
+    );
   });
 
   it('_excludeWlId se coerciona a String para evitar comparación number vs string', () => {
