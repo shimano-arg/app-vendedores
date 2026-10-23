@@ -122,6 +122,14 @@ import {
   findOpenWaitlistsForClient,
   formatWaitlistForConfirm,
 } from './pure/waitlist-unique-per-client.js';
+// §59 (2026-10-23) — visibilidad VDE: filtro de revision_waitlist por
+// `assignedVendorUid` (del cliente master) en vez de `ownerUid` (quién cargó).
+// Reemplaza el filtro inline buggy del sidebar que ocultaba órdenes cargadas
+// por otros users para clientes del VDE.
+import {
+  filterWaitlistsForVendor,
+  isWaitlistVisibleForVendor,
+} from './pure/waitlist-visibility.js';
 import { computeWaitlistCardClasses, isWaitlistCpst } from './pure/wl-sidebar-classes.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';
@@ -314,6 +322,11 @@ const phase0 = {
     openWaitlists: {
       findOpenWaitlistsForClient: findOpenWaitlistsForClientExcludingSelf,
       formatWaitlistForMessage,
+    },
+    // §59 (2026-10-23) — visibilidad VDE por `assignedVendorUid`.
+    waitlistVisibility: {
+      isWaitlistVisibleForVendor,
+      filterWaitlistsForVendor,
     },
     resolveClientVendorFromMaster,
     enrichPayloadWithClientVendor,

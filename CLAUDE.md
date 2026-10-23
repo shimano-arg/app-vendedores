@@ -2331,3 +2331,85 @@ pilla, pero mejor hacer el cambio consciente.
 Si en el futuro se agrega otro chequeo cliente+servidor duplicado:
 reemplazarlo por el mismo patrón (pure + espejo + sync test).
 
+## 59. VDE ve TODAS las órdenes abiertas de SUS clientes (filtro por `assignedVendorUid`) (2026-10-23, v1437)
+
+**Regla fuerte**: cualquier filtro de `revision_waitlist` del lado VDE
+(`userRole === 'vendedor'`) usa `w.assignedVendorUid === myUid` como
+criterio autoritativo. "Quién la cargó" (`ownerUid`/`cargadoPorUid`) es
+dato, NO filtro.
+
+**Por qué**: CLAUDE.md §44/§46 establecen que el vendedor del pedido viene
+del **cliente master** (OCRD + vendor_overrides + approvedAltas), no del
+user que la carga. El filtro de visibilidad TIENE que usar el mismo
+campo o rompe la invariante.
+
+**Precedente concreto** (2026-10-23 prod): ORDEN 516 BROBRO SA
+(CardCode `C30718510291`, vendedor master Gonzalo De La Rosa) la cargó
+Pablo González (ownerUid=`NKexDkWCGgcJb3KApk1bcIjT5MG3`). Firestore
+tiene `assignedVendorUid=WWuppaSQqeMZPIk8yvfctyhSQgu1` (Gonzalo, OK).
+Pero el filtro inline de `_renderWaitlistSidebar` (v983, index.html
+línea 20752) y de `_renderEstadoList` (línea 21710) usaban:
+
+```js
+arrForRole = arr.filter(w => {
+  if (_myUid && w.ownerUid === _myUid) return true;
+  if (_myVendor && (w.ownerVendor === _myVendor || w.vendorAssigned === _myVendor)) return true;
+  return false;
+});
+```
+
+→ Pablo's UID ≠ Gonzalo's UID → excluida para Gonzalo. Mientras tanto,
+el guard §42.2 (que vive del cliente master via `findOpenWaitlistsForClient`)
+sí la detectaba y le ofrecía unificar. Resultado: "el guard ofrece
+unificar algo que el VDE no puede abrir".
+
+**Fix v1437**: pure helper `src/pure/waitlist-visibility.js` con dos
+funciones:
+
+- `isWaitlistVisibleForVendor(w, myUid, myVendorKey)`:
+  1. Si `w.assignedVendorUid` populated → visible SOLO si === `myUid`.
+  2. Si NO populated (doc legacy pre-§44): fallback a `ownerUid === myUid`
+     o `ownerVendor/vendorAssigned === myVendorKey`.
+- `filterWaitlistsForVendor(list, myUid, myVendorKey)`: aplica el
+  filtro al array.
+
+Wire en `src/main.js` → `window.__phase0.pure.waitlistVisibility.*`. Los
+2 call-sites del inline (`_renderWaitlistSidebar` + `_renderEstadoList`)
+usan el helper con fallback inline por si el bundle no cargó (SW stale).
+
+**Rules Firestore**: `revision_waitlist.read` sigue abierto a
+`isReader()` (sin cambio). El filtro es client-side.
+
+**NO toca**: §44/§46 (resolver del vendedor del master), §42/§42.1/§42.2
+(guard unify del cliente — usa `findOpenWaitlistsForClient` que NO filtra
+por vendedor, y eso es correcto). El pure `findOpenWaitlistsForClient` NO
+tiene que saber de vendedores; esa responsabilidad vive en el listener
+cliente-side.
+
+**Script audit**: `scripts/audit/T_waitlist_vendor_desalineado.cjs`
+read-only por default. Detectó en prod 2026-10-23:
+- 21 waitlists abiertas totales.
+- 18 OK (ya aligned).
+- 3 waitlists con `assignedVendorUid=''` donde el master resuelve (ORDEN
+  534 TESI, 537 BAIGORRIA, 538 SATO — todos ownerUid del propio VDE pero
+  el campo faltaba porque son approvedAltas y el payload antiguo no lo
+  seteaba). `--apply` las backfillea con snapshot `_backfill` §55.
+- 0 desalineadas donde el ownerUid difiere. **El caso focal ORDEN 516
+  BROBRO SA ya tiene `assignedVendorUid` correcto** — el fix del filtro
+  es lo único que faltaba para que Gonzalo la vea.
+
+**Tests**:
+- `tests/unit/visibilidad-waitlist-vendor.test.js` (15): T1-T15 cubriendo
+  ORDEN 516 BROBRO, orden propia, orden ajena, docs legacy (3 variantes
+  del fallback), assignedVendorUid autoritativo gana sobre fallback,
+  edge cases.
+- `tests/unit/audit/visibilidad-guard-consistency.test.js` (3 property):
+  cualquier waitlist que §42.2 ofrezca a un VDE es visible para él;
+  filterWaitlistsForVendor devuelve exactamente el subset esperado;
+  assignedVendorUid autoritativo nunca es sobreescrito por el fallback.
+- Suite completa post-v1437: 1706 PASS, 0 FAIL (19 nuevos sobre v1436).
+
+**Si en el futuro se agrega otro componente que filtre waitlists por
+VDE**: usar `window.__phase0.pure.waitlistVisibility.filterWaitlistsForVendor`.
+NO duplicar la lógica inline — es receta de regresión.
+

@@ -6987,7 +6987,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1435';
+const APP_VERSION = 'v1437';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20743,21 +20743,34 @@ function _renderWaitlistSidebar(){
   }
   const arr = revisionWaitlist || [];
   const q = (_slftWlSearch || '').trim().toLowerCase();
-  // v983 (2026-09-17): VDE (role='vendedor') solo ve sus propios items en la
-  // lista de espera. Admin/gerente/interno/viewer ven todo (para revisar y
-  // aprobar). Un VDE que ve waitlists de otros VDE es ruido (pediria ver
-  // pedidos que no le pertenecen). Filtro por ownerUid (el que cargo el
-  // pedido) O vendorAssigned del cliente == su vendorKey (edge case: cliente
-  // de su zona que otro VDE cargo).
+  // §59 (2026-10-23, v1437): VDE ve TODAS las órdenes abiertas de SUS CLIENTES
+  // (del cliente master, CLAUDE.md §46), no solo las que cargó él. El filtro
+  // viejo (v983) usaba `w.ownerUid === myUid` → ocultaba órdenes cargadas por
+  // Pablo/Ioannis para clientes de un VDE. Precedente concreto: ORDEN 516
+  // BROBRO SA (Pablo la cargó, cliente de Gonzalo). El guard §42.2 la ofrecía
+  // para unificar, pero Gonzalo no la veía en el sidebar → inconsistencia.
+  // Fix: filtrar por `assignedVendorUid` (escrito por §44 desde el master).
+  // Fallback inline por si el bundle no cargó el pure helper (SW stale).
   let arrForRole = arr;
   if (typeof userRole !== 'undefined' && userRole === 'vendedor') {
     const _myUid = (typeof currentUser !== 'undefined' && currentUser && currentUser.uid) || '';
     const _myVendor = (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '';
-    arrForRole = arr.filter(w => {
-      if (_myUid && w.ownerUid === _myUid) return true;
-      if (_myVendor && (w.ownerVendor === _myVendor || w.vendorAssigned === _myVendor)) return true;
-      return false;
-    });
+    const _wlVis = window.__phase0 && window.__phase0.pure && window.__phase0.pure.waitlistVisibility;
+    const _filterFn = _wlVis && _wlVis.filterWaitlistsForVendor;
+    if (_filterFn) {
+      arrForRole = _filterFn(arr, _myUid, _myVendor);
+    } else {
+      // Fallback inline (bundle no cargado). Reproduce isWaitlistVisibleForVendor.
+      arrForRole = arr.filter(w => {
+        if (!w || !_myUid) return false;
+        const _assigned = String(w.assignedVendorUid || '').trim();
+        if (_assigned) return _assigned === _myUid;
+        // Legacy pre-§44: cae a ownerUid + vendorAssigned.
+        if (w.ownerUid === _myUid) return true;
+        if (_myVendor && (w.ownerVendor === _myVendor || w.vendorAssigned === _myVendor)) return true;
+        return false;
+      });
+    }
   }
   const filteredRaw = q ? arrForRole.filter(w => {
     const hay = (w.clientName || '') + ' ' + (w.clientLocality || '') + ' ' + (w.clientProvince || '');
@@ -21690,18 +21703,28 @@ function _renderEstadoList(){
   const actions = document.getElementById('estado-actions');
   if (!content) return;
   // Actualizar contadores.
-  // v983 (2026-09-17): VDE (role='vendedor') solo ve sus items en la
-  // Lista de Espera del modal Estado, mismo criterio que sidebar-left.
+  // §59 (2026-10-23, v1437): mismo criterio que sidebar-left — VDE ve TODAS
+  // las órdenes abiertas de SUS CLIENTES (del master, CLAUDE.md §46), no solo
+  // las que cargó él. Filtro por `assignedVendorUid`.
   const _arrEsperaRaw = revisionWaitlist || [];
   let arrEspera = _arrEsperaRaw;
   if (typeof userRole !== 'undefined' && userRole === 'vendedor') {
     const _myUid = (typeof currentUser !== 'undefined' && currentUser && currentUser.uid) || '';
     const _myVendor = (typeof assignedVendor !== 'undefined') ? (assignedVendor || '') : '';
-    arrEspera = _arrEsperaRaw.filter(w => {
-      if (_myUid && w.ownerUid === _myUid) return true;
-      if (_myVendor && (w.ownerVendor === _myVendor || w.vendorAssigned === _myVendor)) return true;
-      return false;
-    });
+    const _wlVisE = window.__phase0 && window.__phase0.pure && window.__phase0.pure.waitlistVisibility;
+    const _filterFnE = _wlVisE && _wlVisE.filterWaitlistsForVendor;
+    if (_filterFnE) {
+      arrEspera = _filterFnE(_arrEsperaRaw, _myUid, _myVendor);
+    } else {
+      arrEspera = _arrEsperaRaw.filter(w => {
+        if (!w || !_myUid) return false;
+        const _assigned = String(w.assignedVendorUid || '').trim();
+        if (_assigned) return _assigned === _myUid;
+        if (w.ownerUid === _myUid) return true;
+        if (_myVendor && (w.ownerVendor === _myVendor || w.vendorAssigned === _myVendor)) return true;
+        return false;
+      });
+    }
   }
   const arrPend = _estadoGetPendientes();
   const arrConf = _estadoGetConfirmados();
