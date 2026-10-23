@@ -7004,7 +7004,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1441';
+const APP_VERSION = 'v1442';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26058,6 +26058,9 @@ window._wcardDeleteChoiceClose = function(){
 };
 
 // v1398 §40.6: pick de opción. 'rechazo_cpst' cancela ASIG, 'solo_borrador' no.
+// §63 (2026-10-23 v1442): la cancelación cross-vendor va server-side via
+// releaseAsigCF. El cliente solo invoca la callable; el servidor valida
+// permiso + ejecuta el batch con runTransaction (§58).
 window._wcardDeleteChoicePick = async function(choice){
   const pending = window._wcardDeleteChoicePending;
   if (!pending || !pending.waitlist || !pending.waitlist._id) {
@@ -26067,64 +26070,21 @@ window._wcardDeleteChoicePick = async function(choice){
   const w = pending.waitlist;
   const refs = pending.refs || [];
   const modal = document.getElementById('wcard-delete-choice-modal');
-  const _userEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
-  const nowIso = new Date().toISOString();
-  const batch = fbDb.batch();
-  batch.delete(fbDb.collection('revision_waitlist').doc(w._id));
   let unitsCancelled = 0;
   let linesCancelled = 0;
-  if (choice === 'rechazo_cpst' && refs.length > 0) {
-    /** @type {Map<string, any[]>} */
-    const modifiedLines = new Map();
-    // Para cada ref: fetch pedido (cache local → firestore fallback) → mutar línea.
-    for (const r of refs) {
-      let p = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos))
-        ? globalPedidos.find(x => x && x._fsId === r.pedidoId)
-        : null;
-      if (!p || !Array.isArray(p.lines)) {
-        try {
-          const snap = await fbDb.collection('pedidos').doc(r.pedidoId).get();
-          if (!snap.exists) continue;
-          p = Object.assign({ _fsId: r.pedidoId }, snap.data() || {});
-        } catch (e) {
-          console.warn('_wcardDeleteChoicePick: fetch pedido fallo', r.pedidoId, e);
-          continue;
-        }
-      }
-      let newLines = modifiedLines.get(r.pedidoId);
-      if (!newLines) {
-        newLines = p.lines.map(l => Object.assign({}, l));
-        modifiedLines.set(r.pedidoId, newLines);
-      }
-      const line = newLines[r.lineIndex];
-      if (!line) continue;
-      // Idempotencia: línea ya cancelled con el mismo closedReason → skip.
-      if (line.state === 'cancelled' && line.closedReason === 'cliente_rechazo_cpst') continue;
-      // Solo cancelar si está ASIG vigente. Si ya pasó a otro estado por otro
-      // flow (BO revertida v1397, invoiced, etc.), no la toco.
-      if (line.state !== 'ASIG') continue;
-      const prevQo = Number(line.qtyOpen) || 0;
-      const prevQty = Number(line.qty) || prevQo;
-      unitsCancelled += prevQo;
-      linesCancelled += 1;
-      line.state = 'cancelled';
-      line.qtyOpen = 0;
-      line.qtyCancelled = (Number(line.qtyCancelled) || 0) + prevQo;
-      line.closedReason = 'cliente_rechazo_cpst';
-      line.cancelledAt = nowIso;
-      line.cancelledBy = _userEmail;
-      line.asigReserva = false;
-      // Preservar qty histórico; prevQty se queda igual.
-    }
-    for (const [pedidoId, newLines] of modifiedLines.entries()) {
-      batch.update(fbDb.collection('pedidos').doc(pedidoId), {
-        lines: newLines,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-  }
   try {
-    await batch.commit();
+    if (choice === 'rechazo_cpst') {
+      // §63: cross-vendor → va por releaseAsigCF (server-side validación).
+      const callable = firebase.app().functions('southamerica-east1').httpsCallable('releaseAsigCF');
+      const resp = await callable({ action: 'rechazo_cpst', waitlistId: w._id });
+      const d = (resp && resp.data) || {};
+      unitsCancelled = Number(d.unitsCancelled) || 0;
+      linesCancelled = Number(d.linesCancelled) || 0;
+    } else {
+      // 'solo_borrador': NO toca pedidos ajenos — solo borra el waitlist.
+      // No pasa por la CF (isReader cubre delete/update de waitlist propio).
+      await fbDb.collection('revision_waitlist').doc(w._id).delete();
+    }
     if (choice === 'rechazo_cpst') {
       if (typeof showSyncTag === 'function') showSyncTag('Pedido borrado · ' + unitsCancelled + 'u ASIG canceladas');
       try {
@@ -26135,6 +26095,7 @@ window._wcardDeleteChoicePick = async function(choice){
           unidadesCanceladas: unitsCancelled,
           lineasCanceladas: linesCancelled,
           refsReferenciadas: refs.length,
+          via: 'releaseAsigCF',
         });
       } catch (_e) {}
     } else {
@@ -26220,63 +26181,13 @@ window.waitlistRemoveItem = async function(docId, idx){
   const items = (w.items || []).filter((_, i) => i !== idx);
   const _userEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
   const _nowIso = new Date().toISOString();
-  // v1399 §40.7: si la línea tiene reserva, batch delete + cancel.
-  // Caso borde: si era el último item Y había reserva, borrar doc entero
-  // (equivalente a §40.6 opción "rechazo_cpst" pero con reason distinto).
+  // v1399 §40.7 + §63 (2026-10-23 v1442): si la línea tiene reserva, el
+  // flow pasa por releaseAsigCF (server-side validación + runTransaction §58).
+  // Caso borde: si era el último item Y había reserva, el server borra el
+  // doc entero (equivalente a §40.6 "rechazo_cpst" pero con reason distinto).
   if (refsItem.length > 0 && unitsToFree > 0) {
-    const batch = fbDb.batch();
-    if (items.length === 0) {
-      batch.delete(fbDb.collection('revision_waitlist').doc(docId));
-    } else {
-      batch.update(fbDb.collection('revision_waitlist').doc(docId), {
-        items,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-    /** @type {Map<string, any[]>} */
-    const modifiedLines = new Map();
-    for (const r of refsItem) {
-      let p = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos))
-        ? globalPedidos.find(x => x && x._fsId === r.pedidoId)
-        : null;
-      if (!p || !Array.isArray(p.lines)) {
-        try {
-          const snap = await fbDb.collection('pedidos').doc(r.pedidoId).get();
-          if (!snap.exists) continue;
-          p = Object.assign({ _fsId: r.pedidoId }, snap.data() || {});
-        } catch (e) {
-          console.warn('waitlistRemoveItem: fetch pedido fallo', r.pedidoId, e);
-          continue;
-        }
-      }
-      let newLines = modifiedLines.get(r.pedidoId);
-      if (!newLines) {
-        newLines = p.lines.map(l => Object.assign({}, l));
-        modifiedLines.set(r.pedidoId, newLines);
-      }
-      const line = newLines[r.lineIndex];
-      if (!line) continue;
-      // Idempotencia: ya cancelled con closedReason set → skip.
-      if (line.state === 'cancelled' && (line.closedReason === 'quitado_por_vendedor_cpst' || line.closedReason === 'cliente_rechazo_cpst')) {
-        continue;
-      }
-      if (line.state !== 'ASIG') continue;
-      const prevQo = Number(line.qtyOpen) || 0;
-      line.state = 'cancelled';
-      line.qtyOpen = 0;
-      line.qtyCancelled = (Number(line.qtyCancelled) || 0) + prevQo;
-      line.closedReason = 'quitado_por_vendedor_cpst';
-      line.cancelledAt = _nowIso;
-      line.cancelledBy = _userEmail;
-      line.asigReserva = false;
-    }
-    for (const [pedidoId, newLines] of modifiedLines.entries()) {
-      batch.update(fbDb.collection('pedidos').doc(pedidoId), {
-        lines: newLines,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-    // Optimistic update local.
+    // Optimistic UI update: refleja la quita al toque; onSnapshot va a
+    // confirmar/corregir al segundo.
     const wLocal = revisionWaitlist.find(x => x._id === docId);
     if (items.length === 0) {
       if (wLocal) revisionWaitlist.splice(revisionWaitlist.indexOf(wLocal), 1);
@@ -26288,19 +26199,23 @@ window.waitlistRemoveItem = async function(docId, idx){
       }
     }
     try {
-      await batch.commit();
-      showSyncTag('Producto quitado · ' + unitsToFree + 'u liberadas');
+      const callable = firebase.app().functions('southamerica-east1').httpsCallable('releaseAsigCF');
+      const resp = await callable({ action: 'remove_item', waitlistId: docId, itemIndex: idx });
+      const d = (resp && resp.data) || {};
+      showSyncTag('Producto quitado · ' + (d.unitsCancelled || unitsToFree) + 'u liberadas');
       try {
         if (typeof logOp === 'function') logOp('cpst_item_removed_release', 'revision_waitlist/' + docId, w.clientName, {
-          cliente: w.clientName, sku: it.code, unidadesLiberadas: unitsToFree,
-          lineasAfectadas: refsItem.length,
+          cliente: w.clientName, sku: it.code, unidadesLiberadas: d.unitsCancelled || unitsToFree,
+          lineasAfectadas: d.linesCancelled || refsItem.length,
+          via: 'releaseAsigCF',
         });
       } catch (_e) {}
       if (items.length === 0) closeWaitlistCardModal();
       try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
     } catch (e) {
-      console.error('waitlistRemoveItem (release)', e);
-      alert('Error guardando: ' + (e.message || e));
+      console.error('waitlistRemoveItem (release via CF)', e);
+      // Rollback optimistic: re-fetch del server.
+      alert('Error guardando: ' + ((e && e.message) || e));
     }
     return;
   }

@@ -2556,7 +2556,21 @@ NO duplicar la lógica inline — es receta de regresión.
 
 **Precedente**: `hotfix-snapshot-too-old-threshold` 2026-10-23 (v1439). Reporte Mariano: "desde las 13:41 toda confirmación devuelve SNAPSHOT_TOO_OLD; SAP está operativo (confirmado por David), es problema nuestro".
 
-## 61. VDE puede update pedido ajeno con campos whitelisted (release ASIG cross-vendor) (2026-10-23, v1440)
+## 61. [CERRADO v1442 §63] VDE podía update pedido ajeno con campos whitelisted — parche temporal 2026-10-23 (v1440)
+
+**ESTADO**: parche cerrado por §63 (v1442, 2026-10-23). Esta sección queda como histórico; la regla vigente para `pedidos.update` del VDE está en §63.
+
+**Resumen del parche original**: §61 abrió `pedidos.update` para VDE sin check de `ownerUid` (solo hasOnly). Fue necesario para destrabar prod cuando Gonzalo no podía ejecutar §40.7 "Quitar producto con ASIG" en ORDEN 516 BROBRO (bloqueo 2026-10-23 ~14:00 ART). Trade-off: VDE malicioso podía editar `lines`/`stage`/`observaciones` de pedidos de otros VDEs.
+
+**Cierre (§63 v1442)**:
+1. Las 2 escrituras cross-vendor (§40.6 `cliente_rechazo_cpst` + §40.7 `quitado_por_vendedor_cpst`) movieron a `releaseAsigCF` server-side con validación de permiso (admin/gerente/interno OR ownerUid/assignedVendorUid del waitlist).
+2. `firestore.rules` para `pedidos.update` restaurada: VDE puede update solo si `ownerUid == auth.uid` OR `assignedVendorUid == auth.uid` (patrón §44/§46/§59).
+
+Ver §63 para detalles del nuevo pattern.
+
+### Texto original del parche (histórico):
+
+
 
 **Regla fuerte**: la rule `pedidos.allow update` para `isVendor()` ya NO exige `resource.data.ownerUid == request.auth.uid`. VDE puede update cualquier pedido mientras los campos modificados estén en el hasOnly whitelist (mismo patrón que `isInterno()` desde v747).
 
@@ -2662,4 +2676,97 @@ Suite completa post-v1441: **1711/1711 PASS**.
 **Prohibido**: reintroducir el badge `.badge-de-orden` inline. Si en el futuro hay necesidad de otro badge para la celda SKU, debe seguir el mismo pattern hover-safe (regla con specificity ≥ 0,3,3 + `!important` para color y background).
 
 **Rollback**: revertir los cambios en `index.html` (CSS block de badges + bloque del tooltip + render SKU) + bumpear versión. Sin cambio al servidor.
+
+## 63. releaseAsigCF — endpoint único cross-vendor + rules VDE con assignedVendorUid (2026-10-23, v1442)
+
+**Regla fuerte**: toda escritura cross-vendor del cliente que mute `pedidos` ajenos pasa SIEMPRE por `releaseAsigCF` (Cloud Function callable con validación server-side). El cliente NO escribe directo a `pedidos` ajenos. La rule `pedidos.update` para VDE exige `ownerUid == auth.uid` OR `assignedVendorUid == auth.uid` (patrón §44/§46/§59).
+
+**Contexto**: §61 (v1440) fue parche temporal — abrió `pedidos.update` para VDE sin ownerUid check porque Gonzalo no podía ejecutar §40.7 (Quitar producto con ASIG) en ORDEN 516 BROBRO (cross-vendor). Trade-off aceptado como emergencia: un VDE podía mutar `lines` de otros. §63 cierra el gap.
+
+**CF** `functions/index.js:releaseAsigCF` (export) + `functions/core/release-asig-core.js` (core puro) + `functions/core/cpst-cancel-refs.js` (mirror espejo §57 de `src/pure/cpst-cancel-asig-plan.js` + `src/pure/cpst-item-cancel-helpers.js`).
+
+**API**:
+```
+callable releaseAsigCF({
+  action: 'remove_item' | 'rechazo_cpst',
+  waitlistId: string,
+  itemIndex?: number,    // requerido para 'remove_item'
+})
+```
+
+Payload intencionalmente NO incluye `refs` ni `pedidoIds` — el servidor los lee del waitlist doc. Previene manipulación cliente-side.
+
+**Flow server-side**:
+1. Auth check + dominio shimano.com.ar / shimano.uy.
+2. Fetch `roles/<uid>` → role (admin/gerente/interno/vendedor).
+3. Fetch `revision_waitlist/<waitlistId>` (pre-tx, para validar permiso temprano).
+4. **Permission check**:
+   - admin/gerente/interno → OK siempre.
+   - vendedor → `waitlist.ownerUid == auth.uid` OR `waitlist.assignedVendorUid == auth.uid`.
+   - otro → `permission-denied`.
+5. Extract refs via `collectAsigRefsForCancel(w)` (rechazo_cpst) o `collectAsigRefsForItemCancel(w, idx)` (remove_item).
+6. **runTransaction §58 (ALL reads before ALL writes)**:
+   - READS: `tx.get(waitlist)` + `tx.get(cada pedido origen)` para dedup.
+   - COMPUTE: mutations por pedido origen (cancel ASIG con closedReason).
+   - WRITES: `tx.update(pedidos ajenos)` + `tx.update(waitlist items)` o `tx.delete(waitlist)`.
+7. `operations_log` entry fire-and-forget con `type`, `role`, `userId`, `via='releaseAsigCF'`, `waitlistId`, `itemIndex`, `unidadesCanceladas`, `lineasCanceladas`.
+
+**Idempotencia**:
+- Línea ya cancelled con closedReason del set §40.6/§40.7 → skip.
+- Línea en otro estado (BO revertida §40.5, invoiced, confirmed) → skip (no la toco).
+- Waitlist ya borrada mid-tx → tratamos como idempotente (goal alcanzado).
+
+**closedReason set**:
+- `cliente_rechazo_cpst` (acción = rechazo_cpst, §40.6).
+- `quitado_por_vendedor_cpst` (acción = remove_item, §40.7).
+
+**Rules revert** (`firestore.rules`):
+```
+allow update: if isAdminOrGerente()
+  || isInterno()
+  || (
+    isVendor()
+    && (
+      resource.data.ownerUid == request.auth.uid
+      || resource.data.assignedVendorUid == request.auth.uid
+    )
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([...])
+  );
+```
+
+Un VDE que NO es `assignedVendorUid` del cliente (otro VDE) **no puede update** aunque la vea en su sidebar (filtrado client-side §59 pero defensiva server-side via rule).
+
+**Client wrapper** (`index.html`): los 2 call-sites (`_wcardDeleteChoicePick` + `waitlistRemoveItem` con refsItem) invocan la callable con `firebase.app().functions('southamerica-east1').httpsCallable('releaseAsigCF')`. Optimistic update local se preserva para UX; onSnapshot confirma.
+
+**Tests**:
+- `tests/functions/release-asig-core.test.js` (15 T1-T15): 4 roles × 2 actions + edge cases + idempotencia + §58 strict mock + operations_log entry.
+- `tests/unit/audit/cpst-cancel-refs-sync.test.js` (3): mirror sync entre `src/pure/*` y `functions/core/cpst-cancel-refs.js`.
+- `tests/rules/rules.test.js` v1442 §63 (4): VDE puede update si assignedVendorUid propio; NO puede ajeno-no-asignado; NO puede campos sensibles aunque sea assignedVendor; NO puede delete.
+
+Suite completa post-v1442: **unit 1714 PASS + functions 610 PASS**.
+
+**Deploy**:
+```
+firebase deploy --only functions:releaseAsigCF,firestore:rules
+```
+Pages auto-deploy al merge PR.
+
+**Verificar prod**: repetir caso Gonzalo ORDEN 516 BROBRO.
+1. Gonzalo abre el modal Pedido en espera, clickea X en item con STOCK ASIGNADO (que apunta a pedido origen cargado por Pablo).
+2. La CF `releaseAsigCF` recibe `{action:'remove_item', waitlistId, itemIndex}`.
+3. CF valida: Gonzalo = `assignedVendorUid` del waitlist → OK.
+4. CF cancela ASIG en pedido origen + remueve item del waitlist (o delete si era único).
+5. UI muestra "Producto quitado · N u liberadas".
+6. operations_log entry visible en Firestore con `type='cpst_item_removed_release'`, `role='vendedor'`, `userId=Gonzalo.uid`.
+
+**Rollback**: revertir §63 completo requiere:
+1. En rules: volver a `isVendor() && hasOnly([...])` sin check de ownership (versión §61).
+2. En index.html: volver al batch cliente-side de los 2 call-sites.
+3. En functions/index.js: no exportar `releaseAsigCF` (quedaría orfano, no se invocaría).
+
+**Prohibido**: reintroducir mutaciones cross-vendor de `pedidos` desde el cliente. Cualquier flow futuro que necesite mutar `pedidos` ajenos debe:
+1. Extender `releaseAsigCF` con un nuevo `action`, O
+2. Crear otra CF server-side con el mismo pattern (valida rol + ownerUid/assignedVendorUid + runTransaction §58 + operations_log).
+
+Nunca abrir la rule a VDE con blanket update como §61 lo hizo (gap de seguridad real).
 
