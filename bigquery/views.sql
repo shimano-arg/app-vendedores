@@ -988,6 +988,15 @@ SELECT
   -- is_pesca = TRUE si el SKU existe en sap_items_raw (grupo 102 PESCA).
   -- Permite filtrar en PBI para vistas PESCA-solo vs Shimano-entera.
   it.item_code IS NOT NULL                                              AS is_pesca,
+  -- 2026-10-24 — es_bike_por_cliente = TRUE si el cliente tiene u_division='1'
+  -- (criterio Juan Paiva, mismo que v_rentabilidad_bike). Es INDEPENDIENTE de
+  -- is_pesca: un cliente puede ser BIKE por u_division y ocasionalmente
+  -- comprar items del grupo PESCA (102), o un cliente u_division='2' puede
+  -- comprar un item que NO es grupo 102 (bike/merch). PBI puede migrar sus
+  -- filtros bike de `is_pesca = FALSE` a `es_bike_por_cliente = TRUE` para
+  -- alinearse con el criterio de Juan. NO se toca is_pesca (lo consumen
+  -- forecast PESCA, snapshot email, facturacion_snapshot Firestore).
+  (bp.u_division = '1')                                                 AS es_bike_por_cliente,
   -- Provincia canonizada del cliente (para mapa/ranking por region).
   CASE
     WHEN prov.provincia_raw IN ('CIUDAD AUTÓNOMA DE BUENOS AIRES',
@@ -1015,6 +1024,11 @@ LEFT JOIN prov_lookup prov
   ON prov.card_code = inv.card_code
 LEFT JOIN cliente_app ca
   ON ca.card_code = inv.card_code
+-- 2026-10-24: JOIN a sap_bp_raw por card_code para exponer es_bike_por_cliente
+-- (bp.u_division = '1'). card_code es unico en sap_bp_raw (verificado 2026-10-24,
+-- 0 duplicados) por lo que el JOIN NO duplica filas.
+LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
+  ON bp.card_code = inv.card_code
 -- v1073 (2026-09-25): fecha de la factura original para NCs (netea contra su mes).
 LEFT JOIN nc_base_dates ncb
   ON ncb.nc_doc_entry = inv.doc_entry
