@@ -1,0 +1,70 @@
+name: Snapshot AvgPrice SL (semanal)
+
+# Job automatico de los lunes 01:00 ART (04:00 UTC): ejecuta la SQLQuery
+# 'AVGPRICE_BQ' en el Service Layer de Shimano y escribe los ~6.300 items
+# en costo_snapshot_semanal con cost_source='oitm_avg_price_sl_<yyyymmdd>'.
+#
+# Reemplaza el flujo manual del Excel que usaba scripts/load_paiva_semanal.py.
+# El job que corre el primer lunes posterior al cierre del mes queda como
+# cierre oficial de ese mes (v_rentabilidad_bike lo levanta via JOIN de cierre).
+#
+# Secrets requeridos (ambos existen en el repo al momento del PR):
+#   FIREBASE_SERVICE_ACCOUNT   SA JSON con roles/datastore.user +
+#                              roles/bigquery.dataEditor. Mismo que usa
+#                              sync-sap-to-bigquery.yml.
+#   SAP_SL_PASSWORD            password del user SL de Shimano. Mismo que
+#                              configuraste 2026-08-27.
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'   # lunes 04:00 UTC = 01:00 ART.
+  workflow_dispatch:
+    inputs:
+      fecha:
+        description: 'Fecha ISO (YYYY-MM-DD). Vacio = hoy ART.'
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry-run: no toca BQ, imprime SQL + conteos.'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapshot-avgprice-sl
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install firebase-admin requests google-cloud-bigquery google-cloud-firestore
+
+      - name: Run snapshot
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.fecha }}" ]; then
+            ARGS="--fecha ${{ inputs.fecha }}"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          echo "Args: $ARGS"
+          python scripts/snapshot_avgprice_sl.py $ARGS

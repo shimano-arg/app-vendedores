@@ -93,21 +93,57 @@ sum_lines_per_doc AS (
        UNNEST(JSON_EXTRACT_ARRAY(lines_json)) AS ln
   GROUP BY doc_kind, doc_entry
 ),
--- 2026-10-24: Ultimo snapshot paiva_import disponible por item (fallback para
--- meses abiertos). CURRENT_DATE('America/Argentina/Buenos_Aires') es la cutoff
--- para evitar tomar snapshots de un mes aun no empezado si en el futuro se
--- cargan planillas por adelantado.
-latest_paiva_import AS (
+-- 2026-10-24 segunda ronda: fallback para mes abierto + dedup por prioridad.
+-- Reemplaza al antiguo CTE latest_paiva_import (que solo miraba paiva_import%).
+-- Ahora acepta oitm_avg_price_sl del job automatico semanal (ver
+-- scripts/snapshot_avgprice_sl.py + .github/workflows/snapshot-avgprice-sl.yml).
+--
+-- Prioridad cuando un mismo item + semana tiene varias fuentes:
+--   1. paiva_import_<mes><año>  (cierre oficial de finanzas, ej. paiva_import_sep2026).
+--   2. oitm_avg_price_sl_*     (job automatico, prioritario sobre carga manual).
+--   3. paiva_import_semanal_*  (carga manual legacy, respaldo si falla el job).
+latest_snapshot AS (
   SELECT item_code, cost_avg_ars, cost_source, snapshot_week_start
   FROM (
     SELECT item_code, cost_avg_ars, cost_source, snapshot_week_start,
       ROW_NUMBER() OVER (
         PARTITION BY item_code
-        ORDER BY snapshot_week_start DESC
+        ORDER BY snapshot_week_start DESC,
+          CASE
+            WHEN cost_source LIKE 'paiva_import%' AND cost_source NOT LIKE 'paiva_import_semanal%' THEN 1
+            WHEN cost_source LIKE 'oitm_avg_price_sl%' THEN 2
+            WHEN cost_source LIKE 'paiva_import_semanal%' THEN 3
+            ELSE 99
+          END ASC
       ) AS rn
     FROM `app-vendedores-shimano.shimano_app.costo_snapshot_semanal`
-    WHERE cost_source LIKE 'paiva_import%'
+    WHERE (cost_source LIKE 'paiva_import%' OR cost_source LIKE 'oitm_avg_price%')
       AND snapshot_week_start <= CURRENT_DATE('America/Argentina/Buenos_Aires')
+  )
+  WHERE rn = 1
+),
+-- 2026-10-24 segunda ronda: red de seguridad para el JOIN de cierre.
+-- Deduplica por (item_code, snapshot_week_start) con la misma prioridad que
+-- latest_snapshot. Protege contra el caso donde una semana tiene 2 fuentes
+-- (ej. paiva_import_sep2026 + oitm_avg_price_sl_20261006): el JOIN directo
+-- a costo_snapshot_semanal duplicaria filas, el CTE con ROW_NUMBER = 1 toma
+-- la de mayor prioridad.
+css_cierre_dedup AS (
+  SELECT item_code, snapshot_week_start, cost_avg_ars, cost_source
+  FROM (
+    SELECT item_code, snapshot_week_start, cost_avg_ars, cost_source,
+      ROW_NUMBER() OVER (
+        PARTITION BY item_code, snapshot_week_start
+        ORDER BY
+          CASE
+            WHEN cost_source LIKE 'paiva_import%' AND cost_source NOT LIKE 'paiva_import_semanal%' THEN 1
+            WHEN cost_source LIKE 'oitm_avg_price_sl%' THEN 2
+            WHEN cost_source LIKE 'paiva_import_semanal%' THEN 3
+            ELSE 99
+          END ASC
+      ) AS rn
+    FROM `app-vendedores-shimano.shimano_app.costo_snapshot_semanal`
+    WHERE cost_source LIKE 'paiva_import%' OR cost_source LIKE 'oitm_avg_price%'
   )
   WHERE rn = 1
 )
@@ -341,7 +377,10 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
 --
 -- Resultado: en meses sin planilla Paiva cargada, costo_finanzas_ars queda
 -- NULL. NUNCA se "aproxima" con la lista 11.
-LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css_cierre
+-- 2026-10-24: JOIN de cierre dedupeado por (item, semana). El CTE
+-- css_cierre_dedup ya filtra por cost_source LIKE 'paiva_import%' OR
+-- 'oitm_avg_price%' y aplica prioridad por fuente.
+LEFT JOIN css_cierre_dedup css_cierre
   ON css_cierre.item_code = JSON_VALUE(line, '$.ItemCode')
   AND css_cierre.snapshot_week_start = DATE_ADD(
     LAST_DAY(inv.doc_date, MONTH),
@@ -350,12 +389,10 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css_cierre
       ELSE MOD(9 - EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)), 7)
     END DAY
   )
-  AND (
-    css_cierre.cost_source LIKE 'paiva_import%'
-    OR css_cierre.cost_source LIKE 'oitm_avg_price%'
-  )
--- 2026-10-24: fallback para mes abierto (ultimo snapshot paiva_import <= today).
-LEFT JOIN latest_paiva_import lp
+-- 2026-10-24: fallback para mes abierto (ultimo snapshot <= today), tambien
+-- dedupeado por prioridad en el CTE latest_snapshot (renombrado desde
+-- latest_paiva_import para reflejar que acepta oitm_avg_price_sl).
+LEFT JOIN latest_snapshot lp
   ON lp.item_code = JSON_VALUE(line, '$.ItemCode')
 LEFT JOIN (
   SELECT card_code, item_code, fecha_contab, cantidad, costo_total_paiva_ars
