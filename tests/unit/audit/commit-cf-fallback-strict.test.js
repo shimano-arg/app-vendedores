@@ -144,7 +144,8 @@ describe('v1431 fallback strict', () => {
 
     it('después del handler de ok=false hay return (NO cae a fallback)', () => {
       const start = INDEX_HTML.indexOf('_commitCfResult && _commitCfResult.ok === false');
-      const code = INDEX_HTML.slice(start, start + 3500);
+      // 2026-10-23 §60: handler SNAPSHOT_TOO_OLD expandió el bloque; aumentar margen.
+      const code = INDEX_HTML.slice(start, start + 4500);
       // El bloque termina en `return;`
       expect(code).toMatch(/return;\s*\n\s*\}\s*\n\s*\/\/\s*Fallback legacy/);
     });

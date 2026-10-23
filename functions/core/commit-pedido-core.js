@@ -54,7 +54,15 @@
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 
-const SNAPSHOT_MAX_AGE_MS = 45 * 60 * 1000; // 45 min
+// Threshold de staleness del snapshot stock server-side.
+// 2026-10-23 (post deploy PR #1185/#1188): el workflow "Sync SAP Catalog +
+// Stock" tiene cron cada 5 min PERO el GHA scheduler lo saltea; los runs
+// efectivos son cada 2-5 horas (saturación). Threshold anterior 45 min
+// hacía SNAPSHOT_TOO_OLD en todas las confirmaciones post-primer sync del
+// día. Subido a 8 horas: red de seguridad real contra sync muerto por
+// medio día; no bloquea operación normal. Si en el futuro el workflow
+// pasa a correr efectivamente cada 5-10 min, se puede bajar.
+const SNAPSHOT_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 horas
 const MAX_RETRY_ATTEMPTS = 5;
 const VALID_ORIGENS = new Set(['manual', 'excel', 'cpst', 'auto', 'reparto']);
 
@@ -243,16 +251,61 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
       : {};
 
   // 5.3 Snapshot age check.
+  // El origen del timestamp es SIEMPRE server-side (app_config/stock_snapshot.updatedAt
+  // escrito por el workflow Sync SAP Catalog + Stock). El cliente NO envia
+  // su propio snapshot timestamp; depende enteramente del valor server-side.
   const updatedAt = stockConfig.updatedAt || null;
   if (updatedAt) {
     const updatedAtMs = typeof updatedAt.toMillis === 'function' ? updatedAt.toMillis() : null;
     if (updatedAtMs !== null) {
       const age = now - updatedAtMs;
       if (age > SNAPSHOT_MAX_AGE_MS) {
-        throwError('SNAPSHOT_TOO_OLD', 'El snapshot de stock tiene más de 45 minutos', {
-          snapshotAgeMs: age,
-          canRefresh: true,
-        });
+        const ageMinutes = Math.floor(age / 60000);
+        const lastSyncIso = new Date(updatedAtMs).toISOString();
+        // 2026-10-23: log del rechazo a operations_log para auditoria + alerting.
+        // Fire-and-forget: no bloquea el throw ni fuerza rollback de la transacción
+        // (estamos pre-tx-set, así que es seguro escribir aparte).
+        try {
+          const _logEntry = {
+            type: 'commit_pedido_rejected',
+            errorCode: 'SNAPSHOT_TOO_OLD',
+            snapshotAgeMs: age,
+            snapshotAgeMinutes: ageMinutes,
+            snapshotUpdatedAt: new Date(updatedAtMs),
+            snapshotOrigin: 'server:app_config/stock_snapshot',
+            userId:
+              payload && (payload.ownerUid || payload.userId)
+                ? payload.ownerUid || payload.userId
+                : null,
+            userEmail:
+              payload && (payload.ownerEmail || payload.userEmail)
+                ? payload.ownerEmail || payload.userEmail
+                : null,
+            cardCode: payload && payload.cardCode ? payload.cardCode : null,
+            draftId: payload && payload.draftId ? payload.draftId : null,
+            origen: payload && payload.origen ? payload.origen : null,
+            timestamp: new Date(now),
+          };
+          const _addResult = deps.fbDb.collection('operations_log').add(_logEntry);
+          if (_addResult && typeof _addResult.catch === 'function') {
+            _addResult.catch((/** @type {any} */ _err) => {
+              if (deps.log) deps.log('operations_log write failed (SNAPSHOT_TOO_OLD)', _err);
+            });
+          }
+        } catch (_e) {
+          // ignore (best-effort)
+        }
+        throwError(
+          'SNAPSHOT_TOO_OLD',
+          `Último sync de stock: ${lastSyncIso} (hace ${ageMinutes} min). El pedido queda en espera; se reintenta cuando se refresque el snapshot.`,
+          {
+            snapshotAgeMs: age,
+            snapshotAgeMinutes: ageMinutes,
+            snapshotUpdatedAt: lastSyncIso,
+            snapshotOrigin: 'server',
+            canRefresh: false, // 2026-10-23: refresh NO depende del cliente; depende del workflow server-side
+          }
+        );
       }
     }
   }

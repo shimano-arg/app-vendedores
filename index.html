@@ -6987,7 +6987,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1438';
+const APP_VERSION = 'v1439';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7313,12 +7313,15 @@ try {
   }
 } catch(e) {}
 
-// v417+ (2026-08-06): badge de salud SAP en el header. Basado en la edad
-// del snapshot de stock en app_config/stock_snapshot.updatedAt, que se
-// refresca cada 30 min desde SAP Service Layer (cron sync-sap-catalog-stock.yml).
-// Umbrales: <45 min = OK (verde), 45-90 min = lento (amarillo),
-// >=90 min = down (rojo, 2+ ciclos perdidos). Sin data aun = gris.
-// Se re-evalua on-change del listener stock + cada 60s para reflejar aging.
+// v417+ (2026-08-06): badge en el header basado en la edad del snapshot
+// de stock en app_config/stock_snapshot.updatedAt (workflow
+// sync-sap-catalog-stock.yml).
+// 2026-10-23: renombrado por bloqueo prod. El label anterior "SAP OK /
+// SAP lento / SAP down" era ENGAÑOSO — "down" implicaba SAP caído cuando
+// el workflow GHA saltea runs seguido (realidad: runs cada 2-5 h aunque
+// el cron sea cada 5 min). No sabemos el estado real de SAP desde el
+// cliente sin un ping al SL. Ahora el badge se llama "Sync stock" y
+// muestra cuándo fue el último sync, sin inferir estado de SAP.
 window._updateSapHealthBadge = function _updateSapHealthBadge() {
   try {
     const el = document.getElementById('sap-health-badge');
@@ -7328,7 +7331,7 @@ window._updateSapHealthBadge = function _updateSapHealthBadge() {
              : (typeof STOCK_UPDATED_AT === 'string') ? STOCK_UPDATED_AT : null;
     if (!at) {
       el.className = 'hdr-info-badge sap-unknown';
-      lbl.textContent = 'SAP ...';
+      lbl.textContent = 'Sync stock ...';
       el.title = 'Sin datos aun (esperando primer snapshot de stock)';
       return;
     }
@@ -7338,12 +7341,14 @@ window._updateSapHealthBadge = function _updateSapHealthBadge() {
                    : ageMin < 1440 ? (Math.floor(ageMin/60) + ' h ' + (ageMin%60) + ' min')
                    : (Math.floor(ageMin/1440) + ' d ' + Math.floor((ageMin%1440)/60) + ' h');
     let cls, txt;
-    if (ageMin < 45) { cls = 'sap-ok'; txt = 'SAP OK'; }
-    else if (ageMin < 90) { cls = 'sap-warn'; txt = 'SAP lento'; }
-    else { cls = 'sap-err'; txt = 'SAP down'; }
+    // Umbrales nuevos (edad snapshot, NO estado SAP):
+    // < 1h = fresh, 1-8h = stale, >= 8h = muy stale (match threshold servidor).
+    if (ageMin < 60) { cls = 'sap-ok'; txt = 'Sync stock: ' + humanAge; }
+    else if (ageMin < 480) { cls = 'sap-warn'; txt = 'Sync stock: ' + humanAge; }
+    else { cls = 'sap-err'; txt = 'Sync stock: ' + humanAge; }
     el.className = 'hdr-info-badge ' + cls;
     lbl.textContent = txt;
-    el.title = 'Ultimo sync SAP hace ' + humanAge + ' (' + at + '). Umbral: <45min OK / 45-90min lento / >=90min down. Fuente: app_config/stock_snapshot.updatedAt (cron cada 30 min).';
+    el.title = 'Último sync del snapshot de stock hace ' + humanAge + ' (' + at + ').\n\nFuente: app_config/stock_snapshot.updatedAt (workflow Sync SAP Catalog + Stock, cron cada 5 min pero GHA scheduler saltea; runs reales cada 2-5 h).\n\nAviso: este badge NO refleja estado real de SAP; solo cuándo entró el último snapshot al Firestore.\n\nSi el pedido devuelve SNAPSHOT_TOO_OLD (>8h), queda en espera; cuando corra el workflow lo retomás.';
   } catch(e) {}
 };
 try {
@@ -36496,7 +36501,11 @@ window.doConfirmPedido = async function(){
           }
         }
       } else if (code === 'SNAPSHOT_TOO_OLD') {
-        alert(msg + '\n\nEl snapshot de stock tiene más de 45 minutos. Esperá unos minutos y reintentá.');
+        // 2026-10-23: ver CLAUDE.md §60. Mensaje mejorado sin pedir reintento al vendedor.
+        var _syncAt = details?.snapshotUpdatedAt, _syncHora = '';
+        try { if (_syncAt) { _syncHora = new Date(_syncAt).toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'}); } } catch(_e) {}
+        var _ageMin = details?.snapshotAgeMinutes || Math.floor((details?.snapshotAgeMs || 0) / 60000);
+        alert('El pedido no se pudo confirmar ahora.\n\n' + (_syncHora ? ('Último sync de stock: ' + _syncHora + ' (hace ' + _ageMin + ' min).') : 'Snapshot de stock desactualizado.') + '\n\nQueda en espera; cuando se refresque el snapshot lo intentás de nuevo.');
       } else if (code === 'CONTENTION_RETRY_EXHAUSTED') {
         alert(msg + '\n\nHay mucha concurrencia sobre este SKU. Reintentá en 10 segundos.');
       } else if (code === 'VALIDATION_ERROR') {

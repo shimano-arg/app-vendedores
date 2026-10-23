@@ -2524,3 +2524,35 @@ read-only por default. Detectó en prod 2026-10-23:
 VDE**: usar `window.__phase0.pure.waitlistVisibility.filterWaitlistsForVendor`.
 NO duplicar la lógica inline — es receta de regresión.
 
+## 60. SNAPSHOT_MAX_AGE_MS debe reflejar la cadencia operativa real del sync (2026-10-23, v1439)
+
+**Regla fuerte**: el threshold `SNAPSHOT_MAX_AGE_MS` en `functions/core/commit-pedido-core.js` (hoy **8 horas**) debe ser mayor que la cadencia EFECTIVA (no la declarada) del workflow `sync-sap-catalog-stock.yml`. Si el workflow saltea runs, el threshold tiene que absorberlo o toda confirmación bloquea.
+
+**Precedente** (2026-10-23 13:41 ART, incidente BROBRO / DEVOTO CAMPING):
+- Workflow declara cron `'2,7,12,17,22,27,32,37,42,47,52,57 * * * *'` (cada 5 min).
+- GHA scheduler saltea runs por saturación. Runs efectivos cada 2-5 horas (histórico oct/2026).
+- Threshold era 45 min → toda confirmación post-primer sync del día devolvía `SNAPSHOT_TOO_OLD` con mensaje "Esperá unos minutos y reintentá" (que NO ayudaba: el cliente no controla el sync).
+- Deploy del threshold fue PR #1167 ayer 21:08; recién hoy a las 16:30 UTC (PR #1185 deploy functions) se activó efectivamente en prod.
+
+**Fix v1439**:
+- Threshold de 45 min → **8 horas** (red de seguridad real contra sync muerto por medio día; permite operación normal).
+- CF escribe en `operations_log` cada rechazo con `type='commit_pedido_rejected'` + `errorCode='SNAPSHOT_TOO_OLD'` + `snapshotAgeMs/Minutes` + `snapshotUpdatedAt` + `snapshotOrigin='server:app_config/stock_snapshot'` + `userId/userEmail/cardCode/draftId/origen`. Fire-and-forget (no bloquea el throw ni fuerza rollback).
+- Error payload incluye `snapshotAgeMinutes`, `snapshotUpdatedAt` (ISO), `snapshotOrigin='server'`, `canRefresh=false` (el cliente NO puede refrescar; depende del workflow).
+- Mensaje al vendedor en `index.html` (bloque `code === 'SNAPSHOT_TOO_OLD'`): "El pedido no se pudo confirmar ahora. Último sync de stock: HH:MM (hace X min). Queda en espera; cuando se refresque el snapshot lo intentás de nuevo." Sin `"Esperá unos minutos y reintentá"`.
+
+**Badge SAP renombrado** (`index.html:_updateSapHealthBadge`):
+- Antes: "SAP OK / SAP lento / SAP down" (engañoso: "down" implicaba SAP caído cuando era saturación del scheduler GHA).
+- Ahora: "Sync stock: X min / X h Y min / X d Y h". Umbrales nuevos: `< 60 min` fresh, `60-480 min` stale, `>= 480 min` muy stale (match threshold servidor).
+- `title` del badge aclara: "Este badge NO refleja estado real de SAP; solo cuándo entró el último snapshot al Firestore. [...] Si el pedido devuelve SNAPSHOT_TOO_OLD (>8h), queda en espera; cuando corra el workflow lo retomás."
+
+**Si en el futuro cambia la cadencia real del sync**:
+- Workflow efectivamente corre cada 5-10 min: bajar threshold a 60 min + bajar umbrales del badge en el mismo PR.
+- Workflow pasa a correr via Cloud Scheduler (más confiable que GHA cron): revalidar threshold.
+- SEMPRE verificar `gh run list --workflow="sync-sap-catalog-stock.yml"` para ver cadencia histórica real antes de ajustar.
+
+**Prohibido**: bajar `SNAPSHOT_MAX_AGE_MS` sin verificar primero que el workflow tiene esa cadencia efectiva en los últimos 7 días. Hacerlo re-bloquea producción silenciosamente.
+
+**Tests**: `tests/functions/commit-pedido-snapshot-too-old.test.js` (6): T1-T4 cadencias OK (30 min, 2 h, 5 h, 7 h 59 min), T5 8h 1 min dispara con mensaje nuevo, T6 24 h escribe en operations_log con `errorCode='SNAPSHOT_TOO_OLD'` + `snapshotOrigin='server:app_config/stock_snapshot'`.
+
+**Precedente**: `hotfix-snapshot-too-old-threshold` 2026-10-23 (v1439). Reporte Mariano: "desde las 13:41 toda confirmación devuelve SNAPSHOT_TOO_OLD; SAP está operativo (confirmado por David), es problema nuestro".
+
