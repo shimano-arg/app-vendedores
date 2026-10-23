@@ -2556,3 +2556,47 @@ NO duplicar la lógica inline — es receta de regresión.
 
 **Precedente**: `hotfix-snapshot-too-old-threshold` 2026-10-23 (v1439). Reporte Mariano: "desde las 13:41 toda confirmación devuelve SNAPSHOT_TOO_OLD; SAP está operativo (confirmado por David), es problema nuestro".
 
+## 61. VDE puede update pedido ajeno con campos whitelisted (release ASIG cross-vendor) (2026-10-23, v1440)
+
+**Regla fuerte**: la rule `pedidos.allow update` para `isVendor()` ya NO exige `resource.data.ownerUid == request.auth.uid`. VDE puede update cualquier pedido mientras los campos modificados estén en el hasOnly whitelist (mismo patrón que `isInterno()` desde v747).
+
+**Por qué**: con §44/§46/§59, un VDE ve órdenes de sus clientes aunque las haya cargado otro usuario. Flow concreto que rompía:
+
+1. Pablo (admin) carga ORDEN 516 BROBRO SA. `ownerUid = Pablo.uid`, `assignedVendorUid = Gonzalo.uid` (Gonzalo es VDE master de BROBRO).
+2. Gonzalo ve la orden en lista de espera (filtro §59 por `assignedVendorUid`).
+3. Gonzalo abre modal "Pedido en espera" y clickea X ("Quitar producto") en un item con reserva ASIG apuntando a otro pedido origen (también cargado por Pablo).
+4. `waitlistRemoveItem` (`index.html:26182+`) arma un batch que:
+   - `batch.update(revision_waitlist/<ORDEN516>, {items, updatedAt})` ✓ (isReader cubre).
+   - `batch.update(pedidos/<PEDIDO_ORIGEN>, {lines: newLines})` para cancelar la ASIG. **Este update FALLA con "Missing or insufficient permissions"** — Gonzalo no es ownerUid del pedido origen.
+5. Resultado reportado por Gonzalo: "Error guardando: Missing or insufficient permissions".
+
+Precedente v747 (2026-08-31): internos ya tenían la misma necesidad cross-vendor y la rule les dio blanket update (sin check de ownerUid). VDE queda alineado con interno.
+
+**Trade-off**: VDE malicioso podría editar `lines` de otros pedidos. El `hasOnly` whitelist sigue protegiendo:
+- NO puede modificar `transferidoSAP`, `transferError`, `sendingSapLock`, `orderNumberPrev` (CHAIN-01 commission fraud).
+- NO puede modificar `ownerUid`, `ownerVendor`, `vendorAssigned`, `assignedVendorUid`, `assignedVendorEmail`, `clientCardCode`, `key`, `tipo`.
+- NO puede delete (sigue bloqueado).
+- NO puede escalar privilegios ni commission-fraudear.
+
+Riesgo residual: modificar `lines`, `netAmountArs`, `stage`, `observaciones`, etc. de pedidos ajenos. Mitigación: `operations_log` + auditoría periódica. Mariano aprobó explícitamente 2026-10-23 (bloqueo prod Gonzalo).
+
+**Cambios**:
+- `firestore.rules`: rule `pedidos.allow update` para `isVendor()` sin `ownerUid` check (comentario largo explicando por qué).
+- `tests/rules/rules.test.js`: nuevos tests "v1440 §61" verifican:
+  - VDE puede update pedido ajeno con `{lines}` ✓.
+  - VDE puede update pedido ajeno con `{stage: 'confirmed'}` ✓.
+  - VDE NO puede update pedido ajeno con `{ownerUid}`, `{transferidoSAP}`, `{clientCardCode}` ✗.
+  - VDE NO puede delete pedido ajeno ✗.
+
+**Call-sites verificados** post-fix:
+- `waitlistRemoveItem` (`index.html:26182+`): batch update sobre pedido ajeno ahora pasa.
+- Flow "Unificar orden" v1382 (`index.html:_cpstUnifyFinalize`): idem.
+- Flow §40.6/§40.7 "cancel ASIG en pedido origen cross-vendor" (release reserva por X o recorte): idem.
+- Flow §42.2 review guard unify (`validateReviewAndPasarAPendientes`): el merge target preserva ownerUid; absorbido queda `stage=consumed` — ambos son whitelisted.
+
+**Deploy**: `firebase deploy --only firestore:rules`. Sin cambio al bundle salvo bump de versión por disciplina.
+
+**Prohibido**: devolver el check `resource.data.ownerUid == request.auth.uid` sin plan alternativo para el flow waitlist/CPST cross-vendor. Rompe la UX de release ASIG + unificación §42.2 + "cliente_rechazo_cpst" §40.6 + "quitado_por_vendedor_cpst" §40.7 — todos requieren mutar `lines` de pedidos ajenos.
+
+**Rollback**: revertir el edit en `firestore.rules` (una sola línea removida: `&& resource.data.ownerUid == request.auth.uid`). Deploy `firebase deploy --only firestore:rules`. Nada que revertir en el bundle.
+
