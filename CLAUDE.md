@@ -2770,3 +2770,96 @@ Pages auto-deploy al merge PR.
 
 Nunca abrir la rule a VDE con blanket update como §61 lo hizo (gap de seguridad real).
 
+## 64. STOCK_CHANGED diagnóstico — logging operations_log con snapshot cliente+CF (2026-10-23, v1443)
+
+**Regla fuerte**: cada vez que `commitPedidoCore` dispare `STOCK_CHANGED`, el CF escribe en `operations_log` un entry con `type='commit_pedido_rejected'`, `errorCode='STOCK_CHANGED'`, `skuDetails[]` con valores de **ambos lados** (cliente + CF), y flags de mismatch. Fire-and-forget: no bloquea el throw.
+
+**Pedido Mariano Fase 2**: "cada vez que la CF lo devuelve, registrar en operations_log SKU y valores de cada lado; reproducir con orden abierta y confirmada al segundo sin sync ni confirmaciones en el medio; si cliente y CF calculan distinto, unificar en src/pure según §39".
+
+**Shape del log entry** (`operations_log/{auto-id}`):
+```js
+{
+  type: 'commit_pedido_rejected',
+  errorCode: 'STOCK_CHANGED',
+  skuDetails: [
+    {
+      sku: 'SKU-X',
+      pediste: 5,
+      server: {
+        qtyConfirmed: 2, qtyBO: 3,
+        libre: 2, utilizablePara: 2,
+        fisicoDep11: 5, reservadasTotal: 3,
+        backorderAppTotal: 0, asignadasTotal: 3,
+        _version: 7, reason: 'stock_parcial',
+      },
+      client: {
+        libre: 5, utilizablePara: 5,     // lo que vio el cliente al armar el pedido
+        fisicoDep11: 5, reservadasTotal: 0,
+        backorderAppTotal: 0, asignadasTotal: 0,
+        _version: 7,
+      } | null,                          // null si el payload no incluyó clientStock
+      mismatch: { libre: true, utilizablePara: true, fisicoDep11: false } | null,
+    },
+    ...
+  ],
+  totalSkuChanged: 3,
+  totalUnitsToBO: 7,
+  serverSnapshotUpdatedAt: '2026-10-23T18:00:00Z',
+  serverSnapshotOrigin: 'server:app_config/stock_snapshot',
+  clientSnapshotProvided: true,
+  clientSnapshotUpdatedAt: '2026-10-23T17:58:00Z',   // null si cliente no lo mandó
+  clientVersion: 'v1443',
+  userId: 'uid-123', userEmail: '...',
+  cardCode: 'C001', draftId: '...', origen: 'cpst',
+  waitlistOrigenId: '...' | null,
+  timestamp: Timestamp,
+}
+```
+
+**Server-side** (`functions/core/commit-pedido-core.js`): el bloque de `throwError('STOCK_CHANGED', ...)` precede un `operations_log.add(_logEntry)` fire-and-forget con los datos descritos. `lineasResultado[]` preserva `breakdown` (campo nuevo v1443) para que el logging acceda `_version`, `fisicoDep11`, etc. sin re-computar.
+
+**Client-side** (`index.html:_tryCommitPedidoCF`): el payload a `commitPedidoCF` ahora incluye 2 campos opcionales:
+- `clientStock`: map `{ [sku]: { libre, utilizablePara, fisicoDep11, reservadasTotal, _version, ... } }`. Lo arma `window._buildClientStockForPayload(docData)` via `window.__phase0.pure.stockBreakdown.getStockBreakdown` (misma función pure §39 que usa el CF).
+- `clientSnapshotUpdatedAt`: timestamp ISO del `app_config/stock_snapshot.updatedAt` que el cliente vio.
+
+Ambos campos opcionales. Si fallan al armarse (SW stale sin pure helpers), el payload queda sin ellos y el log server anota `clientSnapshotProvided: false`.
+
+**Diagnóstico**: script `scripts/audit/V_stock_changed_falsos_positivos.cjs`:
+```
+node scripts/audit/V_stock_changed_falsos_positivos.cjs --days=1
+node scripts/audit/V_stock_changed_falsos_positivos.cjs --days=7 --full
+```
+Imprime tabla ASCII + top-N SKUs/clientes + lista de divergencias cliente↔CF (candidatos a §39 unificación).
+
+**Flow de debugging**:
+1. Caso reportado (ej. "me rebota con STOCK_CHANGED sin cambio en el medio").
+2. `node scripts/audit/V_... --days=1 --full | less`.
+3. Buscar el `draftId` del caso.
+4. Comparar `client.libre` vs `server.libre` por SKU.
+5. Si `mismatch.libre === true`: cliente y CF calcularon distinto → investigar si hubo race (snapshot distinto) o si §39 divergió (bug pure).
+6. Si `mismatch.libre === false`: no hubo divergencia; el cliente aceptó un stock que la CF ya no veía (ej. otro VDE confirmó antes). Es STOCK_CHANGED legítimo, no falso positivo.
+7. Si `clientSnapshotProvided: false`: el usuario tiene SW stale (pre-v1443). Esperar a que actualice la app.
+
+**Repro paso a paso** (orden abierta → confirmada al segundo sin sync):
+1. VDE abre una orden en lista de espera.
+2. VDE confirma al segundo (sin que corra el workflow sync-sap-catalog-stock entre ambos pasos).
+3. Si CF dispara STOCK_CHANGED: el log debe mostrar `clientSnapshotUpdatedAt == serverSnapshotUpdatedAt` o diferencia < 10s. Si así, es race entre cliente/CF leyendo el **mismo** snapshot pero con `pedidos` cambiados mid-flight.
+4. Si cliente ve `libre: X` y CF ve `libre: X - K` con `K == qtyBO`: significa que entre los dos reads entró un nuevo `pedidos` doc. STOCK_CHANGED legítimo (otro VDE confirmó).
+5. Si cliente ve `libre: X` y CF ve `libre: X` pero igual dispara STOCK_CHANGED: BUG § 39 o cálculo divergente.
+
+**Tests** (`tests/functions/commit-pedido-stock-changed-logging.test.js`, 6):
+- T1: STOCK_CHANGED dispara + log con `type/errorCode/skuDetails/cardCode/userId`.
+- T2: log server (`libre, utilizablePara, qtyBO, _version, fisicoDep11`).
+- T3: payload con `clientStock` → log incluye `client` + `mismatch` flags.
+- T4: payload sin `clientStock` → `clientSnapshotProvided: false`, `sd.client: null`.
+- T5: `autoAcceptStockChange=true` → NO dispara ni loguea.
+- T6: pediste exacto a libre → NO dispara.
+
+Suite completa post-v1443: **unit 1714 PASS + functions 616 PASS** (6 nuevos sobre v1442).
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF`. Pages auto-deploy al merge.
+
+**Prohibido**: cambiar el shape de `skuDetails[]` sin bumpear `_version` del breakdown. El script V filtra por ese shape para generar tabla.
+
+**Rollback**: revertir el bloque de logging en `functions/core/commit-pedido-core.js` + el helper `_buildClientStockForPayload` en `index.html` + los campos `clientStock/clientSnapshotUpdatedAt` del payload. Nada que revertir del lado rules ni del cliente.
+

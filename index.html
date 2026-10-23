@@ -7004,7 +7004,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1442';
+const APP_VERSION = 'v1443';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17688,6 +17688,54 @@ window._FALLBACK_LEGACY_NETWORK_CODES = new Set([
 window._ABORTED_RETRY_CODES = new Set(['functions/aborted', 'aborted']);
 window._ABORTED_RETRY_BACKOFFS_MS = [100, 300, 900]; // 3 reintentos
 
+// §64 (2026-10-23 v1443): arma el snapshot cliente-side del breakdown por SKU
+// para que la CF lo loguee en operations_log al disparar STOCK_CHANGED. Es
+// opcional (si falla, el payload queda sin `clientStock` y el logging server
+// anota `clientSnapshotProvided: false`).
+window._buildClientStockForPayload = function(docData) {
+  try {
+    if (!docData || !Array.isArray(docData.lines)) return null;
+    const bdFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockBreakdown
+      && window.__phase0.pure.stockBreakdown.getStockBreakdown;
+    if (typeof bdFn !== 'function') return null;
+    const cardCode = String(docData.clientCardCode || '').trim();
+    /** @type {Record<string, any>} */
+    const out = {};
+    for (const l of docData.lines) {
+      const sku = String((l && l.code) || '').toUpperCase();
+      if (!sku || out[sku]) continue;
+      try {
+        const bd = bdFn(sku, {
+          pedidos: typeof globalPedidos !== 'undefined' ? globalPedidos : [],
+          revisionWaitlist: typeof revisionWaitlist !== 'undefined' ? revisionWaitlist : [],
+          getStockFisico: window.getStockFisico,
+          getStockTransito: window.getStockTransito,
+        });
+        if (!bd) continue;
+        out[sku] = {
+          libre: bd.libre,
+          utilizablePara: cardCode && typeof bd.utilizablePara === 'function'
+            ? bd.utilizablePara(cardCode)
+            : null,
+          fisicoDep11: bd.fisicoDep11,
+          reservadasTotal: bd.reservadasTotal,
+          backorderAppTotal: bd.backorderApp ? bd.backorderApp.total : null,
+          asignadasTotal: bd.asignadas ? bd.asignadas.total : null,
+          _version: bd._version,
+        };
+      } catch (_eSku) {
+        // Skip SKU si falla el breakdown. Mejor datos parciales que null total.
+      }
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  } catch (_e) {
+    return null;
+  }
+};
+function _buildClientStockForPayload(docData) {
+  return window._buildClientStockForPayload(docData);
+}
+
 window._tryCommitPedidoCF = async function(docData){
   const _email = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
   const _appVersion = (typeof APP_VERSION === 'string') ? APP_VERSION : 'unknown';
@@ -17725,6 +17773,15 @@ window._tryCommitPedidoCF = async function(docData){
     // hacía POST pedidos.add → carrera que disparaba false positive 23/10 11:37.
     // El cliente ya persistía este campo en docData.waitlistOrigenId (v1058).
     waitlistOrigenId: docData.waitlistOrigenId || null,
+    // §64 (2026-10-23 v1443): snapshot que el cliente usó al armar el pedido.
+    // Opcional; si viene, la CF lo loguea en operations_log cuando dispara
+    // STOCK_CHANGED, permitiendo comparar lado-a-lado sin inferir. Pedido
+    // Mariano: "cada vez que la CF lo devuelve, registrar SKU y valores de
+    // cada lado". Fuente: window.__phase0.pure.stockBreakdown via wrapper.
+    clientStock: _buildClientStockForPayload(docData),
+    clientSnapshotUpdatedAt: (window._stockSnapshotMeta && window._stockSnapshotMeta.updatedAt)
+      ? window._stockSnapshotMeta.updatedAt
+      : null,
   };
 
   const callable = firebase.app().functions('southamerica-east1').httpsCallable('commitPedidoCF');

@@ -381,6 +381,8 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
       reason,
       libre: breakdown.libre,
       utilizablePara: utilizable,
+      // §64 (v1443): preservar breakdown para logging STOCK_CHANGED.
+      breakdown,
     });
 
     if (qtyConfirmed > 0) {
@@ -416,6 +418,98 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // 5.7 Compute diffVsClient.
   const diffVsClient = computeDiffVsClient(lineasResultado, payload);
   if (diffVsClient && !payload.autoAcceptStockChange) {
+    // §64 (2026-10-23 v1443): log diagnostico de STOCK_CHANGED a operations_log.
+    // Pedido Mariano: "cada vez que la CF lo devuelve, registrar en
+    // operations_log SKU y valores de cada lado". Si cliente y CF calculan
+    // distinto, unificar en src/pure segun §39.
+    //
+    // Server-side: breakdown.libre / utilizable / fisicoDep11 /
+    // reservadasTotal / _version — ya computados en lineasResultado via
+    // getStockBreakdown (misma funcion pure que usa el cliente §39).
+    //
+    // Client-side (opcional): si payload trae `clientStock[sku]`, se logea
+    // el snapshot que vio el cliente al momento de armar el pedido. Permite
+    // comparar lado-a-lado sin inferir.
+    try {
+      const clientStock =
+        payload && typeof payload.clientStock === 'object' ? payload.clientStock : null;
+      const serverSnapshotUpdatedAt =
+        updatedAt && typeof updatedAt.toMillis === 'function'
+          ? new Date(updatedAt.toMillis())
+          : null;
+      const skuDetails = diffVsClient.skuChanged.map((/** @type {any} */ ch) => {
+        const serverLine = lineasResultado.find((/** @type {any} */ l) => l.sku === ch.sku) || {};
+        const serverBd = serverLine.breakdown || null;
+        const serverPayload = {
+          qtyConfirmed: ch.podesLlevar,
+          qtyBO: ch.aBackOrder,
+          libre: serverBd ? serverBd.libre : null,
+          utilizablePara: serverBd ? serverBd.utilizablePara : null,
+          fisicoDep11: serverBd ? serverBd.fisicoDep11 : null,
+          reservadasTotal: serverBd ? serverBd.reservadasTotal : null,
+          backorderAppTotal: serverBd && serverBd.backorderApp ? serverBd.backorderApp.total : null,
+          asignadasTotal: serverBd && serverBd.asignadas ? serverBd.asignadas.total : null,
+          _version: serverBd ? serverBd._version : null,
+          reason: serverLine.reason || null,
+        };
+        const clientPayload = clientStock && clientStock[ch.sku] ? clientStock[ch.sku] : null;
+        return {
+          sku: ch.sku,
+          pediste: ch.pediste,
+          server: serverPayload,
+          client: clientPayload,
+          mismatch: clientPayload
+            ? {
+                libre:
+                  clientPayload.libre !== undefined && clientPayload.libre !== serverPayload.libre,
+                utilizablePara:
+                  clientPayload.utilizablePara !== undefined &&
+                  clientPayload.utilizablePara !== serverPayload.utilizablePara,
+                fisicoDep11:
+                  clientPayload.fisicoDep11 !== undefined &&
+                  clientPayload.fisicoDep11 !== serverPayload.fisicoDep11,
+              }
+            : null,
+        };
+      });
+      const _logEntry = {
+        type: 'commit_pedido_rejected',
+        errorCode: 'STOCK_CHANGED',
+        skuDetails,
+        totalSkuChanged: diffVsClient.skuChanged.length,
+        totalUnitsToBO: diffVsClient.skuChanged.reduce(
+          (/** @type {number} */ a, /** @type {any} */ b) => a + (Number(b.aBackOrder) || 0),
+          0
+        ),
+        serverSnapshotUpdatedAt,
+        serverSnapshotOrigin: 'server:app_config/stock_snapshot',
+        clientSnapshotProvided: !!clientStock,
+        clientSnapshotUpdatedAt:
+          payload && payload.clientSnapshotUpdatedAt ? payload.clientSnapshotUpdatedAt : null,
+        clientVersion: payload && payload.clientVersion ? payload.clientVersion : null,
+        userId:
+          payload && (payload.ownerUid || payload.userId)
+            ? payload.ownerUid || payload.userId
+            : null,
+        userEmail:
+          payload && (payload.ownerEmail || payload.userEmail)
+            ? payload.ownerEmail || payload.userEmail
+            : null,
+        cardCode: payload && payload.cardCode ? payload.cardCode : null,
+        draftId: payload && payload.draftId ? payload.draftId : null,
+        origen: payload && payload.origen ? payload.origen : null,
+        waitlistOrigenId: payload && payload.waitlistOrigenId ? payload.waitlistOrigenId : null,
+        timestamp: new Date(now),
+      };
+      const _addResult = deps.fbDb.collection('operations_log').add(_logEntry);
+      if (_addResult && typeof _addResult.catch === 'function') {
+        _addResult.catch((/** @type {any} */ _err) => {
+          if (deps.log) deps.log('operations_log write failed (STOCK_CHANGED)', _err);
+        });
+      }
+    } catch (_e) {
+      // best-effort, no bloquea el throw.
+    }
     throwError('STOCK_CHANGED', 'El stock cambió entre que viste la pantalla y confirmaste', {
       diff: diffVsClient.skuChanged,
       message: diffVsClient.message,
