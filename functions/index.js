@@ -84,6 +84,8 @@ import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 // v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
 import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
 import { handleTriggerRendicionesEmailManual } from './core/trigger-rendiciones-email-core.js';
+// E10 §stock-servidor-atomico (2026-10-23)
+import { updatePedidoLinesCore } from './core/update-pedido-lines-core.js';
 // v1280 (2026-10-14): TTL 7d waitlists stock-asignado-batch.
 import { expireStockAsignadoWaitlists } from './core/waitlist-ttl-core.js';
 
@@ -3097,6 +3099,56 @@ export const commitPedidoCF = onCall(
     } catch (e) {
       // Error inesperado (no de negocio). Log + throw.
       console.error('commitPedidoCF unexpected', e);
+      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+    }
+  }
+);
+
+// =============================================================================
+// E10 §stock-servidor-atomico (2026-10-23) — updatePedidoLinesCF
+// =============================================================================
+// Edit CF para líneas pre-envío (precio, qty, qtyOpen, notas). Reemplaza
+// las escrituras directas a `pedidos.lines` que las rules van a bloquear
+// en el cutover (E10 Fase 2). Guard pedido en SAP + whitelist strict.
+// =============================================================================
+export const updatePedidoLinesCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const db = getFirestore();
+    // Lee role del user para auth check.
+    let role = '';
+    try {
+      const roleDoc = await db.collection('roles').doc(auth.uid).get();
+      role = String((roleDoc.data() || {}).role || '').toLowerCase();
+    } catch (_e) {
+      /* non-fatal, VDE queda sin role */
+    }
+    const data = req.data || {};
+    try {
+      const r = await updatePedidoLinesCore(
+        { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+        data,
+        { uid: auth.uid, email, role }
+      );
+      return r;
+    } catch (e) {
+      console.error('updatePedidoLinesCF unexpected', e);
       throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
     }
   }
