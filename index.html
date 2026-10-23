@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1434';
+const APP_VERSION = 'v1435';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24102,7 +24102,7 @@ function _sugAppendChipsAttrs(container, attrs, origAttrs) {
   }
 }
 
-function _sugMakeSuggestionRow(suggestion, origSku, faltante, attrsBySku, origAttrs) {
+function _sugMakeSuggestionRow(suggestion, origSku, faltante, attrsBySku, origAttrs, mode) {
   const prod = (PRODUCTS || []).find(p => p.code === suggestion.sku);
   const nombre = (prod && prod.desc) ? prod.desc : suggestion.sku;
   const candAttrs = attrsBySku[suggestion.sku];
@@ -24118,6 +24118,26 @@ function _sugMakeSuggestionRow(suggestion, origSku, faltante, attrsBySku, origAt
   const chipsBox = _sugMakeEl('div', 'margin:4px 0 6px 0');
   _sugAppendChipsAttrs(chipsBox, candAttrs, origAttrs);
   row.appendChild(chipsBox);
+
+  // v1435 §58 (2026-10-23): etiqueta "Por que" que explica por que el candidato
+  // quedo clasificado como estricto o aproximado, con los atributos que
+  // coinciden y los que no. Fuente: _sugExplain.explicarMatch (modulo puro).
+  const sugExplainLocal = (typeof window !== 'undefined' && window.__sugExplain) ? window.__sugExplain : null;
+  if (sugExplainLocal && typeof sugExplainLocal.explicarMatch === 'function' && mode) {
+    try {
+      const info = sugExplainLocal.explicarMatch({ mode, badge: suggestion.badge, origAttrs: origAttrs || null, candAttrs: candAttrs || null });
+      if (info && info.etiqueta) {
+        const bgColor = suggestion.badge === 'ok' ? '#f0fdf4' : (suggestion.badge === 'warn1' ? '#fffbeb' : (suggestion.badge === 'warn2' ? '#fff7ed' : '#fef2f2'));
+        const brColor = suggestion.badge === 'ok' ? '#86efac' : (suggestion.badge === 'warn1' ? '#fde68a' : (suggestion.badge === 'warn2' ? '#fdba74' : '#fecaca'));
+        const fgColor = suggestion.badge === 'ok' ? '#166534' : (suggestion.badge === 'warn1' ? '#92400e' : (suggestion.badge === 'warn2' ? '#9a3412' : '#991b1b'));
+        const explainBox = _sugMakeEl('div', 'margin:0 0 8px 0;padding:5px 8px;background:' + bgColor + ';border-left:3px solid ' + brColor + ';border-radius:3px;font-size:10.5px;line-height:1.4;color:' + fgColor);
+        const label = _sugMakeEl('span', 'font-weight:800;letter-spacing:.2px;margin-right:4px', 'Por que:');
+        explainBox.appendChild(label);
+        explainBox.appendChild(document.createTextNode(info.etiqueta));
+        row.appendChild(explainBox);
+      }
+    } catch (e) { /* fallback silencioso: la fila sigue mostrandose */ }
+  }
 
   const footer = _sugMakeEl('div', 'display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap');
   const infoBox = _sugMakeEl('div', 'font-size:11.5px;color:#334155');
@@ -24173,9 +24193,15 @@ function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
     return;
   }
 
-  // Resumen arriba con contador
-  const resumen = _sugMakeEl('div', 'background:#fef3c7;border:1.5px solid #fde047;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#92400e;font-weight:600');
-  resumen.textContent = bandas.length + ' SKU(s) con faltante — tocá cada uno para ver alternativas';
+  // v1435 §58 (2026-10-23): resumen con contador + leyenda autoexplicativa
+  // arriba. La leyenda viene del modulo puro src/pure/sugerencias-explain.js
+  // (expuesto en window.__sugExplain). Fallback por si el bundle no cargo.
+  const sugExplain = (typeof window !== 'undefined' && window.__sugExplain) ? window.__sugExplain : null;
+  const resumen = _sugMakeEl('div', 'background:#fef3c7;border:1.5px solid #fde047;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#92400e;font-weight:600;line-height:1.45');
+  const contadorLine = _sugMakeEl('div', 'font-weight:700;margin-bottom:3px', bandas.length + ' SKU(s) con faltante — tocá cada uno para ver alternativas');
+  resumen.appendChild(contadorLine);
+  const leyendaLine = _sugMakeEl('div', 'font-weight:500;color:#78350f', (sugExplain && sugExplain.LEYENDA) || 'Por cada producto sin stock te mostramos cuantas unidades faltan y cuantos sustitutos hay con stock. Estrictos = misma familia y caracteristicas. Aproximados = parecidos con alguna diferencia.');
+  resumen.appendChild(leyendaLine);
   bodyEl.appendChild(resumen);
 
   const singleBanda = bandas.length === 1;
@@ -24229,10 +24255,18 @@ function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
     const descEl = _sugMakeEl('span', 'color:#64748b;font-size:11.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', descShort);
     summary.appendChild(descEl);
 
-    // Faltan + alternativas (lado derecho)
+    // Faltan + alternativas (lado derecho).
+    // v1435 §58 (2026-10-23): tooltips autoexplicativos con las definiciones
+    // exactas (modulo puro src/pure/sugerencias-explain.js).
     const rightInfo = _sugMakeEl('div', 'display:flex;align-items:center;gap:12px;flex-shrink:0');
-    rightInfo.appendChild(_sugMakeEl('span', 'font-size:11.5px;color:#dc2626;font-weight:700', 'Faltan ' + f.qtyFaltante + ' u'));
-    rightInfo.appendChild(_sugMakeEl('span', 'font-size:11px;color:' + alternativasColor + ';font-weight:700', alternativasInfo));
+    const tipFaltan = (sugExplain && sugExplain.TOOLTIP_FALTAN) || 'Unidades del SKU que el pedido no puede cubrir con stock libre.';
+    const tipAlt = (sugExplain && sugExplain.TOOLTIP_ALTERNATIVAS) || 'Estrictas = misma familia y caracteristicas clave. Aproximadas = parecidas con alguna diferencia.';
+    const faltanEl = _sugMakeEl('span', 'font-size:11.5px;color:#dc2626;font-weight:700;cursor:help', 'Faltan ' + f.qtyFaltante + ' u');
+    faltanEl.setAttribute('title', tipFaltan);
+    rightInfo.appendChild(faltanEl);
+    const altEl = _sugMakeEl('span', 'font-size:11px;color:' + alternativasColor + ';font-weight:700;cursor:help', alternativasInfo);
+    altEl.setAttribute('title', tipAlt);
+    rightInfo.appendChild(altEl);
     summary.appendChild(rightInfo);
 
     details.appendChild(summary);
@@ -24254,7 +24288,7 @@ function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
       content.appendChild(_sugMakeEl('div', 'padding:10px;background:#f1f5f9;color:#475569;border-radius:4px;font-size:11.5px;text-align:center', emptyTxt));
     } else {
       if (r.strict.length > 0) {
-        for (const s of r.strict) content.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs));
+        for (const s of r.strict) content.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs, r.mode));
       } else {
         const noStrictTxt = r.mode === 'canas'
           ? 'Sin alternativas estrictas (tipo + tramos + libraje). Mirá aproximadas abajo.'
@@ -24265,7 +24299,7 @@ function _sugRenderBody(bandas, w, attrsBySku, priceBySku) {
         const expand = _sugMakeEl('button', 'width:100%;padding:7px;background:#fff;color:#475569;border:1px dashed #cbd5e1;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;margin-top:6px', 'Ver alternativas aproximadas (' + r.approx.length + ') ▽');
         expand.type = 'button';
         const approxBox = _sugMakeEl('div', 'display:none;margin-top:6px');
-        for (const s of r.approx) approxBox.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs));
+        for (const s of r.approx) approxBox.appendChild(_sugMakeSuggestionRow(s, f.sku, f, attrsBySku, origAttrs, r.mode));
         expand.onclick = (e) => {
           e.preventDefault();
           const open = approxBox.style.display === 'block';

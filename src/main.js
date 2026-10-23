@@ -89,6 +89,13 @@ import {
   getStockUtilizableParaClienteExAsig,
   lineReservesStock,
 } from './pure/stock-realmente-disponible.js';
+// v1435 §58 (2026-10-23): textos autoexplicativos para el modal Sugerencias.
+import {
+  LEYENDA as SUG_LEYENDA,
+  TOOLTIP_ALTERNATIVAS as SUG_TOOLTIP_ALTERNATIVAS,
+  TOOLTIP_FALTAN as SUG_TOOLTIP_FALTAN,
+  explicarMatch as sugExplicarMatch,
+} from './pure/sugerencias-explain.js';
 import {
   buildAsigRefsForLine,
   buildUnifiedFromAudit,
@@ -370,6 +377,15 @@ if (typeof window !== 'undefined') {
   // v1346: motor sugerencias expuesto al inline (modal Sugerencias).
   // @ts-expect-error — augmentation runtime-only
   window.suggestForSku = suggestForSku;
+  // v1435 §58: textos autoexplicativos (leyenda, tooltips, etiqueta por fila)
+  // expuestos a los handlers inline del modal Sugerencias.
+  // @ts-expect-error — augmentation runtime-only
+  window.__sugExplain = {
+    LEYENDA: SUG_LEYENDA,
+    TOOLTIP_FALTAN: SUG_TOOLTIP_FALTAN,
+    TOOLTIP_ALTERNATIVAS: SUG_TOOLTIP_ALTERNATIVAS,
+    explicarMatch: sugExplicarMatch,
+  };
 }
 
 export default phase0;
