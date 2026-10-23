@@ -325,15 +325,34 @@ export async function syncSapCatalogStockCore(deps) {
 
     const finishedAt = new Date(Date.now()).toISOString();
     const durationMs = Date.now() - now;
+    // §63 Fase 3 Capa 1 FIX URGENTE (2026-10-23): el client lee estos 4 maps
+    // como JSON STRINGS (patrón Python v368+/v377+/v827+/v839+ para evitar el
+    // límite Firestore de ~40k index entries por doc). La CF previamente los
+    // escribía como objetos → el client parsea como string → stock=0 en todas
+    // las pantallas. Alineamos byte-a-byte con Python write_stock_snapshot.
+    // Nombres de campos TAMBIÉN alineados: warehouseCommittedBreakdown (no
+    // warehouseCommitted), preLanzamientoBySku (no preLanzamiento).
+    const qtyJson = JSON.stringify(maps.qtyMap);
+    const whsJson = JSON.stringify(maps.whsMap);
+    const whsCommittedJson = JSON.stringify(maps.whsCommittedMap || {});
+    const preLanzJson = JSON.stringify(maps.preLanzamientoMap || {});
     const snapshot = {
       stock: maps.stockMap,
-      quantities: maps.qtyMap,
-      warehouseBreakdown: maps.whsMap,
-      warehouseCommitted: maps.whsCommittedMap,
+      quantities: qtyJson,
+      warehouseBreakdown: whsJson,
+      warehouseCommittedBreakdown: whsCommittedJson,
       price: maps.priceMap,
-      preLanzamiento: maps.preLanzamientoMap,
+      preLanzamientoBySku: preLanzJson,
+      // backorderBySku NO lo computa esta CF (lo computa el workflow Python
+      // leyendo SQ open). set({...}, {merge:true}) preserva el valor previo
+      // del field escrito por la última corrida Python/GHA.
+      totalItems: itemsSynced,
+      withStock,
+      warehouse: 'ALL_SALES',
       updatedAt: new Date(),
+      updatedBy: 'cloud-function/syncSapCatalogStockCF',
       source,
+      syncBatchId,
       _syncRun: {
         startedAt,
         finishedAt,
@@ -348,14 +367,22 @@ export async function syncSapCatalogStockCore(deps) {
         errors: errors.slice(),
       },
     };
-    await deps.fbDb.collection('app_config').doc('stock_snapshot').set(snapshot);
-    await deps.fbDb.collection('app_config').doc('product_catalog_meta').set({
-      syncBatchId,
-      totalItems: itemsSynced,
-      chunksCount,
-      syncedAt: finishedAt,
-      source,
-    });
+    // merge:true preserva backorderBySku + cualquier otro field escrito por
+    // Python que la CF no computa.
+    await deps.fbDb.collection('app_config').doc('stock_snapshot').set(snapshot, { merge: true });
+    // Alineado byte-a-byte con Python write_catalog_chunks:
+    // totalItems/totalChunks/syncBatchId/updatedAt/updatedBy + source added.
+    await deps.fbDb.collection('app_config').doc('product_catalog_meta').set(
+      {
+        totalItems: itemsSynced,
+        totalChunks: chunksCount,
+        syncBatchId,
+        updatedAt: new Date(),
+        updatedBy: 'cloud-function/syncSapCatalogStockCF',
+        source,
+      },
+      { merge: true }
+    );
     // operations_log entry
     try {
       await deps.fbDb.collection('operations_log').add({
