@@ -74,7 +74,9 @@ def load_sl_config(db):
         'url': sl.get('url'),
         'companyDB': sl.get('companyDB'),
         'userName': sl.get('username') or sl.get('userName'),
-        'password': sl.get('password'),
+        # Password: igual que sync_sap_to_firestore.py / CF: env var preferida,
+        # fallback a Firestore legacy.
+        'password': os.environ.get('SAP_SL_PASSWORD') or sl.get('password'),
         'enabled': bool(sl.get('enabled', True)),
     }
     if not all([cfg['url'], cfg['companyDB'], cfg['userName'], cfg['password']]):
@@ -118,15 +120,32 @@ def sl_logout(cfg, session):
 
 
 def fetch_sku_sample(cfg, session, limit):
-    """Trae los primeros `limit` ItemCodes reales del maestro para armar batches."""
-    path = f"/b1s/v1/Items?$select=ItemCode&$top={limit}"
-    url = f"{cfg['url']}{path}"
-    r = session.get(url, timeout=15, verify=True)
-    if r.status_code != 200:
-        print(f'[ERROR] fetch SKU sample fallo: {r.status_code}', file=sys.stderr)
-        sys.exit(3)
-    data = r.json() or {}
-    skus = [it.get('ItemCode') for it in (data.get('value') or []) if it.get('ItemCode')]
+    """Trae `limit` ItemCodes reales del maestro paginando @odata.nextLink."""
+    skus = []
+    path = f"/b1s/v1/Items?$select=ItemCode&$top={min(limit, 100)}"
+    while path and len(skus) < limit:
+        url = path if path.startswith('http') else f"{cfg['url']}{path}"
+        r = session.get(url, timeout=30, verify=True)
+        if r.status_code != 200:
+            print(f'[ERROR] fetch SKU sample fallo: {r.status_code}', file=sys.stderr)
+            sys.exit(3)
+        data = r.json() or {}
+        for it in (data.get('value') or []):
+            code = it.get('ItemCode')
+            if code:
+                skus.append(code)
+                if len(skus) >= limit:
+                    break
+        next_link = data.get('@odata.nextLink') or data.get('odata.nextLink')
+        if not next_link:
+            break
+        if next_link.startswith('http'):
+            idx = next_link.find('/b1s/v1/')
+            path = next_link[idx:] if idx >= 0 else next_link
+        elif next_link.startswith('/'):
+            path = next_link
+        else:
+            path = '/b1s/v1/' + next_link
     log(f'[SL] fetched {len(skus)} SKUs de ejemplo')
     return skus
 

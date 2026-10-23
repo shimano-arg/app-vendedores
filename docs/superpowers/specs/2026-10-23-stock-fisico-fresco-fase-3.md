@@ -193,28 +193,32 @@ Mariano estimó "no asumir 1s por SKU". Medición esperada rough-order-of-magnit
 
 **Si el filtro excede 2 KB (típico límite URI)** → split en bloques de ~50 SKUs (asumiendo SKU avg 12 chars + " or ItemCode eq " overhead → ~30 chars/sku → 50 SKUs = ~1.5 KB).
 
-### Entregable antes de autorización
+### Resultados empíricos (2026-10-23 19:25 UTC / 16:25 ART)
 
-Correr el script contra prod y pegar en este doc los resultados reales:
+Corrido contra prod SL Shimano Argentina. 5 corridas por tamaño + 1 warm-up descartado. Login 1 vez al inicio, logout al final.
 
-```
-TODO (pending autorización + ejecución): completar con output empírico.
-Formato esperado:
+| N SKUs | Median (ms) | P95 (ms) | P99 (ms) | Min (ms) | Max (ms) | Body (KB) | Filter chars | Status |
+|---|---|---|---|---|---|---|---|---|
+| **1**   | **42**  | 45   | 46   | 38   | 46   | 50    | 29    | 200 |
+| **20**  | **295** | 316  | 316  | 258  | 316  | 990   | 656   | 200 |
+| **50**  | **263** | 293  | 299  | 240  | 300  | 992   | 1674  | 200 |
+| **80**  | —       | —    | —    | —    | —    | 0     | 2700  | **400** |
 
-| N SKUs | Median (ms) | P95 (ms) | P99 (ms) | Status | Body size |
-|---|---|---|---|---|---|
-| 1   |   |   |   |   |   |
-| 20  |   |   |   |   |   |
-| 50  |   |   |   |   |   |
-| 80  |   |   |   |   |   |
-| 150 |   |   |   |   |   |
+**Hallazgo clave**: el SL rechaza con **HTTP 400** cuando `$filter` supera ~**2700 chars** (80 SKUs ya no pasan). 50 SKUs con filter de 1674 chars es sweet spot. Latencia **plana** entre 20 y 50 SKUs (293 vs 316 ms P95), prácticamente idéntica — el costo marginal es el parsing del filter + serialización del body, no la cantidad de SKUs.
 
-¿Cuántos SKUs entran en un filter $filter < 2048 chars?
-¿SL devuelve HTTP 414 o 400 cuando se excede? ¿O trunca silencioso?
-```
+**Decisión Capa 2**:
+- **Block size = 50 SKUs** (bajo el límite 2700 con holgura, 1 batch ≈ 300ms P95).
+- **Pedido de 50 SKUs** → 1 batch, timeout 3s cómodamente cubierto (300ms << 3000ms).
+- **Pedido de 100 SKUs** → 2 batches de 50 en paralelo (`Promise.all`), timeout total 3s ≈ 600ms efectivo.
+- **Pedido de 150 SKUs** → 3 batches de 50 en paralelo, ≈ 900ms (asumiendo paralelismo SL sin throttle).
+- **Pedido > 150 SKUs** → si p95 agregado se acerca a 3s, caer al modo "líneas en riesgo" (fetch SL solo para `qty_pedida >= libre_snapshot`; resto va con snapshot).
 
-**Si p95 de 50 SKUs > 1500 ms** → el timeout 3s del commit lo partiría; replan.
-**Si p95 de 50 SKUs < 500 ms** → podemos ir con bloques de 50 cómodos.
+**Observaciones secundarias**:
+- Body response ≈ 1 MB para 20-50 SKUs. `ItemWarehouseInfoCollection` es verboso (muchos campos por whs). Optimización futura: en Capa 2 el `$select` debería limitarse a `ItemCode,ItemWarehouseInfoCollection/WarehouseCode,ItemWarehouseInfoCollection/InStock,ItemWarehouseInfoCollection/Committed` si el SL soporta select anidado, para bajar el body. Si no, filtrar client-side.
+- 1 SKU GET único (sin $filter): 42 ms median — tirar queries por SKU secuencial para N=50 sería ~2.1s, cerca del timeout. Confirma que **batch es la única opción**.
+- Login SL: 3.2 segundos (cold). Reutilización via session pool §Sesiones es obligatoria.
+
+**Timeout 3s por pedido total**: validado. 1 batch de 50 ≈ 300 ms, hasta 10 batches de 50 cabrían en 3s. Modo "líneas en riesgo" se activa solo con pedidos > 300 SKUs — caso borde raro.
 
 ---
 
