@@ -275,14 +275,20 @@ describe('v1407 §45 — filas reservadas quedan SIN fondo azul (reverso de §43
     expect(forbidden.map((r) => r.selector)).toEqual([]);
   });
 
-  it('.badge-reservado chip sigue siendo azul (indicador textual junto al SKU)', () => {
-    const badge = ALL_RULES.find((r) => r.selector === '.badge-reservado');
-    expect(badge, 'regla .badge-reservado desapareció del CSS').toBeTruthy();
+  it('§56 (v1435): .badge-stock-asignado chip azul (indicador textual junto al SKU)', () => {
+    // v1435 §56 renombró .badge-reservado → .badge-stock-asignado (misma paleta).
+    const badge = ALL_RULES.find((r) => r.selector === '.badge-stock-asignado');
+    expect(badge, 'regla .badge-stock-asignado desapareció del CSS').toBeTruthy();
     const bg = readProp(badge.body, 'background');
     expect(bg).toBeTruthy();
     expect(String(bg.value).toLowerCase()).toContain('#dbeafe');
     const color = readProp(badge.body, 'color');
     expect(String(color.value).toLowerCase()).toBe(BLUE);
+  });
+
+  it('§56 (v1435): clase legacy .badge-reservado ELIMINADA del CSS', () => {
+    const legacy = ALL_RULES.find((r) => r.selector === '.badge-reservado');
+    expect(legacy, '.badge-reservado debería estar eliminada tras §56').toBeFalsy();
   });
 
   // v1417 §45.1 (2026-10-22): Mariano amplió §45 — ningún fondo de fila. Los
@@ -385,40 +391,42 @@ describe('v1417 §45.1 — ningún fondo de fila en #wcard-rows (todas blancas)'
   });
 });
 
-describe('v1417 §45.1 — badges inline en celda SKU', () => {
-  it('.badge-reservado chip azul claro #dbeafe (CSS existente §43)', () => {
-    const rule = ALL_RULES.find((r) => r.selector === '.badge-reservado');
+describe('v1417 §45.1 + v1435 §56 — badges inline en celda SKU', () => {
+  it('§56: .badge-stock-asignado chip azul claro #dbeafe (ex-badge-reservado)', () => {
+    const rule = ALL_RULES.find((r) => r.selector === '.badge-stock-asignado');
     expect(rule).toBeTruthy();
     expect(String(readProp(rule.body, 'background').value).toLowerCase()).toContain('#dbeafe');
     expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe(BLUE);
   });
 
-  it('.badge-de-orden chip amber #fef3c7 + texto #92400e (nuevo §45.1)', () => {
+  it('.badge-de-orden chip amber #fef3c7 + texto #92400e (§45.1)', () => {
     const rule = ALL_RULES.find((r) => r.selector === '.badge-de-orden');
     expect(rule, 'badge-de-orden no existe en CSS').toBeTruthy();
     expect(String(readProp(rule.body, 'background').value).toLowerCase()).toContain('#fef3c7');
     expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe('#92400e');
   });
 
-  it('.badge-duplicado chip rojo claro #fee2e2 + texto #991b1b (nuevo §45.1)', () => {
+  it('§56: .badge-duplicado ELIMINADO del CSS (ya no hay duplicados por construcción)', () => {
     const rule = ALL_RULES.find((r) => r.selector === '.badge-duplicado');
-    expect(rule, 'badge-duplicado no existe en CSS').toBeTruthy();
-    expect(String(readProp(rule.body, 'background').value).toLowerCase()).toContain('#fee2e2');
-    expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe('#991b1b');
+    expect(rule, 'badge-duplicado NO debería existir tras §56').toBeFalsy();
   });
 
-  it('index.html render del SKU incluye lógica para los 3 badges (reservado, de orden, duplicado)', () => {
-    // El bloque del SKU es un IIFE anónimo con los 3 badges inline.
+  it('§56: render del SKU incluye solo los 2 badges activos (stock-asignado, de orden) y NO DUPLICADO', () => {
     const slice = INDEX_HTML.slice(
-      INDEX_HTML.indexOf('v1417 §45.1: celda SKU con badges inline'),
+      INDEX_HTML.indexOf('celda SKU con badges inline'),
       INDEX_HTML.indexOf('v817 (2026-09-07): si la desc es')
     );
     expect(slice.length).toBeGreaterThan(400);
-    expect(slice).toMatch(/badge-reservado/);
+    expect(slice).toMatch(/badge-stock-asignado/);
     expect(slice).toMatch(/badge-de-orden/);
-    expect(slice).toMatch(/badge-duplicado/);
+    expect(slice).toMatch(/STOCK ASIGNADO/);
     expect(slice).toMatch(/DE ORDEN/);
-    expect(slice).toMatch(/DUPLICADO/);
+    // §56: badges ELIMINADOS del render.
+    expect(slice).not.toMatch(/badge-duplicado/);
+    expect(slice).not.toMatch(/badge-reservado/);
+    // El string literal 'DUPLICADO' no debe aparecer como badge textContent.
+    // (puede aparecer en comentarios o msgs, pero no como textContent de un badge)
+    expect(slice).not.toMatch(/_badge\.textContent\s*=\s*['"]DUPLICADO/);
   });
 });
 
