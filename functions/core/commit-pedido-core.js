@@ -227,7 +227,9 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     .get();
   /** @type {any[]} */
   const repartosActivos = [];
-  repartoActiveSnap.forEach((/** @type {any} */ d) => repartosActivos.push({ _fsId: d.id, ...d.data() }));
+  repartoActiveSnap.forEach((/** @type {any} */ d) =>
+    repartosActivos.push({ _fsId: d.id, ...d.data() })
+  );
 
   // 5.6 Compute breakdown por SKU + decide por línea.
   /** @type {Array<any>} */
@@ -364,7 +366,9 @@ async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIs
     const snap = await tx.get(refDoc);
     if (!snap.exists) continue;
     const data = snap.data() || {};
-    const newLines = Array.isArray(data.lines) ? data.lines.map((/** @type {any} */ l) => ({ ...l })) : [];
+    const newLines = Array.isArray(data.lines)
+      ? data.lines.map((/** @type {any} */ l) => ({ ...l }))
+      : [];
     for (const r of refs) {
       const li = Number(r.lineIndex);
       if (!newLines[li]) continue;
@@ -437,7 +441,9 @@ function computeDiffVsClient(lineasResultado, payload) {
   // Para E2 Fase 1 solo marcamos si hubo back order inesperado.
   const changed = [];
   for (const l of lineasResultado) {
-    const original = payload.lines.find((/** @type {any} */ p) => String(p.sku).toUpperCase() === l.sku);
+    const original = payload.lines.find(
+      (/** @type {any} */ p) => String(p.sku).toUpperCase() === l.sku
+    );
     if (!original) continue;
     if (l.qtyBO > 0) {
       changed.push({
