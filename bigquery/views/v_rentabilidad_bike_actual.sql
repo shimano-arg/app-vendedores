@@ -1,0 +1,185 @@
+WITH invoices_and_cns AS (
+  SELECT *, 1 AS sign, 'FACTURA' AS doc_kind
+  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw`
+  UNION ALL
+  SELECT *, -1 AS sign, 'NOTA_CREDITO' AS doc_kind
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw`
+),
+-- fecha_contable para NCs: mes de la factura original (igual que v_ventas_lineas).
+nc_base_dates AS (
+  SELECT
+    nc.doc_entry AS nc_doc_entry,
+    MIN(base_inv.doc_date) AS factura_base_doc_date
+  FROM `app-vendedores-shimano.shimano_app.sap_credit_notes_raw` nc,
+       UNNEST(JSON_EXTRACT_ARRAY(nc.lines_json)) AS nc_line
+  JOIN `app-vendedores-shimano.shimano_app.sap_invoices_raw` base_inv
+    ON base_inv.doc_entry = SAFE_CAST(JSON_VALUE(nc_line, '$.BaseEntry') AS INT64)
+    AND SAFE_CAST(JSON_VALUE(nc_line, '$.BaseType') AS INT64) = 13
+  GROUP BY nc.doc_entry
+),
+-- Suma de LineTotal por documento para prorrateo del dcto cabecera.
+sum_lines_per_doc AS (
+  SELECT
+    doc_kind,
+    doc_entry,
+    SUM(SAFE_CAST(JSON_VALUE(ln, '$.LineTotal') AS FLOAT64)) AS suma_lineas
+  FROM invoices_and_cns,
+       UNNEST(JSON_EXTRACT_ARRAY(lines_json)) AS ln
+  GROUP BY doc_kind, doc_entry
+)
+SELECT
+  -- ====== CLAVES ======
+  inv.doc_entry,
+  inv.doc_num,
+  SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64) AS line_num,
+  JSON_VALUE(line, '$.ItemCode') AS item_code,
+  inv.card_code,
+  inv.sales_person_code,                              -- SlpCode SAP SIN reasignar
+
+  -- ====== FECHAS ======
+  inv.doc_date,
+  DATE(CASE
+    WHEN inv.doc_kind = 'NOTA_CREDITO' AND ncb.factura_base_doc_date IS NOT NULL
+      THEN ncb.factura_base_doc_date
+    ELSE inv.doc_date
+  END) AS fecha_contable,
+  EXTRACT(YEAR FROM
+    CASE
+      WHEN inv.doc_kind = 'NOTA_CREDITO' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  ) AS anio_contable,
+  EXTRACT(MONTH FROM
+    CASE
+      WHEN inv.doc_kind = 'NOTA_CREDITO' AND ncb.factura_base_doc_date IS NOT NULL
+        THEN ncb.factura_base_doc_date
+      ELSE inv.doc_date
+    END
+  ) AS mes_contable,
+
+  -- ====== CLASIFICACION ======
+  inv.doc_kind,                                       -- 'FACTURA' | 'NOTA_CREDITO'
+  TRUE AS es_bike,                                    -- siempre TRUE: filtro COGSCostingCode3=BIK
+  -- division: BIKE si TODAS las lineas del doc son BIK; MIXTO si combina con otras.
+  -- Proxy del campo "Division" de cabecera que usa Fernando (no se sincroniza al raw).
+  CASE
+    WHEN (SELECT COUNT(*) FROM UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS l2
+          WHERE JSON_VALUE(l2, '$.COGSCostingCode3') != 'BIK') = 0 THEN 'BIKE'
+    ELSE 'MIXTO'
+  END AS division,
+  CAST(NULL AS STRING) AS ssc,                        -- pendiente sync BP; placeholder para esquema estable
+  JSON_VALUE(line, '$.PriceSource') AS price_source,  -- dpsManual | dpsActivePriceList
+
+  -- Metadata operativa util para debug (no para agregacion directa)
+  inv.card_name,
+  inv.sign,                                           -- 1 factura, -1 NC
+  inv.doc_currency,
+  inv.series,
+
+  -- ====== CANTIDAD + VENTA (importes ARS con signo) ======
+  SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) * inv.sign AS cantidad,
+  -- venta_bruta_ars = ARS ANTES del descuento de linea.
+  -- NO uso UnitPrice (puede venir en moneda extranjera para doc_currency='USD',
+  -- aunque las conversiones ya estan en LineTotal). Baso en LineTotal que esta
+  -- siempre en ARS post-conversion por TC del documento.
+  -- Si DP>0: venta_bruta = LineTotal / (1 - DP/100). Sino: = LineTotal.
+  (
+    CASE
+      WHEN SAFE_CAST(JSON_VALUE(line, '$.DiscountPercent') AS FLOAT64) > 0
+        THEN SAFE_DIVIDE(
+          SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64),
+          NULLIF(1 - SAFE_CAST(JSON_VALUE(line, '$.DiscountPercent') AS FLOAT64) / 100, 0)
+        )
+      ELSE SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    END
+  ) * inv.sign AS venta_bruta_ars,
+  -- dcto_linea_ars = venta_bruta_ars - LineTotal (identidad por construccion).
+  (
+    CASE
+      WHEN SAFE_CAST(JSON_VALUE(line, '$.DiscountPercent') AS FLOAT64) > 0
+        THEN SAFE_DIVIDE(
+          SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64),
+          NULLIF(1 - SAFE_CAST(JSON_VALUE(line, '$.DiscountPercent') AS FLOAT64) / 100, 0)
+        )
+      ELSE SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    END
+    - SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+  ) * inv.sign AS dcto_linea_ars,
+  -- venta_post_dcto_linea_ars = LineTotal (= UnitPrice * qty, post dcto linea, pre dcto cabecera)
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64) * inv.sign AS venta_post_dcto_linea_ars,
+  -- dcto_cabecera_prorrateado_ars = LineTotal * (total_discount / suma_lineas)
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    * SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0))
+    * inv.sign AS dcto_cabecera_prorrateado_ars,
+  -- venta_neta_ars = LineTotal * (1 - dcto_cab_prorrateo)
+  SAFE_CAST(JSON_VALUE(line, '$.LineTotal') AS FLOAT64)
+    * (1 - SAFE_DIVIDE(COALESCE(inv.total_discount, 0), NULLIF(slp.suma_lineas, 0)))
+    * inv.sign AS venta_neta_ars,
+  -- Porcentajes del documento (dato del sistema, no ratios calculados)
+  SAFE_CAST(JSON_VALUE(line, '$.DiscountPercent') AS FLOAT64) AS dcto_linea_pct,
+  inv.discount_percent AS dcto_cabecera_pct,
+
+  -- ====== COSTOS (importes de linea con signo) ======
+  SAFE_CAST(JSON_VALUE(line, '$.GrossBuyPrice') AS FLOAT64)
+    * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+    * inv.sign AS costo_doc_ars,                      -- GrossBuyPrice del documento
+  item_bike.cost_avg_ars
+    * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+    * inv.sign AS costo_prom_ars,                     -- cost_avg_ars del maestro (EN REVISION)
+  item_bike.cost_usd
+    * SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+    * inv.sign AS costo_prom_usd,                     -- cost_usd puro (PBI convierte)
+  -- costo_paiva_ars_sep2026: caso de prueba permanente. NULL fuera de Sep 2026 o sin match.
+  -- Join con dedupe (ROW_NUMBER=1) sobre bike_test_paiva_sep2026.
+  pbt.costo_total_paiva_ars * inv.sign AS costo_paiva_ars_sep2026,
+
+  -- ====== JERARQUIA DE PRODUCTO ======
+  item_enriched.familia_norm      AS familia,
+  item_enriched.subfamilia_norm   AS subfamilia,
+  item_enriched.sub               AS sub_subfamilia,
+  item_bike.marca,
+  item_bike.mss,
+  item_bike.clase,
+  item_bike.subcategoria,
+  item_bike.modelo,
+  -- Jerarquia Fernando: NO sincronizada al pipeline (pedir a Fernando los nombres
+  -- de campo SAP exactos). Placeholders para esquema estable.
+  CAST(NULL AS STRING) AS product_class,
+  CAST(NULL AS STRING) AS product_series,
+  CAST(NULL AS STRING) AS part_code,
+  CAST(NULL AS STRING) AS model_code,
+  CAST(NULL AS STRING) AS size,
+  CAST(NULL AS STRING) AS color,
+
+  -- ====== METADATA ======
+  inv._sync_timestamp                                 -- cuando se sincronizo el raw (ver refresh en CONTRATO_PBI.md)
+FROM invoices_and_cns inv,
+UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS line
+LEFT JOIN sum_lines_per_doc slp
+  ON slp.doc_kind = inv.doc_kind AND slp.doc_entry = inv.doc_entry
+LEFT JOIN nc_base_dates ncb
+  ON ncb.nc_doc_entry = inv.doc_entry AND inv.doc_kind = 'NOTA_CREDITO'
+LEFT JOIN `app-vendedores-shimano.shimano_app.sap_items_bike_raw` item_bike
+  ON item_bike.item_code = JSON_VALUE(line, '$.ItemCode')
+LEFT JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` item_enriched
+  ON item_enriched.item_code = JSON_VALUE(line, '$.ItemCode')
+LEFT JOIN (
+  SELECT card_code, item_code, fecha_contab, cantidad, costo_total_paiva_ars
+  FROM (
+    SELECT *,
+      ROW_NUMBER() OVER (
+        PARTITION BY card_code, item_code, fecha_contab, CAST(cantidad AS STRING)
+        ORDER BY nro_factura
+      ) AS rn
+    FROM `app-vendedores-shimano.shimano_app.bike_test_paiva_sep2026`
+  )
+  WHERE rn = 1
+) pbt
+  ON pbt.card_code = inv.card_code
+  AND pbt.item_code = JSON_VALUE(line, '$.ItemCode')
+  AND pbt.fecha_contab = inv.doc_date
+  AND pbt.cantidad = SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
+  AND inv.doc_date BETWEEN DATE('2026-09-01') AND DATE('2026-09-30')
+WHERE inv.cancelled = 'tNO'
+  AND JSON_VALUE(line, '$.COGSCostingCode3') = 'BIK'
