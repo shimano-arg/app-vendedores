@@ -552,6 +552,56 @@ async function loadOpenPedidos(deps) {
  * @param {string} snapshotDocPath
  * @param {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>} perSku
  */
+/**
+ * E1 shadow §stock-servidor-atomico (2026-10-23): escribe un doc por SKU
+ * en la colección `stock_snapshot/{SKU}` con el aggregate app-source.
+ *
+ * Objetivo: evitar el hot-spot del único doc global `app_config/stock_snapshot_app`
+ * cuando commitPedidoCF corra en paralelo (p95 22 líneas/SKU en prod →
+ * contention sobre 1 doc). Con 1 doc por SKU, dos txn que confirman el MISMO
+ * SKU reintentan; dos txn sobre SKUs distintos pasan sin contención.
+ *
+ * **Shadow 24h**: este helper escribe en paralelo al snapshot global. En E2
+ * `commitPedidoCF` leerá `stock_snapshot/{SKU}` dentro de runTransaction.
+ * El snapshot global sigue para compatibilidad con lectores viejos.
+ *
+ * @param {SnapshotDeps} deps
+ * @param {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>} perSku
+ * @param {string} nowIso
+ */
+async function writePerSkuShadowSnapshot(deps, perSku, nowIso) {
+  if (!perSku.size) return { written: 0 };
+  const col = deps.fbDb.collection('stock_snapshot');
+  let written = 0;
+  for (const [sku, agg] of perSku) {
+    const asigByClient = Object.fromEntries(agg.asigByClient);
+    const boByClient = Object.fromEntries(agg.boByClient);
+    const docData = {
+      sku,
+      asignadas: { total: agg.asig, byClient: asigByClient },
+      backorderApp: { total: agg.bo, byClient: boByClient },
+      // confirmadasSinFacturar: {} // TODO sesión 2 — incluir en aggregate
+      _version: 'app_v8_shadow_e1',
+      _computedAt: nowIso,
+      _source: 'onPedidoWriteRecalcSnapshot',
+    };
+    try {
+      await col.doc(sku).set(docData, { merge: true });
+      written++;
+    } catch (e) {
+      // No bloqueamos el write global por errores shadow. Log + sigue.
+      if (deps.log)
+        deps.log('writePerSkuShadowSnapshot FAIL', { sku, err: (e && e.message) || String(e) });
+    }
+  }
+  return { written };
+}
+
+/**
+ * @param {SnapshotDeps} deps
+ * @param {string} snapshotDocPath
+ * @param {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>} perSku
+ */
 async function writeSnapshot(deps, snapshotDocPath, perSku) {
   if (!perSku.size) return;
   // v554+ (bugfix): NO usar `set({field: {}}, {merge: true})` con maps vacios
@@ -635,7 +685,7 @@ async function writeSnapshot(deps, snapshotDocPath, perSku) {
  * Recalcula el snapshot app-source para los SKUs afectados.
  * @param {SnapshotDeps} deps
  * @param {Set<string>} affectedSkus
- * @returns {Promise<{mode: 'shadow'|'active', skusRecalculated: number, snapshotDoc: string, totals: Record<string, {bo: number, asig: number}>}>}
+ * @returns {Promise<{mode: 'shadow'|'active', skusRecalculated: number, snapshotDoc: string, totals: Record<string, {bo: number, asig: number}>, perSkuShadowWritten?: number}>}
  */
 export async function recalcSnapshotForSkus(deps, affectedSkus) {
   const log = deps.log || (() => {});
@@ -658,6 +708,20 @@ export async function recalcSnapshotForSkus(deps, affectedSkus) {
   }
 
   await writeSnapshot(deps, snapshotDoc, perSku);
-  log('recalcSnapshotForSkus done', { mode, skus: affectedSkus.size, snapshotDoc });
-  return { mode, skusRecalculated: affectedSkus.size, snapshotDoc, totals };
+  // E1 shadow §stock-servidor-atomico: paralelo escribimos stock_snapshot/{SKU}
+  // Si Firestore falla individualmente no bloqueamos el main write.
+  const shadowResult = await writePerSkuShadowSnapshot(deps, perSku, new Date(now).toISOString());
+  log('recalcSnapshotForSkus done', {
+    mode,
+    skus: affectedSkus.size,
+    snapshotDoc,
+    perSkuShadowWritten: shadowResult.written,
+  });
+  return {
+    mode,
+    skusRecalculated: affectedSkus.size,
+    snapshotDoc,
+    totals,
+    perSkuShadowWritten: shadowResult.written,
+  };
 }

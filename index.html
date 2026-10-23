@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1425';
+const APP_VERSION = 'v1430';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17522,6 +17522,43 @@ window._resolveClientVendorFromMaster = function(args){
   }
   return resolution;
 };
+// E3 §stock-servidor-atomico (v1430+): helper que llama a commitPedidoCF.
+// Convierte el shape de docData (legacy inline) al payload del CF + llama
+// a la callable. Si falla por timeout/no disponible, devuelve null (fallback).
+window._tryCommitPedidoCF = async function(docData){
+  try {
+    if (!firebase || !firebase.app) return null;
+    const callable = firebase.app().functions('southamerica-east1').httpsCallable('commitPedidoCF');
+    // Construir payload desde docData (lo que ya armó doConfirmPedido).
+    const draftId = docData._draftId || (docData.key + '|' + String(docData.orderNumber || Math.random().toString(36).slice(2, 10)));
+    const payload = {
+      draftId,
+      cardCode: String(docData.clientCardCode || '').trim(),
+      clientName: docData.clientName || '',
+      origen: docData.source === 'stock-asignado-batch' ? 'cpst' : (docData.source === 'excel' ? 'excel' : 'manual'),
+      lines: (docData.lines || []).map((l) => ({
+        sku: l.code,
+        cantidad: Number(l.qty) || 0,
+        precio: Number(l.precio) || 0,
+        notas: l.notas || '',
+        origenLinea: l.origen || undefined,
+        asigRefs: Array.isArray(l.asigRefs) ? l.asigRefs : undefined,
+      })),
+      clientVersion: (typeof APP_VERSION === 'string') ? APP_VERSION : 'unknown',
+      autoAcceptStockChange: !!docData._autoAcceptStockChange,
+      formaEntrega: docData.formaEntrega || null,
+      condicionPago: docData.condicionPago || '',
+      observaciones: docData.observaciones || '',
+    };
+    const resp = await callable(payload);
+    return resp && resp.data ? resp.data : null;
+  } catch (e) {
+    // Si el CF no existe aún (deploy pendiente) o unavailable, fallback a legacy.
+    console.warn('[_tryCommitPedidoCF] fallback a legacy:', (e && e.message) || String(e));
+    return null;
+  }
+};
+
 window._enrichPayloadWithClientVendor = function(payload){
   const pure = window.__phase0 && window.__phase0.pure;
   const enrich = pure && pure.enrichPayloadWithClientVendor;
@@ -36028,6 +36065,77 @@ window.doConfirmPedido = async function(){
     // v1406 §44: resolver vendor del cliente master y alinear ownerVendor +
     // vendorAssigned + assignedVendorUid + cargadoPor antes del persist.
     try { window._enrichPayloadWithClientVendor(docData); } catch (_eEnrich) { /* non-fatal */ }
+    // E3 §stock-servidor-atomico (v1430+): intento primero commitPedidoCF que
+    // decide server-side con runTransaction. Si está disponible y OK, el
+    // resultado substituye a `pedidos.add` (ref.id = result.pedidoId).
+    // Si falla con errorCode → modal apropiado + abort. Si CF no disponible
+    // → fallback a pedidos.add directo (comportamiento legacy).
+    const _commitCfResult = await (window._tryCommitPedidoCF ? window._tryCommitPedidoCF(docData) : Promise.resolve(null));
+    if (_commitCfResult && _commitCfResult.ok === true) {
+      // CF OK: usar pedidoId del server, saltear `pedidos.add` y continuar en el then()
+      // con un ref simulado.
+      const _refSim = { id: _commitCfResult.pedidoId, _fromCommitCF: true, _diffVsClient: _commitCfResult.diffVsClient || null };
+      await Promise.resolve(_refSim).then((ref)=>{
+        if (ref._diffVsClient) {
+          // UI explica: "X unidades pasaron a BO porque otro pedido las tomó antes".
+          try { showSyncTag(ref._diffVsClient.message || 'Stock cambió al confirmar'); } catch(_e){}
+        }
+      });
+      // Flow continúa como si .add() hubiera retornado — pero el CF ya hizo
+      // casi todo (crear pedido + cancel ASIG si cpst). Solo falta pending[].push + rerender.
+      try {
+        if (!pending[currentOrderKey]) pending[currentOrderKey] = [];
+        pending[currentOrderKey].push({ _fsId: _commitCfResult.pedidoId, month: monthLabel, monthIdx: mesIdx, year: parseInt(anio), confirmedAt: docData.confirmedAt, lines: docData.lines });
+        savePending();
+        delete orders[currentOrderKey];
+        saveOrders();
+        if (typeof renderPedidosTab === 'function') renderPedidosTab();
+      } catch(_e){ console.warn('post-commitCF local update', _e); }
+      // Reset globals (igual que el flow legacy).
+      window._pendingPedidoOrderNumber = null;
+      window._pendingPedidoWaitlistId = null;
+      window._pendingPedidoSource = null;
+      window._pendingPedidoOrigenes = null;
+      window._pendingBypassAsigGate = null;
+      closeConfirmDialog();
+      closePedidoModal();
+      setPedidoView('pendientes');
+      return;
+    }
+    if (_commitCfResult && _commitCfResult.ok === false) {
+      // CF rechazó con errorCode → modal apropiado.
+      const code = _commitCfResult.errorCode || 'UNKNOWN';
+      let msg = 'No se pudo confirmar el pedido.\n\nCódigo: ' + code + '\n' + (_commitCfResult.message || '');
+      if (code === 'VERSION_OLD') {
+        if (confirm(msg + '\n\nActualizar la app ahora?')) location.reload();
+      } else if (code === 'CLIENT_HAS_OPEN_WAITLIST') {
+        alert(msg + '\n\nEl cliente ya tiene una orden abierta en lista de espera.');
+      } else if (code === 'STOCK_CHANGED') {
+        // Permitir reintentar aceptando el diff.
+        if (confirm(msg + '\n\n¿Confirmar con back order?')) {
+          docData._autoAcceptStockChange = true;
+          try {
+            const _retry = await window._tryCommitPedidoCF(docData);
+            if (_retry && _retry.ok) {
+              if (!pending[currentOrderKey]) pending[currentOrderKey] = [];
+              pending[currentOrderKey].push({ _fsId: _retry.pedidoId, month: monthLabel, monthIdx: mesIdx, year: parseInt(anio), confirmedAt: docData.confirmedAt, lines: docData.lines });
+              savePending();
+              delete orders[currentOrderKey];
+              saveOrders();
+              if (typeof renderPedidosTab === 'function') renderPedidosTab();
+            } else {
+              alert('Reintento falló: ' + (_retry?.message || 'desconocido'));
+            }
+          } catch(e) {
+            alert('Error en reintento: ' + (e?.message || String(e)));
+          }
+        }
+      } else {
+        alert(msg);
+      }
+      return;
+    }
+    // Fallback legacy (CF no disponible): seguir con pedidos.add directo.
     fbDb.collection('pedidos').add(docData).then((ref)=>{
       showSyncTag('Pedido pendiente guardado');
       // v846 (2026-09-09): reset del orderNumber pendiente — ya se persistio en docData.

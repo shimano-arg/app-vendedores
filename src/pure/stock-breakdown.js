@@ -99,6 +99,7 @@ export const STOCK_LABELS = Object.freeze({
   fisicoDep11: 'Stock físico (dep 11)',
   transitoDep12: 'En tránsito (dep 12)',
   libre: 'Libre para la venta',
+  pendienteReparto: 'Pendientes de reparto',
 });
 
 /**

@@ -39,6 +39,8 @@ import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
 import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
+// E2 §stock-servidor-atomico (2026-10-23)
+import { commitPedidoCore } from './core/commit-pedido-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
@@ -3041,5 +3043,61 @@ export const triggerRecomputeClientBuyerStats = onCall(
         { merge: true }
       );
     return { cards: statsMap.size, rows: rows.length, written };
+  }
+);
+
+// =============================================================================
+// E2 §stock-servidor-atomico (2026-10-23) — commitPedidoCF
+// =============================================================================
+// Decisión server-side atómica de "hay stock". Reemplaza las escrituras
+// directas desde el cliente (23 call-sites de categoría A).
+// Ver design doc docs/superpowers/specs/2026-10-23-stock-servidor-atomico.md
+// =============================================================================
+export const commitPedidoCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    // Dominios permitidos (igual que applyRepartoManualCF).
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const db = getFirestore();
+    const data = req.data || {};
+    // Payload shape validado dentro del core. Inyectamos owner info del request.
+    const payload = {
+      ...data,
+      ownerUid: auth.uid,
+      ownerEmail: email,
+    };
+    try {
+      const r = await commitPedidoCore(
+        {
+          fbDb: db,
+          log: (msg, extra) => console.log(msg, extra || {}),
+          reportError: (err, ctx) => console.error('commitPedidoCore error', err, ctx || {}),
+          FieldValue,
+        },
+        payload
+      );
+      // Si el core devuelve ok:false, retornarlo como data (no throw).
+      // El cliente lo interpreta por `errorCode`.
+      return r;
+    } catch (e) {
+      // Error inesperado (no de negocio). Log + throw.
+      console.error('commitPedidoCF unexpected', e);
+      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+    }
   }
 );
