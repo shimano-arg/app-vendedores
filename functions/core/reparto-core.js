@@ -788,6 +788,54 @@ export async function applyRepartoManualCore(deps, opts) {
     const pedidoRef = deps.fbDb.collection('pedidos').doc(action.pedidoId);
     try {
       await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+        // E5 §stock-servidor-atomico (v1433): re-leer stock_snapshot DENTRO
+        // de la txn para validar que el stock físico no bajó entre pre-tx
+        // (línea 697) y la aplicación individual. Protege de la race
+        // "VDE confirma venta mismo SKU mientras Pablo aplica reparto"
+        // (G1.G02 del audit grises 2026-10-22).
+        const stockSnapInTx = await tx.get(
+          deps.fbDb.collection('app_config').doc('stock_snapshot')
+        );
+        const stockDataInTx = stockSnapInTx.exists ? stockSnapInTx.data() : null;
+        const wbsInTx = _parseWarehouseBreakdown(stockDataInTx);
+        const skuForTx = String(ingresoDoc.sku || '')
+          .toUpperCase()
+          .trim();
+        const whsInTx = (wbsInTx && wbsInTx[skuForTx]) || null;
+        const fisicoInTx = whsInTx ? Number(whsInTx['11'] || 0) : 0;
+        if (fisicoInTx < stockFisicoDep11) {
+          throw new Error(
+            'E5 stock físico bajó durante aplicación (' +
+              stockFisicoDep11 +
+              ' → ' +
+              fisicoInTx +
+              ') SKU=' +
+              skuForTx +
+              ' @ ' +
+              action.pedidoId +
+              ':' +
+              action.lineIndex
+          );
+        }
+        // E5: validar que ASIG actual + nueva no exceda fisico actual.
+        // Lectura del aggregate app-source `asigBySkuApp` (ya mantenido por
+        // onPedidoWriteRecalcSnapshot). Si no está disponible, saltamos.
+        if (stockDataInTx && stockDataInTx.asigBySkuApp) {
+          const currentAsig = Number(stockDataInTx.asigBySkuApp[skuForTx] || 0);
+          const newAsig = Math.max(0, Number(action.asig) || 0);
+          if (currentAsig + newAsig > fisicoInTx) {
+            throw new Error(
+              'E5 reparto excedería físico actual: asigActual=' +
+                currentAsig +
+                ' + newAsig=' +
+                newAsig +
+                ' > fisico=' +
+                fisicoInTx +
+                ' SKU=' +
+                skuForTx
+            );
+          }
+        }
         const pedidoSnap = await tx.get(pedidoRef);
         if (!pedidoSnap.exists) {
           throw new Error('pedido no existe: ' + action.pedidoId);

@@ -36075,7 +36075,14 @@ window.doConfirmPedido = async function(){
     // de stock asignado). null si el flow fue normal.
     bypassAsigGate: (window._pendingBypassAsigGate && window._pendingBypassAsigGate.bypassed) ? window._pendingBypassAsigGate : null,
     month: monthLabel, monthIdx: mesIdx, year: parseInt(anio),
-    confirmedAt: new Date().toISOString(),
+    // E7 §stock-servidor-atomico (v1433): confirmedAt usa serverTimestamp
+    // para que no sea afectado por clock skew del dispositivo del VDE
+    // (G1.G14 del audit grises 2026-10-22). El servidor usa NTP real.
+    // Fallback a ISO string sólo para dev local sin firebase SDK (no afecta
+    // TTL en prod porque el pedido también pasa por commitPedidoCF).
+    confirmedAt: (firebase && firebase.firestore && firebase.firestore.FieldValue && firebase.firestore.FieldValue.serverTimestamp)
+      ? firebase.firestore.FieldValue.serverTimestamp()
+      : new Date().toISOString(),
     // Condicion de pago seleccionada por el vendedor. Va al UDF U_TipoGasto
     // en el header del Sales Quotation cuando se exporta el ZIP DTW.
     condicionPago: condicionVal,

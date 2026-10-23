@@ -96,6 +96,24 @@ export async function commitPedidoCore(deps, payload) {
   // 3. Idempotencia por draftId.
   const existingPedido = await findExistingByDraftId(deps, payload.draftId);
   if (existingPedido) {
+    // E8 §stock-servidor-atomico (v1433): si el pedido ya existe Y está en SAP
+    // (transferidoSAP.docEntry != null), rechazamos edición. G4.03 del audit
+    // grises: un pedido ya enviado a SAP se edita en app y queda divergente.
+    const transferido = existingPedido.data && existingPedido.data.transferidoSAP;
+    if (transferido && transferido.docEntry != null && transferido.via !== 'app_only') {
+      return makeError(
+        'PERMISSION_DENIED',
+        'Pedido ya enviado a SAP (SQ #' +
+          (transferido.docNum || transferido.docEntry) +
+          '); para modificar, contactar a admin que lo edita en SAP',
+        {
+          pedidoId: existingPedido.id,
+          sapDocNum: transferido.docNum || null,
+          sapDocEntry: transferido.docEntry,
+          via: transferido.via || null,
+        }
+      );
+    }
     log('commitPedidoCore idempotente hit', {
       draftId: payload.draftId,
       pedidoId: existingPedido.id,

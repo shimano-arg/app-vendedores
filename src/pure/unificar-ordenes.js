@@ -84,6 +84,52 @@ export function computeDuplicateCodes(lines) {
  * @param {Array<AsigRef>|undefined} pedidosOrigenes
  * @returns {Array<AsigRef>}
  */
+/**
+ * E9 §stock-servidor-atomico (v1433) — union dedup de asigRefs para fix G2.03
+ * chained merge. Cuando Z absorbe Y que ya absorbió X, los asigRefs de X
+ * viven persistidos en Y.lines[].asigRefs; el pedidosOrigenes de Y puede
+ * estar pisado o faltante. UNION resuelve.
+ *
+ * Dedupe por (pedidoId, lineIndex). Si ambos sets tienen la misma ref,
+ * se queda con el qtyAsignada MAYOR (defensivo).
+ *
+ * @param {Array<AsigRef>} refsA
+ * @param {Array<AsigRef>} refsB
+ * @returns {Array<AsigRef>}
+ */
+export function unionAsigRefsDedup(refsA, refsB) {
+  /** @type {Map<string, AsigRef>} */
+  const seen = new Map();
+  const all = [...(Array.isArray(refsA) ? refsA : []), ...(Array.isArray(refsB) ? refsB : [])];
+  for (const r of all) {
+    if (!r || !r.pedidoId) continue;
+    const li = Number(r.lineIndex);
+    if (!Number.isFinite(li)) continue;
+    const key = r.pedidoId + '|' + li;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, {
+        pedidoId: r.pedidoId,
+        lineIndex: li,
+        qtyAsignada: Number(r.qtyAsignada) || 0,
+        sku: r.sku,
+      });
+    } else {
+      // Dedupe: keep max qtyAsignada.
+      const q = Number(r.qtyAsignada) || 0;
+      if (q > (Number(existing.qtyAsignada) || 0)) {
+        existing.qtyAsignada = q;
+      }
+    }
+  }
+  return Array.from(seen.values());
+}
+
+/**
+ * @param {string} code
+ * @param {Array<AsigRef>|undefined} pedidosOrigenes
+ * @returns {Array<AsigRef>}
+ */
 export function buildAsigRefsForLine(code, pedidosOrigenes) {
   if (!Array.isArray(pedidosOrigenes) || pedidosOrigenes.length === 0) return [];
   const target = normCode(code);
@@ -132,12 +178,22 @@ export function mergeLinesFromOrders(baseLines, otherOrders) {
       for (const line of order.lines) {
         if (!line) continue;
         const newLine = { ...line, importedFromOrder: order.orderNumber };
-        if (isCpst) {
-          const refs = buildAsigRefsForLine(line.code, order.pedidosOrigenes);
-          if (refs.length > 0) {
-            newLine.origen = 'stock-asignado';
-            newLine.asigRefs = refs;
-          }
+        // E9 §stock-servidor-atomico (v1433): fix G2.03 chained merge.
+        // Bug: cuando Z absorbe Y, y Y antes había absorbido X con
+        // asigRefs persistidos en Y.lines[k].asigRefs, el merge solo leía
+        // order.pedidosOrigenes (potencialmente pisado por un merge
+        // intermedio) y descartaba los asigRefs persistidos en la línea.
+        //
+        // Fix: UNION de refs de pedidosOrigenes + line.asigRefs ya
+        // persistidos. Dedupe por (pedidoId, lineIndex).
+        const refsFromOrigenes = isCpst
+          ? buildAsigRefsForLine(line.code, order.pedidosOrigenes)
+          : [];
+        const refsFromLine = Array.isArray(line.asigRefs) ? line.asigRefs : [];
+        const refs = unionAsigRefsDedup(refsFromOrigenes, refsFromLine);
+        if (refs.length > 0) {
+          newLine.origen = 'stock-asignado';
+          newLine.asigRefs = refs;
         }
         mergedLines.push(newLine);
       }
