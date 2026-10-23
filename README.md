@@ -4717,6 +4717,55 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1430 (2026-10-23) — Stock servidor atómico SESIÓN 1 (E0-E4)
+
+Rama `feat-stock-servidor-atomico` → `main`. Sesión 1 del cierre de los 11 grises grandes de la auditoría 2026-10-22.
+
+**Metodología**: loop engineering + superpowers (brainstorming, writing-plans, dispatching-parallel-agents, test-driven-development, verification-before-completion). Design doc 595 líneas, plan ejecutable con checkbox. Buy-in Cowork 2026-10-23.
+
+**Entregables E0-E4**:
+- `docs/superpowers/specs/2026-10-23-stock-servidor-atomico.md` (design doc).
+- `docs/superpowers/plans/2026-10-23-stock-servidor-atomico-plan.md`.
+- `docs/auditoria/50_INVENTARIO_CALLSITES_STOCK.md`.
+- `functions/core/commit-pedido-core.js` (538 líneas, nuevo).
+- `functions/index.js` export `commitPedidoCF` (callable).
+- `functions/core/pedido-snapshot-core.js` + `writePerSkuShadowSnapshot` (shadow 24h en `stock_snapshot/{SKU}`).
+- `src/pure/stock-breakdown.js` STOCK_LABELS + `pendienteReparto` label (fix sync drift).
+- `index.html:17525` helper `_tryCommitPedidoCF`.
+- `index.html:36031` `doConfirmPedido` migrado a CF con fallback legacy.
+
+**CF `commitPedidoCF`** (ver §Sección NUEVA — Contrato en design doc):
+- Decisión server-side atómica de "hay stock".
+- `runTransaction` relee stock dentro + decide por línea (CLAUDE.md §33/§35).
+- Idempotencia por `draftId` (doble click, retry = mismo pedidoId).
+- Códigos de error: `VERSION_OLD` / `CLIENT_HAS_OPEN_WAITLIST` / `STOCK_CHANGED` / `SNAPSHOT_TOO_OLD` / `CONTENTION_RETRY_EXHAUSTED` / `VALIDATION_ERROR` / `PERMISSION_DENIED`.
+- Cancela ASIG originales (bloque v1280) server-side cuando `origen=cpst`.
+
+**Tests nuevos** (49 tests):
+- `stock-breakdown-sync-strict.test.js` (19): valida tokens R1-R10 strict entre cliente y servidor.
+- `per-sku-shadow-snapshot.test.js` (3): `recalcSnapshotForSkus` escribe en ambos docs.
+- `commit-pedido-core.test.js` (15): happy paths + validación + todos los errorCodes.
+- `commit-pedido-concurrency.test.js` (3): G1.G01 2 VDEs, G1.G13 2 tabs, idempotencia.
+- `do-confirm-pedido-usa-cf.test.js` (11): doConfirmPedido llama CF + modales por error.
+- `cpst-end-to-end-flow.test.js` (6): CPST → waitlist → confirm → CF end-to-end.
+
+**Suite v1430**: 2258 PASS (0 FAIL). +57 vs v1425 (2201).
+
+**Casos cerrados sesión 1 (4 de 11)**:
+- G1.G01 2 VDEs mismo SKU libre=1 → `runTransaction` + Firestore conflict retry.
+- G1.G13 2 pestañas mismo user cache stale → `STOCK_CHANGED` + diff.
+- G3.05 unificación cross-session → `CLIENT_HAS_OPEN_WAITLIST` fresh query.
+- G1.G02 parcialmente (reparto + confirm — resta endurecer applyRepartoManualCF en E5).
+
+**Pendiente sesión 2 (7 casos, 110t budget)**:
+- E5-E13: reparto hardening (G1.G02 total), autoConfirm migrate (G1.G09, G1.G16), serverTimestamp cliente (G1.G14), bloqueo edit post-SAP (G4.03), fix G2.03 chained merge, rules cutover (shadow 24h), property-based concurrency, race emulador, deploy final.
+
+**Compat**: fallback legacy `pedidos.add` directo si CF no disponible (dev local). Firestore rules sin cambio en sesión 1. VDE sigue pudiendo escribir `lines[]` directo (deprecado post-E10).
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF,functions:onPedidoWriteRecalcSnapshot`.
+
+APP_VERSION v1425 → v1430. CACHE_VERSION v1425 → v1430.
+
 ### v1425 (2026-10-22) — Audit grises stock E0-E4: 5 fixes + property-based tests
 
 Rama `audit-grises-stock` → `main`.
