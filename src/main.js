@@ -106,7 +106,7 @@ import {
 import {
   buildAsigRefsForLine,
   buildUnifiedFromAudit,
-  computeDuplicateCodes,
+  dedupeLinesByCode,
   getRowColorClass,
   mergeLinesFromOrders,
 } from './pure/unificar-ordenes.js';
@@ -326,7 +326,7 @@ const phase0 = {
     computeRecorteVendedorPlan,
     sumQtyBySku,
     mergeLinesFromOrders,
-    computeDuplicateCodes,
+    dedupeLinesByCode,
     getRowColorClass,
     buildUnifiedFromAudit,
     buildAsigRefsForLine,

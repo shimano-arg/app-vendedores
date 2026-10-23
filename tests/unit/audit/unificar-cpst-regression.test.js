@@ -22,11 +22,7 @@ import {
   getStockRealmenteDisponible,
   getStockUtilizableParaClienteExAsig,
 } from '../../../src/pure/stock-realmente-disponible.js';
-import {
-  computeDuplicateCodes,
-  getRowColorClass,
-  mergeLinesFromOrders,
-} from '../../../src/pure/unificar-ordenes.js';
+import { getRowColorClass, mergeLinesFromOrders } from '../../../src/pure/unificar-ordenes.js';
 import { AT_NOW, lineASIG, makeDeps, OESTE, pedidoOpen, SKU_STRADIC } from './_fixtures.js';
 
 // =============================================================================
@@ -256,9 +252,10 @@ describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde do
     expect(origenes[0]).toMatchObject({ pedidoId: 'p-a', lineIndex: 5 });
   });
 
-  // T5 — SKU duplicado con reserva: original va a 'duplicate-original' (roja);
-  //      importada reservada va a 'duplicate-reservado' (azul).
-  it('T5 duplicado con reserva: fila original rojo, importada reservada azul', () => {
+  // T5 — v1435 §56 UPDATED: SKU duplicado con reserva → FUSIÓN POR SKU.
+  //      Antes (pre-§56): quedaban 2 filas (duplicate-original + duplicate-reservado).
+  //      Post-§56: queda 1 fila con qty sumada + origen='stock-asignado' + asigRefs.
+  it('T5 fusión por SKU con reserva (§56): queda 1 fila con qty sumada y origen heredado', () => {
     const baseLines = [{ code: SKU_STRADIC, qty: 2 }]; // original en orden nueva
     const cpstOrder = {
       orderNumber: 332,
@@ -269,13 +266,20 @@ describe('T0-P3 (RED): asigRefs permite cancelar ASIG desde líneas (no desde do
       ],
       lines: [{ code: SKU_STRADIC, qty: 1 }],
     };
-    const { mergedLines, duplicateCodes } = mergeLinesFromOrders(baseLines, [cpstOrder]);
-    expect(mergedLines).toHaveLength(2);
-    // mergedLines[0] = original (sin origen), merged duplicate-original
-    expect(getRowColorClass(mergedLines[0], duplicateCodes)).toBe('duplicate-original');
-    // mergedLines[1] = importada reservada, duplicate-reservado
-    expect(mergedLines[1].origen).toBe('stock-asignado');
-    expect(getRowColorClass(mergedLines[1], duplicateCodes)).toBe('duplicate-reservado');
+    const { mergedLines } = mergeLinesFromOrders(baseLines, [cpstOrder]);
+    // §56: fusión por SKU → 1 sola fila.
+    expect(mergedLines).toHaveLength(1);
+    expect(mergedLines[0].qty).toBe(3); // 2 base + 1 importada
+    // Hereda origen=stock-asignado porque la importada venía con reserva.
+    expect(mergedLines[0].origen).toBe('stock-asignado');
+    expect(mergedLines[0].asigRefs).toHaveLength(1);
+    expect(mergedLines[0].asigRefs[0]).toMatchObject({
+      pedidoId: 'p-oeste-asig',
+      lineIndex: 0,
+      qtyAsignada: 1,
+    });
+    // getRowColorClass post-§56 solo devuelve 'imported' | 'reservado-imported' | null.
+    expect(getRowColorClass(mergedLines[0], null)).toBe('reservado-imported');
   });
 
   // T6 — Borrar fila reservada del waitlist NO cancela la ASIG original.

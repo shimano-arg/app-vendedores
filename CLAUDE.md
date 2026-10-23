@@ -2192,6 +2192,78 @@ match /meli_infracciones_resumen/{docId} {
 
 **Precedente**: `feat-infracciones-meli-export` 2026-10-22 (v1413). Pedido Mariano: integrar al modal "Reportes Excel". Reusa el formato que Mariano dejó armado en `Desktop\INFRACCIONES-MELI.xlsx` (header turquesa oscuro, SI turquesa claro, NO rojo oscuro).
 
+## 56. Un SKU aparece una sola vez por orden, siempre (2026-10-24, v1435)
+
+Regla fuerte: en TODOS los caminos de creación/modificación de órdenes (unificación §42/§42.2, alta manual de SKU, importación Excel, CPST sobre orden abierta, mezcla cliente+servidor), una orden tiene **un SKU una sola vez**. Nunca más filas duplicadas en una orden ni badge "DUPLICADO".
+
+### Rename badge RESERVADO → STOCK ASIGNADO
+
+- CSS class: `.badge-reservado` → `.badge-stock-asignado` (misma paleta: fondo `#dbeafe`, texto `#1e40af`, bold).
+- Texto badge: `'🔒 RESERVADO'` → `'🔒 STOCK ASIGNADO'`. Emoji candado se queda.
+- Tooltip "Linea con reserva (RESERVADO)" → "Linea con STOCK ASIGNADO".
+- Textos de confirm en flow "Unificar orden" actualizados ("RESERVADAS" → "con STOCK ASIGNADO").
+
+### Fusión por SKU en `mergeLinesFromOrders` (`src/pure/unificar-ordenes.js`)
+
+Firma pública INALTERADA (`mergeLinesFromOrders(baseLines, otherOrders) → {mergedLines}`). Cambia solo el COMPORTAMIENTO interno:
+
+- Si ambas líneas tienen el mismo SKU (case-insensitive): **suma qty**.
+- Conserva `origen='stock-asignado'` si alguna lo tenía.
+- Union de `asigRefs` con dedupe por `(pedidoId, lineIndex)` (patrón v1382 §40.5/§42, dedupe por max qtyAsignada).
+- **Precios iguales**: mantiene. **Precios distintos**: usa el precio de la línea base (asumida "lista actual") + registra `precioAnterior1`, `precioAnterior2`, `precioOrigen='lista_actual'`.
+- `importedFromOrder`: hereda del absorbido para que la UI pinte badge "DE ORDEN N".
+- Nuevo campo `mergedFrom: [{orden, qty, precio}]` como audit trail por aporte.
+
+El shape de `MergeResult` ya NO incluye `duplicateCodes` (eliminado — ya nunca hay duplicados).
+
+### `dedupeLinesByCode` para call-sites que no pasan por merge
+
+Nuevo helper `dedupeLinesByCode(lines) → {lines, dedupedCount}` para pre-dedup antes de `revision_waitlist.add/set`. Se wirea dentro de `_createOrUnifyWaitlistPayload` (`index.html:17839+`) sobre `payload.items` ANTES del create/unify path. Cubre:
+
+- Alta manual (`reviewDejarEnEspera`): si Mariano agregó 2 veces el mismo SKU, se fusiona + aviso `showSyncTag`.
+- Import Excel (`revisionDejarRecalculando`): si el Excel tiene filas duplicadas, se agrupan.
+- CPST (`_cpstConfirmar`): dedup del items[] que arma antes del payload.
+
+### Eliminados
+
+- **CSS**: `.merge-duplicate-original`, `.merge-duplicate-imported`, `.badge-duplicado` del `index.html`.
+- **JS**: `computeDuplicateCodes` export + import en `src/main.js` + llamadas en `index.html:_renderWaitlistCard`. `_wcardDupSet` desapareció.
+- **Badge DUPLICADO**: el render en `index.html:24930+` ya no agrega el badge. `r.warnDuplicado` sigue siendo una clase JS para debug/filtros, pero no renderiza badge visible.
+- **getRowColorClass**: devuelve solo `'imported' | 'reservado-imported' | null` (antes también `'duplicate-original' | 'duplicate-imported' | 'duplicate-reservado'`).
+
+### Investigación caso 502 OSVALDO RUBEN MASERA SKU EXGTVS90M4CH
+
+Mariano reportó que el modal mostraba badge "DUPLICADO" con **una sola fila visible**. Causa raíz pre-§56: el badge se disparaba por DOS condiciones distintas en `index.html:_renderWaitlistCard`:
+1. `_isDupCode = _wcardDupSet.has(code)` — SKU que aparece 2+ veces en `w.items` (sí había duplicado en la orden).
+2. `r.warnDuplicado` — SKU que ya está en SAP Asignado con stock > 0 (`boCliente > 0 && stockTotal > 0`, `index.html:24725`).
+
+Si solo había 1 fila visible pero el badge aparecía, era el camino #2: el cliente ya tenía el mismo SKU en SAP con stock. La "duplicación" no estaba en la lista de espera; estaba en SAP. Post-§56 el badge entero fue eliminado — para alertar sobre "SKU ya pedido en SAP" se usa el aviso del encabezado (`SKU(S) SIN RESERVA DE ESTE CLIENTE QUE YA ESTAN EN OTRO PEDIDO ABIERTO O CONFIRMADO SIN FACTURAR`).
+
+### Scripts audit
+
+- `scripts/audit/S_sku_duplicados_prod.cjs` (read-only): lista órdenes abiertas en `revision_waitlist` + pedidos pending/confirmed con SKU repetido. Output `docs/auditoria/22_SKU_DUPLICADOS_PROD.md`.
+- `scripts/audit/S_dry_run_fusion_duplicados.cjs` (dry-run): simula la fusión por SKU + genera tabla ANTES → DESPUÉS en `docs/auditoria/22_DRY_RUN_FUSION_DUPLICADOS.md`. **El `--apply` NO se corre ahora**; Mariano autoriza aparte con snapshot `_backfill` (CLAUDE.md §55).
+
+### Prohibido reintroducir
+
+- Clase `.merge-duplicate-original`, `.merge-duplicate-imported`.
+- Clase `.badge-duplicado`.
+- Función `computeDuplicateCodes` o lógica equivalente que detecte "2+ veces el mismo code" en `w.items`.
+- Badge visible con texto "DUPLICADO" (reusar el aviso del encabezado si hace falta alertar sobre "SKU ya en SAP").
+- Rename de vuelta a "RESERVADO" en texto UI.
+
+**Tests**:
+- `tests/unit/unificar-ordenes.test.js` (actualizado): fusión por SKU, precios, origen heredado, pureza.
+- `tests/unit/audit/dedupe-lines-by-code.test.js`: nuevo helper (8 tests).
+- `tests/unit/audit/badge-stock-asignado-grep.test.js`: grep del repo que RESERVADO ya no está como badge, DUPLICADO tampoco (9 tests).
+- `tests/unit/audit/no-duplicate-badge-grep.test.js`: `computeDuplicateCodes`, `.merge-duplicate-*`, `.badge-duplicado` eliminados (6 tests).
+- `tests/unit/audit/commit-pedido-asig-exceeds-reserve.test.js`: documenta el comportamiento esperado de commitPedidoCore con `asigRefs qty=2` + `cantidad=5` sin tocar la CF (5 tests).
+- `tests/unit/property/one-sku-per-order-fastcheck.test.js`: property-based ≥200 runs — codes únicos + suma de qty preservada + origen heredado (3 properties).
+- `tests/unit/audit/unificar-cpst-regression.test.js` (actualizado): T5 ahora espera 1 fila fusionada en vez de 2 duplicate-*.
+- `tests/unit/audit/waitlist-row-contrast.test.js` (actualizado): verifica `.badge-stock-asignado` activo, `.badge-reservado` y `.badge-duplicado` eliminados.
+
+**Precedente**: `feat-badge-stock-asignado-one-sku-por-orden` 2026-10-24 (v1435). Pedido Mariano: "Rename badge RESERVADO → STOCK ASIGNADO + un SKU una sola vez por orden en todos los caminos + eliminar badge DUPLICADO y sus clases."
+
 ## 57. Lógica cliente+servidor vive una sola vez en src/pure con espejo en functions/core (2026-10-23)
 
 Regla fuerte: cualquier chequeo de negocio que se evalúe en cliente y
