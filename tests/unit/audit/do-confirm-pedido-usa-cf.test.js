@@ -40,23 +40,17 @@ describe('E3 — doConfirmPedido usa commitPedidoCF', () => {
   });
 
   it('mapea source=stock-asignado-batch → origen=cpst', () => {
-    const match = INDEX_HTML.match(
-      /window\._tryCommitPedidoCF\s*=[\s\S]{0,2500}/
-    );
+    const match = INDEX_HTML.match(/window\._tryCommitPedidoCF\s*=[\s\S]{0,2500}/);
     expect(match[0]).toMatch(/stock-asignado-batch[\s\S]{0,80}cpst/);
   });
 
   it('mapea source=excel → origen=excel', () => {
-    const match = INDEX_HTML.match(
-      /window\._tryCommitPedidoCF\s*=[\s\S]{0,2500}/
-    );
+    const match = INDEX_HTML.match(/window\._tryCommitPedidoCF\s*=[\s\S]{0,2500}/);
     expect(match[0]).toMatch(/excel[\s\S]{0,80}excel/);
   });
 
   it('fallback a null si httpsCallable falla (CF no disponible)', () => {
-    const match = INDEX_HTML.match(
-      /window\._tryCommitPedidoCF\s*=[\s\S]{0,2500}/
-    );
+    const match = INDEX_HTML.match(/window\._tryCommitPedidoCF\s*=[\s\S]{0,2500}/);
     expect(match[0]).toMatch(/fallback.*legacy|return null/i);
   });
 

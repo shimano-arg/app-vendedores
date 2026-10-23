@@ -68,12 +68,20 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
       });
       const makeCollection = (col, filters = []) => {
         const api = {
-          where(f, op, v) { return makeCollection(col, [...filters, { f, op, v }]); },
-          limit() { return api; },
-          doc(id) { return makeDocRef(col, id || 'auto_' + Math.random().toString(36).slice(2, 10)); },
+          where(f, op, v) {
+            return makeCollection(col, [...filters, { f, op, v }]);
+          },
+          limit() {
+            return api;
+          },
+          doc(id) {
+            return makeDocRef(col, id || 'auto_' + Math.random().toString(36).slice(2, 10));
+          },
           async get() {
             let docs = Object.entries(state[col] || {}).map(([id, data]) => ({
-              id, data: () => data, exists: true,
+              id,
+              data: () => data,
+              exists: true,
             }));
             for (const f of filters) {
               docs = docs.filter((d) => {
@@ -93,9 +101,15 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           collection: (c) => makeCollection(c),
           async runTransaction(fn) {
             const tx = {
-              async get(ref) { return ref.get(); },
-              set(ref, data) { return ref.set(data); },
-              update(ref, data) { return ref.update(data); },
+              async get(ref) {
+                return ref.get();
+              },
+              set(ref, data) {
+                return ref.set(data);
+              },
+              update(ref, data) {
+                return ref.update(data);
+              },
             };
             return fn(tx);
           },
@@ -127,7 +141,11 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         stock_snapshot: {
-          'SKU-A': { sku: 'SKU-A', asignadas: { total: 3, byClient: { C001: 3 } }, backorderApp: { total: 0, byClient: {} } },
+          'SKU-A': {
+            sku: 'SKU-A',
+            asignadas: { total: 3, byClient: { C001: 3 } },
+            backorderApp: { total: 0, byClient: {} },
+          },
         },
         ingresos_reparto: {},
         revision_waitlist: {},
@@ -135,26 +153,33 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
       const { fbDb, _written } = makeMinimalDb(state);
 
       // Flow CPST: VDE confirma waitlist que tenía ASIG asignada.
-      const r = await commitPedidoCore({ fbDb, now: () => nowRef }, {
-        draftId: 'cpst_e2e_1',
-        cardCode: 'C001',
-        clientName: 'CLI',
-        origen: 'cpst',
-        lines: [{
-          sku: 'SKU-A',
-          cantidad: 3,
-          precio: 100,
-          origenLinea: 'stock-asignado',
-          asigRefs: [{ pedidoId: 'ped_origen', lineIndex: 0, qtyAsignada: 3, sku: 'SKU-A' }],
-        }],
-        clientVersion: 'v1430',
-      });
+      const r = await commitPedidoCore(
+        { fbDb, now: () => nowRef },
+        {
+          draftId: 'cpst_e2e_1',
+          cardCode: 'C001',
+          clientName: 'CLI',
+          origen: 'cpst',
+          lines: [
+            {
+              sku: 'SKU-A',
+              cantidad: 3,
+              precio: 100,
+              origenLinea: 'stock-asignado',
+              asigRefs: [{ pedidoId: 'ped_origen', lineIndex: 0, qtyAsignada: 3, sku: 'SKU-A' }],
+            },
+          ],
+          clientVersion: 'v1430',
+        }
+      );
 
       expect(r.ok).toBe(true);
       expect(r.lines[0].qtyConfirmed).toBe(3);
       expect(r.lines[0].qtyBO).toBe(0);
       // ASIG original cancelada en la misma txn
-      const origenUpdate = _written.find((w) => w.path === 'pedidos/ped_origen' && w.op === 'update');
+      const origenUpdate = _written.find(
+        (w) => w.path === 'pedidos/ped_origen' && w.op === 'update'
+      );
       expect(origenUpdate, 'ASIG original debe ser cancelada en la misma txn').toBeTruthy();
       expect(origenUpdate.data.lines[0].state).toBe('cancelled');
       expect(origenUpdate.data.lines[0].closedReason).toBe('waitlist-confirm');
@@ -182,26 +207,37 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         stock_snapshot: {
-          'SKU-X': { sku: 'SKU-X', asignadas: { total: 3, byClient: { C001: 3 } }, backorderApp: { total: 0, byClient: {} } },
+          'SKU-X': {
+            sku: 'SKU-X',
+            asignadas: { total: 3, byClient: { C001: 3 } },
+            backorderApp: { total: 0, byClient: {} },
+          },
         },
         ingresos_reparto: {},
         revision_waitlist: {},
       };
       const { fbDb, _written } = makeMinimalDb(state);
-      const r = await commitPedidoCore({ fbDb, now: () => nowRef }, {
-        draftId: 'cpst_multi',
-        cardCode: 'C001',
-        origen: 'cpst',
-        lines: [{
-          sku: 'SKU-X', cantidad: 3, precio: 100,
-          origenLinea: 'stock-asignado',
-          asigRefs: [
-            { pedidoId: 'ped_origen', lineIndex: 0, qtyAsignada: 2, sku: 'SKU-X' },
-            { pedidoId: 'ped_origen', lineIndex: 1, qtyAsignada: 1, sku: 'SKU-X' },
+      const r = await commitPedidoCore(
+        { fbDb, now: () => nowRef },
+        {
+          draftId: 'cpst_multi',
+          cardCode: 'C001',
+          origen: 'cpst',
+          lines: [
+            {
+              sku: 'SKU-X',
+              cantidad: 3,
+              precio: 100,
+              origenLinea: 'stock-asignado',
+              asigRefs: [
+                { pedidoId: 'ped_origen', lineIndex: 0, qtyAsignada: 2, sku: 'SKU-X' },
+                { pedidoId: 'ped_origen', lineIndex: 1, qtyAsignada: 1, sku: 'SKU-X' },
+              ],
+            },
           ],
-        }],
-        clientVersion: 'v1430',
-      });
+          clientVersion: 'v1430',
+        }
+      );
       expect(r.ok).toBe(true);
       const update = _written.find((w) => w.path === 'pedidos/ped_origen' && w.op === 'update');
       expect(update).toBeTruthy();
@@ -224,31 +260,46 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
             clientCardCode: 'C001',
             createdAt: '2026-10-20T10:00:00Z',
             transferidoSAP: { docEntry: 101 },
-            lines: [{ code: 'SKU-Y', state: 'ASIG', qty: 2, qtyOpen: 2, asigAt: '2026-10-22T10:00:00Z' }],
+            lines: [
+              { code: 'SKU-Y', state: 'ASIG', qty: 2, qtyOpen: 2, asigAt: '2026-10-22T10:00:00Z' },
+            ],
           },
         },
         stock_snapshot: {
-          'SKU-Y': { sku: 'SKU-Y', asignadas: { total: 2, byClient: { C001: 2 } }, backorderApp: { total: 0, byClient: {} } },
+          'SKU-Y': {
+            sku: 'SKU-Y',
+            asignadas: { total: 2, byClient: { C001: 2 } },
+            backorderApp: { total: 0, byClient: {} },
+          },
         },
         ingresos_reparto: {},
         revision_waitlist: {},
       };
       const { fbDb, _written } = makeMinimalDb(state);
-      const r = await commitPedidoCore({ fbDb, now: () => nowRef }, {
-        draftId: 'manual_wrong_refs',
-        cardCode: 'C001',
-        origen: 'manual',
-        lines: [{
-          sku: 'SKU-Y', cantidad: 2, precio: 100,
-          // No origenLinea → formula GLOBAL.
-          // asigRefs provistos pero origen=manual → CF los ignora para cancel.
-          asigRefs: [{ pedidoId: 'ped_origen', lineIndex: 0, qtyAsignada: 2, sku: 'SKU-Y' }],
-        }],
-        clientVersion: 'v1430',
-      });
+      const r = await commitPedidoCore(
+        { fbDb, now: () => nowRef },
+        {
+          draftId: 'manual_wrong_refs',
+          cardCode: 'C001',
+          origen: 'manual',
+          lines: [
+            {
+              sku: 'SKU-Y',
+              cantidad: 2,
+              precio: 100,
+              // No origenLinea → formula GLOBAL.
+              // asigRefs provistos pero origen=manual → CF los ignora para cancel.
+              asigRefs: [{ pedidoId: 'ped_origen', lineIndex: 0, qtyAsignada: 2, sku: 'SKU-Y' }],
+            },
+          ],
+          clientVersion: 'v1430',
+        }
+      );
       expect(r.ok).toBe(true);
       // NO debe haber update al pedido origen (origen != cpst)
-      const origenUpdate = _written.find((w) => w.path === 'pedidos/ped_origen' && w.op === 'update');
+      const origenUpdate = _written.find(
+        (w) => w.path === 'pedidos/ped_origen' && w.op === 'update'
+      );
       expect(origenUpdate, 'origen=manual NO debe cancelar ASIG').toBeFalsy();
     });
   });
