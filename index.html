@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1430';
+const APP_VERSION = 'v1431';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17523,41 +17523,111 @@ window._resolveClientVendorFromMaster = function(args){
   return resolution;
 };
 // E3 §stock-servidor-atomico (v1430+): helper que llama a commitPedidoCF.
-// Convierte el shape de docData (legacy inline) al payload del CF + llama
-// a la callable. Si falla por timeout/no disponible, devuelve null (fallback).
+// v1431 (2026-10-23) hotfix: distingue error de red/CF caído (null → fallback
+// legacy) vs error de negocio (devuelve {ok:false, errorCode} → NO fallback).
+//
+// Códigos Firebase callable que indican "CF no responde" (fallback OK):
+//   - functions/unavailable
+//   - functions/deadline-exceeded
+//   - functions/cancelled
+//   - functions/not-found    (CF no deployada aún)
+//   - functions/aborted      (resource contention)
+//   - sin code + mensaje "network" o "fetch"
+//   - sin firebase inicializado (dev local sin bundle)
+//
+// Códigos que son error de negocio (NO fallback, respetar errorCode):
+//   - functions/unauthenticated → PERMISSION_DENIED
+//   - functions/permission-denied → PERMISSION_DENIED
+//   - functions/invalid-argument → VALIDATION_ERROR
+//   - functions/internal → INTERNAL (código inesperado del CF)
+//   - cualquier otro → INTERNAL
+window._FALLBACK_LEGACY_NETWORK_CODES = new Set([
+  'functions/unavailable', 'functions/deadline-exceeded', 'functions/cancelled',
+  'functions/not-found', 'functions/aborted',
+  // Firebase SDK low-level network errors:
+  'unavailable', 'deadline-exceeded', 'cancelled', 'not-found', 'aborted',
+  'network-request-failed',
+]);
+
 window._tryCommitPedidoCF = async function(docData){
+  const _email = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
+  const _appVersion = (typeof APP_VERSION === 'string') ? APP_VERSION : 'unknown';
+  if (!firebase || !firebase.app) {
+    // Sin firebase inicializado (dev local, SW stale) → fallback legacy.
+    _logCommitCfFallback(null, 'firebase_not_initialized', '', _email, _appVersion, docData);
+    return null;
+  }
+  // Construir payload desde docData (lo que ya armó doConfirmPedido).
+  const draftId = docData._draftId || (docData.key + '|' + String(docData.orderNumber || Math.random().toString(36).slice(2, 10)));
+  const payload = {
+    draftId,
+    cardCode: String(docData.clientCardCode || '').trim(),
+    clientName: docData.clientName || '',
+    origen: docData.source === 'stock-asignado-batch' ? 'cpst' : (docData.source === 'excel' ? 'excel' : 'manual'),
+    lines: (docData.lines || []).map((l) => ({
+      sku: l.code,
+      cantidad: Number(l.qty) || 0,
+      precio: Number(l.precio) || 0,
+      notas: l.notas || '',
+      origenLinea: l.origen || undefined,
+      asigRefs: Array.isArray(l.asigRefs) ? l.asigRefs : undefined,
+    })),
+    clientVersion: _appVersion,
+    autoAcceptStockChange: !!docData._autoAcceptStockChange,
+    formaEntrega: docData.formaEntrega || null,
+    condicionPago: docData.condicionPago || '',
+    observaciones: docData.observaciones || '',
+  };
   try {
-    if (!firebase || !firebase.app) return null;
     const callable = firebase.app().functions('southamerica-east1').httpsCallable('commitPedidoCF');
-    // Construir payload desde docData (lo que ya armó doConfirmPedido).
-    const draftId = docData._draftId || (docData.key + '|' + String(docData.orderNumber || Math.random().toString(36).slice(2, 10)));
-    const payload = {
-      draftId,
-      cardCode: String(docData.clientCardCode || '').trim(),
-      clientName: docData.clientName || '',
-      origen: docData.source === 'stock-asignado-batch' ? 'cpst' : (docData.source === 'excel' ? 'excel' : 'manual'),
-      lines: (docData.lines || []).map((l) => ({
-        sku: l.code,
-        cantidad: Number(l.qty) || 0,
-        precio: Number(l.precio) || 0,
-        notas: l.notas || '',
-        origenLinea: l.origen || undefined,
-        asigRefs: Array.isArray(l.asigRefs) ? l.asigRefs : undefined,
-      })),
-      clientVersion: (typeof APP_VERSION === 'string') ? APP_VERSION : 'unknown',
-      autoAcceptStockChange: !!docData._autoAcceptStockChange,
-      formaEntrega: docData.formaEntrega || null,
-      condicionPago: docData.condicionPago || '',
-      observaciones: docData.observaciones || '',
-    };
     const resp = await callable(payload);
     return resp && resp.data ? resp.data : null;
   } catch (e) {
-    // Si el CF no existe aún (deploy pendiente) o unavailable, fallback a legacy.
-    console.warn('[_tryCommitPedidoCF] fallback a legacy:', (e && e.message) || String(e));
-    return null;
+    const code = (e && e.code) || '';
+    const message = (e && e.message) || String(e);
+    const isNetwork = window._FALLBACK_LEGACY_NETWORK_CODES.has(code)
+      || (!code && /network|fetch|offline|timeout/i.test(message));
+    if (isNetwork) {
+      // CF no responde: fallback legacy válido.
+      _logCommitCfFallback(draftId, 'network_or_cf_down', code || 'no_code', _email, _appVersion, docData);
+      return null;
+    }
+    // Error de negocio o código inesperado: NO fallback, devolver errorCode.
+    console.error('[_tryCommitPedidoCF] error de negocio NO cae a fallback:', code, message);
+    const mappedErrorCode =
+      code === 'functions/unauthenticated' || code === 'functions/permission-denied' ? 'PERMISSION_DENIED' :
+      code === 'functions/invalid-argument' ? 'VALIDATION_ERROR' :
+      'INTERNAL';
+    return { ok: false, errorCode: mappedErrorCode, message, _rawCode: code };
   }
 };
+
+// v1431: log cada fallback legacy a console + operations_log para observación.
+function _logCommitCfFallback(draftId, motivo, code, email, appVersion, docData){
+  const logEntry = {
+    type: 'commitPedidoCF_fallback_legacy',
+    motivo,
+    firebaseCode: code,
+    draftId,
+    cardCode: String(docData && docData.clientCardCode || '').trim(),
+    clientName: String(docData && docData.clientName || '').trim(),
+    skus: (docData && docData.lines || []).map(l => l.code).filter(Boolean).slice(0, 10),
+    userUid: (typeof currentUser !== 'undefined' && currentUser && currentUser.uid) || '',
+    userEmail: email,
+    clientVersion: appVersion,
+    timestamp: new Date().toISOString(),
+  };
+  console.error('[FALLBACK_LEGACY_COMMIT_CF]', logEntry);
+  // Intento best-effort escribir a operations_log para que Mariano lo vea en
+  // la observación. No bloquea el flow si falla.
+  try {
+    if (!firebase || !firebase.app || !fbDb) return;
+    fbDb.collection('operations_log').add(logEntry).catch((e) => {
+      console.warn('operations_log write failed (non-blocking)', (e && e.message) || String(e));
+    });
+  } catch (_e) { /* non-fatal */ }
+}
+window._logCommitCfFallback = _logCommitCfFallback;
 
 window._enrichPayloadWithClientVendor = function(payload){
   const pure = window.__phase0 && window.__phase0.pure;
@@ -36103,7 +36173,8 @@ window.doConfirmPedido = async function(){
       return;
     }
     if (_commitCfResult && _commitCfResult.ok === false) {
-      // CF rechazó con errorCode → modal apropiado.
+      // CF rechazó con errorCode → modal apropiado. NUNCA cae a fallback legacy.
+      // v1431 hotfix: cubre explícitamente los 7 códigos del contrato.
       const code = _commitCfResult.errorCode || 'UNKNOWN';
       let msg = 'No se pudo confirmar el pedido.\n\nCódigo: ' + code + '\n' + (_commitCfResult.message || '');
       if (code === 'VERSION_OLD') {
@@ -36130,6 +36201,16 @@ window.doConfirmPedido = async function(){
             alert('Error en reintento: ' + (e?.message || String(e)));
           }
         }
+      } else if (code === 'SNAPSHOT_TOO_OLD') {
+        alert(msg + '\n\nEl snapshot de stock tiene más de 45 minutos. Esperá unos minutos y reintentá.');
+      } else if (code === 'CONTENTION_RETRY_EXHAUSTED') {
+        alert(msg + '\n\nHay mucha concurrencia sobre este SKU. Reintentá en 10 segundos.');
+      } else if (code === 'VALIDATION_ERROR') {
+        alert(msg + '\n\nEl payload tiene algo mal. Reportalo a Mariano.');
+      } else if (code === 'PERMISSION_DENIED') {
+        alert(msg + '\n\nTu usuario no tiene permiso para confirmar este pedido. Volvé a loguearte.');
+      } else if (code === 'INTERNAL') {
+        alert(msg + '\n\nError interno del servidor. Reintentá en 1 min. Si persiste, reportalo a Mariano.');
       } else {
         alert(msg);
       }
