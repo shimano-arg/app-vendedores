@@ -798,22 +798,62 @@ function computeNetAmount(lines) {
 
 /** @param {any[]} lineasResultado @param {any} payload */
 function computeDiffVsClient(lineasResultado, payload) {
-  // Simple: si alguna línea tiene qtyBO > 0 vs lo que cliente mostraba.
-  // Para E2 Fase 1 solo marcamos si hubo back order inesperado.
+  // §64.1 FIX (2026-10-23 v1447): comparar POR VALOR de los SKUs del pedido.
+  //
+  // Mariano reporte 17:27 ART: pedido recién abierto, nada cambió, igual
+  // devolvía STOCK_CHANGED. Hipótesis confirmada: el sync re-escribe
+  // snapshot cada 5 min; si el cliente pidió 7 con libre=6, qtyBO=1 (el
+  // cliente YA SABE esto desde que armó el pedido). La CF al validar
+  // también calcula qtyBO=1 → disparaba STOCK_CHANGED aunque los números
+  // coinciden con lo que el cliente vio.
+  //
+  // Fix: comparar valor por valor contra `payload.clientStock[sku]` (lo
+  // que el cliente usó al armar el pedido). Si `fisicoDep11` y `libre`
+  // coinciden entre cliente y CF, NO disparar aunque qtyBO > 0 — el
+  // cliente ya conocía el back order; una corrida de sync con los mismos
+  // números no es un cambio.
+  //
+  // Dispara cuando:
+  //   - CF ve `fisicoDep11` o `libre` distinto a lo que cliente envió
+  //     (otro pedido o reparto tocó el stock entre ambos reads).
+  //   - El cliente NO envió `clientStock` (SW stale pre-v1443) y `qtyBO > 0`
+  //     → mantener comportamiento histórico; sin info del cliente, el
+  //     back order inesperado se reporta igual.
+  const clientStock =
+    payload && payload.clientStock && typeof payload.clientStock === 'object'
+      ? payload.clientStock
+      : null;
   const changed = [];
   for (const l of lineasResultado) {
     const original = payload.lines.find(
       (/** @type {any} */ p) => String(p.sku).toUpperCase() === l.sku
     );
     if (!original) continue;
-    if (l.qtyBO > 0) {
-      changed.push({
-        sku: l.sku,
-        pediste: Number(original.cantidad) || 0,
-        podesLlevar: l.qtyConfirmed,
-        aBackOrder: l.qtyBO,
-      });
+    if (l.qtyBO <= 0) continue;
+    // Comparar con clientStock si vino.
+    if (clientStock && clientStock[l.sku] && typeof clientStock[l.sku] === 'object') {
+      const cs = clientStock[l.sku];
+      const clientFisico = Number(cs.fisicoDep11);
+      const clientLibre = Number(cs.libre);
+      const serverFisico = Number((l.breakdown && l.breakdown.fisicoDep11) || 0);
+      const serverLibre = Number(l.libre || 0);
+      if (
+        Number.isFinite(clientFisico) &&
+        Number.isFinite(clientLibre) &&
+        clientFisico === serverFisico &&
+        clientLibre === serverLibre
+      ) {
+        // Mismos valores vistos por cliente y CF. El cliente ya sabía
+        // que qtyBO=l.qtyBO. No es un "cambio" entre pantalla y commit.
+        continue;
+      }
     }
+    changed.push({
+      sku: l.sku,
+      pediste: Number(original.cantidad) || 0,
+      podesLlevar: l.qtyConfirmed,
+      aBackOrder: l.qtyBO,
+    });
   }
   if (changed.length === 0) return null;
   const totalBO = changed.reduce((a, b) => a + b.aBackOrder, 0);
