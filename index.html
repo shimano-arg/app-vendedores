@@ -6603,7 +6603,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
   <div class="modal-box" style="width:min(1680px,98vw)">
     <div class="modal-head" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
       <div>
-        <h2 id="wcard-title">Pedido en espera</h2>
+        <h2 id="wcard-title">Pedido en espera <span id="wcard-live-sl-badge" style="display:none"></span></h2>
         <div class="subt" id="wcard-subt"></div>
       </div>
       <button class="modal-close" onclick="closeWaitlistCardModal()">&times;</button>
@@ -7004,7 +7004,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1444';
+const APP_VERSION = 'v1445';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7694,6 +7694,14 @@ window.getStockQty = getStockQty;
 // realidad (no confundir transito con vendible).
 function getStockDisponibleVenta(sku){
   if (!sku) return null;
+  // §63 Fase 3 Capa 2 (v1445): si hay override live SL para este sku,
+  // usar ese valor. Si no, cae al breakdown del snapshot.
+  if (window._liveStockFisico) {
+    const kLive = String(sku).toUpperCase().trim();
+    if (kLive in window._liveStockFisico) {
+      return Number(window._liveStockFisico[kLive] || 0);
+    }
+  }
   if (!STOCK_WAREHOUSE_BREAKDOWN) return null;
   const k = String(sku).toUpperCase().trim();
   let whs = STOCK_WAREHOUSE_BREAKDOWN[k];
@@ -17692,6 +17700,92 @@ window._ABORTED_RETRY_BACKOFFS_MS = [100, 300, 900]; // 3 reintentos
 // para que la CF lo loguee en operations_log al disparar STOCK_CHANGED. Es
 // opcional (si falla, el payload queda sin `clientStock` y el logging server
 // anota `clientSnapshotProvided: false`).
+// §63 Fase 3 Capa 2 (v1445): si flag app_config/live_sl.enabled=true, llamar
+// fetchStockLiveCF al abrir modal "Pedido en espera". Overridea
+// window._liveStockFisico (map sku→fisicoDep11) que getStockBreakdown consume
+// vía window.getStockFisico wrapper. Fallback silencioso a snapshot si falla
+// o flag off. Badge en el header del modal se actualiza con el estado.
+window._liveStockFisico = null;   // null = no override; override con map si live OK.
+window._liveStockMeta = { reason: null, fetchedAt: null, snapshotFallback: false };
+
+window._maybeFetchLiveStockForWaitlist = async function(w){
+  const skus = Array.from(new Set(((w && w.items) || []).map(it => String((it && it.code) || '').toUpperCase()).filter(Boolean)));
+  if (skus.length === 0) return;
+  // Reset previo para no mezclar entre modales.
+  window._liveStockFisico = null;
+  window._liveStockMeta = { reason: 'fetching', fetchedAt: null, snapshotFallback: false };
+  window._updateLiveStockBadge();
+  try {
+    const callable = firebase.app().functions('southamerica-east1').httpsCallable('fetchStockLiveCF');
+    // Armar libreSnapshot + qtyPedida para modo partial (>200 SKUs).
+    const libreSnapshot = {};
+    const qtyPedida = {};
+    for (const it of (w.items || [])) {
+      const sku = String((it && it.code) || '').toUpperCase();
+      if (!sku) continue;
+      try {
+        const bd = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockBreakdown
+          && window.__phase0.pure.stockBreakdown.getStockBreakdown(sku, {
+            pedidos: typeof globalPedidos !== 'undefined' ? globalPedidos : [],
+            revisionWaitlist: typeof revisionWaitlist !== 'undefined' ? revisionWaitlist : [],
+            getStockFisico: window.getStockFisico,
+            getStockTransito: window.getStockTransito,
+          });
+        libreSnapshot[sku] = bd && Number.isFinite(bd.libre) ? bd.libre : 0;
+      } catch (_e) {
+        libreSnapshot[sku] = 0;
+      }
+      qtyPedida[sku] = (qtyPedida[sku] || 0) + (Number(it.qty) || 0);
+    }
+    const resp = await callable({ skus, libreSnapshot, qtyPedida });
+    const d = (resp && resp.data) || {};
+    window._liveStockMeta = {
+      reason: d.reason || 'ok',
+      fetchedAt: new Date().toISOString(),
+      snapshotFallback: !!d.snapshotFallback,
+      partial: !!d.partial,
+      durationMs: d.durationMs || null,
+    };
+    if (d.ok && !d.snapshotFallback && d.fisicoDep11) {
+      window._liveStockFisico = d.fisicoDep11;
+    } else {
+      window._liveStockFisico = null;
+    }
+    window._updateLiveStockBadge();
+  } catch (e) {
+    console.warn('[live-sl] fetchStockLiveCF error', (e && e.message) || e);
+    window._liveStockFisico = null;
+    window._liveStockMeta = { reason: 'callable_error', fetchedAt: new Date().toISOString(), snapshotFallback: true };
+    window._updateLiveStockBadge();
+  }
+};
+
+window._updateLiveStockBadge = function(){
+  const el = document.getElementById('wcard-live-sl-badge');
+  if (!el) return;
+  const m = window._liveStockMeta || {};
+  if (m.reason === 'fetching') {
+    el.textContent = 'Consultando SAP…';
+    el.style.cssText = 'display:inline-block;margin-left:8px;padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;border-radius:4px;letter-spacing:0.4px';
+    return;
+  }
+  if (window._liveStockFisico) {
+    el.textContent = m.partial ? 'Stock en vivo (parcial)' : 'Stock en vivo';
+    el.style.cssText = 'display:inline-block;margin-left:8px;padding:3px 8px;background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;border-radius:4px;letter-spacing:0.4px';
+    return;
+  }
+  // Fallback snapshot.
+  const snap = window._stockSnapshotMeta || {};
+  const updatedAtMs = snap.updatedAtMs || null;
+  let ageTxt = '';
+  if (updatedAtMs) {
+    const min = Math.round((Date.now() - updatedAtMs) / 60000);
+    ageTxt = min < 60 ? ` (${min} min)` : ` (${Math.round(min/60)} h)`;
+  }
+  el.textContent = 'Stock del snapshot' + ageTxt;
+  el.style.cssText = 'display:inline-block;margin-left:8px;padding:3px 8px;background:#e5e7eb;color:#374151;font-size:10px;font-weight:700;border-radius:4px;letter-spacing:0.4px';
+};
+
 window._buildClientStockForPayload = function(docData) {
   try {
     if (!docData || !Array.isArray(docData.lines)) return null;
@@ -24091,6 +24185,17 @@ window.openWaitlistCardModal = function(docId){
   _cardModal.dataset.openedAt = String(Date.now());
   delete _cardModal.dataset.timeoutScheduled;
   _cardModal.classList.add('open');
+  // §63 Fase 3 Capa 2 (v1445): si flag app_config/live_sl.enabled=true,
+  // fetchear fisicoDep11 live del SL para los SKUs del waitlist y overridear
+  // window._liveStockFisico ANTES del primer render. Fallback silencioso a
+  // snapshot si SL caído/timeout/flag off. Dispara un re-render cuando llega.
+  try {
+    if (typeof window._maybeFetchLiveStockForWaitlist === 'function') {
+      window._maybeFetchLiveStockForWaitlist(w).then(() => {
+        try { _renderWaitlistCard(); } catch (_e) {}
+      }).catch(() => {});
+    }
+  } catch (_e) {}
   _renderWaitlistCard();
   // v548 E5 UI merge: la data app-source ahora esta en el listener global
   // STOCK_ASIG_BY_CLIENT_APP (via stock_snapshot en active mode). Ya no hace
@@ -24099,6 +24204,11 @@ window.openWaitlistCardModal = function(docId){
 window.closeWaitlistCardModal = function(){
   document.getElementById('waitlist-card-modal').classList.remove('open');
   _wcardCurrent = null;
+  // §63 Fase 3 Capa 2 (v1445): reset override live al cerrar modal.
+  window._liveStockFisico = null;
+  window._liveStockMeta = { reason: null, fetchedAt: null, snapshotFallback: false };
+  const _el = document.getElementById('wcard-live-sl-badge');
+  if (_el) _el.style.display = 'none';
 };
 
 // v1346: Sugerencias de productos para SKUs sin stock libre en Pedido en Espera.

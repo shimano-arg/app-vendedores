@@ -44,6 +44,9 @@ import { commitPedidoCore } from './core/commit-pedido-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
+// §63 Fase 3 Capa 2 (2026-10-23 v1445): fetchStockLiveCF — live query SL
+// gated por flag app_config/live_sl.enabled (default false).
+import { fetchStockLiveCore } from './core/fetch-stock-live-core.js';
 // v1279 (2026-10-14): FIFO automatico eliminado — reemplazado por reparto
 // manual (reparto-core.js + reparto-migration-core.js). Historia:
 // v1277 dual mode → v1278 FIFO disabled → v1279 FIFO deleted.
@@ -79,6 +82,7 @@ import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core
 import { handleSapProxy } from './core/sap-proxy-core.js';
 import { sapGet, sapLogin, sapLogout, sapPost } from './core/sap-sl-client.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
+import { acquireSession, releaseSession } from './core/sap-sl-session.js';
 // v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
 import { runSqCancelExpired, runSqCancelManualBulk } from './core/sq-cancel-core.js';
 import { checkStockSyncStale } from './core/stock-sync-alert-core.js';
@@ -1247,6 +1251,172 @@ export const releaseAsigCF = onCall(
  *
  * Gate: admin only (operacion sensible, no debe ejecutarla Pablo).
  */
+/**
+ * §63 Fase 3 Capa 2 (2026-10-23 v1445) — fetchStockLiveCF
+ *
+ * Callable que consulta al SL el físico dep 11 EN VIVO para una lista de SKUs.
+ * Usada por el modal "Pedido en espera" y por commitPedidoCF.
+ *
+ * GATED por flag `app_config/live_sl.enabled` (default false). Al leer el flag,
+ * si false → responde `{ok: true, snapshotFallback: true, reason: 'sl_disabled'}`
+ * y el caller cae al snapshot. Apagado del flag es instantáneo (edit en Firestore,
+ * sin redeploy).
+ *
+ * Payload:
+ *   { skus: string[], libreSnapshot?: {sku: number}, qtyPedida?: {sku: number} }
+ *
+ * Response:
+ *   { ok, fisicoDep11, snapshotFallback, partial, skusLive[], skusSnapshot[],
+ *     reason, durationMs, slRequests }
+ *
+ * Timeout total: 3 segundos por pedido. Batches de 50 SKUs en paralelo
+ * (medición 2026-10-23 §4: P95 ~1s por batch).
+ */
+export const fetchStockLiveCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 10,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const data = req.data || {};
+    const skus = Array.isArray(data.skus)
+      ? data.skus.map((/** @type {any} */ s) => String(s || '').trim()).filter(Boolean)
+      : [];
+    if (skus.length === 0) {
+      return {
+        ok: true,
+        fisicoDep11: {},
+        snapshotFallback: false,
+        partial: false,
+        skusLive: [],
+        skusSnapshot: [],
+        reason: 'ok',
+        durationMs: 0,
+        slRequests: 0,
+      };
+    }
+    const db = getFirestore();
+    // Flag gating: lee app_config/live_sl.enabled.
+    try {
+      const flagSnap = await db.doc('app_config/live_sl').get();
+      const flagData = flagSnap.exists ? flagSnap.data() || {} : {};
+      if (!flagData.enabled) {
+        return {
+          ok: true,
+          fisicoDep11: {},
+          snapshotFallback: true,
+          partial: false,
+          skusLive: [],
+          skusSnapshot: skus,
+          reason: 'sl_disabled',
+          durationMs: 0,
+          slRequests: 0,
+        };
+      }
+    } catch (_eFlag) {
+      // Si no se puede leer el flag, asumimos OFF para no romper.
+      return {
+        ok: true,
+        fisicoDep11: {},
+        snapshotFallback: true,
+        partial: false,
+        skusLive: [],
+        skusSnapshot: skus,
+        reason: 'sl_disabled',
+        durationMs: 0,
+        slRequests: 0,
+      };
+    }
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.enabled || !sl.url || !sl.companyDB) {
+      return {
+        ok: true,
+        fisicoDep11: {},
+        snapshotFallback: true,
+        partial: false,
+        skusLive: [],
+        skusSnapshot: skus,
+        reason: 'sl_not_configured',
+        durationMs: 0,
+        slRequests: 0,
+      };
+    }
+    const sapConfig = {
+      url: sl.url,
+      companyDB: sl.companyDB,
+      userName: sl.username || sl.userName,
+      password: SAP_SL_PASSWORD.value(),
+      fetch: globalThis.fetch,
+    };
+    const result = await fetchStockLiveCore(
+      {
+        sapConfig,
+        fbDb: db,
+        acquireSlCookie: async () => {
+          const sess = await acquireSession(sapConfig);
+          // Guardamos ref para release en el callback.
+          /** @type {any} */ (globalThis).__lastSlSession = sess;
+          return sess.cookie;
+        },
+        releaseSlCookie: (_cookie, ok) => {
+          const sess = /** @type {any} */ (globalThis).__lastSlSession;
+          if (sess) releaseSession(sess, ok);
+        },
+        log: (msg, extra) => console.log(msg, extra || {}),
+        now: () => Date.now(),
+      },
+      {
+        skus,
+        libreSnapshot: data.libreSnapshot || undefined,
+        qtyPedida: data.qtyPedida || undefined,
+        timeoutMs: typeof data.timeoutMs === 'number' ? data.timeoutMs : undefined,
+      }
+    );
+    // operations_log entry fire-and-forget para auditar performance real.
+    try {
+      const logEntry = {
+        type: result.snapshotFallback
+          ? 'stock_live_fallback'
+          : result.partial
+            ? 'stock_live_partial'
+            : 'stock_live_fetched',
+        skus: skus.length,
+        skusLive: result.skusLive.length,
+        skusSnapshot: result.skusSnapshot.length,
+        durationMs: result.durationMs,
+        slRequests: result.slRequests,
+        reason: result.reason,
+        error: result.error || null,
+        userId: auth.uid,
+        userEmail: email,
+        timestamp: new Date(),
+      };
+      const addResult = db.collection('operations_log').add(logEntry);
+      if (addResult && typeof addResult.catch === 'function') {
+        addResult.catch(() => {});
+      }
+    } catch (_e) {
+      // best-effort
+    }
+    return result;
+  }
+);
+
 // v1342 (2026-10-15): migrateAsigToBOCF DESACTIVADA.
 // Historia: v1278 (2026-10-14) creo esta CF one-shot para hacer switchover
 // del FIFO automatico al reparto manual. Ejecucion unica el 2026-10-14 16:30
@@ -3232,6 +3402,9 @@ export const commitPedidoCF = onCall(
     enforceAppCheck: false,
     memory: '256MiB',
     timeoutSeconds: 60,
+    // §63 Fase 3 Capa 2 (v1445): necesita el secret para la live SL query
+    // cuando el flag app_config/live_sl.enabled=true.
+    secrets: [SAP_SL_PASSWORD],
   },
   async (req) => {
     const auth = req.auth;
@@ -3253,6 +3426,55 @@ export const commitPedidoCF = onCall(
       ownerUid: auth.uid,
       ownerEmail: email,
     };
+
+    // §63 Fase 3 Capa 2 (v1445): lee flag `app_config/live_sl.enabled`.
+    // Si true, arma `deps.fetchStockLive` que invoca `fetchStockLiveCore`
+    // sin pasar por otra callable (menos latencia + atomicidad). Flag=false:
+    // undefined → core cae al snapshot (comportamiento histórico).
+    /** @type {any} */
+    let fetchStockLiveFn;
+    try {
+      const flagSnap = await db.doc('app_config/live_sl').get();
+      const flagData = flagSnap.exists ? flagSnap.data() || {} : {};
+      if (flagData.enabled) {
+        const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+        const sapCfg = sapCfgSnap.data() || {};
+        const sl = sapCfg.serviceLayer || {};
+        if (sl.enabled && sl.url && sl.companyDB) {
+          const sapConfig = {
+            url: sl.url,
+            companyDB: sl.companyDB,
+            userName: sl.username || sl.userName,
+            password: SAP_SL_PASSWORD.value(),
+            fetch: globalThis.fetch,
+          };
+          fetchStockLiveFn = async (/** @type {any} */ params) => {
+            /** @type {any} */
+            let session = null;
+            return fetchStockLiveCore(
+              {
+                sapConfig,
+                fbDb: db,
+                acquireSlCookie: async () => {
+                  session = await acquireSession(sapConfig);
+                  return session.cookie;
+                },
+                releaseSlCookie: (_c, ok) => {
+                  if (session) releaseSession(session, ok);
+                },
+                log: (msg, extra) => console.log('[commit live_sl]', msg, extra || {}),
+                now: () => Date.now(),
+              },
+              params
+            );
+          };
+        }
+      }
+    } catch (eFlag) {
+      // Flag read fallo → cae al snapshot. No bloquea.
+      console.warn('commitPedidoCF flag live_sl read fallo', (eFlag && eFlag.message) || eFlag);
+    }
+
     try {
       const r = await commitPedidoCore(
         {
@@ -3260,6 +3482,7 @@ export const commitPedidoCF = onCall(
           log: (msg, extra) => console.log(msg, extra || {}),
           reportError: (err, ctx) => console.error('commitPedidoCore error', err, ctx || {}),
           FieldValue,
+          fetchStockLive: fetchStockLiveFn,
         },
         payload
       );
