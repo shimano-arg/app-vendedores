@@ -51,8 +51,8 @@
  * @property {any} [FieldValue] admin.firestore.FieldValue
  */
 
-import { getStockBreakdown, lineReservesStock } from './pedido-snapshot-core.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
+import { getStockBreakdown, lineReservesStock } from './pedido-snapshot-core.js';
 
 const SNAPSHOT_MAX_AGE_MS = 45 * 60 * 1000; // 45 min
 const MAX_RETRY_ATTEMPTS = 5;

@@ -30,6 +30,13 @@ import {
   normTitle,
   titleCase,
 } from './pure/normalize.js';
+// §57 (2026-10-23): un solo lugar para "waitlists abiertas de un cliente" con
+// exclusión de la propia waitlist origen. Espejo en functions/core/open-waitlists.js
+// usada por commitPedidoCF; test de sincronía en tests/unit/audit/open-waitlists-sync.test.js.
+import {
+  findOpenWaitlistsForClient as findOpenWaitlistsForClientExcludingSelf,
+  formatWaitlistForMessage,
+} from './pure/open-waitlists.js';
 import {
   canViewPanel,
   computeAgeMinutes,
@@ -115,13 +122,6 @@ import {
   findOpenWaitlistsForClient,
   formatWaitlistForConfirm,
 } from './pure/waitlist-unique-per-client.js';
-// §57 (2026-10-23): un solo lugar para "waitlists abiertas de un cliente" con
-// exclusión de la propia waitlist origen. Espejo en functions/core/open-waitlists.js
-// usada por commitPedidoCF; test de sincronía en tests/unit/audit/open-waitlists-sync.test.js.
-import {
-  findOpenWaitlistsForClient as findOpenWaitlistsForClientExcludingSelf,
-  formatWaitlistForMessage,
-} from './pure/open-waitlists.js';
 import { computeWaitlistCardClasses, isWaitlistCpst } from './pure/wl-sidebar-classes.js';
 import { createSapClient } from './sap-client.js';
 import { applySentryUserContext } from './sentry.js';

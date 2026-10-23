@@ -37,7 +37,9 @@ describe('v1418 §42.2.1 — guard no self-unifica la waitlist propia', () => {
     );
     expect(guardSlice.length).toBeGreaterThan(500);
     // Debe invocar el helper puro con cardCode + excludeId + docs.
-    expect(guardSlice).toMatch(/_findOpenPure\s*\(\s*cliCardCode\s*,\s*_excludeWlId\s*,\s*docs\s*\)/);
+    expect(guardSlice).toMatch(
+      /_findOpenPure\s*\(\s*cliCardCode\s*,\s*_excludeWlId\s*,\s*docs\s*\)/
+    );
     // Debe acceder al helper por `window.__phase0.pure.openWaitlists.findOpenWaitlistsForClient`.
     expect(guardSlice).toMatch(/openWaitlists[\s\S]{0,80}findOpenWaitlistsForClient/);
   });

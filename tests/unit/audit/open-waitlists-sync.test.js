@@ -11,8 +11,8 @@
  * Si los dos archivos divergen, este test falla.
  */
 import { describe, expect, it } from 'vitest';
-import * as pure from '../../../src/pure/open-waitlists.js';
 import * as mirror from '../../../functions/core/open-waitlists.js';
+import * as pure from '../../../src/pure/open-waitlists.js';
 
 const FIXTURE_SAMPLES = [
   // Caso vacío.
@@ -131,7 +131,10 @@ describe('v<X> §57 open-waitlists sync: src/pure vs functions/core', () => {
   it('formatWaitlistForMessage: mismo output sobre waitlist típica', () => {
     const w = {
       orderNumber: 445,
-      items: [{ code: 'A', qty: 3 }, { code: 'B', qty: 2 }],
+      items: [
+        { code: 'A', qty: 3 },
+        { code: 'B', qty: 2 },
+      ],
       createdAt: '2026-10-23T10:00:00Z',
       ownerEmail: 'test@shimano.com.ar',
     };

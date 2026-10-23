@@ -14,11 +14,7 @@ const stageArb = fc.constantFrom('pending', 'processing', 'consumed', 'confirmed
 const closedAtArb = fc.oneof(
   fc.constant(null),
   fc.constant(''), // falsy
-  fc.constantFrom(
-    '2026-10-20T10:00:00Z',
-    '2026-10-21T10:00:00Z',
-    '2026-10-22T10:00:00Z'
-  ),
+  fc.constantFrom('2026-10-20T10:00:00Z', '2026-10-21T10:00:00Z', '2026-10-22T10:00:00Z')
 );
 const idArb = fc.string({ minLength: 3, maxLength: 20 });
 const cardCodeArb = fc.constantFrom('C001', 'C002', 'C003');
@@ -30,21 +26,22 @@ const docArb = fc.record({
   stage: stageArb,
   createdAt: fc.oneof(
     fc.constant(null),
-    fc.constantFrom(
-      '2026-10-23T09:00:00Z',
-      '2026-10-23T11:00:00Z',
-      '2026-10-23T13:00:00Z'
-    )
+    fc.constantFrom('2026-10-23T09:00:00Z', '2026-10-23T11:00:00Z', '2026-10-23T13:00:00Z')
   ),
 });
 
 describe('v<X> §57 property-based findOpenWaitlistsForClient', () => {
   it('nunca devuelve el id excluido', () => {
     fc.assert(
-      fc.property(cardCodeArb, idArb, fc.array(docArb, { maxLength: 8 }), (cardCode, excludeId, docs) => {
-        const r = findOpenWaitlistsForClient(cardCode, excludeId, docs);
-        return r.every((w) => w._id !== excludeId);
-      }),
+      fc.property(
+        cardCodeArb,
+        idArb,
+        fc.array(docArb, { maxLength: 8 }),
+        (cardCode, excludeId, docs) => {
+          const r = findOpenWaitlistsForClient(cardCode, excludeId, docs);
+          return r.every((w) => w._id !== excludeId);
+        }
+      ),
       { numRuns: 100 }
     );
   });
@@ -109,22 +106,32 @@ describe('v<X> §57 property-based findOpenWaitlistsForClient', () => {
 
   it('función es pura: no muta el input', () => {
     fc.assert(
-      fc.property(cardCodeArb, idArb, fc.array(docArb, { maxLength: 8 }), (cardCode, excludeId, docs) => {
-        const snapshot = JSON.stringify(docs);
-        findOpenWaitlistsForClient(cardCode, excludeId, docs);
-        return JSON.stringify(docs) === snapshot;
-      }),
+      fc.property(
+        cardCodeArb,
+        idArb,
+        fc.array(docArb, { maxLength: 8 }),
+        (cardCode, excludeId, docs) => {
+          const snapshot = JSON.stringify(docs);
+          findOpenWaitlistsForClient(cardCode, excludeId, docs);
+          return JSON.stringify(docs) === snapshot;
+        }
+      ),
       { numRuns: 100 }
     );
   });
 
   it('idempotencia: 2 llamadas con mismo input → mismo output', () => {
     fc.assert(
-      fc.property(cardCodeArb, idArb, fc.array(docArb, { maxLength: 8 }), (cardCode, excludeId, docs) => {
-        const r1 = findOpenWaitlistsForClient(cardCode, excludeId, docs);
-        const r2 = findOpenWaitlistsForClient(cardCode, excludeId, docs);
-        return JSON.stringify(r1) === JSON.stringify(r2);
-      }),
+      fc.property(
+        cardCodeArb,
+        idArb,
+        fc.array(docArb, { maxLength: 8 }),
+        (cardCode, excludeId, docs) => {
+          const r1 = findOpenWaitlistsForClient(cardCode, excludeId, docs);
+          const r2 = findOpenWaitlistsForClient(cardCode, excludeId, docs);
+          return JSON.stringify(r1) === JSON.stringify(r2);
+        }
+      ),
       { numRuns: 100 }
     );
   });

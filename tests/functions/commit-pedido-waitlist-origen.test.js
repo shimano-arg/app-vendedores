@@ -160,9 +160,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
     );
     expect(r.ok).toBe(true);
     // Waitlist origen marcada consumed dentro de la misma transacción.
-    const wlUpdate = _written.find(
-      (w) => w.path === 'revision_waitlist/wl_X' && w.op === 'update'
-    );
+    const wlUpdate = _written.find((w) => w.path === 'revision_waitlist/wl_X' && w.op === 'update');
     expect(wlUpdate).toBeTruthy();
     expect(wlUpdate.data.stage).toBe('consumed');
     expect(wlUpdate.data.consumedByPedidoId).toBe(r.pedidoId);
@@ -247,9 +245,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
       }
     );
     expect(r.ok).toBe(true);
-    const wlUpdate = _written.find(
-      (w) => w.path === 'revision_waitlist/wl_X' && w.op === 'update'
-    );
+    const wlUpdate = _written.find((w) => w.path === 'revision_waitlist/wl_X' && w.op === 'update');
     expect(wlUpdate).toBeTruthy();
     expect(wlUpdate.data.stage).toBe('consumed');
   });
@@ -297,9 +293,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
     );
     expect(r.ok).toBe(true);
     // No se intentó update sobre la waitlist inexistente.
-    const wlUpdate = _written.find(
-      (w) => w.path === 'revision_waitlist/wl_borrada'
-    );
+    const wlUpdate = _written.find((w) => w.path === 'revision_waitlist/wl_borrada');
     expect(wlUpdate).toBeFalsy();
   });
 
@@ -334,9 +328,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
     expect(r.pedidoId).toBe('already_123');
     expect(r.idempotentHit).toBe(true);
     // No se escribe nada nuevo en pedidos.
-    const pedidoWrites = _written.filter(
-      (w) => w.path.startsWith('pedidos/') && w.op === 'set'
-    );
+    const pedidoWrites = _written.filter((w) => w.path.startsWith('pedidos/') && w.op === 'set');
     expect(pedidoWrites.length).toBe(0);
   });
 
