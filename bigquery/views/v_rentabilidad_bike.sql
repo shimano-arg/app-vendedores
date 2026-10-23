@@ -1,7 +1,18 @@
 -- v_rentabilidad_bike
 --
 -- Linea factura/NC con costo + venta + metadata producto para rentabilidad Bike.
--- 1 row por (doc_entry, line_num) donde COGSCostingCode3='BIK'.
+-- 1 row por (doc_entry, line_num) donde el cliente tiene u_division='1' (BIKE)
+-- y la linea tiene item_code NO NULL + qty > 0.
+--
+-- 2026-10-24 — Cuarta ronda conciliacion Paiva: filtro migrado de
+-- COGSCostingCode3='BIK' (por articulo) a bp.u_division='1' (por cliente),
+-- criterio Juan Paiva. El filtro viejo dejaba enero-julio 2026 vacios porque
+-- los articulos empezaron a cargarse con COGSCostingCode3='BIK' recien en
+-- agosto. Rollback snapshot en bigquery/views/v_rentabilidad_bike_pre_filtro_division.sql.
+--
+-- SHIMANO URUGUAY (CSUR0001) y cuentas EMPL* ENTRAN a la vista (son clientes
+-- u_division='1'). Power BI los excluye con tablas de exclusion igual que
+-- hace con ENV*/ING_*. La vista es el UNIVERSO COMPLETO de clientes bike.
 --
 -- Columnas 2026-10-22 (conciliacion Paiva):
 --   * division_cliente     OCRD.U_DIVISION del cliente ('1'=BIKE, '2'=PESCA,
@@ -109,9 +120,11 @@ SELECT
 
   -- ====== CLASIFICACION ======
   inv.doc_kind,                                       -- 'FACTURA' | 'NOTA_CREDITO'
-  TRUE AS es_bike,                                    -- siempre TRUE: filtro COGSCostingCode3=BIK
-  -- division: BIKE si TODAS las lineas del doc son BIK; MIXTO si combina con otras.
-  -- Proxy del campo "Division" de cabecera que usa Fernando (no se sincroniza al raw).
+  TRUE AS es_bike,                                    -- siempre TRUE: filtro bp.u_division='1' (2026-10-24).
+  -- division: BIKE si TODAS las lineas del doc son cogs3='BIK'; MIXTO si combina con otras
+  -- (post 2026-10-24: el filtro de la vista ya no limita por cogs3, entonces un doc u_div=1 puede
+  -- tener lineas BIK + FIS + NULL mezcladas). La columna es diagnostica: 'BIKE' => doc puro bike
+  -- por articulo; 'MIXTO' => cliente bike compro tambien productos no-BIK en el mismo doc.
   CASE
     WHEN (SELECT COUNT(*) FROM UNNEST(JSON_EXTRACT_ARRAY(inv.lines_json)) AS l2
           WHERE JSON_VALUE(l2, '$.COGSCostingCode3') != 'BIK') = 0 THEN 'BIKE'
@@ -295,4 +308,6 @@ LEFT JOIN (
   AND pbt.cantidad = SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)
   AND inv.doc_date BETWEEN DATE('2026-09-01') AND DATE('2026-09-30')
 WHERE inv.cancelled = 'tNO'
-  AND JSON_VALUE(line, '$.COGSCostingCode3') = 'BIK'
+  AND bp.u_division = '1'
+  AND JSON_VALUE(line, '$.ItemCode') IS NOT NULL
+  AND SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) > 0
