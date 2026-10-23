@@ -399,11 +399,9 @@ describe('v1417 §45.1 + v1435 §56 — badges inline en celda SKU', () => {
     expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe(BLUE);
   });
 
-  it('.badge-de-orden chip amber #fef3c7 + texto #92400e (§45.1)', () => {
+  it('v1441 §62: .badge-de-orden ELIMINADO del CSS (info en tooltip del tr)', () => {
     const rule = ALL_RULES.find((r) => r.selector === '.badge-de-orden');
-    expect(rule, 'badge-de-orden no existe en CSS').toBeTruthy();
-    expect(String(readProp(rule.body, 'background').value).toLowerCase()).toContain('#fef3c7');
-    expect(String(readProp(rule.body, 'color').value).toLowerCase()).toBe('#92400e');
+    expect(rule, 'badge-de-orden NO debería existir tras §62').toBeFalsy();
   });
 
   it('§56: .badge-duplicado ELIMINADO del CSS (ya no hay duplicados por construcción)', () => {
@@ -411,22 +409,96 @@ describe('v1417 §45.1 + v1435 §56 — badges inline en celda SKU', () => {
     expect(rule, 'badge-duplicado NO debería existir tras §56').toBeFalsy();
   });
 
-  it('§56: render del SKU incluye solo los 2 badges activos (stock-asignado, de orden) y NO DUPLICADO', () => {
+  it('v1441 §62: render del SKU incluye solo .badge-stock-asignado (DE ORDEN y DUPLICADO eliminados)', () => {
     const slice = INDEX_HTML.slice(
-      INDEX_HTML.indexOf('celda SKU con badges inline'),
+      INDEX_HTML.indexOf('celda SKU con badge STOCK ASIGNADO'),
       INDEX_HTML.indexOf('v817 (2026-09-07): si la desc es')
     );
     expect(slice.length).toBeGreaterThan(400);
     expect(slice).toMatch(/badge-stock-asignado/);
-    expect(slice).toMatch(/badge-de-orden/);
     expect(slice).toMatch(/STOCK ASIGNADO/);
-    expect(slice).toMatch(/DE ORDEN/);
-    // §56: badges ELIMINADOS del render.
+    // §62: badge DE ORDEN eliminado del render.
+    expect(slice).not.toMatch(/badge-de-orden/);
+    expect(slice).not.toMatch(/_badge\.textContent\s*=\s*['"]DE ORDEN/);
+    // §56: badges previos eliminados.
     expect(slice).not.toMatch(/badge-duplicado/);
     expect(slice).not.toMatch(/badge-reservado/);
-    // El string literal 'DUPLICADO' no debe aparecer como badge textContent.
-    // (puede aparecer en comentarios o msgs, pero no como textContent de un badge)
     expect(slice).not.toMatch(/_badge\.textContent\s*=\s*['"]DUPLICADO/);
+  });
+
+  it('v1441 §62: tooltip del <tr> incluye "Importada por unificacion desde ORDEN N" cuando r.importedFromOrder>0', () => {
+    // El block de tooltip arma _tips[] con "Linea con STOCK ASIGNADO..." y
+    // "Importada por unificacion desde ORDEN N.". Ambos acumulan en tr.title
+    // separado por \n real. Grep contrato en el render:
+    const slice = INDEX_HTML.slice(
+      INDEX_HTML.indexOf('tooltip de la fila con info de ASIG'),
+      INDEX_HTML.indexOf('celda SKU con badge STOCK ASIGNADO')
+    );
+    expect(slice.length).toBeGreaterThan(100);
+    expect(slice).toMatch(/_tips\.push\('Linea con STOCK ASIGNADO/);
+    expect(slice).toMatch(/_tips\.push\('Importada por unificacion desde ORDEN /);
+    expect(slice).toMatch(/r\.importedFromOrder/);
+    // Join con '\n' real (no '\\n' literal).
+    expect(slice).toMatch(/_tips\.join\('\\n'\)/);
+  });
+});
+
+describe('v1441 §62 — badge STOCK ASIGNADO legible en hover de la fila', () => {
+  const BLUE = '#1e40af';
+  const BG = '#dbeafe';
+  // Specificity del selector hover-safe que agrego: 0,3,3 (#waitlist-card-modal + tbody + tr:hover + td + .badge-stock-asignado) — gana sobre el 0,2,3 de "#waitlist-card-modal tbody tr:hover td *".
+  it('CSS fija color + bg del badge-stock-asignado en tr:hover con !important', () => {
+    const rules = ALL_RULES.filter(
+      (r) =>
+        r.selector.includes('tr:hover') &&
+        r.selector.includes('.badge-stock-asignado') &&
+        r.selector.startsWith('#waitlist-card-modal')
+    );
+    expect(rules.length, 'falta la regla hover-safe v1441 §62').toBeGreaterThan(0);
+    const r = rules[0];
+    const bg = readProp(r.body, 'background');
+    const color = readProp(r.body, 'color');
+    expect(bg, 'bg del badge en hover').toBeTruthy();
+    expect(color, 'color del badge en hover').toBeTruthy();
+    expect(String(bg.value).toLowerCase()).toContain(BG);
+    expect(String(color.value).toLowerCase()).toBe(BLUE);
+    expect(bg.important, 'bg debe ser !important para pisar hover tr').toBe(true);
+    expect(color.important, 'color debe ser !important para pisar hover tr').toBe(true);
+  });
+
+  it('CSS incluye tambien focus-within + highlighted + selected (consistencia §43)', () => {
+    const cssBlock = INDEX_CSS;
+    expect(cssBlock).toMatch(/tr:focus-within td \.badge-stock-asignado/);
+    expect(cssBlock).toMatch(/tr\.highlighted td \.badge-stock-asignado/);
+    expect(cssBlock).toMatch(/tr\.selected td \.badge-stock-asignado/);
+  });
+
+  it('contraste WCAG >= 4.5:1 (#1e40af sobre #dbeafe)', () => {
+    const lumFg = luminance('#1e40af');
+    const lumBg = luminance('#dbeafe');
+    const lighter = Math.max(lumFg, lumBg);
+    const darker = Math.min(lumFg, lumBg);
+    const ratio = (lighter + 0.05) / (darker + 0.05);
+    expect(ratio, 'contrast ratio badge hover = ' + ratio.toFixed(2)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('ninguna regla "tr:hover td *" con color:#fff gana sobre .badge-stock-asignado (specificity)', () => {
+    // El selector hover generic "tr:hover td *" tiene specificity 0,2,3.
+    // Mi regla "#waitlist-card-modal tbody tr:hover td .badge-stock-asignado"
+    // tiene specificity 0,3,3 (3 clases/pseudo: tbody,tr:hover,td + badge). Gana.
+    const generic = ALL_RULES.find((r) =>
+      /#waitlist-card-modal tbody tr:hover td \*$/.test(r.selector)
+    );
+    const specific = ALL_RULES.find((r) =>
+      /#waitlist-card-modal tbody tr:hover td \.badge-stock-asignado$/.test(r.selector)
+    );
+    expect(generic, 'regla generica tr:hover td *').toBeTruthy();
+    expect(specific, 'regla hover-safe badge').toBeTruthy();
+    const specGeneric = specificity(generic.selector);
+    const specSpecific = specificity(specific.selector);
+    // specSpecific debe ser >= specGeneric (comparando [a,b,c] como triplete).
+    const cmp = (s1, s2) => (s1[0] - s2[0]) * 1e6 + (s1[1] - s2[1]) * 1e3 + (s1[2] - s2[2]);
+    expect(cmp(specSpecific, specGeneric), 'specific wins over generic').toBeGreaterThan(0);
   });
 });
 
