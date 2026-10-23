@@ -148,7 +148,17 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
-        revision_waitlist: {},
+        // §57 (2026-10-23): waitlist origen presente para que CPST pase el
+        // validation gate `waitlistOrigenId` requerido.
+        revision_waitlist: {
+          wl_cpst_e2e_1: {
+            clientCardCode: 'C001',
+            orderNumber: 600,
+            items: [{ code: 'SKU-A', qty: 3 }],
+            closedAt: null,
+            stage: 'pending',
+          },
+        },
       };
       const { fbDb, _written } = makeMinimalDb(state);
 
@@ -170,6 +180,7 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
             },
           ],
           clientVersion: 'v1430',
+          waitlistOrigenId: 'wl_cpst_e2e_1',
         }
       );
 
@@ -214,7 +225,16 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
-        revision_waitlist: {},
+        // §57 (2026-10-23): waitlist origen requerida para CPST.
+        revision_waitlist: {
+          wl_cpst_multi: {
+            clientCardCode: 'C001',
+            orderNumber: 601,
+            items: [{ code: 'SKU-X', qty: 3 }],
+            closedAt: null,
+            stage: 'pending',
+          },
+        },
       };
       const { fbDb, _written } = makeMinimalDb(state);
       const r = await commitPedidoCore(
@@ -236,6 +256,7 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
             },
           ],
           clientVersion: 'v1430',
+          waitlistOrigenId: 'wl_cpst_multi',
         }
       );
       expect(r.ok).toBe(true);

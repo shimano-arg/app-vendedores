@@ -2191,3 +2191,71 @@ match /meli_infracciones_resumen/{docId} {
 **Suite completa post-v1413**: 1985 PASS, 0 FAIL.
 
 **Precedente**: `feat-infracciones-meli-export` 2026-10-22 (v1413). Pedido Mariano: integrar al modal "Reportes Excel". Reusa el formato que Mariano dejó armado en `Desktop\INFRACCIONES-MELI.xlsx` (header turquesa oscuro, SI turquesa claro, NO rojo oscuro).
+
+## 57. Lógica cliente+servidor vive una sola vez en src/pure con espejo en functions/core (2026-10-23)
+
+Regla fuerte: cualquier chequeo de negocio que se evalúe en cliente y
+servidor DEBE vivir una sola vez en `src/pure/<name>.js` con copia
+espejo en `functions/core/<name>.js` y test de sincronía
+`tests/unit/audit/<name>-sync.test.js`.
+
+Precedente: 23/10 11:37 commitPedidoCF devolvió
+CLIENT_HAS_OPEN_WAITLIST false positive porque el chequeo estaba
+implementado dos veces (cliente §42.1 fresh query + servidor en la
+CF), y el servidor no excluía la propia waitlist de origen. 2 bugs
+distintos pero causa raíz única: lógica duplicada. Fix: una sola
+`findOpenWaitlistsForClient(cardCode, excludeWaitlistId, docs)` en
+`src/pure/open-waitlists.js`, usada por ambos lados.
+
+Prohibido reimplementar un chequeo de negocio en dos lugares. El guard
+de cliente INFORMA; la autoridad es la CF.
+
+**Decisiones concretas aplicadas en el fix (v<X> 2026-10-23)**:
+
+1. **Payload del CF lleva `waitlistOrigenId`** (nunca adivinar). El cliente
+   ya lo tenía como campo `docData.waitlistOrigenId` (desde v1058) para la
+   CF legacy `onPedidoCreatedCleanupWaitlist`; ahora se propaga también al
+   payload de `commitPedidoCF` para que el chequeo lo excluya.
+2. **CF marca la waitlist origen `stage='consumed' + closedAt`
+   DENTRO de la misma `runTransaction`**. Antes el cliente lo hacía POST
+   `pedidos.add` legacy → ventana de carrera donde la CF (en el mismo
+   tick de Firestore) encontraba la waitlist "aún abierta" y disparaba
+   CLIENT_HAS_OPEN_WAITLIST sobre sí misma.
+3. **`origen='cpst'` sin `waitlistOrigenId` → `VALIDATION_ERROR`**. Nunca
+   adivinar. Esto hace que una regresión futura (olvidar pasar el id en
+   el payload) explote en el testing/dev y no en producción como false
+   positive silencioso.
+4. **`origen='manual'`/`'excel'` sin `waitlistOrigenId` → chequeo
+   histórico** (todas las waitlists abiertas ajenas bloquean). Esto cubre
+   pedidos directos sin paso por lista de espera.
+5. **`origen='manual'`/`'excel'` con `waitlistOrigenId`** (ej. flujo
+   waitlist → pending desde modal review para pedidos no-CPST): también
+   excluye self + marca consumed en la misma transacción.
+6. **Delete post-CF de la waitlist origen es best-effort**. El `update
+   stage=consumed` ya la esconde del sidebar (listener filtra por `stage
+   !== 'consumed'`); el delete es cleanup para no acumular docs muertos.
+   Si falla (permission-denied, timeout), no bloquea.
+
+**Dónde vive la lógica**:
+- `src/pure/open-waitlists.js` — fuente de verdad (cliente).
+- `functions/core/open-waitlists.js` — espejo verbatim (servidor).
+- `tests/unit/audit/open-waitlists-sync.test.js` — falla si divergen.
+- `tests/unit/open-waitlists.test.js` — unit tests del pure.
+- `tests/unit/property/open-waitlists-fastcheck.test.js` — invariantes
+  property-based (≥100 runs).
+- `tests/functions/commit-pedido-waitlist-origen.test.js` — repro bug 23/10
+  11:37 + T1-T8 cubriendo todos los casos.
+
+**Guard cliente informativo**: `src/domains/pedidos-modal.js`
+(`validateReviewAndPasarAPendientes` §42.2) usa el pure helper via
+`window.__phase0.pure.openWaitlists.findOpenWaitlistsForClient`. Si el
+bundle no cargó (SW stale sirviendo versión vieja), tiene fallback
+inline con la misma lógica.
+
+**NO toques el espejo de `functions/core/open-waitlists.js` sin replicar
+el cambio en `src/pure/open-waitlists.js`**. El test de sincronía te
+pilla, pero mejor hacer el cambio consciente.
+
+Si en el futuro se agrega otro chequeo cliente+servidor duplicado:
+reemplazarlo por el mismo patrón (pure + espejo + sync test).
+

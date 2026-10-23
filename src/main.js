@@ -30,6 +30,13 @@ import {
   normTitle,
   titleCase,
 } from './pure/normalize.js';
+// §57 (2026-10-23): un solo lugar para "waitlists abiertas de un cliente" con
+// exclusión de la propia waitlist origen. Espejo en functions/core/open-waitlists.js
+// usada por commitPedidoCF; test de sincronía en tests/unit/audit/open-waitlists-sync.test.js.
+import {
+  findOpenWaitlistsForClient as findOpenWaitlistsForClientExcludingSelf,
+  formatWaitlistForMessage,
+} from './pure/open-waitlists.js';
 import {
   canViewPanel,
   computeAgeMinutes,
@@ -299,6 +306,14 @@ const phase0 = {
       mergeWaitlistIntoOrderLines,
       buildUnifiedAtReviewUpdate,
       formatUnifyConfirmMessage,
+    },
+    // §57 (2026-10-23) — fuente única del chequeo "waitlists abiertas de un
+    // cliente" con exclude de la propia waitlist origen. Usado por el guard
+    // informativo del cliente (src/domains/pedidos-modal.js). El servidor usa
+    // el espejo (functions/core/open-waitlists.js).
+    openWaitlists: {
+      findOpenWaitlistsForClient: findOpenWaitlistsForClientExcludingSelf,
+      formatWaitlistForMessage,
     },
     resolveClientVendorFromMaster,
     enrichPayloadWithClientVendor,
