@@ -109,6 +109,9 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           SL_INSECURE: ${{ inputs.sl_insecure }}
           SL_MAX_ITEMS: ${{ inputs.max_items }}
+          # §63 Fase 3 Capa 1 (2026-10-23): source field para distinguir
+          # origen durante rollout paralelo con syncSapCatalogStockCF.
+          SYNC_SOURCE: ${{ github.event_name == 'schedule' && 'gha-cron' || 'manual-dispatch' }}
         run: python scripts/sync_sap_to_firestore.py
 
       - name: Commit stock.json if changed
