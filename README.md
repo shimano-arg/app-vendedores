@@ -4717,6 +4717,73 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1436 (2026-10-23) — HOTFIX commitPedidoCF retry post STOCK_CHANGED (§58)
+
+Rama `fix-stock-changed-retry-sin-refresh` → `main`.
+
+**Reporte prod 2026-10-23**: Gonzalo De La Rosa, cliente BROBRO / DEVOTO CAMPING, flow "Pasar a Pendientes" desde la lista de espera:
+
+1. CF devuelve `STOCK_CHANGED` → modal "¿Confirmar con back order?".
+2. Vendedor acepta.
+3. "Reintento falló: Reintenta en 10 segundos" en loop sin salida.
+
+**Causa raíz** (gcloud log del incidente real):
+```
+2026-10-23T15:53:53Z commitPedidoCore retry {
+  draftId: 'C|BUENOS AIRES|ESCOBAR|EDUARDO SATO|538',
+  attempts: 5,
+  err: 'Firestore transactions require all reads to be executed before all writes.'
+}
+```
+
+En `functions/core/commit-pedido-core.js:commitInTransaction`, la secuencia era:
+1. `tx.set(pedidoRef, pedidoData)` (línea 375 pre-fix) — WRITE
+2. `tx.get(refDoc)` dentro de `cancelAsigRefsInTransaction` cuando `origen='cpst'` — READ AFTER WRITE
+3. `tx.get(wlRef)` del waitlist origen (§57) cuando `payload.waitlistOrigenId` — READ AFTER WRITE
+
+Firestore (admin SDK) exige **TODOS los reads antes de TODOS los writes** dentro de un `runTransaction`. La violación tiraba `FAILED_PRECONDITION`. El outer retry loop del core (líneas 183-206) atrapaba el error, reintentaba 5× con el mismo payload (misma violación), y terminaba devolviendo `CONTENTION_RETRY_EXHAUSTED` con mensaje "Reintenta en 10 segundos". La UI del cliente mostraba "Reintento falló: Reintenta en 10 segundos" como alert y el vendedor no podía confirmar NUNCA.
+
+**Hipótesis Mariano previa** ("el reintento no refresca el breakdown"): invalidada. La CF SÍ recomputa breakdown fresh dentro de la nueva transacción. El bug estaba en la invariante de orden de operaciones, no en el stale snapshot. El primer intento tiraba `STOCK_CHANGED` ANTES de cualquier write (throw en línea 366 pre-write), por eso ese intento funcionaba OK. El retry (`autoAcceptStockChange=true`) salteaba el throw y llegaba a la ventana con read-after-write.
+
+**Fix** (`functions/core/commit-pedido-core.js`):
+
+- Pre-fetch TODOS los docs mutables en una fase READ explícita ANTES del primer `tx.set/update`:
+  - ASIG origen docs (iterados desde `payload.lines[].asigRefs`) cuando `origen='cpst'`.
+  - Waitlist origen doc cuando `payload.waitlistOrigenId`.
+- Snapshots pre-fetched se guardan en `Map<pedidoId, {ref, exists, data}>` + `{ref, exists}` para waitlist.
+- Fase WRITE después: `tx.set(pedidoRef)` → `cancelAsigRefsFromPrefetched(tx, ..., snapshots)` → `tx.update(waitlistSnap.ref, ...)` solo si `exists`.
+- `cancelAsigRefsInTransaction` renombrado a `cancelAsigRefsFromPrefetched` (sync, no async, usa snapshots pre-fetched).
+
+**Alcance**: Firestore transaction behavior. Ningún cambio de contrato del cliente — mismo payload, mismos errorCodes, mismo flow UX. El patrón `STOCK_CHANGED` → "¿Confirmar con BO?" → acepta → confirma con BO sigue siendo 1 interacción extra con el vendedor; ahora sí persiste el pedido en el segundo call.
+
+**Tests** (`tests/functions/commit-pedido-stock-changed-retry.test.js`, 5 nuevos):
+
+- `makeStrictMockDb`: mock Firestore que enforza "all reads before all writes" (tracker `hasWritten` + throw del error real en `tx.get` post-write). Los tests históricos (`commit-pedido-core.test.js`) usan un mock que **no enforza** la invariante — por eso pasaban mientras prod fallaba. Patrón reutilizable para nuevos tests de CF con tx.
+- Caso 1: retry manual con `autoAcceptStockChange=true` + `waitlistOrigenId` persiste pedido + marca waitlist consumed sin tirar error.
+- Caso 2: retry CPST con asigRefs persiste pedido + cancela ASIG origen + marca waitlist consumed sin tirar error.
+- Caso 3: log NO contiene retries con "all reads before all writes".
+- Caso 4 (regresión): STOCK_CHANGED en primer intento sigue tirando correctamente (no persiste nada).
+- Caso 5: observabilidad del `log` → entry "commitPedidoCore OK" en happy path con pedidoId correcto.
+
+**Suite completa post-v1436**: 1687 unit PASS + 589 functions PASS. +5 tests nuevos sobre v1435.
+
+**Verificación**:
+- 4 tests fallan antes del fix (confirmación del bug).
+- 5 tests pasan después del fix (confirmación del fix + regresión del STOCK_CHANGED).
+- No tocó código inline del `index.html` ni `src/`. El flow UX cliente queda igual.
+
+**Rollback**: `git revert <this commit>` + redeploy `functions:commitPedidoCF`. Las waitlists que ya quedaron `consumed_by_commitPedidoCF` siguen funcionales (es un marker válido).
+
+**Precedente**: §57 (v1435, 2026-10-23). Dos ocurrencias el mismo día del mismo CF — primero el chequeo duplicado cliente+servidor (CLIENT_HAS_OPEN_WAITLIST false positive), ahora la violación de read-before-write. CLAUDE.md §58 agrega regla durable con patrón canónico + mock STRICT para prevenir el pattern.
+
+**Archivos**:
+- `functions/core/commit-pedido-core.js` — pre-fetch fase + rename helper.
+- `tests/functions/commit-pedido-stock-changed-retry.test.js` — 5 tests nuevos.
+- `CLAUDE.md` §58 — regla durable "all reads before all writes".
+- `index.html` + `sw.js` — bump v1435 → v1436.
+
+---
+
 ### v1430 (2026-10-23) — Stock servidor atómico SESIÓN 1 (E0-E4)
 
 Rama `feat-stock-servidor-atomico` → `main`. Sesión 1 del cierre de los 11 grises grandes de la auditoría 2026-10-22.

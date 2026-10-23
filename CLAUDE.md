@@ -2331,6 +2331,117 @@ pilla, pero mejor hacer el cambio consciente.
 Si en el futuro se agrega otro chequeo cliente+servidor duplicado:
 reemplazarlo por el mismo patrón (pure + espejo + sync test).
 
+## 58. Firestore transactions: ALL reads before ALL writes (2026-10-23, v1436)
+
+Regla fuerte: dentro de un `fbDb.runTransaction((tx) => ...)`, TODOS los
+`tx.get()` DEBEN ejecutarse ANTES del primer `tx.set/update/delete`. Mezclar
+un read después de un write hace que Firestore (admin SDK) tire sync:
+
+```
+FAILED_PRECONDITION: Firestore transactions require all reads to be
+executed before all writes.
+```
+
+El outer retry loop en el core (`commitPedidoCore` líneas 183-206) atrapa
+este error (no es business error con `_errorCode`), reintenta 5× con el
+mismo payload — la invariante sigue violada → termina devolviendo
+`CONTENTION_RETRY_EXHAUSTED` con mensaje "Reintenta en 10 segundos" al
+cliente. UI muestra "Reintento falló: Reintenta en 10 segundos" en loop.
+
+**Precedente**: v1436 2026-10-23. Reporte Gonzalo De La Rosa / BROBRO /
+DEVOTO CAMPING. Flow waitlist → "Pasar a Pendientes":
+
+1. CF devolvió `STOCK_CHANGED` (throw ANTES del primer tx.set, correcto).
+2. Modal "¿Confirmar con back order?" aparece — vendedor acepta.
+3. Cliente reintenta con `autoAcceptStockChange=true` + mismo
+   `waitlistOrigenId`. Payload idéntico salvo el flag.
+4. CF server-side: entra a `commitInTransaction`, hace `tx.set(pedidoRef)`
+   (línea 375 pre-fix). Luego `cancelAsigRefsInTransaction` →
+   `tx.get(refDoc)` para cada ASIG origen (si `origen='cpst'`); después
+   `tx.get(wlRef)` para la waitlist origen (§57). Ambos reads AFTER write.
+5. Firestore tira error → core reintenta 5× igual → CONTENTION_RETRY_EXHAUSTED.
+6. UI muestra "Reintento falló: Reintenta en 10 segundos" sin salida.
+
+Gcloud log del incidente real:
+```
+2026-10-23T15:53:53.075Z  commitPedidoCore retry {
+  draftId: 'C|BUENOS AIRES|ESCOBAR|EDUARDO SATO|538',
+  attempts: 5,
+  err: 'Firestore transactions require all reads to be executed before all writes.'
+}
+```
+
+Hipótesis Mariano previa ("el reintento no refresca el breakdown"): la CF
+sí recomputa breakdown (lo hace dentro de la nueva transacción). El bug
+estaba en la secuencia tx.set → tx.get, no en el stale snapshot.
+
+**Patrón canónico** (fix aplicado en `commitInTransaction`):
+
+```js
+async function commitInTransaction(deps, tx, payload, now, nowIso) {
+  // === FASE READ ===
+  // 1. Lee stock_snapshot (tx.get por SKU).
+  // 2. Lee app_config/stock_snapshot (fisico global).
+  // 3. ... (otros reads).
+  //
+  // 4. Pre-fetch de TODOS los docs que vamos a MUTAR como consecuencia
+  //    (ASIG origen docs, waitlist origen doc, etc.).
+  const asigOrigenSnapshots = new Map();
+  if (payload.origen === 'cpst') {
+    const pedidoOrigenIds = new Set(/* ...de payload.lines[].asigRefs... */);
+    for (const id of pedidoOrigenIds) {
+      const ref = deps.fbDb.collection('pedidos').doc(id);
+      const snap = await tx.get(ref);
+      asigOrigenSnapshots.set(id, { ref, exists: snap.exists, data: snap.data() });
+    }
+  }
+  let waitlistOrigenSnap = null;
+  if (payload.waitlistOrigenId) {
+    const ref = deps.fbDb.collection('revision_waitlist').doc(payload.waitlistOrigenId);
+    const snap = await tx.get(ref);
+    waitlistOrigenSnap = { ref, exists: snap.exists };
+  }
+
+  // === VALIDATIONS / COMPUTE (puede throw errores de negocio) ===
+
+  // === FASE WRITE (sin ningún tx.get a partir de acá) ===
+  tx.set(pedidoRef, pedidoData);
+  if (payload.origen === 'cpst' && asigOrigenSnapshots.size > 0) {
+    cancelAsigRefsFromPrefetched(tx, payload, pedidoRef.id, nowIso, asigOrigenSnapshots);
+  }
+  if (waitlistOrigenSnap && waitlistOrigenSnap.exists) {
+    tx.update(waitlistOrigenSnap.ref, { stage: 'consumed', ... });
+  }
+}
+```
+
+**Mock Firestore STRICT**: los tests históricos en
+`tests/functions/commit-pedido-core.test.js` usaban un mock que
+**NO enforza** la invariante — por eso los tests pasaban mientras prod
+fallaba. El test nuevo
+`tests/functions/commit-pedido-stock-changed-retry.test.js` usa
+`makeStrictMockDb` que trackea `hasWritten` y hace throw del error real
+en cada `tx.get()` post-write. Patrón reutilizable para nuevos CFs con
+tx.
+
+**Dónde aplicar la regla**:
+- `functions/core/commit-pedido-core.js:commitInTransaction` — fix aplicado.
+- `functions/core/reparto-core.js:applyRepartoManualCore` — revisar.
+- `functions/core/asig-recycle-core.js` — revisar.
+- Cualquier `fbDb.runTransaction(...)` nuevo DEBE respetar la invariante
+  desde el día 1. Agregar test con `makeStrictMockDb` para prevenir
+  regresión.
+
+**Síntoma típico en gcloud**: `commitPedidoCore retry attempts: N
+err: 'Firestore transactions require all reads to be executed before all
+writes.'` repetido 5 veces consecutivas con mismo `draftId`. En el
+cliente, "Reintento falló: Reintenta en 10 segundos" después de aceptar
+"¿Confirmar con BO?".
+
+**Prohibido reintroducir**: cualquier `tx.get()` DESPUÉS de un
+`tx.set/update/delete` dentro del mismo `runTransaction`. El mock
+STRICT del test lo pilla; prod lo pilla con FAILED_PRECONDITION.
+
 ## 59. VDE ve TODAS las órdenes abiertas de SUS clientes (filtro por `assignedVendorUid`) (2026-10-23, v1437)
 
 **Regla fuerte**: cualquier filtro de `revision_waitlist` del lado VDE

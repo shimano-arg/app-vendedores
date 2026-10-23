@@ -52,7 +52,7 @@
  */
 
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
-import { getStockBreakdown, lineReservesStock } from './pedido-snapshot-core.js';
+import { getStockBreakdown } from './pedido-snapshot-core.js';
 
 const SNAPSHOT_MAX_AGE_MS = 45 * 60 * 1000; // 45 min
 const MAX_RETRY_ATTEMPTS = 5;
@@ -369,14 +369,63 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     });
   }
 
-  // 5.8 Escribir pedido nuevo.
+  // §58 (2026-10-23) — pre-fetch de TODOS los docs mutados ANTES de los
+  // writes. Firestore exige "all reads before all writes" dentro de un
+  // runTransaction; mezclar un write con un read posterior tira
+  // "FAILED_PRECONDITION: Firestore transactions require all reads to be
+  // executed before all writes" → core reintenta 5× (misma falla) → el
+  // cliente recibe CONTENTION_RETRY_EXHAUSTED "Reintenta en 10 segundos".
+  //
+  // Precedente prod: 2026-10-23 Gonzalo De La Rosa cliente BROBRO/DEVOTO.
+  // 1. 1er intento → STOCK_CHANGED (throw ANTES de tx.set, OK).
+  // 2. Modal "¿Confirmar con BO?" → acepta.
+  // 3. 2do intento con autoAcceptStockChange=true → NO throw → tx.set del
+  //    pedido → tx.get(wlRef) / tx.get(refDoc en ASIG) → FAILED_PRECONDITION
+  //    → 5× retry → "Reintenta en 10 segundos" sin salida.
+  //
+  // Fix: pre-fetch acá; usar los snapshots fetcheados en los pasos 5.8/5.9.
   const pedidoRef = deps.fbDb.collection('pedidos').doc();
+
+  // 5.7a Pre-fetch ASIG origen docs (si origen='cpst' con asigRefs).
+  /** @type {Map<string, any>} */
+  const asigOrigenSnapshots = new Map();
+  if (payload.origen === 'cpst') {
+    const pedidoOrigenIds = new Set();
+    for (const l of payload.lines) {
+      if (!Array.isArray(l.asigRefs)) continue;
+      for (const r of l.asigRefs) {
+        if (r && r.pedidoId) pedidoOrigenIds.add(r.pedidoId);
+      }
+    }
+    for (const pedidoOrigenId of pedidoOrigenIds) {
+      const refDoc = deps.fbDb.collection('pedidos').doc(pedidoOrigenId);
+      const snap = await tx.get(refDoc);
+      asigOrigenSnapshots.set(pedidoOrigenId, {
+        ref: refDoc,
+        exists: snap.exists,
+        data: snap.exists ? snap.data() || {} : null,
+      });
+    }
+  }
+
+  // 5.7b Pre-fetch waitlist origen (si waitlistOrigenId).
+  /** @type {{ref: any, exists: boolean} | null} */
+  let waitlistOrigenSnap = null;
+  if (payload.waitlistOrigenId) {
+    const wlRef = deps.fbDb.collection('revision_waitlist').doc(payload.waitlistOrigenId);
+    const wlSnap = await tx.get(wlRef);
+    waitlistOrigenSnap = { ref: wlRef, exists: wlSnap.exists };
+  }
+
+  // ===== A partir de acá, solo WRITES (ningún tx.get). =====
+
+  // 5.8 Escribir pedido nuevo.
   const pedidoData = buildPedidoDocData(payload, docLines, nowIso, deps);
   tx.set(pedidoRef, pedidoData);
 
-  // 5.9 Cancelar ASIG originales si origen='cpst'.
-  if (payload.origen === 'cpst') {
-    await cancelAsigRefsInTransaction(deps, tx, payload, pedidoRef.id, nowIso);
+  // 5.9 Cancelar ASIG originales si origen='cpst' (usa snapshots pre-fetched).
+  if (payload.origen === 'cpst' && asigOrigenSnapshots.size > 0) {
+    cancelAsigRefsFromPrefetched(tx, payload, pedidoRef.id, nowIso, asigOrigenSnapshots);
   }
 
   // 5.10 §57 (2026-10-23) — marcar waitlist origen `stage='consumed'` + `closedAt`
@@ -387,23 +436,18 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   //
   // Idempotente: si ya está consumed por un reintento post-hoc, update
   // sobrescribe los mismos campos (noop semántico).
-  if (payload.waitlistOrigenId) {
-    const wlRef = deps.fbDb.collection('revision_waitlist').doc(payload.waitlistOrigenId);
-    const wlSnap = await tx.get(wlRef);
-    if (wlSnap.exists) {
-      tx.update(wlRef, {
-        stage: 'consumed',
-        consumedByPedidoId: pedidoRef.id,
-        consumedAt: nowIso,
-        closedAt: nowIso,
-        closedReason: 'consumed_by_commitPedidoCF',
-        updatedAt: nowIso,
-      });
-    }
-    // Si no existe (edge case: la waitlist fue borrada entre la UI y la CF),
-    // no bloqueamos — el pedido ya se persistió. El cliente puede detectarlo
-    // por metadata del response si fuera necesario.
+  if (waitlistOrigenSnap && waitlistOrigenSnap.exists) {
+    tx.update(waitlistOrigenSnap.ref, {
+      stage: 'consumed',
+      consumedByPedidoId: pedidoRef.id,
+      consumedAt: nowIso,
+      closedAt: nowIso,
+      closedReason: 'consumed_by_commitPedidoCF',
+      updatedAt: nowIso,
+    });
   }
+  // Si waitlistOrigenId venía pero la waitlist no existe (edge case:
+  // borrada entre UI y CF), no bloqueamos — el pedido ya se persistió.
 
   return {
     ok: true,
@@ -416,13 +460,19 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
 
 /**
  * Cancela las ASIG originales referenciadas en el payload (origen='cpst').
- * @param {any} deps
+ *
+ * §58 (2026-10-23): esta versión usa snapshots PRE-FETCHED (ya leídos antes
+ * del primer `tx.set`) para no violar la invariante Firestore "all reads
+ * before all writes". El `cancelAsigRefsInTransaction` histórico hacía
+ * `tx.get(refDoc)` DESPUÉS del `tx.set(pedidoRef)` → FAILED_PRECONDITION.
+ *
  * @param {any} tx
  * @param {any} payload
  * @param {string} newPedidoId
  * @param {string} nowIso
+ * @param {Map<string, {ref: any, exists: boolean, data: any}>} snapshots
  */
-async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIso) {
+function cancelAsigRefsFromPrefetched(tx, payload, newPedidoId, nowIso, snapshots) {
   /** @type {Map<string, Array<any>>} */
   const refsByPedido = new Map();
   for (const l of payload.lines) {
@@ -435,10 +485,9 @@ async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIs
     }
   }
   for (const [pedidoOrigenId, refs] of refsByPedido) {
-    const refDoc = deps.fbDb.collection('pedidos').doc(pedidoOrigenId);
-    const snap = await tx.get(refDoc);
-    if (!snap.exists) continue;
-    const data = snap.data() || {};
+    const snap = snapshots.get(pedidoOrigenId);
+    if (!snap || !snap.exists) continue;
+    const data = snap.data || {};
     const newLines = Array.isArray(data.lines)
       ? data.lines.map((/** @type {any} */ l) => ({ ...l }))
       : [];
@@ -456,7 +505,7 @@ async function cancelAsigRefsInTransaction(deps, tx, payload, newPedidoId, nowIs
         asigReserva: false,
       };
     }
-    tx.update(refDoc, { lines: newLines, updatedAt: nowIso });
+    tx.update(snap.ref, { lines: newLines, updatedAt: nowIso });
   }
 }
 
