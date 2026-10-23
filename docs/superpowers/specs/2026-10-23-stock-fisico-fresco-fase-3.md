@@ -193,32 +193,64 @@ Mariano estimó "no asumir 1s por SKU". Medición esperada rough-order-of-magnit
 
 **Si el filtro excede 2 KB (típico límite URI)** → split en bloques de ~50 SKUs (asumiendo SKU avg 12 chars + " or ItemCode eq " overhead → ~30 chars/sku → 50 SKUs = ~1.5 KB).
 
-### Resultados empíricos (2026-10-23 19:25 UTC / 16:25 ART)
+### Resultados empíricos (2 corridas, 2026-10-23)
 
-Corrido contra prod SL Shimano Argentina. 5 corridas por tamaño + 1 warm-up descartado. Login 1 vez al inicio, logout al final.
+Corrido contra prod SL Shimano Argentina (`shimano-arg...coresuite.net:50000`). 5 iteraciones + 1 warm-up descartado por tamaño. Login 1 vez al inicio, logout al final (sesión única).
 
-| N SKUs | Median (ms) | P95 (ms) | P99 (ms) | Min (ms) | Max (ms) | Body (KB) | Filter chars | Status |
-|---|---|---|---|---|---|---|---|---|
-| **1**   | **42**  | 45   | 46   | 38   | 46   | 50    | 29    | 200 |
-| **20**  | **295** | 316  | 316  | 258  | 316  | 990   | 656   | 200 |
-| **50**  | **263** | 293  | 299  | 240  | 300  | 992   | 1674  | 200 |
-| **80**  | —       | —    | —    | —    | —    | 0     | 2700  | **400** |
+**Corrida 1 — 19:25 UTC**:
 
-**Hallazgo clave**: el SL rechaza con **HTTP 400** cuando `$filter` supera ~**2700 chars** (80 SKUs ya no pasan). 50 SKUs con filter de 1674 chars es sweet spot. Latencia **plana** entre 20 y 50 SKUs (293 vs 316 ms P95), prácticamente idéntica — el costo marginal es el parsing del filter + serialización del body, no la cantidad de SKUs.
+| N SKUs | Median | P95 | P99 | Body (KB) | Filter chars | Status |
+|---|---|---|---|---|---|---|
+| 1   | 42  ms | 45  ms | 46  ms | 50  | 29   | 200 |
+| 20  | 295 ms | 316 ms | 316 ms | 990 | 656  | 200 |
+| 50  | 263 ms | 293 ms | 299 ms | 992 | 1674 | 200 |
+| 80  | —      | —      | —      | 0   | 2700 | **400** |
+| 150 | no se intentó (sample fetch limit) | | | | | |
 
-**Decisión Capa 2**:
-- **Block size = 50 SKUs** (bajo el límite 2700 con holgura, 1 batch ≈ 300ms P95).
-- **Pedido de 50 SKUs** → 1 batch, timeout 3s cómodamente cubierto (300ms << 3000ms).
-- **Pedido de 100 SKUs** → 2 batches de 50 en paralelo (`Promise.all`), timeout total 3s ≈ 600ms efectivo.
-- **Pedido de 150 SKUs** → 3 batches de 50 en paralelo, ≈ 900ms (asumiendo paralelismo SL sin throttle).
-- **Pedido > 150 SKUs** → si p95 agregado se acerca a 3s, caer al modo "líneas en riesgo" (fetch SL solo para `qty_pedida >= libre_snapshot`; resto va con snapshot).
+**Corrida 2 — 19:33 UTC** (verifica reproducibilidad):
 
-**Observaciones secundarias**:
-- Body response ≈ 1 MB para 20-50 SKUs. `ItemWarehouseInfoCollection` es verboso (muchos campos por whs). Optimización futura: en Capa 2 el `$select` debería limitarse a `ItemCode,ItemWarehouseInfoCollection/WarehouseCode,ItemWarehouseInfoCollection/InStock,ItemWarehouseInfoCollection/Committed` si el SL soporta select anidado, para bajar el body. Si no, filtrar client-side.
-- 1 SKU GET único (sin $filter): 42 ms median — tirar queries por SKU secuencial para N=50 sería ~2.1s, cerca del timeout. Confirma que **batch es la única opción**.
-- Login SL: 3.2 segundos (cold). Reutilización via session pool §Sesiones es obligatoria.
+| N SKUs | Median | P95 | P99 | Body (KB) | Filter chars | Status |
+|---|---|---|---|---|---|---|
+| 1   | 45  ms | 348 ms | 383 ms | 50  | 29   | 200 |
+| 20  | 290 ms | 439 ms | 466 ms | 990 | 656  | 200 |
+| 50  | 285 ms | 921 ms | 1033 ms | 992 | 1674 | 200 |
+| 80  | —      | —      | —      | 0   | 2700 | **400** |
+| 150 | no entra: fetch_sku_sample fallback filtró el tamaño; además con filter > 2700 fallaría igual que 80. | | | | | |
 
-**Timeout 3s por pedido total**: validado. 1 batch de 50 ≈ 300 ms, hasta 10 batches de 50 cabrían en 3s. Modo "líneas en riesgo" se activa solo con pedidos > 300 SKUs — caso borde raro.
+### Hallazgos clave
+
+1. **SL rechaza `$filter` > ~2700 chars** con HTTP 400. Confirmado en 2 corridas. **80 SKUs ya no entran** (filter 2700). 50 SKUs (filter 1674) es sweet spot.
+
+2. **Median estable, p95 ruidoso**:
+   - Median 50 SKUs: 263 → 285 ms (stable).
+   - P95 50 SKUs: 293 → **921 ms** entre corridas. El SL tiene colas internas; a veces un batch tarda ~1s por carga del server. Es ruido operativo, no sistémico. **Diseñar para P95 = 1 s por batch**, no 300 ms.
+
+3. **Latencia marginal entre 20 y 50 SKUs**: median 290 vs 285 ms. El costo es parsing filter + serialización body (~1 MB), no la cantidad de SKUs. Elegir 50 vs 20 no cambia materialmente la latencia; sí reduce el número de batches para pedidos grandes.
+
+### Decisión Capa 2 — **block size = 50 SKUs**
+
+Diseñar para **P95 = 1 segundo por batch** (conservador vs median 300 ms):
+
+| Pedido | Batches | Timing esperado P95 (parallel) | Timeout 3s? |
+|---|---|---|---|
+| ≤ 50 SKUs   | 1       | ~1 s   | ✓ holgado |
+| 51–100 SKUs | 2       | ~1 s (parallel) | ✓ holgado |
+| 101–150 SKUs | 3      | ~1 s (parallel) | ✓ ajustado |
+| 151–200 SKUs | 4      | ~1 s (parallel) | ✓ borde |
+| > 200 SKUs  | >4      | > 1 s | activar modo "líneas en riesgo" |
+
+**Umbral para modo "líneas en riesgo"**: pedido > 200 SKUs únicos. Para esos: fetch SL solo donde `qty_pedida >= libre_snapshot[sku]`; el resto va por snapshot. Logueado en `operations_log` tipo `stock_live_partial`.
+
+### Observaciones secundarias
+
+- **Body response ≈ 1 MB para 20-50 SKUs**: `ItemWarehouseInfoCollection` trae muchos campos. Optimización futura Capa 2: `$select` anidado `ItemWarehouseInfoCollection/WarehouseCode,ItemWarehouseInfoCollection/InStock,ItemWarehouseInfoCollection/Committed` si el SL soporta — bajaría a ~100 KB (10×). Si no soporta → filtrar client-side y descartar.
+- **1 SKU GET único (sin `$filter`): 42 ms median** — secuencial N=50 serían ~2.1 s, cerca del timeout. Confirma que **batch con `$filter` es la única opción viable**.
+- **Login SL cold: 3.2 s**. Reutilización via session pool §Sesiones es obligatoria.
+
+### Scripts
+
+- `scripts/perf/sl_batch_latency.py` — con fix de paginación `fetch_sku_sample` y lectura de `SAP_SL_PASSWORD` del env (fallback Firestore legacy).
+- Reproducción: `SAP_SL_PASSWORD="$(gcloud secrets versions access latest --secret=SAP_SL_PASSWORD --project=app-vendedores-shimano)" python scripts/perf/sl_batch_latency.py --skus=1,20,50,80,150 --repeat=5`.
 
 ---
 
