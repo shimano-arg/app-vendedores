@@ -150,11 +150,13 @@ describe('§63 Capa 1 — sync-sap-catalog-stock-core', () => {
     expect(snap).toBeTruthy();
     expect(snap.source).toBe('cf-scheduled');
     expect(snap.stock.SKU1).toBe(true);
-    expect(snap.quantities.SKU1).toBe(13);
-    expect(snap.warehouseBreakdown.SKU1['11']).toBe(8); // InStock 10 - Committed 2
-    expect(snap.warehouseCommitted.SKU1['11']).toBe(2);
+    // FIX URGENTE 2026-10-23: quantities/warehouseBreakdown/*Breakdown/
+    // preLanzamientoBySku ahora son JSON strings (parity con Python).
+    expect(JSON.parse(snap.quantities).SKU1).toBe(13);
+    expect(JSON.parse(snap.warehouseBreakdown).SKU1['11']).toBe(8); // InStock 10 - Committed 2
+    expect(JSON.parse(snap.warehouseCommittedBreakdown).SKU1['11']).toBe(2);
     expect(snap.price.SKU1).toBe(100);
-    expect(snap.preLanzamiento.SKU2).toBe(true);
+    expect(JSON.parse(snap.preLanzamientoBySku).SKU2).toBe(true);
     expect(snap._syncRun.source).toBe('cf-scheduled');
     expect(snap._syncRun.itemsSynced).toBe(2);
   });
@@ -224,9 +226,9 @@ describe('§63 Capa 1 — sync-sap-catalog-stock-core', () => {
       source: 'cf-scheduled',
     });
     const snap = _state.app_config.stock_snapshot;
-    expect(snap.quantities.SKU1).toBe(3); // solo whs 11
-    expect(snap.warehouseBreakdown.SKU1['11']).toBe(3);
-    expect(snap.warehouseBreakdown.SKU1['05']).toBeUndefined();
+    expect(JSON.parse(snap.quantities).SKU1).toBe(3); // solo whs 11
+    expect(JSON.parse(snap.warehouseBreakdown).SKU1['11']).toBe(3);
+    expect(JSON.parse(snap.warehouseBreakdown).SKU1['05']).toBeUndefined();
   });
 
   it('T5 — has_stk solo true si whs 11 > 0 (§26 v1002)', async () => {
@@ -249,7 +251,7 @@ describe('§63 Capa 1 — sync-sap-catalog-stock-core', () => {
     });
     const snap = _state.app_config.stock_snapshot;
     expect(snap.stock.SKU_07_ONLY).toBe(false);
-    expect(snap.quantities.SKU_07_ONLY).toBe(1);
+    expect(JSON.parse(snap.quantities).SKU_07_ONLY).toBe(1);
   });
 
   it('T6 — preserva fam/sub/cat/img del product_catalog existente', async () => {
