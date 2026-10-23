@@ -2585,13 +2585,16 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    - Celda celeste tdReserv inline (Reservadas, cuando > 0).
    - Celda celeste td.pedido-final-col (Pedido Final, siempre).
    - Celda verde td.disp-sap-col (Libre para la venta, siempre).
-   - Badges inline en celda SKU: .badge-stock-asignado (ex-RESERVADO), .badge-de-orden.
+   - Badges inline en celda SKU: .badge-stock-asignado (ex-RESERVADO).
+   v1441 §62 (2026-10-23): badge DE ORDEN N eliminado del render. La info
+   de unificación queda solo en el tooltip de la fila. CSS .badge-de-orden
+   removida porque ya no tiene consumidores.
    Las clases JS (exceed, warn-*, repeat-sku, merge-*) siguen activas desde
    src/pure/unificar-ordenes.js: getRowColorClass() por si otro consumidor
    (debug, logs, filtros) las necesita identificar.
    CLAUDE.md §43 (badges), §45 (removí azul reservado), §47 (removí azul rows
-   reservadas), §45.1 (removí warn+merge backgrounds) y §56 (fusión por SKU)
-   documentan el flow. */
+   reservadas), §45.1 (removí warn+merge backgrounds), §56 (fusión por SKU),
+   §62 (badge DE ORDEN N → tooltip + hover-safe badges) documentan el flow. */
 /* Celda roja .exc-cell SIEMPRE con fondo rojo + número blanco cuando hay
    back order (independiente de la fila). Preservada por pedido Mariano v1298:
    "los números de Backorder Unidades se pintan de blanco". */
@@ -2600,9 +2603,23 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    v1435 §56 (2026-10-24): badge-reservado renombrado a badge-stock-asignado
    (misma pintura, texto nuevo "STOCK ASIGNADO"). Badge DUPLICADO eliminado
    porque la regla "un SKU una sola vez por orden" (fusión por SKU en
-   mergeLinesFromOrders) garantiza que ya nunca aparece duplicado. */
+   mergeLinesFromOrders) garantiza que ya nunca aparece duplicado.
+   v1441 §62 (2026-10-23): badge DE ORDEN N eliminado — info en tooltip. */
 .badge-stock-asignado{display:inline-block;padding:2px 6px;margin-left:4px;background:#dbeafe;color:#1e40af;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
-.badge-de-orden{display:inline-block;padding:2px 6px;margin-left:4px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;border-radius:3px;letter-spacing:0.5px;vertical-align:middle}
+/* v1441 §62 (2026-10-23): hover de la fila (apple-design.css:5293 pone bg
+   azul marino + :5301 pone color #fff a todo descendiente) NO debe pisar
+   los colores propios del badge. Specificity 0,3,3 + !important gana sobre
+   el 0,2,3 de "tr:hover td *". Mismo tratamiento para focus-within +
+   highlighted + selected por consistencia (§43). El emoji 🔒 del badge
+   hereda el color #1e40af o usa su color intrínseco de emoji (Chrome/Safari);
+   en cualquier caso queda legible porque el fondo claro #dbeafe se preserva. */
+#waitlist-card-modal tbody tr:hover td .badge-stock-asignado,
+#waitlist-card-modal tbody tr:focus-within td .badge-stock-asignado,
+#waitlist-card-modal tbody tr.highlighted td .badge-stock-asignado,
+#waitlist-card-modal tbody tr.selected td .badge-stock-asignado{
+  background:#dbeafe !important;
+  color:#1e40af !important;
+}
 /* v470: celdas centradas por default. */
 #wcard-rows tr td{padding:5px 8px;border-top:1px solid #f1f5f9;text-align:center}
 /* v1322 (2026-10-15): sticky al nivel de TH individual (más confiable que
@@ -6987,7 +7004,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1440';
+const APP_VERSION = 'v1441';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24972,15 +24989,26 @@ function _renderWaitlistCard(){
       }
       tr.classList.add('merge-' + _mergeCls);
     }
-    // v1382: tooltip con info de la ASIG referenciada (si corresponde).
-    if (r.origen === 'stock-asignado' && Array.isArray(r.asigRefs) && r.asigRefs.length > 0) {
-      const _refSummary = r.asigRefs.map((ref) => (
-        'pedido ' + (ref.pedidoId || '?').slice(0, 8) + ' linea ' + ref.lineIndex + ' x' + ref.qtyAsignada
-      )).join(' | ');
-      tr.title = 'Linea con STOCK ASIGNADO. Origen: ' + _refSummary;
+    // v1382 + v1441 §62 (2026-10-23): tooltip de la fila con info de ASIG
+    // referenciada + origen de unificación (si corresponden). Antes el badge
+    // "DE ORDEN N" se renderizaba inline en la celda SKU; se eliminó por
+    // pedido Mariano porque era invasivo visualmente. Toda la info de origen
+    // vive solo en el tooltip del <tr>.
+    {
+      const _tips = [];
+      if (r.origen === 'stock-asignado' && Array.isArray(r.asigRefs) && r.asigRefs.length > 0) {
+        const _refSummary = r.asigRefs.map((ref) => (
+          'pedido ' + (ref.pedidoId || '?').slice(0, 8) + ' linea ' + ref.lineIndex + ' x' + ref.qtyAsignada
+        )).join(' | ');
+        _tips.push('Linea con STOCK ASIGNADO. Origen: ' + _refSummary);
+      }
+      if (typeof r.importedFromOrder === 'number' && r.importedFromOrder > 0) {
+        _tips.push('Importada por unificacion desde ORDEN ' + r.importedFromOrder + '.');
+      }
+      if (_tips.length > 0) tr.title = _tips.join('\n');
     }
-    // v1417 §45.1 + v1435 §56: celda SKU con badges inline.
-    // Badges activos: STOCK ASIGNADO (ex-RESERVADO), DE ORDEN N (unificación).
+    // v1417 §45.1 + v1435 §56 + v1441 §62: celda SKU con badge STOCK ASIGNADO
+    // únicamente. Badge DE ORDEN N eliminado (info en tooltip del <tr>).
     // Badge DUPLICADO eliminado §56: ya no se produce porque mergeLinesFromOrders
     // fusiona por SKU. warnDuplicado (SKU ya en SAP Asignado con stock) sigue
     // disponible como clase JS para otros consumidores.
@@ -24995,15 +25023,6 @@ function _renderWaitlistCard(){
         const _badge = document.createElement('span');
         _badge.className = 'badge-stock-asignado';
         _badge.textContent = '🔒 STOCK ASIGNADO';
-        _tdSku.appendChild(_badge);
-      }
-      // Badge DE ORDEN N: línea importada por unificación (§42 Unificar orden +
-      // §42.2 unificación al review). r.importedFromOrder viene de v1284.
-      if (typeof r.importedFromOrder === 'number' && r.importedFromOrder > 0) {
-        const _badge = document.createElement('span');
-        _badge.className = 'badge-de-orden';
-        _badge.textContent = 'DE ORDEN ' + r.importedFromOrder;
-        _badge.title = 'Línea importada por unificación desde ORDEN ' + r.importedFromOrder + '.';
         _tdSku.appendChild(_badge);
       }
       tr.appendChild(_tdSku);

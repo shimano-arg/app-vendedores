@@ -2600,3 +2600,66 @@ Riesgo residual: modificar `lines`, `netAmountArs`, `stage`, `observaciones`, et
 
 **Rollback**: revertir el edit en `firestore.rules` (una sola línea removida: `&& resource.data.ownerUid == request.auth.uid`). Deploy `firebase deploy --only firestore:rules`. Nada que revertir en el bundle.
 
+## 62. Badges inline del modal Pedido en Espera: solo STOCK ASIGNADO; info de unificación va al tooltip (2026-10-23, v1441)
+
+**Regla fuerte**: la celda SKU (`.mono`) del modal `#wcard-rows` admite **un único** badge inline: `.badge-stock-asignado`. El origen de unificación (`r.importedFromOrder > 0`) NO renderea badge; la info va al tooltip del `<tr>` acumulado con el resto de los `_tips`.
+
+**Precedente**: v1441 (2026-10-23). Mariano reportó dos cosas sobre el modal Pedido en espera:
+
+1. **Badge "DE ORDEN N" invasivo**. Las órdenes unificadas (patrón §42/§42.2/§42 Unificar orden v1382) renderizaban un chip amber `DE ORDEN 407` en la celda SKU al lado del código. Con muchas líneas importadas (ej. ORDEN 435 Desiata con 4 Clarus de la 407) la columna SKU se llenaba de chips. El origen de la unificación es información que importa 1 vez por fila y en todo caso al pasar el mouse — no en el flujo visual permanente.
+
+2. **Badge STOCK ASIGNADO ilegible en hover**. `apple-design.css:5301` tiene `#waitlist-card-modal tbody tr:hover td * { color: #ffffff !important }` (specificity 0,2,3). Esto pisaba el texto `#1e40af` del badge `.badge-stock-asignado` → al hover de la fila el badge quedaba "texto blanco sobre fondo celeste claro #dbeafe" = ilegible (contraste WCAG < 2.0).
+
+**Cambios**:
+
+- **CSS**: regla `.badge-de-orden` ELIMINADA (ya sin consumidores). Nueva regla hover-safe:
+  ```css
+  #waitlist-card-modal tbody tr:hover td .badge-stock-asignado,
+  #waitlist-card-modal tbody tr:focus-within td .badge-stock-asignado,
+  #waitlist-card-modal tbody tr.highlighted td .badge-stock-asignado,
+  #waitlist-card-modal tbody tr.selected td .badge-stock-asignado{
+    background:#dbeafe !important;
+    color:#1e40af !important;
+  }
+  ```
+  Specificity 0,3,3 gana sobre el 0,2,3 de `tr:hover td *` + `!important` cubre la cascada de `apple-design.css`. Contraste `#1e40af` sobre `#dbeafe` ≈ 8.5:1 (WCAG AAA).
+
+- **JS** (`_renderWaitlistCard`): removido el `_tdSku.appendChild(_badge)` con `className='badge-de-orden'`. El bloque de tooltip del `<tr>` ahora acumula múltiples tips en `_tips[]` y hace `tr.title = _tips.join('\n')`:
+  ```js
+  const _tips = [];
+  if (r.origen === 'stock-asignado' && Array.isArray(r.asigRefs) && r.asigRefs.length > 0) {
+    _tips.push('Linea con STOCK ASIGNADO. Origen: ' + _refSummary);
+  }
+  if (typeof r.importedFromOrder === 'number' && r.importedFromOrder > 0) {
+    _tips.push('Importada por unificacion desde ORDEN ' + r.importedFromOrder + '.');
+  }
+  if (_tips.length > 0) tr.title = _tips.join('\n');
+  ```
+  Convive naturalmente con el caso en que una línea tenga AMBOS (reserva ASIG y además fue importada por unificación — ej. una fila que entró a la orden via Unificar y es STOCK ASIGNADO del cliente original). El tooltip las muestra en 2 líneas separadas.
+
+- **Emoji candado 🔒**: dentro del `.badge-stock-asignado` tiene color controlado por el `color` del span (misma regla hover-safe). En Chrome/Safari algunos emoji se renderizan con color intrínseco (fallback a emoji font), pero el fondo claro `#dbeafe` se preserva por la misma regla → en cualquier caso queda legible. No requiere regla adicional.
+
+**Call-sites verificados**:
+- `index.html:_renderWaitlistCard` tooltip block + badge render (líneas 24975+).
+- Tooltip usa `'\n'` real (no `'\\n'`) por §43.
+- La clase JS `r.importedFromOrder` se preserva en `pedido.lines[]` (viene de v1284) para que el tooltip pueda leerla; `mergeLinesFromOrders` (§56) lo propaga.
+
+**Tests** (`tests/unit/audit/waitlist-row-contrast.test.js`):
+- `v1441 §62: .badge-de-orden ELIMINADO del CSS` (debe NO existir).
+- `v1441 §62: render del SKU incluye solo .badge-stock-asignado (DE ORDEN y DUPLICADO eliminados)`.
+- `v1441 §62: tooltip del <tr> incluye "Importada por unificacion desde ORDEN N"` + grep del contrato (acumula con stock-asignado, join `\n` real).
+- `v1441 §62: CSS fija color + bg del badge-stock-asignado en tr:hover con !important`.
+- `v1441 §62: focus-within + highlighted + selected cubiertos`.
+- `v1441 §62: contraste WCAG >= 4.5:1 (#1e40af sobre #dbeafe)` (ratio ≈ 8.5).
+- `v1441 §62: specificity del hover-safe (0,3,3) > generic tr:hover td * (0,2,3)`.
+
+Suite completa post-v1441: **1711/1711 PASS**.
+
+**Verificación prod**: ORDEN 435 GUSTAVO EMILIO DESIATA.
+- Fila con SKU `LDM64TE2020030G` tiene badge "🔒 STOCK ASIGNADO" visible en estado normal + legible en hover (texto azul oscuro, fondo celeste).
+- 4 filas con SKUs Clarus (de la 407) NO tienen badge amber "DE ORDEN 407". Al pasar el mouse por cualquiera de esas 4 filas, el tooltip del `<tr>` muestra "Importada por unificacion desde ORDEN 407.".
+
+**Prohibido**: reintroducir el badge `.badge-de-orden` inline. Si en el futuro hay necesidad de otro badge para la celda SKU, debe seguir el mismo pattern hover-safe (regla con specificity ≥ 0,3,3 + `!important` para color y background).
+
+**Rollback**: revertir los cambios en `index.html` (CSS block de badges + bloque del tooltip + render SKU) + bumpear versión. Sin cambio al servidor.
+
