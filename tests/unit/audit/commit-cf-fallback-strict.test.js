@@ -54,36 +54,38 @@ describe('v1431 fallback strict', () => {
 
     it('catch distingue isNetwork → null, resto → {ok:false, errorCode}', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 4500);
+      const code = INDEX_HTML.slice(start, start + 8000);
       expect(code).toMatch(/const\s+isNetwork\s*=\s*window\._FALLBACK_LEGACY_NETWORK_CODES\.has/);
-      expect(code).toMatch(/if\s*\(\s*isNetwork\s*\)\s*\{[\s\S]{0,200}return null/);
+      // v1432: entre `if (isNetwork)` y `return null` ahora hay query _draftId
+      // + idempotency recovery. Dejar la regex más ancha para cubrir ambos.
+      expect(code).toMatch(/if\s*\(\s*isNetwork\s*\)\s*\{[\s\S]*?return null/);
       // Non-network → return {ok: false, errorCode}
       expect(code).toMatch(/return\s*\{\s*ok:\s*false\s*,\s*errorCode:/);
     });
 
     it('mapea functions/unauthenticated → PERMISSION_DENIED', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 4500);
+      const code = INDEX_HTML.slice(start, start + 8000);
       expect(code).toMatch(/functions\/unauthenticated[\s\S]{0,80}PERMISSION_DENIED/);
     });
 
     it('mapea functions/permission-denied → PERMISSION_DENIED', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 4500);
+      const code = INDEX_HTML.slice(start, start + 8000);
       expect(code).toMatch(/functions\/permission-denied[\s\S]{0,80}PERMISSION_DENIED/);
     });
 
     it('mapea functions/invalid-argument → VALIDATION_ERROR', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 4500);
+      const code = INDEX_HTML.slice(start, start + 8000);
       expect(code).toMatch(/functions\/invalid-argument[\s\S]{0,80}VALIDATION_ERROR/);
     });
 
     it('firebase no inicializado → return null + log fallback', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 4500);
+      const code = INDEX_HTML.slice(start, start + 8000);
       expect(code).toMatch(/firebase_not_initialized/);
-      expect(code).toMatch(/if\s*\(!firebase[\s\S]{0,200}return null/);
+      expect(code).toMatch(/if\s*\(!firebase[\s\S]*?return null/);
     });
   });
 

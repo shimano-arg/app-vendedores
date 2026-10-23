@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1431';
+const APP_VERSION = 'v1432';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17523,42 +17523,56 @@ window._resolveClientVendorFromMaster = function(args){
   return resolution;
 };
 // E3 §stock-servidor-atomico (v1430+): helper que llama a commitPedidoCF.
-// v1431 (2026-10-23) hotfix: distingue error de red/CF caído (null → fallback
-// legacy) vs error de negocio (devuelve {ok:false, errorCode} → NO fallback).
+// v1431 (2026-10-23) hotfix: distingue error de red/CF caído vs error de negocio.
+// v1432 (2026-10-23) hotfix:
+//   1) aborted/functions/aborted SALE del set red (es contención, no caída):
+//      retry hasta 3× con espera creciente (100/300/900ms) → si sigue,
+//      devuelve CONTENTION_RETRY_EXHAUSTED. NUNCA cae a fallback legacy.
+//   2) Antes de cualquier fallback (unavailable, deadline-exceeded, not-found,
+//      cancelled, red), consulta Firestore por un pedido con `_draftId`
+//      igual. Si existe → lo usa (post-hoc idempotency recovery), NO escribe
+//      directo. Si no existe → recién ahí fallback legacy + log.
 //
-// Códigos Firebase callable que indican "CF no responde" (fallback OK):
+// Códigos red (fallback OK después de idempotency check):
 //   - functions/unavailable
 //   - functions/deadline-exceeded
 //   - functions/cancelled
 //   - functions/not-found    (CF no deployada aún)
-//   - functions/aborted      (resource contention)
-//   - sin code + mensaje "network" o "fetch"
+//   - sin code + mensaje "network" o "fetch" o "offline" o "timeout"
 //   - sin firebase inicializado (dev local sin bundle)
 //
-// Códigos que son error de negocio (NO fallback, respetar errorCode):
+// Código ABORTED (NUNCA fallback):
+//   - functions/aborted      (contención runTransaction) → retry 3× backoff.
+//
+// Códigos negocio (NUNCA fallback, respetar errorCode):
 //   - functions/unauthenticated → PERMISSION_DENIED
 //   - functions/permission-denied → PERMISSION_DENIED
 //   - functions/invalid-argument → VALIDATION_ERROR
-//   - functions/internal → INTERNAL (código inesperado del CF)
-//   - cualquier otro → INTERNAL
+//   - functions/internal → INTERNAL
+//   - resto → INTERNAL
 window._FALLBACK_LEGACY_NETWORK_CODES = new Set([
   'functions/unavailable', 'functions/deadline-exceeded', 'functions/cancelled',
-  'functions/not-found', 'functions/aborted',
+  'functions/not-found',
   // Firebase SDK low-level network errors:
-  'unavailable', 'deadline-exceeded', 'cancelled', 'not-found', 'aborted',
+  'unavailable', 'deadline-exceeded', 'cancelled', 'not-found',
   'network-request-failed',
 ]);
+window._ABORTED_RETRY_CODES = new Set(['functions/aborted', 'aborted']);
+window._ABORTED_RETRY_BACKOFFS_MS = [100, 300, 900]; // 3 reintentos
 
 window._tryCommitPedidoCF = async function(docData){
   const _email = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
   const _appVersion = (typeof APP_VERSION === 'string') ? APP_VERSION : 'unknown';
   if (!firebase || !firebase.app) {
-    // Sin firebase inicializado (dev local, SW stale) → fallback legacy.
+    // Sin firebase inicializado (dev local, SW stale) → idempotency check
+    // no es posible (no hay firestore). Fallback legacy directo + log.
     _logCommitCfFallback(null, 'firebase_not_initialized', '', _email, _appVersion, docData);
     return null;
   }
   // Construir payload desde docData (lo que ya armó doConfirmPedido).
   const draftId = docData._draftId || (docData.key + '|' + String(docData.orderNumber || Math.random().toString(36).slice(2, 10)));
+  // Persistir draftId en docData para que el fallback use el mismo valor que mandó al CF.
+  docData._draftId = draftId;
   const payload = {
     draftId,
     cardCode: String(docData.clientCardCode || '').trim(),
@@ -17578,29 +17592,106 @@ window._tryCommitPedidoCF = async function(docData){
     condicionPago: docData.condicionPago || '',
     observaciones: docData.observaciones || '',
   };
-  try {
-    const callable = firebase.app().functions('southamerica-east1').httpsCallable('commitPedidoCF');
+
+  const callable = firebase.app().functions('southamerica-east1').httpsCallable('commitPedidoCF');
+
+  // v1432: función auxiliar — invoca el callable (sin lógica adicional).
+  async function _invokeOnce(){
     const resp = await callable(payload);
     return resp && resp.data ? resp.data : null;
-  } catch (e) {
-    const code = (e && e.code) || '';
-    const message = (e && e.message) || String(e);
-    const isNetwork = window._FALLBACK_LEGACY_NETWORK_CODES.has(code)
-      || (!code && /network|fetch|offline|timeout/i.test(message));
-    if (isNetwork) {
-      // CF no responde: fallback legacy válido.
-      _logCommitCfFallback(draftId, 'network_or_cf_down', code || 'no_code', _email, _appVersion, docData);
-      return null;
+  }
+
+  // v1432: ciclo retry para aborted (contención) hasta 3 intentos.
+  let abortedAttempts = 0;
+  while (true) {
+    try {
+      return await _invokeOnce();
+    } catch (e) {
+      const code = (e && e.code) || '';
+      const message = (e && e.message) || String(e);
+
+      // Rama ABORTED: retry hasta 3× con backoff.
+      if (window._ABORTED_RETRY_CODES.has(code)) {
+        if (abortedAttempts < window._ABORTED_RETRY_BACKOFFS_MS.length) {
+          const wait = window._ABORTED_RETRY_BACKOFFS_MS[abortedAttempts];
+          console.warn('[_tryCommitPedidoCF] aborted attempt ' + (abortedAttempts + 1) + '/3, backoff ' + wait + 'ms');
+          abortedAttempts++;
+          await new Promise((r) => setTimeout(r, wait));
+          continue; // reintentar
+        }
+        // Retries agotados → CONTENTION_RETRY_EXHAUSTED (NUNCA fallback).
+        console.error('[_tryCommitPedidoCF] aborted retry exhausted (3/3)');
+        return {
+          ok: false,
+          errorCode: 'CONTENTION_RETRY_EXHAUSTED',
+          message: 'Contención de transacción agotó 3 reintentos: ' + message,
+          _rawCode: code,
+        };
+      }
+
+      // Rama RED: idempotency check pre-fallback.
+      const isNetwork = window._FALLBACK_LEGACY_NETWORK_CODES.has(code)
+        || (!code && /network|fetch|offline|timeout/i.test(message));
+      if (isNetwork) {
+        // v1432: ANTES de fallback, consultar si existe pedido con _draftId.
+        try {
+          const q = await fbDb.collection('pedidos')
+            .where('_draftId', '==', draftId)
+            .limit(1).get();
+          if (!q.empty) {
+            const doc = q.docs[0];
+            console.warn('[_tryCommitPedidoCF] post-hoc idempotency hit — pedido ya existía con _draftId=' + draftId);
+            _logCommitCfFallback(draftId, 'post_hoc_recovery', code || 'no_code', _email, _appVersion, docData);
+            const dataPed = doc.data() || {};
+            return {
+              ok: true,
+              pedidoId: doc.id,
+              lines: _deriveLinesFromExistingPedido(dataPed),
+              diffVsClient: null,
+              idempotentHit: true,
+              _postHocRecovery: true,
+            };
+          }
+        } catch (eIdem) {
+          console.warn('[_tryCommitPedidoCF] idempotency check falló, cayendo a fallback:', eIdem && eIdem.message);
+          // Si el idempotency check falla también, consideramos red total.
+        }
+        // No existe el pedido → fallback legacy válido + log.
+        _logCommitCfFallback(draftId, 'network_or_cf_down', code || 'no_code', _email, _appVersion, docData);
+        return null;
+      }
+
+      // Rama NEGOCIO: NUNCA fallback, devolver errorCode.
+      console.error('[_tryCommitPedidoCF] error de negocio NO cae a fallback:', code, message);
+      const mappedErrorCode =
+        code === 'functions/unauthenticated' || code === 'functions/permission-denied' ? 'PERMISSION_DENIED' :
+        code === 'functions/invalid-argument' ? 'VALIDATION_ERROR' :
+        'INTERNAL';
+      return { ok: false, errorCode: mappedErrorCode, message, _rawCode: code };
     }
-    // Error de negocio o código inesperado: NO fallback, devolver errorCode.
-    console.error('[_tryCommitPedidoCF] error de negocio NO cae a fallback:', code, message);
-    const mappedErrorCode =
-      code === 'functions/unauthenticated' || code === 'functions/permission-denied' ? 'PERMISSION_DENIED' :
-      code === 'functions/invalid-argument' ? 'VALIDATION_ERROR' :
-      'INTERNAL';
-    return { ok: false, errorCode: mappedErrorCode, message, _rawCode: code };
   }
 };
+
+// v1432: deriva {sku, qtyConfirmed, qtyBO} desde un pedido ya persistido.
+// Usado en post-hoc idempotency recovery para devolver mismo shape que el CF.
+function _deriveLinesFromExistingPedido(pedidoData){
+  const result = [];
+  const bySku = new Map();
+  for (const l of (pedidoData && pedidoData.lines) || []) {
+    if (!l || !l.code) continue;
+    const code = String(l.code).toUpperCase();
+    if (!bySku.has(code)) bySku.set(code, { qtyConfirmed: 0, qtyBO: 0 });
+    const entry = bySku.get(code);
+    const qty = Number(l.qty) || 0;
+    if (l.state === 'confirmed' || l.state === 'ASIG') entry.qtyConfirmed += qty;
+    else if (l.state === 'BO') entry.qtyBO += qty;
+  }
+  for (const [sku, e] of bySku) {
+    result.push({ sku, qtyConfirmed: e.qtyConfirmed, qtyBO: e.qtyBO, reason: 'post_hoc_recovery' });
+  }
+  return result;
+}
+window._deriveLinesFromExistingPedido = _deriveLinesFromExistingPedido;
 
 // v1431: log cada fallback legacy a console + operations_log para observación.
 function _logCommitCfFallback(draftId, motivo, code, email, appVersion, docData){
