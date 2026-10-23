@@ -49,6 +49,7 @@
  * @property {(msg: string, data?: any) => void} [log]
  * @property {(err: Error, context?: any) => void} [reportError]
  * @property {any} [FieldValue] admin.firestore.FieldValue
+ * @property {(params: any) => Promise<any>} [fetchStockLive] Fase 3 Capa 2 v1445: callable al SL para live fisicoDep11
  */
 
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
@@ -254,8 +255,13 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // El origen del timestamp es SIEMPRE server-side (app_config/stock_snapshot.updatedAt
   // escrito por el workflow Sync SAP Catalog + Stock). El cliente NO envia
   // su propio snapshot timestamp; depende enteramente del valor server-side.
+  //
+  // §63 Fase 3 Capa 2 (v1445): si deps.fetchStockLive está definido (flag
+  // live_sl.enabled=true), SKIPEAR el SNAPSHOT_TOO_OLD acá. La staleness se
+  // reevalúa después del live-SL block: si live OK → ignorar staleness; si
+  // live fallback + stale → throw SAP_UNAVAILABLE (nuevo errorCode).
   const updatedAt = stockConfig.updatedAt || null;
-  if (updatedAt) {
+  if (updatedAt && typeof deps.fetchStockLive !== 'function') {
     const updatedAtMs = typeof updatedAt.toMillis === 'function' ? updatedAt.toMillis() : null;
     if (updatedAtMs !== null) {
       const age = now - updatedAtMs;
@@ -306,6 +312,88 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
             canRefresh: false, // 2026-10-23: refresh NO depende del cliente; depende del workflow server-side
           }
         );
+      }
+    }
+  }
+
+  // §63 Fase 3 Capa 2 (v1445): live SL query opcional.
+  // Si deps.fetchStockLive está definido (lo inyecta el wrapper cuando el flag
+  // app_config/live_sl.enabled=true), consultamos el fisicoDep11 en vivo al SL
+  // y overrideamos warehouseBreakdown[sku]['11'] con el valor live.
+  // Fallback a snapshot si falla; throw SAP_UNAVAILABLE solo si falla + snapshot
+  // vencido (§Fallback decisión Mariano 2026-10-23).
+  let liveStockResult = null;
+  if (typeof deps.fetchStockLive === 'function') {
+    const skusUnicos = Array.from(
+      new Set(
+        (payload.lines || [])
+          .map((/** @type {any} */ l) => String((l && l.sku) || '').toUpperCase())
+          .filter(Boolean)
+      )
+    );
+    if (skusUnicos.length > 0) {
+      /** @type {Record<string, number>} */
+      const libreSnapshotMap = {};
+      /** @type {Record<string, number>} */
+      const qtyPedidaMap = {};
+      for (const l of payload.lines) {
+        const s = String((l && l.sku) || '').toUpperCase();
+        if (!s) continue;
+        libreSnapshotMap[s] = Number(warehouseBreakdown[s]?.['11'] || 0);
+        qtyPedidaMap[s] = (qtyPedidaMap[s] || 0) + (Number(l.cantidad) || 0);
+      }
+      try {
+        liveStockResult = await deps.fetchStockLive({
+          skus: skusUnicos,
+          libreSnapshot: libreSnapshotMap,
+          qtyPedida: qtyPedidaMap,
+        });
+        if (liveStockResult && liveStockResult.ok && !liveStockResult.snapshotFallback) {
+          // Override fisico dep11 con valor live para los SKUs fetched.
+          for (const sku of liveStockResult.skusLive || []) {
+            const fisicoLive = Number(liveStockResult.fisicoDep11?.[sku] || 0);
+            if (!warehouseBreakdown[sku]) warehouseBreakdown[sku] = {};
+            warehouseBreakdown[sku]['11'] = fisicoLive;
+          }
+          (deps.log || (() => {}))('commitPedidoCore live SL applied', {
+            skusLive: (liveStockResult.skusLive || []).length,
+            skusSnapshot: (liveStockResult.skusSnapshot || []).length,
+            partial: !!liveStockResult.partial,
+            durationMs: liveStockResult.durationMs,
+          });
+        } else if (liveStockResult && liveStockResult.snapshotFallback) {
+          // SL caído / timeout / disabled. Chequeamos snapshot age; si vencido →
+          // throw SAP_UNAVAILABLE.
+          if (updatedAt) {
+            const updatedAtMs =
+              typeof updatedAt.toMillis === 'function' ? updatedAt.toMillis() : null;
+            if (updatedAtMs !== null && now - updatedAtMs > SNAPSHOT_MAX_AGE_MS) {
+              throwError(
+                'SAP_UNAVAILABLE',
+                'SAP no respondió y el último sync de stock está vencido. Reintentá en unos minutos; si persiste contactá admin.',
+                {
+                  snapshotAgeMinutes: Math.floor((now - updatedAtMs) / 60000),
+                  liveReason: liveStockResult.reason || null,
+                  canRefresh: false,
+                }
+              );
+            }
+          }
+          (deps.log || (() => {}))('commitPedidoCore live SL fallback → usando snapshot', {
+            reason: liveStockResult.reason,
+            snapshotAgeMinutes: updatedAt
+              ? Math.floor(
+                  (now - (typeof updatedAt.toMillis === 'function' ? updatedAt.toMillis() : now)) /
+                    60000
+                )
+              : null,
+          });
+        }
+      } catch (e) {
+        if (e && e._errorCode === 'SAP_UNAVAILABLE') throw e;
+        (deps.log || (() => {}))('commitPedidoCore live SL error (ignored, cae a snapshot)', {
+          err: (e && e.message) || String(e),
+        });
       }
     }
   }
