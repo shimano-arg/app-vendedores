@@ -250,14 +250,20 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
 -- Formula BQ: DAYOFWEEK Mon=2; si last_day_month cae lunes se suma 7 (strict).
 --
 -- 2026-10-23: FILTRO cost_source. Solo rows con cost_source LIKE 'paiva_import%'
--- (planilla Juan) o 'oitm_avg_price%' (AvgPrice confirmado via SL). Los rows con
--- cost_source='sap_items_bike_raw.cost_avg_ars' (job semanal GHA desde
--- sync_sap_to_bigquery) NO se usan: ese campo es ItemPrices[PriceList=11,
--- Currency=ARS] y no reproduce OITM.AvgPrice (validacion empirica sep 2026:
--- 0/1327 exactos, solo 10% dentro del 1%). Dejamos el job de los lunes
--- corriendo (acumula historia por si en el futuro confirmamos otra fuente),
--- pero esta vista lo ignora. Resultado: en meses sin planilla Paiva ni
--- AvgPrice confirmado, costo_finanzas_ars queda NULL (no se aproxima).
+-- (planilla Juan — UNICA fuente activa) o 'oitm_avg_price%' (prefijo reservado
+-- por si en el futuro aparece via automatica).
+--
+-- 2026-10-23 segunda ronda: el workflow semanal
+-- .github/workflows/snapshot-costo-semanal.yml y scripts/snapshot_costo_semanal.py
+-- fueron ELIMINADOS. Ese job insertaba rows con cost_source=
+-- 'sap_items_bike_raw.cost_avg_ars' (= ItemPrices[PriceList=11, Currency=ARS],
+-- validacion empirica sep 2026: 0/1327 exactos vs Paiva, solo 10% dentro de
+-- 1%). SL de Shimano tampoco expone OITM.AvgPrice (AvgPrice singular y
+-- AvgStdPrice ambos HTTP 400 "Property X of 'Item' is invalid"). Fuente
+-- oficial permanente = carga manual mensual desde planilla Juan Paiva.
+--
+-- Resultado: en meses sin planilla Paiva cargada, costo_finanzas_ars queda
+-- NULL. NUNCA se "aproxima" con la lista 11.
 LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css
   ON css.item_code = JSON_VALUE(line, '$.ItemCode')
   AND css.snapshot_week_start = DATE_ADD(
