@@ -16,8 +16,17 @@
 --                          disponible; sino NULL.
 --   * costo_finanzas_ars   OITM.AvgPrice × Qty × sign con snapshot semanal del
 --                          primer lunes posterior al ultimo dia del mes de
---                          doc_date (criterio Juan). Lee de costo_snapshot_semanal.
---                          NULL si el snapshot para esa semana todavia no se cargo.
+--                          doc_date (criterio Juan). Lee de costo_snapshot_semanal
+--                          FILTRANDO cost_source LIKE 'paiva_import%' o
+--                          'oitm_avg_price%' (2026-10-23). Los snapshots con
+--                          cost_source='sap_items_bike_raw.cost_avg_ars' NO se
+--                          usan porque esa fuente es ItemPrices[PriceList=11,
+--                          Currency=ARS], no OITM.AvgPrice real: validacion
+--                          empirica contra snapshot Paiva sep 2026 dio 0% de
+--                          exactos y solo 10% dentro de 1%. Mientras no entre
+--                          Paiva nueva (planilla mensual) o AvgPrice confirmado
+--                          via SL, costo_finanzas_ars queda NULL para esos
+--                          meses. NUNCA se "aproxima" con la lista 11.
 --
 -- NOTA — `fecha_contable` es un campo DERIVADO (no es la fecha contable de SAP):
 --   * Para FACTURAS: fecha_contable = doc_date (= OINV.DocDate propia).
@@ -231,6 +240,16 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.sap_bp_raw` bp
 -- 2026-10-22: JOIN al snapshot semanal de OITM.AvgPrice (costo_finanzas_ars).
 -- snapshot_week_start = primer LUNES posterior al ultimo dia del mes de doc_date.
 -- Formula BQ: DAYOFWEEK Mon=2; si last_day_month cae lunes se suma 7 (strict).
+--
+-- 2026-10-23: FILTRO cost_source. Solo rows con cost_source LIKE 'paiva_import%'
+-- (planilla Juan) o 'oitm_avg_price%' (AvgPrice confirmado via SL). Los rows con
+-- cost_source='sap_items_bike_raw.cost_avg_ars' (job semanal GHA desde
+-- sync_sap_to_bigquery) NO se usan: ese campo es ItemPrices[PriceList=11,
+-- Currency=ARS] y no reproduce OITM.AvgPrice (validacion empirica sep 2026:
+-- 0/1327 exactos, solo 10% dentro del 1%). Dejamos el job de los lunes
+-- corriendo (acumula historia por si en el futuro confirmamos otra fuente),
+-- pero esta vista lo ignora. Resultado: en meses sin planilla Paiva ni
+-- AvgPrice confirmado, costo_finanzas_ars queda NULL (no se aproxima).
 LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css
   ON css.item_code = JSON_VALUE(line, '$.ItemCode')
   AND css.snapshot_week_start = DATE_ADD(
@@ -239,6 +258,10 @@ LEFT JOIN `app-vendedores-shimano.shimano_app.costo_snapshot_semanal` css
       WHEN EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)) = 2 THEN 7
       ELSE MOD(9 - EXTRACT(DAYOFWEEK FROM LAST_DAY(inv.doc_date, MONTH)), 7)
     END DAY
+  )
+  AND (
+    css.cost_source LIKE 'paiva_import%'
+    OR css.cost_source LIKE 'oitm_avg_price%'
   )
 LEFT JOIN (
   SELECT card_code, item_code, fecha_contab, cantidad, costo_total_paiva_ars
