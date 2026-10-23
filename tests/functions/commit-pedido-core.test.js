@@ -394,10 +394,12 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
   });
 
   describe('SNAPSHOT_TOO_OLD', () => {
-    it('rechaza si snapshot >45min antiguo', async () => {
+    // §60 (v1439): threshold subido 45min -> 8h por cadencia real del
+    // workflow sync. Test actualizado para disparar sobre 8h+.
+    it('rechaza si snapshot >8h antiguo (threshold §60)', async () => {
       const state = baseStateWithStock('SKU-A', 10, []);
       state.app_config.stock_snapshot.updatedAt = {
-        toMillis: () => nowRef.getTime() - 46 * 60 * 1000,
+        toMillis: () => nowRef.getTime() - (8 * 60 + 1) * 60 * 1000, // 8h 1min
       };
       const { fbDb } = makeMockDb(state);
       const r = await commitPedidoCore(
@@ -412,7 +414,8 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
       );
       expect(r.ok).toBe(false);
       expect(r.errorCode).toBe('SNAPSHOT_TOO_OLD');
-      expect(r.data.canRefresh).toBe(true);
+      // §60: canRefresh=false (el cliente no puede refrescar; depende del workflow).
+      expect(r.data.canRefresh).toBe(false);
     });
   });
 

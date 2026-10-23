@@ -172,33 +172,36 @@ service cloud.firestore {
       // Delete: cerrado para vendor (era abierto antes por ownership) —
       // un vendedor no deberia poder wipear su propio pedido confirmado.
       // Admin/gerente/interno siguen igual (v747 blanket para interno).
-      // v1440 §61 (2026-10-23): VDE update extendido para release ASIG
-      // cross-vendor en flow waitlist/CPST.
+      // §63 (2026-10-23 v1442): CIERRE DEL PARCHE §61.
       //
-      // Antes: VDE solo podia update sus propios pedidos
-      // (`resource.data.ownerUid == request.auth.uid`).
-      // Problema: con §44/§46/§59, un VDE ve ordenes de sus clientes aunque
-      // las haya cargado otro usuario. Al "Quitar producto" (X) de una fila
-      // con reserva (`asigRefs`), el batch cliente-side cancela las lineas
-      // ASIG en los pedidos ORIGEN de esas refs. Esos pedidos pueden tener
-      // `ownerUid != self` (ej. Pablo cargo la orden, Gonzalo es el VDE
-      // asignado del cliente). Rule bloqueaba con "Missing or insufficient
-      // permissions".
-      // Patron: los INTERNOS ya tienen blanket update desde v747 por la
-      // MISMA razon (ver linea 149-161). VDE ahora tambien tiene la misma
-      // necesidad por §44.
+      // §61 (v1440) abrio `pedidos.update` para VDE sin check de ownership
+      // como parche de emergencia para que el flow waitlist/CPST
+      // cross-vendor volviera a funcionar (Gonzalo bloqueado en ORDEN 516
+      // BROBRO). Trade-off: VDE malicioso podia editar lines de otros.
       //
-      // Trade-off: VDE malicioso podria editar lines de otros pedidos. El
-      // hasOnly abajo preserva proteccion de campos sensibles
-      // (transferidoSAP, sendingSapLock, ownerUid, assignedVendorUid,
-      // ownerVendor, cardCode, key, tipo, etc) — un VDE NO puede escalar
-      // privilegios ni commission-fraudear. Riesgo residual: modificar
-      // `lines` de otro VDE. Mitigacion: operations_log + auditoria
-      // periodica (ver Mariano decision 2026-10-23 bloqueo prod).
+      // §63 cierra el parche:
+      //   - Las 2 escrituras cross-vendor (§40.6 cliente_rechazo_cpst +
+      //     §40.7 quitar producto con ASIG) pasan por `releaseAsigCF`
+      //     server-side con validacion de permiso explicita (admin/gerente/
+      //     interno OR ownerUid del waitlist OR assignedVendorUid del
+      //     waitlist == auth.uid).
+      //   - La rule vuelve a exigir ownerUid OR assignedVendorUid del VDE
+      //     sobre el PROPIO pedido. Un VDE sin assignedVendorUid del cliente
+      //     ya no puede update directo.
+      //
+      // Patron §44/§46/§59: assignedVendorUid viene del master del cliente;
+      // el VDE del cliente puede update su pedido aunque la haya cargado
+      // Pablo. Un VDE que NO es el assignedVendorUid (otro VDE) no puede
+      // update aunque la haya visto en su sidebar (filtrado client-side
+      // por §59 pero defensiva server-side via rule).
       allow update: if isAdminOrGerente()
         || isInterno()
         || (
           isVendor()
+          && (
+            resource.data.ownerUid == request.auth.uid
+            || resource.data.assignedVendorUid == request.auth.uid
+          )
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             // Delivery info (usuario cambia transportista/sucursal/retiro post-envio)
             'formaEntrega', 'deliveryDetails',

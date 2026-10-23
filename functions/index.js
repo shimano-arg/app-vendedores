@@ -58,6 +58,9 @@ import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
 // v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
+// §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
+// §61 (v1440) destrabó con rule abierta. Cierra el parche.
+import { releaseAsigCore } from './core/release-asig-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 // v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
 // FIFO automatico (que queda en paralelo durante Fase 1 para safety net).
@@ -1057,6 +1060,70 @@ export const applyRepartoManualCF = onCall(
     } catch (e) {
       if (e instanceof HttpsError) throw e;
       throw new HttpsError('internal', 'reparto fallo: ' + (e?.message || String(e)));
+    }
+  }
+);
+
+/**
+ * §63 (2026-10-23) v1442 — releaseAsigCF
+ *
+ * Endpoint único cross-vendor para los 2 flows que §61 destrabó con rule
+ * abierta a `pedidos.update` para VDE (sin check de ownerUid). Cierra el
+ * parche: la mutación cross-vendor pasa SIEMPRE por este CF con validación
+ * server-side (admin/gerente/interno OR ownerUid/assignedVendorUid del
+ * waitlist, patrón §44/§46/§59).
+ *
+ * Actions:
+ *   remove_item  — §40.7 "Quitar producto" (X en modal waitlist-card).
+ *   rechazo_cpst — §40.6 "cliente_rechazo_cpst" (modal delete-choice).
+ *
+ * Payload:
+ *   { action: 'remove_item'|'rechazo_cpst', waitlistId: string, itemIndex?: number }
+ *
+ * Response:
+ *   { ok: true, unitsCancelled, linesCancelled, pedidosMutated, waitlistDeleted }
+ */
+export const releaseAsigCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const data = req.data || {};
+    try {
+      const r = await releaseAsigCore(
+        {
+          fbDb: getFirestore(),
+          log: (/** @type {string} */ m, /** @type {any} */ extra) => console.log(m, extra || {}),
+          now: () => Date.now(),
+        },
+        {
+          auth,
+          action: String(data.action || ''),
+          waitlistId: String(data.waitlistId || ''),
+          itemIndex: typeof data.itemIndex === 'number' ? data.itemIndex : undefined,
+        }
+      );
+      return r;
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      if (e && e._errorCode) {
+        throw new HttpsError(e._errorCode, e.message || 'release asig fallo');
+      }
+      console.error('releaseAsigCF unexpected error', e);
+      throw new HttpsError('internal', 'release asig fallo: ' + (e?.message || String(e)));
     }
   }
 );
