@@ -6982,7 +6982,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1433';
+const APP_VERSION = 'v1434';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7892,6 +7892,107 @@ window.applyThemeTilesSwap();
 // Boton "Forzar actualizacion" debajo del zoom. Limpia caches del SW +
 // unregister + reload con cache-bust. Asi los vendedores se aseguran de
 // tener la ultima version sin tener que hacer Ctrl+Shift+R.
+// E10 Fase 1+3 (v1434): modal bloqueante si APP_VERSION < app_config/version_minima.minVersion.
+// Lee el doc post-login. Si cliente queda por debajo, muestra modal bloqueante
+// con botón único "Recargar ahora" que llama forceUpdateApp() sin confirm.
+// Modal no se puede cerrar (sin backdrop click, sin Escape, sin X).
+window._parseVersion = function(v) {
+  // 'v1430' → 1430. '1430' → 1430. Si inválido → 0.
+  const n = Number(String(v || '').replace(/^v/, ''));
+  return Number.isFinite(n) ? n : 0;
+};
+window._isVersionLessThan = function(a, b) {
+  return window._parseVersion(a) < window._parseVersion(b);
+};
+async function _checkMinVersionAndMaybeBlock() {
+  if (!firebase || !firebase.app || !fbDb) return;
+  const snap = await fbDb.collection('app_config').doc('version_minima').get();
+  if (!snap.exists) return; // No doc = no gate activo.
+  const data = snap.data() || {};
+  const minVersion = String(data.minVersion || '').trim();
+  if (!minVersion) return;
+  const current = typeof APP_VERSION === 'string' ? APP_VERSION : '';
+  if (!window._isVersionLessThan(current, minVersion)) {
+    return; // v >= min → OK, no modal.
+  }
+  // Cliente por debajo → modal bloqueante.
+  const message = String(data.message || 'Hay una versión nueva, la app se va a recargar');
+  console.warn('[E10 version_minima] bloqueando: current=' + current + ' < min=' + minVersion);
+  _renderVersionMinimaBlockingModal(message);
+}
+function _renderVersionMinimaBlockingModal(message) {
+  // Remover si ya existe (idempotente).
+  const existing = document.getElementById('e10-min-version-modal');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'e10-min-version-modal';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999999;' +
+    'display:flex;align-items:center;justify-content:center;';
+  // Bloquear scroll + prevent cerrar.
+  document.body.style.overflow = 'hidden';
+  const box = document.createElement('div');
+  box.style.cssText =
+    'background:#fff;max-width:420px;padding:28px 24px;border-radius:16px;' +
+    'box-shadow:0 25px 50px -12px rgba(0,0,0,0.4);text-align:center;' +
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  box.innerHTML =
+    '<div style="font-size:48px;margin-bottom:12px;">🔄</div>' +
+    '<h2 style="margin:0 0 10px;font-size:20px;color:#111;font-weight:700;">' +
+    _escapeHtmlLocal(message) +
+    '</h2>' +
+    '<p style="margin:0 0 20px;color:#555;font-size:14px;line-height:1.5;">' +
+    'Esta versión de la app es anterior a la mínima requerida.<br>' +
+    'Vamos a limpiar el cache y recargar con la última versión.' +
+    '</p>' +
+    '<button id="e10-reload-btn" style="' +
+    'display:inline-block;padding:12px 32px;font-size:16px;font-weight:600;' +
+    'background:#007aff;color:#fff;border:none;border-radius:10px;cursor:pointer;' +
+    '-webkit-tap-highlight-color:transparent;">Recargar ahora</button>';
+  overlay.appendChild(box);
+  // Prevent close via Escape o backdrop click.
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') e.preventDefault();
+  });
+  overlay.addEventListener('click', (e) => {
+    // Solo el botón funciona.
+    if (e.target && e.target.id !== 'e10-reload-btn') {
+      e.stopPropagation();
+    }
+  });
+  document.body.appendChild(overlay);
+  // Hook del botón: forceUpdateApp sin confirm.
+  const btn = document.getElementById('e10-reload-btn');
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Recargando...';
+      try {
+        // Reutilizar forceUpdateApp pero sin confirm. Replicamos la lógica.
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r => r.unregister()));
+        }
+      } catch(e){ /* non-fatal */ }
+      try {
+        if (window.caches && caches.keys) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k)));
+        }
+      } catch(e){ /* non-fatal */ }
+      const base = window.location.pathname.replace(/[?#].*$/, '');
+      window.location.replace(base + '?_t=' + Date.now());
+    });
+  }
+}
+function _escapeHtmlLocal(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+window._checkMinVersionAndMaybeBlock = _checkMinVersionAndMaybeBlock;
+window._renderVersionMinimaBlockingModal = _renderVersionMinimaBlockingModal;
+
 async function forceUpdateApp(){
   if (!confirm('Forzar actualizacion?\n\nSe limpia el cache y se recarga la app con la ultima version.')) return;
   try {
@@ -29613,6 +29714,12 @@ fbAuth.onAuthStateChanged(async user => {
   currentUser = user;
   _authStateInitialized = true;
   if (user) {
+    // E10 Fase 1+3 §stock-servidor-atomico (v1434): check version_minima
+    // post-login. Si el bundle local es menor al mínimo, bloquear la app
+    // con modal que fuerza recarga (forceUpdateApp).
+    try {
+      await _checkMinVersionAndMaybeBlock();
+    } catch (_eMinV) { /* non-fatal, si rules deniegan o firestore falla sigue */ }
     // Hay sesion guardada -> NO mostrar boton Google, ir directo al password.
     // El auth-overlay sigue visible como telon (white bg) hasta que termine
     // el flujo de password+TOTP y se oculte definitivamente.
