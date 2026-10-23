@@ -735,6 +735,13 @@ def flatten_bp(bp: dict, sync_ts: str, provinces_map: dict = None) -> dict:
         'frozen': bp.get('Frozen'),
         'create_date': bp.get('CreateDate'),
         'update_date': bp.get('UpdateDate'),
+        # 2026-10-22 conciliacion Paiva: UDF OCRD.U_DIVISION ('1'=BIKE,
+        # '2'=PESCA, '3'=BIKE & PESCA, strings legacy 'PESCA'/'BIKE & PESCA'
+        # o vacio). Juan filtra el reporte "Margen Bruto por articulo" por
+        # OCRD.U_DIVISION del cliente; nosotros filtramos por el ItemGroup
+        # del articulo. Agregar U_DIVISION a sap_bp_raw permite reproducir el
+        # criterio cliente en v_rentabilidad_bike (columna division_cliente).
+        'u_division': bp.get('U_DIVISION') or bp.get('U_Division') or bp.get('U_division') or '',
         '_sync_timestamp': sync_ts,
     }
 
@@ -1124,6 +1131,16 @@ def flatten_doc(doc: dict, doc_type: str, sync_ts: str) -> dict:
         'series': doc.get('Series'),
         'create_date': doc.get('CreationDate'),
         'update_date': doc.get('UpdateDate'),
+        # 2026-10-22 conciliacion Paiva: numero fiscal AFIP. FolioNumberFrom y
+        # FolioNumberTo son identicos en facturas Shimano (todas tienen 1 renglon
+        # fiscal); se preservan ambos para el UNION con otras entities.
+        # FolioPrefixString es el codigo numerico de Punto de Venta ('3' = PV3,
+        # etc). Para formar '00003-00043006' hay que left-pad ambos a 5 digitos.
+        # Si FolioPrefixString no viene (NC/Order/PO), queda null y la vista
+        # cae a solo doc_num.
+        'fol_num_from': doc.get('FolioNumberFrom'),
+        'fol_num_to': doc.get('FolioNumberTo'),
+        'folio_pref': doc.get('FolioPrefixString'),
         'lines_count': len(lines),
         'lines_json': json.dumps(lines, default=str) if lines else None,
         '_sync_timestamp': sync_ts,
@@ -2777,6 +2794,8 @@ def main():
         'CreateDate', 'UpdateDate',
         'CreditLimit', 'MaxCommitment', 'CurrentAccountBalance',
         'BPAddresses',
+        # 2026-10-22 conciliacion Paiva: UDF OCRD.U_DIVISION (ver flatten_bp).
+        'U_DIVISION',
     ]
     bps = sl_fetch_all(
         cfg, session, '/b1s/v1/BusinessPartners', 'BP',
@@ -2814,6 +2833,10 @@ def main():
         bigquery.SchemaField('frozen', 'STRING'),
         bigquery.SchemaField('create_date', 'STRING'),
         bigquery.SchemaField('update_date', 'STRING'),
+        # 2026-10-22 conciliacion Paiva: UDF OCRD.U_DIVISION como texto. SAP
+        # devuelve '1'/'2'/'3' (nuevos) o strings legacy 'PESCA'/'BIKE & PESCA'
+        # (migracion incompleta). Mantener STRING preserva ambos sin coercion.
+        bigquery.SchemaField('u_division', 'STRING'),
         bigquery.SchemaField('_sync_timestamp', 'STRING'),
     ]
     _load_to_bq_with_schema(
@@ -2992,6 +3015,8 @@ def main():
         'SalesPersonCode', 'Comments', 'JournalMemo',
         'PaymentGroupCode', 'Series',
         'CreationDate', 'UpdateDate',
+        # 2026-10-22 conciliacion Paiva: numero fiscal AFIP.
+        'FolioNumberFrom', 'FolioNumberTo', 'FolioPrefixString',
         'DocumentLines',
     ]
     invs = sl_fetch_all(
@@ -3033,6 +3058,10 @@ def main():
         'SalesPersonCode', 'Comments', 'JournalMemo',
         'PaymentGroupCode', 'Series',
         'CreationDate', 'UpdateDate',
+        # 2026-10-22 conciliacion Paiva: fol_num_* en NC + Order/Quotation/PO
+        # para consistencia del UNION. En Quotation/Order/PO estos campos
+        # suelen venir null y no molesta — van en lines_json fallback.
+        'FolioNumberFrom', 'FolioNumberTo', 'FolioPrefixString',
         'DocumentLines',
     ]
 
