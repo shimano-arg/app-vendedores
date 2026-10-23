@@ -81,6 +81,10 @@ import { sapGet, sapLogin, sapLogout, sapPost } from './core/sap-sl-client.js';
 import { runSapSlHealthCheck } from './core/sap-sl-health-core.js';
 // v964 (2026-09-17): auto-cancel SQ expiradas (Fase B shadow + Fase C active).
 import { runSqCancelExpired, runSqCancelManualBulk } from './core/sq-cancel-core.js';
+import { checkStockSyncStale } from './core/stock-sync-alert-core.js';
+// §63 Fase 3 Capa 1 (2026-10-23 v1444): sync stock scheduled nativo
+// (Cloud Scheduler via onSchedule, confiable vs GHA cron que saltea).
+import { syncSapCatalogStockCore } from './core/sync-sap-catalog-stock-core.js';
 import { handleSyncSapDocTotals } from './core/sync-sap-doc-totals-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
 import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
@@ -431,6 +435,105 @@ export const syncCarteraVendorScheduled = onSchedule(
  * Idempotente. Delta write (solo escribe si cambió). NO tiene modo shadow —
  * enrichment de field nuevo, safe.
  */
+/**
+ * §63 Fase 3 Capa 1 (2026-10-23 v1444) — syncSapCatalogStockCF
+ *
+ * Reemplaza progresivamente al cron del workflow sync-sap-catalog-stock.yml
+ * (GHA). GHA scheduler saltea runs: el cron declara cada 5 min pero las
+ * corridas efectivas son cada 2-5h (§60 nota prod 2026-10-23).
+ *
+ * Cloud Scheduler + onSchedule('every 5 minutes') corre con cadencia confiable.
+ *
+ * Rollout 2 días hábiles paralelo:
+ *   - Esta CF + workflow Python GHA cron, ambos cada 5 min.
+ *   - Ambos escriben `app_config/stock_snapshot` con campo nuevo `source`:
+ *     'cf-scheduled' (esta CF) vs 'gha-cron' (workflow Python).
+ *   - Al día 2, si CF cumplió 576 corridas sin huecos > 15 min, apagar cron
+ *     GHA (dejar solo workflow_dispatch como respaldo manual).
+ *
+ * Alerta: si > 15 min sin corrida exitosa, escribe alerts/stock_sync_stale +
+ * manda email a Mariano (max 1 email/hora, controlado por meta doc).
+ *
+ * Costo: ~288 corridas/día; <$0.50/mes (ver design doc §5).
+ *
+ * Rollback: borrar export + redeploy. Workflow GHA sigue cubriendo cadencia.
+ */
+export const syncSapCatalogStockCF = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 5 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 1,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD, GMAIL_APP_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sapCfg = sapCfgSnap.data() || {};
+    const sl = sapCfg.serviceLayer || {};
+    if (!sl.enabled) {
+      console.warn('syncSapCatalogStockCF: serviceLayer.enabled=false, skip');
+      return;
+    }
+    if (!sl.url || !sl.companyDB) {
+      console.warn('syncSapCatalogStockCF: sap_integration.serviceLayer incompleto, skip');
+      return;
+    }
+    const sapConfig = {
+      url: sl.url,
+      companyDB: sl.companyDB,
+      userName: sl.username || sl.userName,
+      password: SAP_SL_PASSWORD.value(),
+      fetch: globalThis.fetch,
+    };
+    const result = await syncSapCatalogStockCore({
+      fbDb: db,
+      sapConfig,
+      log: (msg, extra) => console.log(msg, extra || {}),
+      source: 'cf-scheduled',
+    });
+    console.log('syncSapCatalogStockCF summary', {
+      ok: result.ok,
+      itemsSynced: result.itemsSynced,
+      withStock: result.withStock,
+      durationMs: result.durationMs,
+      slRequests: result.slRequests,
+      errors: result.errors,
+    });
+
+    // Alerta si stale (típicamente no dispara acá porque recién escribimos).
+    // Útil cuando esta corrida FALLÓ: la alerta leerá el updatedAt viejo.
+    try {
+      const nodemailerMod = await import('nodemailer');
+      const nodemailer = nodemailerMod.default || nodemailerMod;
+      await checkStockSyncStale({
+        fbDb: db,
+        now: () => Date.now(),
+        log: (msg) => console.log('[alert]', msg),
+        sendEmail: async ({ to, subject, text }) => {
+          const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+              user: 'bot.shimano.pesca@gmail.com',
+              pass: GMAIL_APP_PASSWORD.value(),
+            },
+          });
+          await transporter.sendMail({
+            from: 'bot.shimano.pesca@gmail.com',
+            to,
+            subject,
+            text,
+          });
+        },
+      });
+    } catch (e) {
+      console.warn('syncSapCatalogStockCF alert check fallo', (e && e.message) || e);
+    }
+  }
+);
+
 export const syncSapDocTotalsToApp = onSchedule(
   {
     region: REGION,

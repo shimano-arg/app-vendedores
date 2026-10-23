@@ -769,7 +769,16 @@ def write_stock_snapshot(db: firestore.Client, stock_map: dict, qty_map: dict, w
         'totalItems': len(stock_map),
         'withStock': with_stock,
         'warehouse': 'ALL_SALES',
-        'source': 'service_layer_auto',
+        # §63 Fase 3 Capa 1 (2026-10-23): source field con valor que
+        # distingue origen de la corrida. Valores:
+        #   'gha-cron' → trigger schedule del workflow
+        #   'manual-dispatch' → workflow_dispatch manual
+        #   'cf-scheduled' → syncSapCatalogStockCF (otro writer, NO esta ruta)
+        # Durante rollout paralelo (2 días hábiles) ambas rutas escriben
+        # alternadamente al mismo doc; `source` deja ver quién llegó último.
+        'source': os.environ.get('SYNC_SOURCE', 'gha-cron'),
+        # Legacy field preservado por compat; algún listener puede leerlo.
+        'legacySource': 'service_layer_auto',
         'updatedAt': firestore.SERVER_TIMESTAMP,
         'updatedBy': 'github-actions/sync_sap_to_firestore',
         'syncBatchId': sync_batch_id,
