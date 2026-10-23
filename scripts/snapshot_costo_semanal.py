@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
 """Snapshot semanal de sap_items_bike_raw.cost_avg_ars a costo_snapshot_semanal.
 
-Decision Mariano 2026-10-23: NO hacer pull nuevo a SAP ni CSV. El sync continuo
-(sync_sap_to_bigquery.py) ya trae cost_avg_ars al dataset BQ. El job del lunes
-inserta la foto del momento como snapshot de la semana.
+Decision Mariano 2026-10-23 (primera ronda): NO hacer pull nuevo a SAP ni CSV.
+El sync continuo (sync_sap_to_bigquery.py) ya trae cost_avg_ars al dataset BQ.
+El job del lunes inserta la foto del momento como snapshot de la semana.
+
+2026-10-23 segunda ronda: `sap_items_bike_raw.cost_avg_ars` NO es
+`OITM.AvgPrice` sino `ItemPrices[PriceList=11, Currency=ARS]` (validacion
+empirica: 0/1327 ITEMS coinciden exacto con Paiva sep 2026). El filtro
+cost_source agregado en `v_rentabilidad_bike` (bigquery/views/*) IGNORA
+los rows generados por este job. Las pruebas al Service Layer con
+`AvgPrice` singular y `AvgStdPrice` dieron ambas HTTP 400 (`Property X of
+'Item' is invalid`), confirmado con `scripts/test_sl_avg_price_singular.py`.
+
+Este job sigue corriendo por acumular historia operativa (lista 11 por
+semana), pero NO alimenta `v_rentabilidad_bike.costo_finanzas_ars`.
+Fuente oficial de costo finanzas = carga manual mensual Paiva.
+
+Evaluar desactivacion de este workflow en un PR aparte si en 2-3 meses
+no aparece consumidor nuevo.
 
 Idempotencia: DELETE del snapshot_week_start actual antes del INSERT. Si corre
 dos veces el mismo lunes, pisa (misma fecha_corte, mismos valores).

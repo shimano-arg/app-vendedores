@@ -27,6 +27,14 @@
 --                          Paiva nueva (planilla mensual) o AvgPrice confirmado
 --                          via SL, costo_finanzas_ars queda NULL para esos
 --                          meses. NUNCA se "aproxima" con la lista 11.
+--                          2026-10-23 segunda ronda: SL de Shimano tampoco
+--                          expone AvgPrice singular (HTTP 400 "Property
+--                          'AvgPrice' of 'Item' is invalid", mismo error que
+--                          AvgStdPrice). Verificado con
+--                          scripts/test_sl_avg_price_singular.py sobre 3 SKUs
+--                          (EMFTZ5007428, ESHRX910MCL01S4300S, Y5YC98140).
+--                          Carga manual mensual Paiva (planilla Juan) queda
+--                          como fuente oficial permanente.
 --
 -- NOTA — `fecha_contable` es un campo DERIVADO (no es la fecha contable de SAP):
 --   * Para FACTURAS: fecha_contable = doc_date (= OINV.DocDate propia).
