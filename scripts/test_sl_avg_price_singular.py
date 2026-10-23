@@ -6,10 +6,21 @@ singular `AvgPrice`. Este script lo prueba sobre 3 ItemCodes
 representativos y compara contra la planilla de Juan Paiva (septiembre
 2026) para decidir si sirve como fuente del snapshot semanal.
 
-Requiere `~/Desktop/sa-key.json` (patron existente en el repo:
-`debug_sl_direct.py` + `apply_credit_notes_fix.py`). El doc Firestore
-`app_config/sap_integration.serviceLayer` tiene url/companyDB/username/
-password. Luego hace Login a /b1s/v1/Login y 3 GET.
+Autenticacion: Application Default Credentials (ADC) local.
+  - Firestore y BigQuery: ADC via `gcloud auth application-default login`
+    (mismo mecanismo que scripts/deploy_conciliacion_paiva.py).
+  - Password SL: cascada
+      1) env var SAP_SL_PASSWORD (patron scripts/login_test.py).
+      2) Secret Manager via ADC (secret
+         projects/app-vendedores-shimano/secrets/SAP_SL_PASSWORD,
+         requiere rol roles/secretmanager.secretAccessor).
+      3) Error con instrucciones.
+    No requiere archivo de SA key.
+
+El doc Firestore `app_config/sap_integration.serviceLayer` tiene
+url/companyDB/username. El password NO esta en Firestore (va aparte
+por Secret Manager, ver CLAUDE.md 24). El script hace Login a
+/b1s/v1/Login y 3 GETs sobre /Items(...).
 
 Output:
   - HTTP status + body (truncado) para cada SKU.
@@ -22,19 +33,14 @@ Output:
 Uso:
     python scripts/test_sl_avg_price_singular.py
 """
-import json
 import os
 import sys
-from pathlib import Path
 
 import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud import bigquery
-from google.oauth2 import service_account
 
-
-SA_KEY_PATH = Path.home() / 'Desktop' / 'sa-key.json'
 
 SKUS_TEST = [
     'EMFTZ5007428',
@@ -44,34 +50,83 @@ SKUS_TEST = [
 
 BQ_PROJECT = 'app-vendedores-shimano'
 BQ_LOCATION = 'southamerica-east1'
+SECRET_RESOURCE = f'projects/{BQ_PROJECT}/secrets/SAP_SL_PASSWORD/versions/latest'
+
+
+def resolve_sl_password() -> str:
+    """Cascada: env var -> Secret Manager via ADC -> error."""
+    pwd = os.environ.get('SAP_SL_PASSWORD', '').strip()
+    if pwd:
+        print('[password] desde env var SAP_SL_PASSWORD')
+        return pwd
+    print('[password] env var vacia; intento Secret Manager via ADC')
+    try:
+        from google.cloud import secretmanager  # pylint: disable=import-outside-toplevel
+    except ImportError:
+        print('[FATAL] falta google-cloud-secret-manager. Opciones:',
+              file=sys.stderr)
+        print('  (A) pip install google-cloud-secret-manager', file=sys.stderr)
+        print('  (B) setear env var: $env:SAP_SL_PASSWORD = "..."',
+              file=sys.stderr)
+        sys.exit(6)
+    try:
+        c = secretmanager.SecretManagerServiceClient()
+        resp = c.access_secret_version(request={'name': SECRET_RESOURCE})
+        return resp.payload.data.decode('utf-8').strip()
+    except Exception as e:
+        print(f'[FATAL] Secret Manager fallo: {type(e).__name__}: {e}',
+              file=sys.stderr)
+        print('[hint] ADC necesita rol roles/secretmanager.secretAccessor '
+              'sobre secret SAP_SL_PASSWORD. Verificar con '
+              '"gcloud secrets get-iam-policy SAP_SL_PASSWORD '
+              '--project=app-vendedores-shimano". Alternativa: setear '
+              'env var SAP_SL_PASSWORD y volver a correr.', file=sys.stderr)
+        sys.exit(7)
 
 
 def main():
-    if not SA_KEY_PATH.exists():
-        print(f'[FATAL] falta {SA_KEY_PATH}. Esta es la SA key que usan los '
-              f'scripts del repo (patron en debug_sl_direct.py). '
-              f'Ponela ahi y volve a correr.', file=sys.stderr)
+    # Firestore Admin con ADC local (Application Default Credentials).
+    # Equivale a: gcloud auth application-default login. No requiere SA key.
+    try:
+        firebase_admin.initialize_app(
+            credentials.ApplicationDefault(),
+            {'projectId': BQ_PROJECT},
+        )
+    except Exception as e:
+        print(f'[FATAL] firebase_admin init con ADC fallo: {type(e).__name__}: {e}',
+              file=sys.stderr)
+        print('[hint] correr primero: gcloud auth application-default login',
+              file=sys.stderr)
         sys.exit(2)
 
-    sa = json.loads(SA_KEY_PATH.read_text())
-
-    # Firestore Admin para leer serviceLayer config.
-    firebase_admin.initialize_app(credentials.Certificate(sa))
     fs = firestore.client()
-    sl = (fs.collection('app_config').document('sap_integration').get()
-          .to_dict() or {}).get('serviceLayer', {})
-    for k in ('url', 'companyDB', 'password'):
+    try:
+        sl_doc = fs.collection('app_config').document('sap_integration').get()
+    except Exception as e:
+        print(f'[FATAL] no se pudo leer Firestore app_config/sap_integration: '
+              f'{type(e).__name__}: {e}', file=sys.stderr)
+        print('[hint] ADC necesita rol roles/datastore.user (lectura Firestore) '
+              'en el proyecto app-vendedores-shimano. Verificar con '
+              '"gcloud projects get-iam-policy app-vendedores-shimano '
+              '--flatten=\'bindings[].members\' --filter=\'bindings.members:<tu-email>\'".',
+              file=sys.stderr)
+        sys.exit(3)
+
+    sl = (sl_doc.to_dict() or {}).get('serviceLayer', {})
+    for k in ('url', 'companyDB'):
         if not sl.get(k):
-            # Fallbacks que ya conoce el repo (ver reglas CLAUDE.md 24).
             if k == 'companyDB':
                 sl[k] = sl.get('companyDB') or sl.get('CompanyDB')
-            else:
+            if not sl.get(k):
                 print(f'[FATAL] serviceLayer falta campo {k}', file=sys.stderr)
-                sys.exit(3)
+                sys.exit(4)
     username = sl.get('username') or sl.get('userName') or ''
     if not username:
         print(f'[FATAL] serviceLayer no tiene username ni userName', file=sys.stderr)
-        sys.exit(4)
+        sys.exit(5)
+
+    # Password: cascada env var -> Secret Manager -> error.
+    sl_password = resolve_sl_password()
 
     url_base = sl['url'].rstrip('/')
     session = requests.Session()
@@ -79,13 +134,13 @@ def main():
     r = session.post(
         f'{url_base}/b1s/v1/Login',
         json={'CompanyDB': sl['companyDB'], 'UserName': username,
-              'Password': sl['password']},
+              'Password': sl_password},
         timeout=30,
     )
     print(f'[login] HTTP {r.status_code}')
     if not r.ok:
         print(f'[login] body: {r.text[:500]}', file=sys.stderr)
-        sys.exit(5)
+        sys.exit(6)
 
     # Prueba el campo singular `AvgPrice`.
     print()
@@ -124,9 +179,8 @@ def main():
         print('=' * 60)
         print('COMPARACION contra planilla Paiva (snapshot sep 2026)')
         print('=' * 60)
-        creds_bq = service_account.Credentials.from_service_account_info(sa)
-        bq = bigquery.Client(project=BQ_PROJECT, credentials=creds_bq,
-                             location=BQ_LOCATION)
+        # BigQuery con ADC local (mismo mecanismo que deploy_conciliacion_paiva).
+        bq = bigquery.Client(project=BQ_PROJECT, location=BQ_LOCATION)
         skus_quoted = ','.join([f"'{s}'" for s in SKUS_TEST])
         q = f'''
         SELECT item_code, cost_avg_ars
