@@ -320,8 +320,39 @@ describe('/pedidos', () => {
   it('vendor NO puede delete pedido propio (defensa contra wipe SQ ya enviada)', async () => {
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor')));
   });
-  it('vendor NO puede update/delete pedido ajeno', async () => {
-    await assertFails(updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other'), { stage: 'x' }));
+  // v1440 §61 (2026-10-23): vendor update ajeno PERMITIDO para campos
+  // whitelisted (flow waitlist/CPST cross-vendor cancel ASIG en pedido
+  // de otro). Delete sigue bloqueado.
+  it('v1440 §61: vendor PUEDE update pedido ajeno con campos whitelisted (release ASIG)', async () => {
+    // Caso real 2026-10-23 bloqueo prod: Gonzalo (VDE) clickea X en item
+    // ORDEN 516 BROBRO con reserva ASIG apuntando a pedido origen cargado
+    // por Pablo (ownerUid != Gonzalo.uid). El batch client-side necesita
+    // mutar `lines` del pedido ajeno para cancelar la ASIG.
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other'), {
+        lines: [{ code: 'X', qty: 1, state: 'cancelled' }],
+      })
+    );
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other'), { stage: 'confirmed' })
+    );
+  });
+  it('v1440 §61: vendor NO puede update pedido ajeno con campos sensibles (sigue bloqueado)', async () => {
+    // El hasOnly protection sigue vigente: ownerUid, transferidoSAP,
+    // sendingSapLock, assignedVendorUid, clientCardCode NO pueden mutar.
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other'), { ownerUid: UID.vendor })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other'), {
+        transferidoSAP: { docNum: 9999, via: 'fake' },
+      })
+    );
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other'), { clientCardCode: 'HACKED' })
+    );
+  });
+  it('v1440 §61: vendor NO puede delete pedido ajeno', async () => {
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other')));
   });
   it('admin/gerente/interno pueden update sin restriccion (blanket)', async () => {
