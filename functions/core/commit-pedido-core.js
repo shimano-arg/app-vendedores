@@ -246,10 +246,37 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   const stockConfigRef = deps.fbDb.collection('app_config').doc('stock_snapshot');
   const stockConfigSnap = await tx.get(stockConfigRef);
   const stockConfig = stockConfigSnap.exists ? stockConfigSnap.data() || {} : {};
-  const warehouseBreakdown =
-    stockConfig.warehouseBreakdown && typeof stockConfig.warehouseBreakdown === 'object'
-      ? stockConfig.warehouseBreakdown
-      : {};
+  // HOTFIX URGENTE 2026-10-25: paridad con client-side (index.html:31987-31989).
+  // Python escribe warehouseBreakdown como JSON STRING (v368+ para evitar
+  // límite 40k index entries Firestore). Hasta hoy el server esperaba
+  // 'object' → cuando venía string, warehouseBreakdown = {} vacío → fisico=0
+  // → qtyBO = cantidad_pedida → TODO va a BO.
+  //
+  // Incidente: desde 2026-10-23 17:52 ART todo pedido confirmado por
+  // commitPedidoCF quedó stage=confirmed + via='app_only' +
+  // reason='all_lines_bo_server_detected'. Víctimas: BROBRO, DESIATA, SATO
+  // (duplicado), BOSCHETTO, BAIGORRIA, LA LOMITA. Reparación pendiente.
+  //
+  // Fix: parsear si viene string (patrón client-side). Fallback {} si
+  // malformed o ausente — es defensivo (fisico=0 implica BO, que es safer
+  // que crashear la tx).
+  /** @type {Record<string, Record<string, number>>} */
+  let warehouseBreakdown = {};
+  const rawWhsBd = stockConfig && stockConfig.warehouseBreakdown;
+  if (rawWhsBd) {
+    if (typeof rawWhsBd === 'string') {
+      try {
+        warehouseBreakdown = JSON.parse(rawWhsBd) || {};
+      } catch (_eParseWhs) {
+        (deps.log || (() => {}))('warehouseBreakdown JSON.parse fallo', {
+          err: _eParseWhs && _eParseWhs.message,
+        });
+        warehouseBreakdown = {};
+      }
+    } else if (typeof rawWhsBd === 'object') {
+      warehouseBreakdown = rawWhsBd;
+    }
+  }
 
   // 5.3 Snapshot age check.
   // El origen del timestamp es SIEMPRE server-side (app_config/stock_snapshot.updatedAt
