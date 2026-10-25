@@ -4717,6 +4717,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1449 (2026-10-25) — §64.3 Draft lock atómico `pedido_draft_locks/{draftId}` + fixture REAL snapshot prod
+
+Rama `fix-v1449-draft-lock-concurrente` → `main`.
+
+**Problema** (SATO 2026-10-23 22:08:41 + 22:08:43): dos commits con mismo `_draftId` separados por 2s crearon dos pedidos (`6LhigQdzUmEcOHcRUEjl` + `qlB4FpI3R9Rhu5sLZvbf`). `findExistingByDraftId` pre-tx (línea 107 de `commit-pedido-core.js`) tiene race: entre que el query ve "no existe" y la tx hace el write, una segunda invocación entra y crea otro pedido.
+
+**Fix**: lock atómico `pedido_draft_locks/{draftId}` dentro del `runTransaction`. `tx.get(draftLockRef)` como primer read (§58) + `tx.set(draftLockRef, {pedidoId, draftId, cardCode, origen, ownerUid, createdAt})` atómico con el `tx.set(pedidoRef)`. Firestore serializa 2 txns sobre el mismo doc — la segunda ve el lock de la primera → `idempotentHit=true` sin crear duplicado.
+
+**Defensa en profundidad**:
+1. `findExistingByDraftId` pre-tx: fast path para el 99% (retrys secuenciales).
+2. Draft lock: cubre el 1% restante (races verdaderas).
+3. Firestore serialization: red de seguridad final.
+
+**Fixture REAL de prod** (`tests/fixtures/stock_snapshot_prod.json`): dump de `app_config/stock_snapshot` con el shape que escribe Python hoy (warehouseBreakdown + quantities como JSON strings). Blindaje contra regresión futura del shape (precedente 23/10 17:52: paso dict → string rompió el read del CF). Script: `scripts/audit/dump_stock_snapshot_fixture.cjs`.
+
+**Rules** (`firestore.rules`): colección `pedido_draft_locks/{draftId}` cerrada a cliente — `allow read, write: if false`. Solo Admin SDK (CF/scripts) la toca.
+
+**Archivos**:
+- `functions/core/commit-pedido-core.js`: draft lock dentro de `commitInTransaction`.
+- `firestore.rules`: match `/pedido_draft_locks/{draftId}` cerrado.
+- `tests/functions/commit-pedido-draft-lock-concurrent.test.js`: 6 tests (T1-T6).
+- `tests/functions/commit-pedido-snapshot-fixture-prod.test.js`: 4 tests con fixture REAL.
+- `tests/fixtures/stock_snapshot_prod.json`: dumped de prod.
+- `scripts/audit/dump_stock_snapshot_fixture.cjs`: script read-only.
+
+Suite completa: 70/70 PASS (functions commit-pedido) + 202/202 PASS (rules). Ver CLAUDE.md §64.3 para detalles.
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF,firestore:rules`.
+
+---
+
 ### v1436 (2026-10-23) — HOTFIX commitPedidoCF retry post STOCK_CHANGED (§58)
 
 Rama `fix-stock-changed-retry-sin-refresh` → `main`.
