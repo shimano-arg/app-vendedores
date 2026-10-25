@@ -2863,6 +2863,92 @@ Suite completa post-v1443: **unit 1714 PASS + functions 616 PASS** (6 nuevos sob
 
 **Rollback**: revertir el bloque de logging en `functions/core/commit-pedido-core.js` + el helper `_buildClientStockForPayload` en `index.html` + los campos `clientStock/clientSnapshotUpdatedAt` del payload. Nada que revertir del lado rules ni del cliente.
 
+## 64.2. Logging centralizado de TODOS los paths de rechazo de commitPedidoCF a operations_log (2026-10-25, v1450)
+
+**Regla fuerte**: TODO rechazo de `commitPedidoCore` (cualquier `return makeError(...)` o `throwError(...)`) DEBE pasar por el helper `logCommitRejection(deps, errorCode, payload, extra)` ANTES de retornar / tirar. **AWAIT, no fire-and-forget**: garantiza que el log existe antes del return. No puede haber un rechazo de la CF sin registro en `operations_log`.
+
+**Antecedente** §64 (v1443): STOCK_CHANGED se loguea con snapshot cliente+CF. **Pedido Mariano Fase 3**: "no puede haber un rechazo de la CF sin registro" — extender el pattern a TODOS los paths. Antes de v1450 solo STOCK_CHANGED y SNAPSHOT_TOO_OLD escribían, y lo hacían fire-and-forget (`.catch(() => {})`), con riesgo de perder el write si el runtime terminaba la invocación antes de que el `.add()` complete.
+
+**Helper centralizado** (`functions/core/commit-pedido-core.js:logCommitRejection`):
+
+```js
+async function logCommitRejection(deps, errorCode, payload, extra) {
+  if (!deps || !deps.fbDb) return;
+  try {
+    const entry = Object.assign(
+      {
+        type: 'commit_pedido_rejected',
+        errorCode,
+        userId: payload?.ownerUid || payload?.userId || null,
+        userEmail: payload?.ownerEmail || payload?.userEmail || null,
+        cardCode: payload?.cardCode || null,
+        draftId: payload?.draftId || null,
+        origen: payload?.origen || null,
+        clientVersion: payload?.clientVersion || null,
+        waitlistOrigenId: payload?.waitlistOrigenId || null,
+        timestamp: new Date(now),
+      },
+      extra || {}
+    );
+    await deps.fbDb.collection('operations_log').add(entry);
+  } catch (e) {
+    if (deps.log) deps.log('operations_log write failed', { errorCode, err: e.message });
+  }
+}
+```
+
+**Paths cubiertos**:
+- `VALIDATION_ERROR` (payload inválido / cpst sin waitlistOrigenId): llamada directa pre-return con `{validationReason, validationData}`.
+- `VERSION_OLD`: llamada directa pre-return con `{minVersion, currentVersion}`.
+- `PERMISSION_DENIED` (G4.03 pedido ya en SAP): llamada directa pre-return con `{reason='pedido_ya_en_sap', existingPedidoId, sapDocNum, sapDocEntry, via}`.
+- `CLIENT_HAS_OPEN_WAITLIST` (§42): llamada directa pre-return con `{conflictingWaitlistId, conflictingOrderNumber, conflictingItemsCount}`.
+- `STOCK_CHANGED` (§64): migrado al pattern — `throwError` propaga metadata via `err._data._logExtra`, catch del retry loop invoca `logCommitRejection(err._errorCode, payload, {...logExtra})`.
+- `SNAPSHOT_TOO_OLD` (§60): migrado al pattern — mismo mecanismo que STOCK_CHANGED. El log inline dentro del tx fue removido (duplicaba en retry, bloqueaba la tx).
+- `CONTENTION_RETRY_EXHAUSTED`: llamada directa pre-return con `{attempts, lastError}`.
+- `SAP_UNAVAILABLE` (§63 Fase 3 Capa 2): propaga via `_logExtra` + catch del retry loop.
+
+**Pattern "catch del retry loop"** para business errors dentro de `commitInTransaction`:
+
+```js
+} catch (e) {
+  const err = e;
+  if (err && err._errorCode) {
+    // Business error. Log FUERA de la tx (no duplica en retry).
+    const logExtra = err._data?._logExtra || {};
+    await logCommitRejection(deps, err._errorCode, payload, {
+      ...logExtra,
+      errMessage: err.message || null,
+    });
+    // Scrub _logExtra del response al cliente (metadata server-side).
+    const dataForClient = { ...err._data };
+    delete dataForClient._logExtra;
+    return makeError(err._errorCode, err.message, dataForClient);
+  }
+  // ...
+}
+```
+
+**Por qué fuera de la tx**: (a) escribir a `operations_log` dentro de la tx bloquea la tx (write a otra colección); (b) si la tx reintenta por contention, el log se duplicaría; (c) un write fire-and-forget desde dentro de la tx + rollback de la tx deja log huérfano.
+
+**Scrub del `_logExtra`**: metadata server-side (snapshotUpdatedAt Date object, skuDetails con `breakdown._version`, etc.) no debe ir al cliente. El cliente recibe `err._data` LIMPIO (sin `_logExtra`). Los tests verifican con `expect(r.data._logExtra).toBeUndefined()`.
+
+**Costo**: ~20-50ms extra por rechazo (await del `.add()`). Aceptable — si rechazamos, informamos.
+
+**Tests obligatorios** (`tests/functions/commit-pedido-logging-all-paths.test.js`):
+- 1 test por errorCode (8 paths).
+- 1 test "AWAIT no fire-and-forget" (el log existe sin esperar tick post-return).
+- 1 test "`_logExtra` scrubbed del response al cliente".
+
+**Prohibido**:
+- Agregar un `return makeError(...)` o `throwError(...)` nuevo en `commit-pedido-core.js` sin llamar antes a `logCommitRejection(deps, errorCode, payload, {...})`.
+- Reintroducir el pattern fire-and-forget con `.catch(() => {})`.
+- Loguear DENTRO del `runTransaction` (bloquea la tx + duplica en retry).
+- Pasar `_logExtra` al cliente en el response.
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF`.
+
+**Rollback**: revertir el helper + las llamadas + restaurar los bloques inline fire-and-forget de STOCK_CHANGED (§64) y SNAPSHOT_TOO_OLD (§60). El shape del response del cliente queda idéntico (los campos que iban en `err._data` siguen).
+
 ## 64.3. Draft lock atómico `pedido_draft_locks/{draftId}` previene duplicados por doble-click concurrente (2026-10-25, v1449)
 
 **Regla fuerte**: toda invocación a `commitPedidoCF` que tenga `payload.draftId` escribe un lock atómico en `pedido_draft_locks/{draftId}` DENTRO de la misma `runTransaction` que crea el pedido. Si una segunda tx con el mismo `draftId` corre concurrente (doble-click, retry no-idempotente del wrapper HTTP, race del SDK), Firestore la serializa en el doc de lock y la segunda ve el pedidoId de la primera → `idempotentHit=true` sin crear duplicado.

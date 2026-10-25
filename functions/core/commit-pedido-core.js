@@ -80,6 +80,11 @@ export async function commitPedidoCore(deps, payload) {
   // 1. Validación básica payload.
   const validation = validatePayload(payload);
   if (!validation.ok) {
+    // §64.2 (v1448): log antes del return (await, no fire-and-forget).
+    await logCommitRejection(deps, 'VALIDATION_ERROR', payload, {
+      validationReason: validation.message || '',
+      validationData: validation.data || null,
+    });
     return makeError('VALIDATION_ERROR', validation.message || '', validation.data);
   }
 
@@ -90,6 +95,11 @@ export async function commitPedidoCore(deps, payload) {
       const vmData = vmSnap.data() || {};
       const minVersion = vmData.minVersion;
       if (minVersion && isVersionLessThan(payload.clientVersion, minVersion)) {
+        // §64.2 (v1448): log antes del return.
+        await logCommitRejection(deps, 'VERSION_OLD', payload, {
+          minVersion,
+          currentVersion: payload.clientVersion,
+        });
         return makeError('VERSION_OLD', 'Actualizá la app para continuar', {
           minVersion,
           currentVersion: payload.clientVersion,
@@ -111,6 +121,14 @@ export async function commitPedidoCore(deps, payload) {
     // grises: un pedido ya enviado a SAP se edita en app y queda divergente.
     const transferido = existingPedido.data && existingPedido.data.transferidoSAP;
     if (transferido && transferido.docEntry != null && transferido.via !== 'app_only') {
+      // §64.2 (v1448): log antes del return.
+      await logCommitRejection(deps, 'PERMISSION_DENIED', payload, {
+        reason: 'pedido_ya_en_sap',
+        existingPedidoId: existingPedido.id,
+        sapDocNum: transferido.docNum || null,
+        sapDocEntry: transferido.docEntry,
+        via: transferido.via || null,
+      });
       return makeError(
         'PERMISSION_DENIED',
         'Pedido ya enviado a SAP (SQ #' +
@@ -157,6 +175,11 @@ export async function commitPedidoCore(deps, payload) {
   // (ver `commitInTransaction`), no desde el cliente.
   const waitlistOrigenId = payload.waitlistOrigenId || null;
   if (payload.origen === 'cpst' && !waitlistOrigenId) {
+    // §64.2 (v1448): log antes del return.
+    await logCommitRejection(deps, 'VALIDATION_ERROR', payload, {
+      validationReason: 'cpst requiere waitlistOrigenId',
+      validationData: { field: 'waitlistOrigenId' },
+    });
     return makeError(
       'VALIDATION_ERROR',
       'cpst requiere waitlistOrigenId (la waitlist que originó el pedido)',
@@ -175,6 +198,12 @@ export async function commitPedidoCore(deps, payload) {
   );
   if (openWaitlists.length > 0) {
     const first = openWaitlists[0];
+    // §64.2 (v1448): log antes del return.
+    await logCommitRejection(deps, 'CLIENT_HAS_OPEN_WAITLIST', payload, {
+      conflictingWaitlistId: first._id,
+      conflictingOrderNumber: first.orderNumber || null,
+      conflictingItemsCount: Array.isArray(first.items) ? first.items.length : 0,
+    });
     return makeError(
       'CLIENT_HAS_OPEN_WAITLIST',
       'El cliente ya tiene una orden abierta en lista de espera',
@@ -200,9 +229,28 @@ export async function commitPedidoCore(deps, payload) {
     } catch (e) {
       const err = /** @type {any} */ (e);
       lastError = err;
+
       if (err && err._errorCode) {
-        // Es un error de negocio (lanzado por commitInTransaction). NO reintentar.
-        return makeError(err._errorCode, err.message, err._data);
+        // §64.2 (v1448): log centralizado FUERA de la tx (no duplica en
+        // retry, no bloquea runTransaction). Business errors de
+        // commitInTransaction propagan metadata via `err._data._logExtra`.
+        // Para errores sin _logExtra (ej. SAP_UNAVAILABLE), igual se
+        // loguea con el shape básico de logCommitRejection.
+        const logExtra = err._data && err._data._logExtra ? err._data._logExtra : {};
+        await logCommitRejection(
+          deps,
+          err._errorCode,
+          payload,
+          Object.assign({}, logExtra, {
+            errMessage: err.message || null,
+            // Clean err._data for return (remove internal _logExtra).
+          })
+        );
+        // Scrub _logExtra from err._data antes de retornar al cliente
+        // (metadata server-side, el cliente no la necesita).
+        const dataForClient = Object.assign({}, err._data || {});
+        delete dataForClient._logExtra;
+        return makeError(err._errorCode, err.message, dataForClient);
       }
       // Otros errores: podría ser retry de Firestore (ya reintenta ~5×
       // automático). Si llegó acá es raro.
@@ -214,6 +262,11 @@ export async function commitPedidoCore(deps, payload) {
     }
   }
 
+  // §64.2 (v1448): log antes del return.
+  await logCommitRejection(deps, 'CONTENTION_RETRY_EXHAUSTED', payload, {
+    attempts,
+    lastError: lastError && lastError.message,
+  });
   return makeError('CONTENTION_RETRY_EXHAUSTED', 'Reintenta en 10 segundos', {
     attempts,
     lastError: lastError && lastError.message,
@@ -339,39 +392,11 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
       if (age > SNAPSHOT_MAX_AGE_MS) {
         const ageMinutes = Math.floor(age / 60000);
         const lastSyncIso = new Date(updatedAtMs).toISOString();
-        // 2026-10-23: log del rechazo a operations_log para auditoria + alerting.
-        // Fire-and-forget: no bloquea el throw ni fuerza rollback de la transacción
-        // (estamos pre-tx-set, así que es seguro escribir aparte).
-        try {
-          const _logEntry = {
-            type: 'commit_pedido_rejected',
-            errorCode: 'SNAPSHOT_TOO_OLD',
-            snapshotAgeMs: age,
-            snapshotAgeMinutes: ageMinutes,
-            snapshotUpdatedAt: new Date(updatedAtMs),
-            snapshotOrigin: 'server:app_config/stock_snapshot',
-            userId:
-              payload && (payload.ownerUid || payload.userId)
-                ? payload.ownerUid || payload.userId
-                : null,
-            userEmail:
-              payload && (payload.ownerEmail || payload.userEmail)
-                ? payload.ownerEmail || payload.userEmail
-                : null,
-            cardCode: payload && payload.cardCode ? payload.cardCode : null,
-            draftId: payload && payload.draftId ? payload.draftId : null,
-            origen: payload && payload.origen ? payload.origen : null,
-            timestamp: new Date(now),
-          };
-          const _addResult = deps.fbDb.collection('operations_log').add(_logEntry);
-          if (_addResult && typeof _addResult.catch === 'function') {
-            _addResult.catch((/** @type {any} */ _err) => {
-              if (deps.log) deps.log('operations_log write failed (SNAPSHOT_TOO_OLD)', _err);
-            });
-          }
-        } catch (_e) {
-          // ignore (best-effort)
-        }
+        // §64.2 (v1448): el log se escribe desde el catch del retry loop
+        // (fuera de tx), via err._data. Dentro del runTransaction NO loguear
+        // porque: (a) duplica si la tx se reintenta, (b) write out-of-tx
+        // bloquea la tx. El catch loop (línea ~240) hace `await
+        // logCommitRejection(..., {...err._data})` → detalle preservado.
         throwError(
           'SNAPSHOT_TOO_OLD',
           `Último sync de stock: ${lastSyncIso} (hace ${ageMinutes} min). El pedido queda en espera; se reintenta cuando se refresque el snapshot.`,
@@ -380,7 +405,14 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
             snapshotAgeMinutes: ageMinutes,
             snapshotUpdatedAt: lastSyncIso,
             snapshotOrigin: 'server',
-            canRefresh: false, // 2026-10-23: refresh NO depende del cliente; depende del workflow server-side
+            canRefresh: false,
+            // §64.2 (v1448): metadata server-side para el log del catch.
+            _logExtra: {
+              snapshotAgeMs: age,
+              snapshotAgeMinutes: ageMinutes,
+              snapshotUpdatedAt: new Date(updatedAtMs),
+              snapshotOrigin: 'server:app_config/stock_snapshot',
+            },
           }
         );
       }
@@ -577,63 +609,54 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // 5.7 Compute diffVsClient.
   const diffVsClient = computeDiffVsClient(lineasResultado, payload);
   if (diffVsClient && !payload.autoAcceptStockChange) {
-    // §64 (2026-10-23 v1443): log diagnostico de STOCK_CHANGED a operations_log.
-    // Pedido Mariano: "cada vez que la CF lo devuelve, registrar en
-    // operations_log SKU y valores de cada lado". Si cliente y CF calculan
-    // distinto, unificar en src/pure segun §39.
-    //
-    // Server-side: breakdown.libre / utilizable / fisicoDep11 /
-    // reservadasTotal / _version — ya computados en lineasResultado via
-    // getStockBreakdown (misma funcion pure que usa el cliente §39).
-    //
-    // Client-side (opcional): si payload trae `clientStock[sku]`, se logea
-    // el snapshot que vio el cliente al momento de armar el pedido. Permite
-    // comparar lado-a-lado sin inferir.
-    try {
-      const clientStock =
-        payload && typeof payload.clientStock === 'object' ? payload.clientStock : null;
-      const serverSnapshotUpdatedAt =
-        updatedAt && typeof updatedAt.toMillis === 'function'
-          ? new Date(updatedAt.toMillis())
-          : null;
-      const skuDetails = diffVsClient.skuChanged.map((/** @type {any} */ ch) => {
-        const serverLine = lineasResultado.find((/** @type {any} */ l) => l.sku === ch.sku) || {};
-        const serverBd = serverLine.breakdown || null;
-        const serverPayload = {
-          qtyConfirmed: ch.podesLlevar,
-          qtyBO: ch.aBackOrder,
-          libre: serverBd ? serverBd.libre : null,
-          utilizablePara: serverBd ? serverBd.utilizablePara : null,
-          fisicoDep11: serverBd ? serverBd.fisicoDep11 : null,
-          reservadasTotal: serverBd ? serverBd.reservadasTotal : null,
-          backorderAppTotal: serverBd && serverBd.backorderApp ? serverBd.backorderApp.total : null,
-          asignadasTotal: serverBd && serverBd.asignadas ? serverBd.asignadas.total : null,
-          _version: serverBd ? serverBd._version : null,
-          reason: serverLine.reason || null,
-        };
-        const clientPayload = clientStock && clientStock[ch.sku] ? clientStock[ch.sku] : null;
-        return {
-          sku: ch.sku,
-          pediste: ch.pediste,
-          server: serverPayload,
-          client: clientPayload,
-          mismatch: clientPayload
-            ? {
-                libre:
-                  clientPayload.libre !== undefined && clientPayload.libre !== serverPayload.libre,
-                utilizablePara:
-                  clientPayload.utilizablePara !== undefined &&
-                  clientPayload.utilizablePara !== serverPayload.utilizablePara,
-                fisicoDep11:
-                  clientPayload.fisicoDep11 !== undefined &&
-                  clientPayload.fisicoDep11 !== serverPayload.fisicoDep11,
-              }
-            : null,
-        };
-      });
-      const _logEntry = {
-        type: 'commit_pedido_rejected',
-        errorCode: 'STOCK_CHANGED',
+    // §64.2 (v1448): compute skuDetails + propagar via err._data. El catch
+    // del retry loop (línea ~240) hace `await logCommitRejection(...,
+    // {...err._data, ...})` → log garantizado desde FUERA de la tx (sin
+    // duplicados en retry, sin bloquear el callback de runTransaction).
+    const clientStock =
+      payload && typeof payload.clientStock === 'object' ? payload.clientStock : null;
+    const serverSnapshotUpdatedAt =
+      updatedAt && typeof updatedAt.toMillis === 'function' ? new Date(updatedAt.toMillis()) : null;
+    const skuDetails = diffVsClient.skuChanged.map((/** @type {any} */ ch) => {
+      const serverLine = lineasResultado.find((/** @type {any} */ l) => l.sku === ch.sku) || {};
+      const serverBd = serverLine.breakdown || null;
+      const serverPayload = {
+        qtyConfirmed: ch.podesLlevar,
+        qtyBO: ch.aBackOrder,
+        libre: serverBd ? serverBd.libre : null,
+        utilizablePara: serverBd ? serverBd.utilizablePara : null,
+        fisicoDep11: serverBd ? serverBd.fisicoDep11 : null,
+        reservadasTotal: serverBd ? serverBd.reservadasTotal : null,
+        backorderAppTotal: serverBd && serverBd.backorderApp ? serverBd.backorderApp.total : null,
+        asignadasTotal: serverBd && serverBd.asignadas ? serverBd.asignadas.total : null,
+        _version: serverBd ? serverBd._version : null,
+        reason: serverLine.reason || null,
+      };
+      const clientPayload = clientStock && clientStock[ch.sku] ? clientStock[ch.sku] : null;
+      return {
+        sku: ch.sku,
+        pediste: ch.pediste,
+        server: serverPayload,
+        client: clientPayload,
+        mismatch: clientPayload
+          ? {
+              libre:
+                clientPayload.libre !== undefined && clientPayload.libre !== serverPayload.libre,
+              utilizablePara:
+                clientPayload.utilizablePara !== undefined &&
+                clientPayload.utilizablePara !== serverPayload.utilizablePara,
+              fisicoDep11:
+                clientPayload.fisicoDep11 !== undefined &&
+                clientPayload.fisicoDep11 !== serverPayload.fisicoDep11,
+            }
+          : null,
+      };
+    });
+    throwError('STOCK_CHANGED', 'El stock cambió entre que viste la pantalla y confirmaste', {
+      diff: diffVsClient.skuChanged,
+      message: diffVsClient.message,
+      // Metadata para el log del catch (via err._data → logCommitRejection extra).
+      _logExtra: {
         skuDetails,
         totalSkuChanged: diffVsClient.skuChanged.length,
         totalUnitsToBO: diffVsClient.skuChanged.reduce(
@@ -645,33 +668,7 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
         clientSnapshotProvided: !!clientStock,
         clientSnapshotUpdatedAt:
           payload && payload.clientSnapshotUpdatedAt ? payload.clientSnapshotUpdatedAt : null,
-        clientVersion: payload && payload.clientVersion ? payload.clientVersion : null,
-        userId:
-          payload && (payload.ownerUid || payload.userId)
-            ? payload.ownerUid || payload.userId
-            : null,
-        userEmail:
-          payload && (payload.ownerEmail || payload.userEmail)
-            ? payload.ownerEmail || payload.userEmail
-            : null,
-        cardCode: payload && payload.cardCode ? payload.cardCode : null,
-        draftId: payload && payload.draftId ? payload.draftId : null,
-        origen: payload && payload.origen ? payload.origen : null,
-        waitlistOrigenId: payload && payload.waitlistOrigenId ? payload.waitlistOrigenId : null,
-        timestamp: new Date(now),
-      };
-      const _addResult = deps.fbDb.collection('operations_log').add(_logEntry);
-      if (_addResult && typeof _addResult.catch === 'function') {
-        _addResult.catch((/** @type {any} */ _err) => {
-          if (deps.log) deps.log('operations_log write failed (STOCK_CHANGED)', _err);
-        });
-      }
-    } catch (_e) {
-      // best-effort, no bloquea el throw.
-    }
-    throwError('STOCK_CHANGED', 'El stock cambió entre que viste la pantalla y confirmaste', {
-      diff: diffVsClient.skuChanged,
-      message: diffVsClient.message,
+      },
     });
   }
 
@@ -1070,4 +1067,63 @@ function throwError(code, message, data) {
 /** @param {string} code @param {string} message @param {any} [data] */
 function makeError(code, message, data) {
   return { ok: false, errorCode: code, message, data: data || {} };
+}
+
+/**
+ * §64.2 (2026-10-23 v1448): logging centralizado de rechazos commitPedido.
+ *
+ * TODO rechazo (`makeError` o `throwError`) debe pasar por acá antes de
+ * retornar/tirar. Pedido Mariano: "no puede haber un rechazo de la CF sin
+ * registro". El fire-and-forget previo (§60/§64) perdía logs cuando el
+ * runtime terminaba la invocación antes de que el `.add()` complete.
+ *
+ * **AWAIT no fire-and-forget**. Garantiza que el log existe antes del return.
+ * Costo: ~20-50ms extra por rechazo. Acceptable: si rechazamos, informamos.
+ *
+ * @param {any} deps Deps de commitPedidoCore (fbDb + log).
+ * @param {string} errorCode Uno de VERSION_OLD/CLIENT_HAS_OPEN_WAITLIST/
+ *   STOCK_CHANGED/SNAPSHOT_TOO_OLD/CONTENTION_RETRY_EXHAUSTED/VALIDATION_ERROR/
+ *   PERMISSION_DENIED/SAP_UNAVAILABLE.
+ * @param {any} payload El payload del request (para extraer draftId, cardCode, etc).
+ * @param {any} [extra] Campos específicos del error (ej. skuDetails, snapshotAgeMinutes).
+ */
+async function logCommitRejection(deps, errorCode, payload, extra) {
+  if (!deps || !deps.fbDb) return;
+  try {
+    const now =
+      deps.now && typeof deps.now === 'function'
+        ? deps.now() instanceof Date
+          ? /** @type {Date} */ (deps.now()).getTime()
+          : /** @type {number} */ (deps.now())
+        : Date.now();
+    const entry = Object.assign(
+      {
+        type: 'commit_pedido_rejected',
+        errorCode,
+        userId:
+          payload && (payload.ownerUid || payload.userId)
+            ? payload.ownerUid || payload.userId
+            : null,
+        userEmail:
+          payload && (payload.ownerEmail || payload.userEmail)
+            ? payload.ownerEmail || payload.userEmail
+            : null,
+        cardCode: payload && payload.cardCode ? payload.cardCode : null,
+        draftId: payload && payload.draftId ? payload.draftId : null,
+        origen: payload && payload.origen ? payload.origen : null,
+        clientVersion: payload && payload.clientVersion ? payload.clientVersion : null,
+        waitlistOrigenId: payload && payload.waitlistOrigenId ? payload.waitlistOrigenId : null,
+        timestamp: new Date(now),
+      },
+      extra || {}
+    );
+    await deps.fbDb.collection('operations_log').add(entry);
+  } catch (e) {
+    if (deps.log) {
+      deps.log('operations_log write failed (commit_pedido_rejected)', {
+        errorCode,
+        err: (e && e.message) || String(e),
+      });
+    }
+  }
 }
