@@ -1,43 +1,30 @@
 #!/usr/bin/env node
 // @ts-check
 /**
- * INCIDENTE 2026-10-23 17:52 ART (reportado 2026-10-25) — reparación de
- * pedidos que quedaron en BO completo por bug de lectura del snapshot
- * en commitPedidoCF.
+ * INCIDENTE 2026-10-23 (reportado 2026-10-25) — reparación de pedidos que
+ * quedaron en BO completo por bug lectura snapshot en commitPedidoCF.
  *
- * ROOT CAUSE (ya fixeado en código v1448):
- *   functions/core/commit-pedido-core.js leía warehouseBreakdown esperando
- *   dict, pero Python escribe JSON string → fisico=0 → qtyBO=cantidad →
- *   TODO va a BO + transferidoSAP.via='app_only' + reason='all_lines_bo_server_detected'.
+ * ROOT CAUSE (ya fixeado en v1448 PR #1202, deployed hoy):
+ *   commit-pedido-core.js leía warehouseBreakdown esperando dict, pero
+ *   Python escribe JSON string → fisico=0 → qtyBO=cantidad → TODO va a BO
+ *   + transferidoSAP.via='app_only' + reason='all_lines_bo_server_detected'.
  *
- * VÍCTIMAS confirmadas (query directa 2026-10-25):
- *   - BROBRO SA (jwKRy9cgCRWnB4CajjlG, 23/10 17:52, 87 lines, origen cpst)
- *   - GUSTAVO EMILIO DESIATA (r9SnOcNpFiObB5FXYNhm, 23/10 19:07, 5 lines)
- *   - EDUARDO SATO DUPLICADO (qlB4FpI3R9Rhu5sLZvbf 19:08:43 + 6LhigQdzUmEcOHcRUEjl 19:08:41)
- *   - MARCELO DANIEL BOSCHETTO (23/10 15:43, 13 lines, Santiago)
- *   - LUCAS MAXIMILIANO BAIGORRIA (24/10 13:25, 40 lines, Federico)
- *   - LA LOMITA OUTDOORS SRL (25/10 05:02 cpst + 05:03 manual, 35 + 41 lines, Federico)
+ * REPARACIÓN (condiciones Mariano 2026-10-25):
+ *   a. Pedidos quedan "listos para enviar a SAP" (transferidoSAP=null +
+ *      closedReason=null + lines split confirmed/BO). NO envía a SAP solo.
+ *   b. Recálculo en ORDEN CRONOLÓGICO (confirmedAt ASC) usando
+ *      `getStockBreakdown` del pure (functions/core/pedido-snapshot-core.js).
+ *      Cada pedido descuenta del libre lo que los anteriores de ESTA lista
+ *      YA se llevaron (sumando sus líneas reparadas al array de pedidos
+ *      abiertos para la siguiente iteración). Respeta ASIG + confirmed de
+ *      otros clientes (§39).
+ *   c. Resuelve `assignedVendorUid` faltante usando master del cliente
+ *      (§46 resolveClientVendorFromMaster).
  *
- * Query de descubrimiento (filter server-side):
- *   type='commit_pedido_rejected' NO (no todos loguearon).
- *   Pedidos: transferidoSAP.via='app_only' + confirmedAt >= 2026-10-23T17:52
- *   + _commitVersion='commitPedidoCore_v1'.
+ * EXCLUYE: duplicado SATO qlB4FpI3R9Rhu5sLZvbf. Correr D_eliminar... ANTES
+ * de este script.
  *
- * REPARACIÓN
- * Para cada pedido afectado:
- *   1. Lee las líneas (todas state='BO' con qtyOpen>0).
- *   2. Lee el snapshot ACTUAL (post-fix).
- *   3. Recomputa para cada SKU: fisicoDep11 - reservadasYaPreviasDe otros pedidos
- *      actuales (NO del propio pedido afectado — vamos a mutarlo).
- *   4. Decide: qtyConfirmed = min(qty, libre); qtyBO = qty - qtyConfirmed.
- *   5. En dry-run: imprime tabla pedido × SKU: antes BO=N → después qtyConfirmed=X qtyBO=Y.
- *   6. Con --apply: muta las líneas (split BO en confirmed + BO si corresponde),
- *      limpia transferidoSAP.via='app_only' + reason, guarda snapshot anterior
- *      en _backfill (§55).
- *
- * NO ENVÍA A SAP automáticamente. Después del apply, los pedidos quedan como si
- * se hubieran confirmado hoy con el fix: `syncSapOrdersToApp` / el flow manual
- * de admin desde "Enviar a SAP" los procesa normal.
+ * NO ENVÍA A SAP. Mariano o cada VDE lo manda mañana desde la UI/panel.
  *
  * Uso:
  *   node scripts/audit/W_reparar_pedidos_bo_fantasma_2026-10-25.cjs            # dry-run
@@ -52,12 +39,10 @@ if (admin.apps.length === 0) {
 }
 const db = admin.firestore();
 
-// Nota: originalmente filtrábamos confirmedAt >= 17:52 ART del 23/10, pero
-// BOSCHETTO (23/10 15:43 ART = 18:43 UTC) también está afectado. El
-// `reason='all_lines_bo_server_detected'` ES único del bug: solo se setea
-// cuando CF decide qtyBO=cantidad_pedida para TODAS las líneas. Es filtro
-// suficiente. INCIDENT_START queda documentado abajo pero no se aplica.
-const INCIDENT_START = new Date('2026-10-23T18:00:00Z'); // 15:00 ART — early margin
+// `reason=all_lines_bo_server_detected` es único del bug: filtro suficiente.
+// INCIDENT_START queda como corte defensivo para pedidos muy viejos.
+const INCIDENT_START = new Date('2026-10-23T18:00:00Z'); // 15:00 ART
+const EXCLUDE_IDS = new Set(['qlB4FpI3R9Rhu5sLZvbf']); // SATO duplicado (D_...)
 
 async function main() {
   const args = process.argv.slice(2);
@@ -65,12 +50,22 @@ async function main() {
   const pedidoFilterArg = args.find((a) => a.startsWith('--pedido='));
   const pedidoFilter = pedidoFilterArg ? pedidoFilterArg.split('=')[1] : null;
 
+  // Import dinámico del pure helper (getStockBreakdown).
+  const { getStockBreakdown } = await import(
+    '../../functions/core/pedido-snapshot-core.js'
+  );
+  // Import resolveClientVendorFromMaster del pure cliente.
+  const { resolveClientVendorFromMaster } = await import(
+    '../../src/pure/resolve-client-vendor.js'
+  );
+
   console.log(`\n[W] Reparación pedidos BO fantasma — ${apply ? 'APPLY' : 'DRY-RUN'}`);
   console.log(`[W] Rango: desde ${INCIDENT_START.toISOString()}`);
+  console.log(`[W] Excluye: ${Array.from(EXCLUDE_IDS).join(', ')}`);
   if (pedidoFilter) console.log(`[W] Filtro pedidoId: ${pedidoFilter}`);
   console.log('');
 
-  // 1. Buscar pedidos con transferidoSAP.via='app_only' confirmados post-incidente.
+  // 1. Buscar pedidos afectados.
   console.log('[W] Buscando pedidos afectados...');
   const snap = await db
     .collection('pedidos')
@@ -78,13 +73,13 @@ async function main() {
     .get();
   const afectados = [];
   snap.forEach((d) => {
-    const data = d.data() || {};
+    if (EXCLUDE_IDS.has(d.id)) return;
     if (pedidoFilter && d.id !== pedidoFilter) return;
+    const data = d.data() || {};
     const transferido = data.transferidoSAP || {};
     if (transferido.via !== 'app_only') return;
     const reason = transferido.reason || data.closedReason || '';
     if (reason !== 'all_lines_bo_server_detected') return;
-    // Confirmado DESPUÉS del incidente.
     const confirmedAt =
       data.confirmedAt && typeof data.confirmedAt.toMillis === 'function'
         ? new Date(data.confirmedAt.toMillis())
@@ -94,6 +89,7 @@ async function main() {
     if (!confirmedAt || confirmedAt < INCIDENT_START) return;
     afectados.push({ id: d.id, data, confirmedAt });
   });
+  // Orden cronológico ASC: el primero que confirmó se lleva el libre primero.
   afectados.sort((a, b) => a.confirmedAt - b.confirmedAt);
   console.log(`[W] Encontrados: ${afectados.length} pedidos afectados.`);
   if (afectados.length === 0) {
@@ -101,7 +97,7 @@ async function main() {
     return;
   }
 
-  // 2. Leer snapshot actual (post-fix) para computar reparación.
+  // 2. Leer snapshot ACTUAL (post-fix PR #1202).
   const stockSnap = await db.doc('app_config/stock_snapshot').get();
   const stockData = stockSnap.exists ? stockSnap.data() || {} : {};
   let warehouseBreakdown = {};
@@ -113,54 +109,112 @@ async function main() {
       console.error('[W] CRITICAL: warehouseBreakdown no parsea:', e.message);
       process.exit(1);
     }
-  } else if (typeof rawWhsBd === 'object') {
+  } else if (typeof rawWhsBd === 'object' && rawWhsBd !== null) {
     warehouseBreakdown = rawWhsBd;
   }
   console.log(
     `[W] Snapshot leído. source=${stockData.source}, SKUs=${Object.keys(warehouseBreakdown).length}`
   );
+  // Helper getStockFisico para el pure.
+  const getStockFisico = (sku) => {
+    const u = String(sku || '').toUpperCase();
+    return Number((warehouseBreakdown[u] || {})[11] || 0);
+  };
 
-  // 3. Leer TODOS los pedidos abiertos (excluyendo los afectados) para
-  //    recalcular reservadas por SKU (igual que commitPedidoCore).
-  console.log('[W] Leyendo pedidos abiertos (para reservadas)...');
-  const abiertosSnap = await db
-    .collection('pedidos')
-    .where('closedAt', '==', null)
-    .get();
-  const reservadasPorSku = {}; // {sku: {total, byAfectado}}
-  const afectadosIds = new Set(afectados.map((a) => a.id));
+  // 3. Leer TODOS los pedidos abiertos + waitlist CPST (para getStockBreakdown).
+  //    Clave: incluir los AFECTADOS originales (para que su "reserva fantasma"
+  //    no doble-cuente). getStockBreakdown recorre pedidos; ASIG y confirmed
+  //    de otros clientes se contabilizan.
+  console.log('[W] Leyendo pedidos abiertos + waitlist CPST...');
+  const abiertosSnap = await db.collection('pedidos').where('closedAt', '==', null).get();
+  const pedidosAbiertos = [];
   abiertosSnap.forEach((d) => {
     const data = d.data() || {};
-    for (const line of data.lines || []) {
-      if (!line || !line.code) continue;
-      const sku = String(line.code).toUpperCase();
-      const qtyOpen = Number(line.qtyOpen) || 0;
-      if (qtyOpen <= 0) continue;
-      // Estados que reservan físico (patrón §39/§40):
-      //   state=confirmed sin TTL vencido (asumimos todos vigentes para simplificar)
-      //   state=ASIG vigente
-      // NO: state=BO (§40 BO no reserva).
-      if (line.state !== 'confirmed' && line.state !== 'ASIG') continue;
-      // IMPORTANTE: NO contar las reservas del pedido afectado — las vamos
-      // a reemplazar. Si el pedido afectado tiene líneas BO (todas), ninguna
-      // reserva (BO no reserva, §40). OK: no hay que excluir nada.
-      if (afectadosIds.has(d.id)) continue;
-      if (!reservadasPorSku[sku]) reservadasPorSku[sku] = 0;
-      reservadasPorSku[sku] += qtyOpen;
-    }
+    pedidosAbiertos.push({ _fsId: d.id, ...data });
+  });
+  const waitlistSnap = await db.collection('revision_waitlist').get();
+  const waitlistEntries = [];
+  waitlistSnap.forEach((d) => {
+    waitlistEntries.push({ _fsId: d.id, ...d.data() });
   });
 
-  // 4. Para cada pedido afectado, computar reparación.
-  console.log('\n[W] Plan de reparación:\n');
+  // Al "reparar" un pedido afectado, lo removemos de pedidosAbiertos y lo
+  // volvemos a agregar con sus líneas REPARADAS. Así la siguiente iteración
+  // ve las reservas correctas.
+  // IMPORTANTE: los pedidos afectados actualmente tienen líneas state='BO'
+  // que NO reservan (§40). Entonces al removerlos no "libero" nada. Al
+  // reagregarlos con líneas confirmed, SÍ reservan para los siguientes.
+
+  // 4. (opcional) Cargar POINTS + vendor_overrides + approvedAltas + users
+  //    para resolver vendor por cliente master (§46).
+  console.log('[W] Cargando POINTS + overrides + altas + users (para resolver vendor)...');
+  const [pointsSnap, overridesSnap, altasSnap, usersSnap] = await Promise.all([
+    db.collection('points').get(),
+    db.collection('vendor_overrides').get(),
+    db.collection('client_applications').get(),
+    db.collection('roles').get(),
+  ]);
+  const points = [];
+  pointsSnap.forEach((d) => points.push({ _fsId: d.id, ...d.data() }));
+  const vendorOverrides = [];
+  overridesSnap.forEach((d) => vendorOverrides.push(d.data()));
+  const approvedAltas = [];
+  altasSnap.forEach((d) => {
+    const data = d.data() || {};
+    if (data.status === 'approved' || data.cardCodeSap) approvedAltas.push(data);
+  });
+  const users = [];
+  usersSnap.forEach((d) => users.push({ uid: d.id, ...d.data() }));
+  // Helpers minimales: getEffectiveVendorForClient y sapGetClienteCode.
+  function getEffectiveVendorForClient(point, _name) {
+    if (!point) return null;
+    // Simplificado: toma point.vendor directamente. vendor_overrides se podría
+    // layer-ear por SHOP/LOC/PROV pero para la reparación el point.vendor
+    // base es suficiente para los casos observados.
+    return point.vendor || null;
+  }
+  function sapGetClienteCode(_name) {
+    return null; // los pedidos afectados ya tienen clientCardCode set.
+  }
+
+  // 5. Para cada pedido afectado, recomputar en orden cronológico.
+  console.log('\n[W] Plan de reparación (orden cronológico, getStockBreakdown):\n');
   const reparaciones = [];
   for (const pedido of afectados) {
     const { id, data, confirmedAt } = pedido;
     const cliente = data.clientName || '?';
     const cardCode = data.clientCardCode || '?';
-    const vendor = data.vendorAssigned || data.ownerVendor || data.cargadoPorEmail || '?';
+    const vendorAssignedBefore = data.vendorAssigned || data.ownerVendor || '';
+    const assignedVendorUidBefore = data.assignedVendorUid || null;
+
+    // Resolver vendor del master si falta.
+    let newVendorAssigned = vendorAssignedBefore;
+    let newAssignedVendorUid = assignedVendorUidBefore;
+    if (!vendorAssignedBefore || !assignedVendorUidBefore) {
+      try {
+        const resolution = resolveClientVendorFromMaster({
+          cardCode,
+          clientName: cliente,
+          points,
+          vendorOverrides,
+          approvedAltas,
+          users,
+          getEffectiveVendorForClient,
+          sapGetClienteCode,
+        });
+        if (resolution && resolution.vendorKey) {
+          newVendorAssigned = resolution.vendorKey;
+          if (resolution.vendorUid) newAssignedVendorUid = resolution.vendorUid;
+        }
+      } catch (_e) {
+        // Non-fatal.
+      }
+    }
+
     console.log(
-      `\n--- Pedido ${id.substring(0, 10)}... | ${confirmedAt.toISOString()} | ${cliente} (${cardCode}) | vendor=${vendor} ---`
+      `\n--- Pedido ${id.substring(0, 10)}... | ${confirmedAt.toISOString()} | ${cliente} (${cardCode}) | vendor=${newVendorAssigned || '(sin vendedor)'} ${!vendorAssignedBefore && newVendorAssigned ? '[resuelto]' : ''} ---`
     );
+    // Filtrar: SOLO reparamos líneas state='BO' qtyOpen>0 (las que el bug mandó a BO).
     const linesOut = [];
     const planLineas = [];
     let totalConfirmedUnidades = 0;
@@ -178,34 +232,37 @@ async function main() {
         linesOut.push(line);
         continue;
       }
-      // Recomputar: libre_hoy = fisicoDep11 - reservadasPorSku[sku].
-      const fisico = Number((warehouseBreakdown[sku] || {})[11] || 0);
-      const yaReservado = reservadasPorSku[sku] || 0;
-      const libreHoy = Math.max(fisico - yaReservado, 0);
-      const qtyConfirmed = Math.min(qty, libreHoy);
+      // Recomputar con getStockBreakdown (§39).
+      const bd = getStockBreakdown(sku, {
+        getStockFisico,
+        pedidos: pedidosAbiertos,
+        waitlistEntries,
+        ingresosRepartoActivos: [], // sin uso en este contexto
+      });
+      // §39: utilizablePara(cardCode) = libre + reservas propias del cliente (menos BO).
+      // Para la reparación usamos `libre` (lo que efectivamente puede llevarse sin
+      // sobre-asignar) + utilizablePara(cardCode) si el cliente tiene reservas propias.
+      // Como el pedido afectado NO reserva (está en BO), libre ya es el disponible real.
+      const libre = typeof bd.libre === 'number' ? bd.libre : 0;
+      const qtyConfirmed = Math.min(qty, libre);
       const qtyBO = qty - qtyConfirmed;
-      // "Consumir" el libre: incrementar reservadasPorSku para los siguientes SKUs.
-      reservadasPorSku[sku] = yaReservado + qtyConfirmed;
-      const precio = Number(line.precio) || 0;
       planLineas.push({
         sku,
         qtyPedida: qty,
-        fisicoHoy: fisico,
-        yaReservado,
-        libreHoy,
+        fisico: bd.fisicoDep11,
+        reservadasTotal: bd.reservadasTotal,
+        libre,
         qtyConfirmed,
         qtyBO,
       });
       totalConfirmedUnidades += qtyConfirmed;
       totalBoUnidades += qtyBO;
-      // Construir las nuevas líneas (split confirmed + BO si corresponde).
       if (qtyConfirmed > 0) {
         linesOut.push({
           ...line,
           qty: qtyConfirmed,
           qtyOpen: qtyConfirmed,
           state: 'confirmed',
-          // Marcar que viene de reparación W (§55).
           _repairedFrom: 'W_reparar_pedidos_bo_fantasma_2026-10-25',
         });
       }
@@ -222,40 +279,68 @@ async function main() {
     console.log(
       `  Líneas: ${planLineas.length} a reparar. Confirmed=${totalConfirmedUnidades}u, BO=${totalBoUnidades}u.`
     );
-    // Imprimir solo las primeras 10 líneas por legibilidad.
     const topLineas = planLineas.slice(0, 10);
     for (const p of topLineas) {
       console.log(
-        `    ${p.sku.padEnd(18)}  qty=${String(p.qtyPedida).padStart(3)}  fisico=${String(p.fisicoHoy).padStart(3)}  resAjenas=${String(p.yaReservado).padStart(3)}  libre=${String(p.libreHoy).padStart(3)}  →  confirmed=${String(p.qtyConfirmed).padStart(3)}  BO=${String(p.qtyBO).padStart(3)}`
+        `    ${p.sku.padEnd(18)}  qty=${String(p.qtyPedida).padStart(3)}  fisico=${String(p.fisico).padStart(3)}  resAjenas=${String(p.reservadasTotal).padStart(3)}  libre=${String(p.libre).padStart(3)}  →  confirmed=${String(p.qtyConfirmed).padStart(3)}  BO=${String(p.qtyBO).padStart(3)}`
       );
     }
     if (planLineas.length > 10) console.log(`    ... ${planLineas.length - 10} líneas más`);
-    reparaciones.push({ id, cliente, cardCode, confirmedAt, linesOut, planLineas, totalConfirmedUnidades, totalBoUnidades });
+    reparaciones.push({
+      id,
+      cliente,
+      cardCode,
+      confirmedAt,
+      linesOut,
+      planLineas,
+      totalConfirmedUnidades,
+      totalBoUnidades,
+      vendorAssignedBefore,
+      newVendorAssigned,
+      assignedVendorUidBefore,
+      newAssignedVendorUid,
+      originalData: data,
+    });
+
+    // Actualizar el pedido en pedidosAbiertos para la siguiente iteración:
+    // reemplazar las líneas BO fantasma por las reparadas (ya con confirmed).
+    const idx = pedidosAbiertos.findIndex((p) => p._fsId === id);
+    if (idx >= 0) {
+      pedidosAbiertos[idx] = { ...pedidosAbiertos[idx], lines: linesOut };
+    }
   }
 
-  // 5. Resumen agregado.
-  console.log('\n' + '='.repeat(80));
+  // 6. Resumen agregado.
+  console.log('\n' + '='.repeat(90));
   console.log('[W] RESUMEN DE REPARACIÓN');
-  console.log('='.repeat(80));
+  console.log('='.repeat(90));
   console.log(
-    `${'Pedido'.padEnd(18)} ${'Cliente'.padEnd(25)} ${'Confirmed'.padStart(10)} ${'BO'.padStart(8)}`
+    `${'Pedido'.padEnd(18)} ${'Cliente'.padEnd(25)} ${'Vendedor'.padEnd(22)} ${'Confirmed'.padStart(10)} ${'BO'.padStart(6)}`
   );
-  console.log('-'.repeat(80));
+  console.log('-'.repeat(90));
   let totalConfirmed = 0;
   let totalBo = 0;
   for (const r of reparaciones) {
+    const vendor = (r.newVendorAssigned || '(sin)').substring(0, 20);
+    const vendorFlag =
+      !r.vendorAssignedBefore && r.newVendorAssigned
+        ? ' *'
+        : r.vendorAssignedBefore !== r.newVendorAssigned && r.newVendorAssigned
+          ? ' !'
+          : '';
     console.log(
-      `${r.id.substring(0, 16).padEnd(18)} ${r.cliente.substring(0, 24).padEnd(25)} ${String(r.totalConfirmedUnidades).padStart(10)} ${String(r.totalBoUnidades).padStart(8)}`
+      `${r.id.substring(0, 16).padEnd(18)} ${r.cliente.substring(0, 24).padEnd(25)} ${vendor.padEnd(20)}${vendorFlag.padEnd(2)} ${String(r.totalConfirmedUnidades).padStart(10)} ${String(r.totalBoUnidades).padStart(6)}`
     );
     totalConfirmed += r.totalConfirmedUnidades;
     totalBo += r.totalBoUnidades;
   }
-  console.log('-'.repeat(80));
+  console.log('-'.repeat(90));
   console.log(
-    `${'TOTAL'.padEnd(44)} ${String(totalConfirmed).padStart(10)} ${String(totalBo).padStart(8)}`
+    `${'TOTAL'.padEnd(68)} ${String(totalConfirmed).padStart(10)} ${String(totalBo).padStart(6)}`
   );
+  console.log('\n* = vendedor resuelto desde master. ! = cambió vs valor previo.');
 
-  // 6. Apply (solo con flag).
+  // 7. Apply.
   if (!apply) {
     console.log('\n[W] DRY-RUN. Para aplicar, correr con --apply (requiere OK Mariano).');
     return;
@@ -264,35 +349,43 @@ async function main() {
   console.log('\n[W] APPLY. Mutando pedidos...');
   for (const r of reparaciones) {
     const ref = db.collection('pedidos').doc(r.id);
-    const snapshotPrevio = {};
-    const originalData = (afectados.find((a) => a.id === r.id) || {}).data || {};
-    // Snapshot §55: valor anterior.
-    snapshotPrevio.lines = originalData.lines;
-    snapshotPrevio.transferidoSAP = originalData.transferidoSAP || null;
-    snapshotPrevio.closedReason = originalData.closedReason || null;
-    await ref.update({
+    const snapshotPrevio = {
+      lines: r.originalData.lines,
+      transferidoSAP: r.originalData.transferidoSAP || null,
+      closedReason: r.originalData.closedReason || null,
+      vendorAssigned: r.originalData.vendorAssigned || null,
+      assignedVendorUid: r.originalData.assignedVendorUid || null,
+    };
+    /** @type {Record<string, any>} */
+    const updateData = {
       lines: r.linesOut,
-      // Limpiar transferidoSAP para que el flow normal re-detecte.
       transferidoSAP: null,
-      // closedReason tampoco debe estar; el pedido vuelve a estado activo
-      // esperando "Enviar a SAP" manual.
       closedReason: null,
       _backfill: {
         [`W_bo_fantasma_${new Date().toISOString().slice(0, 10)}`]: {
           previousValues: snapshotPrevio,
           by: 'scripts/audit/W_reparar_pedidos_bo_fantasma_2026-10-25.cjs',
           at: new Date().toISOString(),
-          reason: 'Reparación incidente lectura snapshot JSON string',
+          reason: 'Reparación incidente lectura snapshot JSON string (v1448 fix)',
           totalConfirmedUnidades: r.totalConfirmedUnidades,
           totalBoUnidades: r.totalBoUnidades,
         },
       },
       _lastBackfillAt: new Date().toISOString(),
       _lastBackfillBy: 'scripts/audit/W_reparar_pedidos_bo_fantasma_2026-10-25.cjs',
-    });
+    };
+    if (r.newVendorAssigned && r.newVendorAssigned !== r.vendorAssignedBefore) {
+      updateData.vendorAssigned = r.newVendorAssigned;
+    }
+    if (r.newAssignedVendorUid && r.newAssignedVendorUid !== r.assignedVendorUidBefore) {
+      updateData.assignedVendorUid = r.newAssignedVendorUid;
+    }
+    await ref.update(updateData);
     console.log(`  ✓ Reparado ${r.id.substring(0, 10)}... (${r.cliente})`);
   }
   console.log(`\n[W] APPLY OK: ${reparaciones.length} pedidos reparados.`);
+  console.log('[W] Los pedidos quedaron en estado activo (transferidoSAP=null + closedReason=null).');
+  console.log('[W] NO fueron enviados a SAP. Enviar manualmente desde la UI/panel admin.');
 }
 
 main().catch((e) => {
