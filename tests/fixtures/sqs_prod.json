@@ -1,0 +1,97 @@
+{
+  "_dumpedAt": "2026-10-25T00:00:00.000Z",
+  "_project": "app-vendedores-shimano",
+  "_source": "SYNTHETIC — scripts/audit/dump_sqs_fixture.cjs no corrió por falta de ADC/VPN SAP",
+  "_comentario": "Fixture sintético que replica el shape REAL de /b1s/v1/Quotations?$filter=DocumentStatus eq 'bost_Open' and Cancelled eq 'tNO'. Cubre todos los casos exigidos por el prompt + edge cases. Si en una sesión futura con acceso SAP se puede correr el dump real, overwrite este archivo + re-correr el test de paridad.",
+  "_coverage": {
+    "sq_una_linea_abierta": true,
+    "sq_multiples_lineas": true,
+    "sq_openqty_cero": true,
+    "sq_mismo_cliente_mismo_sku_distintos_docs": true,
+    "sq_closed_debe_ignorarse": true,
+    "sq_cancelled_tyes_debe_ignorarse": true,
+    "line_itemcode_vacio": true,
+    "line_remainingopenquantity_null_fallback_openquantity": true,
+    "sq_sin_cardcode": true,
+    "sq_distintos_clientes_mismo_sku": true,
+    "remaining_decimal_string": true
+  },
+  "value": [
+    {
+      "DocEntry": 1001,
+      "CardCode": "C20116066670",
+      "DocumentStatus": "bost_Open",
+      "Cancelled": "tNO",
+      "DocumentLines": [
+        { "ItemCode": "SN2000FG", "RemainingOpenQuantity": 10 }
+      ]
+    },
+    {
+      "DocEntry": 1002,
+      "CardCode": "C20175569635",
+      "DocumentStatus": "bost_Open",
+      "Cancelled": "tNO",
+      "DocumentLines": [
+        { "ItemCode": "SN2000FG", "RemainingOpenQuantity": "5.000000" },
+        { "ItemCode": "REEL5000", "RemainingOpenQuantity": 3 },
+        { "ItemCode": "ROD-X1",   "RemainingOpenQuantity": 0 }
+      ]
+    },
+    {
+      "DocEntry": 1003,
+      "CardCode": "C20116066670",
+      "DocumentStatus": "bost_Open",
+      "Cancelled": "tNO",
+      "DocumentLines": [
+        { "ItemCode": "SN2000FG", "RemainingOpenQuantity": 2 },
+        { "ItemCode": "",         "RemainingOpenQuantity": 10 }
+      ]
+    },
+    {
+      "DocEntry": 1004,
+      "CardCode": "C20293164852",
+      "DocumentStatus": "bost_Close",
+      "Cancelled": "tNO",
+      "DocumentLines": [
+        { "ItemCode": "SN2000FG", "RemainingOpenQuantity": 100 }
+      ]
+    },
+    {
+      "DocEntry": 1005,
+      "CardCode": "C20312157552",
+      "DocumentStatus": "bost_Open",
+      "Cancelled": "tYES",
+      "DocumentLines": [
+        { "ItemCode": "SN2000FG", "RemainingOpenQuantity": 50 }
+      ]
+    },
+    {
+      "DocEntry": 1006,
+      "CardCode": "C30718510291",
+      "DocumentStatus": "bost_Open",
+      "Cancelled": "tNO",
+      "DocumentLines": [
+        { "ItemCode": "LDM64TE",  "RemainingOpenQuantity": null, "OpenQuantity": 4 },
+        { "ItemCode": "CUDC201HG", "RemainingOpenQuantity": 7 }
+      ]
+    },
+    {
+      "DocEntry": 1007,
+      "CardCode": "",
+      "DocumentStatus": "bost_Open",
+      "Cancelled": "tNO",
+      "DocumentLines": [
+        { "ItemCode": "CUDC201HG", "RemainingOpenQuantity": 1 }
+      ]
+    },
+    {
+      "DocEntry": 1008,
+      "CardCode": "C20259014868",
+      "DocumentStatus": "bost_Open",
+      "Cancelled": "tNO",
+      "DocumentLines": [
+        { "ItemCode": "REEL5000", "RemainingOpenQuantity": "2.5" }
+      ]
+    }
+  ]
+}

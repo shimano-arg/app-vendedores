@@ -3013,3 +3013,77 @@ Flow en `commitInTransaction` (functions/core/commit-pedido-core.js):
 
 **Rollback**: revertir el bloque del draft lock en `commitInTransaction` (líneas ~247-274 pre-fix) + remover la rule en `firestore.rules` + bumpear versión. La capa `findExistingByDraftId` (fast path) sigue cubriendo el 99% de los casos.
 
+## 65. Backorder SAP computado dentro del CF (port Python → Node) (2026-10-25, v1451)
+
+**Regla fuerte**: el bucket `backorderBySku` del `app_config/stock_snapshot` se computa dentro de `syncSapCatalogStockCF` cada 5 min (Cloud Scheduler). El workflow Python histórico (`scripts/sync_sap_to_firestore.py:sl_fetch_backorder_by_sku`) queda como **red de seguridad** mientras no se apague oficialmente (coexisten los dos sin pisarse por `set merge:true`).
+
+**Por qué**: GHA scheduler saltea runs (§60: cadencia efectiva 2-5h vs cada 5 min declarada). Si Python no corrió en 3h, el bucket `backorderBySku` del snapshot queda stale → UI muestra "Stock Liberado" (`max(whs12 - backorder, 0)`) incorrecto → vendedor ve stock disponible que no existe → pedido entra como venta normal y SAP lo rebota como backorder.
+
+**Core puro** (`functions/core/collect-backorder-from-sqs.js`):
+
+```js
+collectBackorderFromSqs(sqs) → { [sku]: { total, porCliente: { [cardCode]: qty } } }
+flattenBackorderDetailToTotals(detail) → { [sku]: int }  // compat UI
+fetchOpenSqsFromServiceLayer({sapConfig, cookie, log}) → { sqs, pages, scannedDocs, scannedLines, slRequests, error }
+```
+
+**Filtros** (idem Python líneas 640-712):
+- `DocumentStatus === 'bost_Open'` (closed/other → skip).
+- `Cancelled !== 'tYES'`.
+- `ItemCode` no vacío.
+- `RemainingOpenQuantity > 0` (0 o null → skip; fallback a `OpenQuantity` si viene null — Node extiende Python).
+
+**Shape nuevo `porCliente`**: Python solo escribía `{sku: int}`. El shape nuevo `{sku: {total, porCliente}}` permite reparto directo + auditoría demanda SAP por cliente sin re-leer `/Quotations`. Es extensión intencional sobre Python (documentada en el core).
+
+**Escritura al snapshot**:
+
+```js
+if (backorderComputedByCF) {
+  snapshot.backorderBySku       = JSON.stringify({sku: int});        // compat UI index.html:31999
+  snapshot.backorderBySkuDetail = JSON.stringify({sku: {total, porCliente}});
+  snapshot._backorderSource     = source;    // 'cf-scheduled' | 'manual-dispatch'
+  snapshot._backorderUpdatedAt  = new Date();
+}
+// set merge:true → preserva campos legacy escritos por Python.
+```
+
+**Fallback explícito**: si `fetchOpenSqsFromServiceLayer` falla (red o HTTP != 2xx, propagado via `result.error`):
+- `backorderComputedByCF = false`
+- `errors[]` incluye `'backorder-fetch: ...'`
+- Los 4 campos nuevos (`backorderBySku`, `backorderBySkuDetail`, `_backorderSource`, `_backorderUpdatedAt`) NO se mandan en el set → `merge:true` preserva lo que escribió la última corrida Python/GHA.
+
+El sync principal (items/stock/precio) sigue OK — backorder es best-effort, no bloquea el resto.
+
+**Compat UI**: `index.html:31999` lee `d.backorderBySku` como JSON string → `{sku: int}`. Sigue funcionando sin cambio. Shape nuevo `backorderBySkuDetail` queda disponible para futuros consumidores (ej. modal reparto, dashboard demanda SAP).
+
+**Operations log**: cada corrida logea `backorderComputedByCF: bool`, `backorderSkuCount: N`, `backorderSlRequests: M` en `operations_log/{auto-id}` + en `_syncRun` del snapshot + en el summary de `console.log` del CF (visible en Cloud Logging).
+
+**Verificación post-deploy**:
+```bash
+# Trigger manual:
+gcloud scheduler jobs run firebase-schedule-syncSapCatalogStockCF \
+  --project=app-vendedores-shimano \
+  --location=southamerica-east1
+
+# Grep logs:
+gcloud logging read \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="syncsapcatalogstockcf" AND textPayload:"backorder computed"' \
+  --project=app-vendedores-shimano --limit=5 --format=json
+```
+
+Esperado: `backorder computed: N SKUs, M SQ open, K lineas (X requests)`.
+
+**Divergencias documentadas vs Python** (test `tests/functions/collect-backorder-paridad-python.test.js`):
+1. Fallback `OpenQuantity` cuando `RemainingOpenQuantity` null: Node suma, Python ignora. Fuera de ese edge, output idéntico.
+2. Round-half: `Math.round(2.5) === 3` vs Python `round(2.5) === 2` (banker's). SAP SL devuelve `.000000` en prácticos; no es issue hoy.
+3. Shape nuevo `porCliente` + wrapper flatten: byte-for-byte paridad con Python en el shape viejo.
+
+**Rollback**: revertir el bloque de invocación en `syncSapCatalogStockCore` (líneas ~334-378) + redeploy. Workflow Python GHA sigue cubriendo (stale pero funcional). Las keys `backorderBySkuDetail` + `_backorderSource` + `_backorderUpdatedAt` quedarán en el snapshot pero sin lectores — innocuo (son campos nuevos).
+
+**Apagar Python oficialmente**: después de 2 semanas de la CF corriendo con `backorderComputedByCF=true` consistente (verificar en `operations_log` + Cloud Logging), apagar el cron del workflow `.github/workflows/sync-sap-catalog-stock.yml` dejando solo `workflow_dispatch` como respaldo manual. Ese paso es tarea aparte — este port habilita la decisión.
+
+**Prohibido**:
+- Modificar la señal `error` del `fetchOpenSqsFromServiceLayer` sin ajustar el flag `backorderComputedByCF` del core. El test `T8b` en `sync-sap-catalog-stock-schema-parity.test.js` garantiza fallback con HTTP 500.
+- Cambiar el shape de `backorderBySku` (seguir siendo `{sku: int}` JSON string). Para extensiones, usar `backorderBySkuDetail` o un campo nuevo.
+- Hacer que la fase backorder bloquee el sync principal. Si falla, `backorderComputedByCF=false` y seguir. Nunca `throw` desde el bloque.
+

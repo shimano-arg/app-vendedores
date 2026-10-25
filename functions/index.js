@@ -504,6 +504,9 @@ export const syncSapCatalogStockCF = onSchedule(
       withStock: result.withStock,
       durationMs: result.durationMs,
       slRequests: result.slRequests,
+      backorderComputedByCF: result.backorderComputedByCF,
+      backorderSkuCount: result.backorderSkuCount,
+      backorderSlRequests: result.backorderSlRequests,
       errors: result.errors,
     });
 
