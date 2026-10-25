@@ -118,6 +118,20 @@ function makeFetchMock(items) {
         },
       };
     }
+    if (u.includes('/Quotations?')) {
+      // §65 v1451 — mock SQs abiertas vacías (sin backorder). Esto hace
+      // backorderComputedByCF=true + backorderBySkuMap={} → sobreescribe el
+      // backorderBySku previo con "{}". Si un test necesita que la CF
+      // NO toque backorderBySku, debe simular una falla con un mock que
+      // devuelva .ok=false.
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { value: [] };
+        },
+      };
+    }
     throw new Error('unexpected ' + u);
   });
 }
@@ -308,13 +322,15 @@ describe('§63 Fase 3 Capa 1 — schema parity CF vs Python', () => {
     expect(cfSnap.source).toBe('cf-scheduled');
   });
 
-  it('T8 — set() usa merge:true (preserva backorderBySku previo)', async () => {
+  it('T8 — set() usa merge:true (preserva campos NO escritos por la CF; v1451 ahora SÍ pisa backorderBySku si computó OK)', async () => {
     _resetPool();
     const { fbDb, _state, _written } = makeFirestore();
-    // Simular que ya hay un snapshot previo (escrito por Python) con backorderBySku.
+    // Simular que ya hay un snapshot previo con backorderBySku + un campo
+    // ajeno (ej. legacySource escrito por Python).
     _state.app_config.stock_snapshot = {
       backorderBySku: JSON.stringify({ CLC70MHAAR: 3 }),
       stock: { OLD: true },
+      legacySource: 'service_layer_auto', // campo que Python mete y CF no toca.
     };
     await syncSapCatalogStockCore({
       fbDb,
@@ -323,14 +339,87 @@ describe('§63 Fase 3 Capa 1 — schema parity CF vs Python', () => {
       source: 'cf-scheduled',
     });
     const cfSnap = _state.app_config.stock_snapshot;
-    // backorderBySku previo preservado.
-    expect(cfSnap.backorderBySku).toBe(JSON.stringify({ CLC70MHAAR: 3 }));
-    // stock pisado por el nuevo.
+    // §65 v1451: la CF ahora computa backorder. Con mock Quotations=[], el
+    // backorder resultante es {} → sobreescribe el previo con "{}".
+    expect(cfSnap.backorderBySku).toBe('{}');
+    expect(cfSnap.backorderBySkuDetail).toBe('{}');
+    expect(cfSnap._backorderSource).toBe('cf-scheduled');
+    // Campos NO escritos por la CF siguen preservados por merge:true.
+    expect(cfSnap.legacySource).toBe('service_layer_auto');
+    // stock pisado por el nuevo (sí lo escribe la CF).
     expect(cfSnap.stock.OLD).toBeUndefined();
     expect(cfSnap.stock.CLC70MHAAR).toBe(true);
     // Verificar que fue set+merge, no set.
     const setCall = _written.find((w) => w.path === 'app_config/stock_snapshot');
     expect(setCall.op).toBe('set+merge');
+  });
+
+  it('T8b (§65 v1451) — si fetchOpenSqsFromServiceLayer falla, backorderBySku previo QUEDA preservado', async () => {
+    _resetPool();
+    const { fbDb, _state } = makeFirestore();
+    _state.app_config.stock_snapshot = {
+      backorderBySku: JSON.stringify({ CLC70MHAAR: 3 }),
+      backorderBySkuDetail: JSON.stringify({ CLC70MHAAR: { total: 3, porCliente: { C001: 3 } } }),
+    };
+    // Mock que hace fallar /Quotations? (todos los demás paths OK).
+    const failingFetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.endsWith('/Login')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: {
+            get: (n) => (n.toLowerCase() === 'set-cookie' ? 'B1SESSION=X; path=/' : null),
+          },
+        };
+      }
+      if (u.endsWith('/Logout')) return { ok: true, status: 204, headers: { get: () => null } };
+      if (u.includes('/ItemGroups?')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { value: [{ Number: 102, GroupName: 'PESCA' }] };
+          },
+        };
+      }
+      if (u.includes('/Items?')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { value: CANONICAL_ITEMS };
+          },
+        };
+      }
+      if (u.includes('/Quotations?')) {
+        return {
+          ok: false,
+          status: 500,
+          async json() {
+            return {};
+          },
+        };
+      }
+      throw new Error('unexpected ' + u);
+    });
+    const result = await syncSapCatalogStockCore({
+      fbDb,
+      sapConfig: { ...SAP_CFG, fetch: failingFetch },
+      log: () => {},
+      source: 'cf-scheduled',
+    });
+    // El sync principal sigue OK (backorder es best-effort).
+    expect(result.ok).toBe(true);
+    expect(result.backorderComputedByCF).toBe(false);
+    const cfSnap = _state.app_config.stock_snapshot;
+    // backorder previo PRESERVADO (fallback).
+    expect(cfSnap.backorderBySku).toBe(JSON.stringify({ CLC70MHAAR: 3 }));
+    expect(cfSnap.backorderBySkuDetail).toBe(
+      JSON.stringify({ CLC70MHAAR: { total: 3, porCliente: { C001: 3 } } })
+    );
+    // _backorderSource NO fue escrito.
+    expect(cfSnap._backorderSource).toBeUndefined();
   });
 
   it('T9 — product_catalog_meta usa totalChunks (no chunksCount) + updatedAt (no syncedAt)', async () => {

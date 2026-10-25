@@ -4717,6 +4717,49 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1451 (2026-10-25) — §65 Port `collect_backorder_from_sqs` Python → Node + compute dentro de `syncSapCatalogStockCF`
+
+Rama `feat-v1451-backorder-cf-port` → `main`.
+
+**Problema**: el `backorderBySku` del `app_config/stock_snapshot` lo escribía solo el workflow Python GHA (`scripts/sync_sap_to_firestore.py:sl_fetch_backorder_by_sku`). GHA scheduler saltea runs (§60: cadencia efectiva 2-5h vs cada 5 min declarada) → bucket backorder stale → UI muestra "Stock Liberado" (`max(whs12 - backorder, 0)`) incorrecto durante horas.
+
+**Fix**: port del cómputo a Node en `functions/core/collect-backorder-from-sqs.js` con dos funciones puras + un fetch injectable:
+- `collectBackorderFromSqs(sqs)` → shape nuevo `{ [sku]: { total, porCliente: {[cardCode]: qty} } }`.
+- `flattenBackorderDetailToTotals(detail)` → shape viejo `{ [sku]: int }` byte-compatible con Python para preservar la UI.
+- `fetchOpenSqsFromServiceLayer({sapConfig, cookie})` → paginación `/Quotations?$filter=DocumentStatus eq 'bost_Open' and Cancelled eq 'tNO'` idem Python líneas 663-711.
+
+Invocación dentro de `syncSapCatalogStockCore` (ya corre cada 5 min con Cloud Scheduler confiable). Escribe `backorderBySku` (JSON string, compat UI) + `backorderBySkuDetail` (JSON string, shape nuevo con `porCliente`) + marker `_backorderSource` + `_backorderUpdatedAt`.
+
+**Extensión sobre Python**: Python solo devolvía `{sku: int}` sin `porCliente`. Shape nuevo soporta reparto directo + auditoría demanda SAP por cliente sin re-leer SAP. Documentado en el core como extensión intencional.
+
+**Fallback explícito**: si el fetch de SQs o el compute falla (red/HTTP != 2xx), `backorderComputedByCF=false` + `errors[]` + el `set({...}, {merge:true})` preserva el valor que escribió la última corrida Python/GHA. Rollout seguro: prod no se rompe el día 1 si falla la fase nueva.
+
+**Test de paridad** (`tests/functions/collect-backorder-paridad-python.test.js`, 12 tests):
+- Simulamos la lógica Python en JS puro + comparamos `JSON.stringify` byte-for-byte con el flatten del Node.
+- Fixture sintético (`tests/fixtures/sqs_prod.json`) cubre: SQ open 1 línea / N líneas / OpenQty=0 / mismo cliente+SKU en varios SQs / closed / cancelled / ItemCode vacío / `RemainingOpenQuantity=null` + fallback OpenQuantity / SQ sin CardCode / 2 clientes mismo SKU / decimal string "2.5".
+- Dump real: `scripts/audit/dump_sqs_fixture.cjs` (read-only, requiere ADC + SAP VPN + `SAP_SL_PASSWORD` env; se corre en sesión autorizada aparte).
+
+**Divergencia menor con Python documentada**:
+1. Node tiene fallback `OpenQuantity` cuando `RemainingOpenQuantity` es null (Python no); fuera de ese edge, output idéntico.
+2. Round-half: `Math.round(2.5) = 3` vs Python `round(2.5) = 2` (banker's). No hay valores .5 exactos en SAP SL en prácticos (todos .000000); documentado en test.
+
+**Archivos**:
+- `functions/core/collect-backorder-from-sqs.js` (nuevo, 310 LOC).
+- `functions/core/sync-sap-catalog-stock-core.js` (invoca el core + fallback).
+- `functions/index.js` (log del `backorderComputedByCF/SkuCount/SlRequests`).
+- `tests/functions/collect-backorder-paridad-python.test.js` (nuevo).
+- `tests/functions/sync-sap-catalog-stock-schema-parity.test.js` (T8 ajustado + T8b nuevo para fallback).
+- `tests/fixtures/sqs_prod.json` (nuevo, sintético).
+- `scripts/audit/dump_sqs_fixture.cjs` (nuevo, read-only).
+
+**Suite completa**: 2434/2434 PASS (unit + functions). Typecheck limpio. Biome clean.
+
+**Deploy**: `firebase deploy --only functions:syncSapCatalogStockCF`. Smoke: `gcloud scheduler jobs run firebase-schedule-syncSapCatalogStockCF --project=app-vendedores-shimano --location=southamerica-east1`.
+
+**Rollback**: revertir el bloque de invocación de `fetchOpenSqsFromServiceLayer` + `collectBackorderFromSqs` en `syncSapCatalogStockCore` + redeploy. Workflow Python GHA sigue cubriendo (cadencia stale pero funcional). CLAUDE.md §65 explica el flow completo.
+
+---
+
 ### v1450 (2026-10-25) — §64.2 Logging centralizado de TODOS los paths de rechazo de commitPedidoCF
 
 Rama `feat-v1450-§64-2-logging-paths` → `main`.

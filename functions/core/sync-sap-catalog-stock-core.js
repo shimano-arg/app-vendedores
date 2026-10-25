@@ -25,6 +25,11 @@
  *   El último que escribe gana (rollout paralelo 2 días hábiles).
  */
 
+import {
+  collectBackorderFromSqs,
+  fetchOpenSqsFromServiceLayer,
+  flattenBackorderDetailToTotals,
+} from './collect-backorder-from-sqs.js';
 import { acquireSession, releaseSession } from './sap-sl-session.js';
 
 const NON_SALES_WHS = new Set(['05', '06']);
@@ -62,6 +67,11 @@ const SAFETY_MAX_ITEMS = 50000;
  * @property {string} syncBatchId
  * @property {number} slRequests
  * @property {string[]} errors
+ * @property {boolean} [backorderComputedByCF] sec.65 v1451: true si esta CF
+ *   escribió backorderBySku; false si falló y queda el valor de Python.
+ * @property {number} [backorderSkuCount] sec.65 v1451: cantidad de SKUs con BO.
+ * @property {number} [backorderSlRequests] sec.65 v1451: SL requests que gastó
+ *   la fase backorder (paginación /Quotations).
  */
 
 /**
@@ -323,6 +333,53 @@ export async function syncSapCatalogStockCore(deps) {
       syncBatchId
     );
 
+    // sec.65 v1451 — compute backorder desde SQs abiertas IN-PROCESS. El workflow
+    // Python histórico (sl_fetch_backorder_by_sku) escribe backorderBySku cada
+    // corrida GHA; GHA saltea runs (cadencia efectiva 2-5h vs 5min declarada,
+    // §60). Portando el cómputo al CF ganamos cadencia confiable (Cloud
+    // Scheduler) sin delay operativo.
+    //
+    // Fallback explícito: si la fetch de SQs o el compute falla, preservamos
+    // el valor previo escrito por Python (set merge:true más abajo no toca
+    // el campo si no lo mandamos). Log del fallback + errors[].
+    /** @type {Record<string, number>} */
+    let backorderBySkuMap = {};
+    /** @type {Record<string, { total: number, porCliente: Record<string, number> }>} */
+    let backorderDetailMap = {};
+    let backorderComputedByCF = false;
+    let backorderSlRequests = 0;
+    try {
+      const sqsResult = await fetchOpenSqsFromServiceLayer({
+        sapConfig: deps.sapConfig,
+        cookie: sess.cookie,
+        log,
+      });
+      backorderSlRequests = sqsResult.slRequests;
+      slRequests += backorderSlRequests;
+      if (sqsResult.error) {
+        // sec.65 v1451: fetch cortó mid-paginación por network/HTTP error. No
+        // podemos confiar en lo acumulado (sqs parciales → undercount). Fallback
+        // a preservar el valor viejo. Log explicito; errors[] lleva el detalle.
+        errors.push('backorder-fetch: ' + sqsResult.error);
+        log('[sync] backorder fetch fallo (preservando valor previo Python): ' + sqsResult.error);
+        backorderComputedByCF = false;
+      } else {
+        backorderDetailMap = collectBackorderFromSqs(sqsResult.sqs);
+        backorderBySkuMap = flattenBackorderDetailToTotals(backorderDetailMap);
+        backorderComputedByCF = true;
+        log(
+          `[sync] backorder computed: ${Object.keys(backorderBySkuMap).length} SKUs,` +
+            ` ${sqsResult.scannedDocs} SQ open, ${sqsResult.scannedLines} lineas` +
+            ` (${backorderSlRequests} requests)`
+        );
+      }
+    } catch (e) {
+      const errMsg = (e && /** @type {any} */ (e).message) || String(e);
+      errors.push('backorder-fetch: ' + errMsg);
+      log('[sync] backorder compute fallo (preservando valor previo Python): ' + errMsg);
+      backorderComputedByCF = false;
+    }
+
     const finishedAt = new Date(Date.now()).toISOString();
     const durationMs = Date.now() - now;
     // §63 Fase 3 Capa 1 FIX URGENTE (2026-10-23): el client lee estos 4 maps
@@ -336,6 +393,7 @@ export async function syncSapCatalogStockCore(deps) {
     const whsJson = JSON.stringify(maps.whsMap);
     const whsCommittedJson = JSON.stringify(maps.whsCommittedMap || {});
     const preLanzJson = JSON.stringify(maps.preLanzamientoMap || {});
+    /** @type {Record<string, any>} */
     const snapshot = {
       stock: maps.stockMap,
       quantities: qtyJson,
@@ -343,9 +401,6 @@ export async function syncSapCatalogStockCore(deps) {
       warehouseCommittedBreakdown: whsCommittedJson,
       price: maps.priceMap,
       preLanzamientoBySku: preLanzJson,
-      // backorderBySku NO lo computa esta CF (lo computa el workflow Python
-      // leyendo SQ open). set({...}, {merge:true}) preserva el valor previo
-      // del field escrito por la última corrida Python/GHA.
       totalItems: itemsSynced,
       withStock,
       warehouse: 'ALL_SALES',
@@ -365,10 +420,25 @@ export async function syncSapCatalogStockCore(deps) {
         source,
         syncBatchId,
         errors: errors.slice(),
+        backorderComputedByCF,
+        backorderSlRequests,
       },
     };
-    // merge:true preserva backorderBySku + cualquier otro field escrito por
-    // Python que la CF no computa.
+    // sec.65 v1451 — backorder:
+    //  - Si la CF computó OK → escribimos backorderBySku (JSON string, shape viejo
+    //    compat UI index.html:31999) + backorderBySkuDetail (JSON string, shape
+    //    nuevo {sku:{total, porCliente}}) + marker _backorderSource='cf'.
+    //  - Si falló (backorderComputedByCF=false) → set merge:true abajo preserva
+    //    el valor que escribió la última corrida Python/GHA. Es el fallback
+    //    pedido por Mariano para no romper prod día 1.
+    if (backorderComputedByCF) {
+      snapshot.backorderBySku = JSON.stringify(backorderBySkuMap);
+      snapshot.backorderBySkuDetail = JSON.stringify(backorderDetailMap);
+      snapshot._backorderSource = source; // 'cf-scheduled' | 'manual-dispatch'
+      snapshot._backorderUpdatedAt = new Date();
+    }
+    // merge:true preserva campos que la CF no mandó + cualquier otro field escrito
+    // por Python que la CF no computa (ej. legacySource).
     await deps.fbDb.collection('app_config').doc('stock_snapshot').set(snapshot, { merge: true });
     // Alineado byte-a-byte con Python write_catalog_chunks:
     // totalItems/totalChunks/syncBatchId/updatedAt/updatedBy + source added.
@@ -398,6 +468,9 @@ export async function syncSapCatalogStockCore(deps) {
         withPreLanzamiento,
         slRequests,
         chunksCount,
+        backorderComputedByCF,
+        backorderSkuCount: Object.keys(backorderBySkuMap).length,
+        backorderSlRequests,
         errors: errors.slice(),
         ok: true,
         timestamp: new Date(),
@@ -416,6 +489,9 @@ export async function syncSapCatalogStockCore(deps) {
       syncBatchId,
       slRequests,
       errors,
+      backorderComputedByCF,
+      backorderSkuCount: Object.keys(backorderBySkuMap).length,
+      backorderSlRequests,
     };
   } catch (e) {
     const errMsg = (e && e.message) || String(e);
