@@ -4717,6 +4717,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1450 (2026-10-25) — §64.2 Logging centralizado de TODOS los paths de rechazo de commitPedidoCF
+
+Rama `feat-v1450-§64-2-logging-paths` → `main`.
+
+**Antecedente** §64 (v1443): STOCK_CHANGED se loguea con snapshot cliente+CF a `operations_log`. **Pedido Mariano Fase 3**: "no puede haber un rechazo de la CF sin registro" — extender el pattern a TODOS los paths de rechazo.
+
+**Problema**: antes de v1450, los paths `VALIDATION_ERROR` / `VERSION_OLD` / `PERMISSION_DENIED` / `CLIENT_HAS_OPEN_WAITLIST` / `CONTENTION_RETRY_EXHAUSTED` hacían `return makeError(...)` directo sin loguear. Solo STOCK_CHANGED y SNAPSHOT_TOO_OLD escribían en operations_log — y lo hacían fire-and-forget (`.catch(() => {})`), con riesgo de perder el write si el runtime terminaba la invocación antes de que la promise completara.
+
+**Fix** (unificado):
+1. Helper central `logCommitRejection(deps, errorCode, payload, extra)` escribe en `operations_log` con shape consistente (`type='commit_pedido_rejected'` + errorCode + userId + userEmail + cardCode + draftId + origen + clientVersion + waitlistOrigenId + timestamp + extras).
+2. **AWAIT** (no fire-and-forget): garantiza que el log existe antes del return. Costo ~20-50ms por rechazo — aceptable: si rechazamos, informamos.
+3. Business errors de `commitInTransaction` propagan metadata rich via `err._data._logExtra` → el catch del retry loop (fuera de la tx, respetando §58) hace `await logCommitRejection(err._errorCode, payload, {...err._data._logExtra})`. Sin duplicados por retry, sin bloquear la tx.
+4. El `_logExtra` se SCRUBBEA del `err._data` antes de retornar al cliente — es metadata server-side, el cliente no la necesita.
+
+**Paths cubiertos** (8):
+- `VALIDATION_ERROR` (payload inválido / cpst sin waitlistOrigenId / etc).
+- `VERSION_OLD` (clientVersion < minVersion).
+- `PERMISSION_DENIED` (pedido ya en SAP, G4.03 audit grises).
+- `CLIENT_HAS_OPEN_WAITLIST` (§42).
+- `STOCK_CHANGED` (§64 — ya logueaba; migrado al pattern unificado).
+- `SNAPSHOT_TOO_OLD` (§60 — ya logueaba; migrado al pattern unificado + metadata via _logExtra).
+- `CONTENTION_RETRY_EXHAUSTED` (retry loop exhausted).
+- `SAP_UNAVAILABLE` (§63 Fase 3 Capa 2 — live SL fallback + snapshot stale).
+
+**Archivos**:
+- `functions/core/commit-pedido-core.js`: helper `logCommitRejection` + llamadas desde cada path.
+- `tests/functions/commit-pedido-logging-all-paths.test.js`: 9 tests (1 por errorCode + AWAIT verification + _logExtra scrub verification).
+- `CLAUDE.md §64.2`: regla nueva post §64 — prohibido reintroducir `makeError`/`throwError` sin pasar por el helper.
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF`.
+
+**Prohibido**: agregar un `return makeError(...)` o `throwError(...)` nuevo en `commit-pedido-core.js` sin invocar antes `logCommitRejection(deps, errorCode, payload, {...})`. Deja un rechazo sin log y rompe §64.2.
+
+**Rollback**: revertir el helper `logCommitRejection` + las llamadas al mismo + restaurar los bloques inline fire-and-forget de STOCK_CHANGED (§64) y SNAPSHOT_TOO_OLD (§60). El shape del response del cliente queda idéntico.
+
+---
+
 ### v1449 (2026-10-25) — §64.3 Draft lock atómico `pedido_draft_locks/{draftId}` + fixture REAL snapshot prod
 
 Rama `fix-v1449-draft-lock-concurrente` → `main`.
