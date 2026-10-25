@@ -232,6 +232,15 @@ service cloud.firestore {
       allow create, update, delete: if isAdminOrGerente();
     }
 
+    // §64.3 (2026-10-25): draft locks para prevenir duplicados por doble-
+    // click en commitPedidoCF. Solo escribe el Admin SDK (CF). Negado
+    // completo para cualquier cliente (admin incluido) — no hay razón para
+    // leer/escribir desde la UI. Si Mariano quiere auditar, usar Admin SDK
+    // via script.
+    match /pedido_draft_locks/{draftId} {
+      allow read, write: if false;
+    }
+
     // Visits: mismo patrón que pedidos — vendor list solo own.
     match /visits/{visitId} {
       allow get: if isReader();

@@ -229,6 +229,50 @@ export async function commitPedidoCore(deps, payload) {
  * @param {string} nowIso
  */
 async function commitInTransaction(deps, tx, payload, now, nowIso) {
+  // §64.3 (2026-10-25) — IDEMPOTENT LOCK dentro de la tx para prevenir
+  // duplicados por doble-click concurrente. SATO (2026-10-23 22:08:41 +
+  // 22:08:43, 2s de diferencia) muestra que `findExistingByDraftId` pre-tx
+  // tiene race: entre que el query ve "no existe" y la tx hace el write,
+  // una segunda invocación puede ganar la carrera.
+  //
+  // Fix: colección `pedido_draft_locks/{draftId}` con doc_id = draftId. El
+  // `tx.get(lockRef)` + `tx.set(lockRef, ...)` dentro de la misma tx es
+  // atómico — Firestore serializa 2 txns en el mismo doc. La segunda tx
+  // concurrente ve el lock de la primera (o es ABORTED y Firestore
+  // retrya, viendo el lock en el retry). Idempotent hit → retornar
+  // pedidoId del lock.
+  //
+  // El `findExistingByDraftId` pre-tx se mantiene como fast-path para 99%
+  // de los casos (no race), evitando el costo del tx.get del lock.
+  const draftLockRef = payload.draftId
+    ? deps.fbDb.collection('pedido_draft_locks').doc(payload.draftId)
+    : null;
+  if (draftLockRef) {
+    const lockSnap = await tx.get(draftLockRef);
+    if (lockSnap.exists) {
+      const lockData = lockSnap.data() || {};
+      if (lockData.pedidoId) {
+        // Lock ya existe para este draftId. Devolver idempotent hit.
+        // Leemos el pedido para construir el lines[] del response.
+        const pedidoRef = deps.fbDb.collection('pedidos').doc(lockData.pedidoId);
+        const pedidoSnap = await tx.get(pedidoRef);
+        const pedidoData = pedidoSnap.exists ? pedidoSnap.data() || {} : {};
+        (deps.log || (() => {}))('commitInTransaction idempotent via draftLock', {
+          draftId: payload.draftId,
+          pedidoId: lockData.pedidoId,
+        });
+        return {
+          ok: true,
+          pedidoId: lockData.pedidoId,
+          lines: deriveLinesFromExisting(pedidoData),
+          diffVsClient: null,
+          idempotentHit: true,
+          _idempotentSource: 'draft_lock',
+        };
+      }
+    }
+  }
+
   // 5.1 Lee stock_snapshot/{SKU} para cada SKU del payload.
   const skuSet = new Set();
   for (const l of payload.lines) {
@@ -684,6 +728,20 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // 5.8 Escribir pedido nuevo.
   const pedidoData = buildPedidoDocData(payload, docLines, nowIso, deps);
   tx.set(pedidoRef, pedidoData);
+
+  // §64.3 (2026-10-25): escribir el draftLock atómicamente junto al pedido.
+  // Previene duplicados por doble-click concurrente. Ver tx.get del lock
+  // al inicio de commitInTransaction.
+  if (draftLockRef) {
+    tx.set(draftLockRef, {
+      pedidoId: pedidoRef.id,
+      draftId: payload.draftId,
+      cardCode: payload.cardCode,
+      origen: payload.origen || null,
+      ownerUid: payload.ownerUid || null,
+      createdAt: nowIso,
+    });
+  }
 
   // 5.9 Cancelar ASIG originales si origen='cpst' (usa snapshots pre-fetched).
   if (payload.origen === 'cpst' && asigOrigenSnapshots.size > 0) {

@@ -2863,3 +2863,67 @@ Suite completa post-v1443: **unit 1714 PASS + functions 616 PASS** (6 nuevos sob
 
 **Rollback**: revertir el bloque de logging en `functions/core/commit-pedido-core.js` + el helper `_buildClientStockForPayload` en `index.html` + los campos `clientStock/clientSnapshotUpdatedAt` del payload. Nada que revertir del lado rules ni del cliente.
 
+## 64.3. Draft lock atómico `pedido_draft_locks/{draftId}` previene duplicados por doble-click concurrente (2026-10-25, v1449)
+
+**Regla fuerte**: toda invocación a `commitPedidoCF` que tenga `payload.draftId` escribe un lock atómico en `pedido_draft_locks/{draftId}` DENTRO de la misma `runTransaction` que crea el pedido. Si una segunda tx con el mismo `draftId` corre concurrente (doble-click, retry no-idempotente del wrapper HTTP, race del SDK), Firestore la serializa en el doc de lock y la segunda ve el pedidoId de la primera → `idempotentHit=true` sin crear duplicado.
+
+**Antecedente**: SATO 2026-10-23 22:08:41 + 22:08:43 (2s de diferencia). Dos commits con mismo `_draftId` crearon dos pedidos (`6LhigQdzUmEcOHcRUEjl` y `qlB4FpI3R9Rhu5sLZvbf`). `findExistingByDraftId` pre-tx (línea 107 de commit-pedido-core.js) es un fast-path pero tiene race: entre que el query ve "no existe" y la tx hace el write, una segunda invocación entra y escribe otro pedido. Fix: lock atómico dentro del tx usando el pattern de dos reads antes del write (§58).
+
+**Implementación**:
+
+Shape del doc `pedido_draft_locks/{draftId}`:
+```js
+{
+  pedidoId: 'auto-id-del-pedido-creado',
+  draftId: 'C|PROV|LOC|CLIENTE|<orderNumber>',  // = doc id
+  cardCode: 'C001',
+  origen: 'manual' | 'cpst' | 'excel' | null,
+  ownerUid: 'uid-del-creador',
+  createdAt: nowIso,
+}
+```
+
+Flow en `commitInTransaction` (functions/core/commit-pedido-core.js):
+
+1. **FASE READ** (§58 ALL reads before writes):
+   - `tx.get(draftLockRef)` como PRIMER read del tx.
+   - Si `lockSnap.exists && lockData.pedidoId`:
+     - `tx.get(pedidoRef)` del pedido referenciado por el lock.
+     - Return `{ok: true, pedidoId: lockData.pedidoId, lines: deriveLinesFromExisting(pedidoData), idempotentHit: true, _idempotentSource: 'draft_lock'}`.
+   - Si no existe, seguir flow normal.
+
+2. **FASE WRITE**:
+   - `tx.set(pedidoRef, pedidoData)` como SIEMPRE.
+   - `tx.set(draftLockRef, { pedidoId: pedidoRef.id, draftId: payload.draftId, cardCode, origen, ownerUid, createdAt: nowIso })` atómico con el pedido.
+
+**Rules**: colección cerrada 100% a cliente (`allow read, write: if false`). Solo Admin SDK (CF/scripts) escribe. Nunca aparece en la UI.
+
+**Capas defensivas** (defense in depth):
+1. **Fast path**: `findExistingByDraftId` pre-tx (línea 107) — detecta 99% de los retrys secuenciales (ej. "Confirmar" clickeado y el handler disparado 2 veces por touchend/click). Sin costo de tx.
+2. **Draft lock**: `tx.get+set draftLockRef` — cubre el 1% restante (races verdaderas con 2 tabs abiertas, SDK retry no-idempotente, Promise.all accidental).
+3. **Firestore serialization**: 2 txns sobre el mismo doc son serializadas por Firestore. La segunda ve el write de la primera post-commit (o aborta con contention → el retry loop del core devuelve `CONTENTION_RETRY_EXHAUSTED` que no es duplicado).
+
+**Edge case documented** (T6 del test): lock existe pero el pedido referenciado NO (rollback parcial, delete manual, etc.). Comportamiento actual: devuelve `idempotentHit=true` con `lines=[]`. Es inconsistencia que normalmente no debería ocurrir — el cliente ve pedidoId pero no líneas. Mejora futura (si aparece): validar `pedidoSnap.exists` y si no, borrar el lock + continuar flow normal.
+
+**Tests obligatorios** (`tests/functions/commit-pedido-draft-lock-concurrent.test.js`):
+- T1: commit único crea pedido + lock.
+- T2: 2 commits secuenciales mismo draftId → 2do idempotent via lock.
+- T3: 2 commits CONCURRENTES mismo draftId (Promise.all) → 1 solo pedido.
+- T4: `findExistingByDraftId` pre-tx sigue funcionando como fast path.
+- T5: lock se escribe DENTRO del tx (grep del writeLog para pedidos/ + pedido_draft_locks/).
+- T6: lock existe pero pedido NO → devuelve idempotent con lines=[] (edge documentado).
+
+**Mock Firestore STRICT**: el mock de `runTransaction` debe serializar txns via mutex (`let txLockP = Promise.resolve(); await prev; try { ... } finally { release() }`). Sin serialización, Promise.all de 2 txns correría ambas en paralelo y crearía 2 pedidos → el mock no reflejaría la semántica real de Firestore.
+
+**Fixture REAL de prod** (`tests/fixtures/stock_snapshot_prod.json`): dumped por `scripts/audit/dump_stock_snapshot_fixture.cjs`. Shape: `warehouseBreakdown` + `quantities` como JSON strings (patrón Python v368/v377). El test `commit-pedido-snapshot-fixture-prod.test.js` carga el fixture y confirma que el CF produce `qtyConfirmed=1 / qtyBO=0` para SKUs con stock real — blindaje contra regresión futura del shape (precedente 23/10 17:52: paso dict → string rompió el read del CF).
+
+**Prohibido**:
+- Cambiar el shape del lock sin invalidar los locks viejos (quedarían zombies con shape incompatible).
+- Hacer `tx.get(draftLockRef)` DESPUÉS de un `tx.set` (viola §58).
+- Hacer `tx.set(draftLockRef, ...)` ANTES del `tx.set(pedidoRef, ...)` (si el lock se escribe primero y el pedido falla, queda un lock huérfano permanente — hacerlo después garantiza que ambos commiten juntos o nada).
+- Abrir la rule a cliente (`allow read` o `allow write`) — es colección interna de infra.
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF,firestore:rules`.
+
+**Rollback**: revertir el bloque del draft lock en `commitInTransaction` (líneas ~247-274 pre-fix) + remover la rule en `firestore.rules` + bumpear versión. La capa `findExistingByDraftId` (fast path) sigue cubriendo el 99% de los casos.
+
