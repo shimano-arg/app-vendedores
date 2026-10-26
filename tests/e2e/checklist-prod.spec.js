@@ -62,8 +62,11 @@ async function doLogin(page) {
     const orig = w._tryCommitPedidoCF;
     if (typeof orig === 'function' && !w._e2ePatchTryCommit) {
       w._e2ePatchTryCommit = true;
-      w._tryCommitPedidoCF = async function(docData) {
-        console.log('[E2E patch] docData.lines[0]=', JSON.stringify(docData && docData.lines && docData.lines[0]));
+      w._tryCommitPedidoCF = async function (docData) {
+        console.log(
+          '[E2E patch] docData.lines[0]=',
+          JSON.stringify(docData && docData.lines && docData.lines[0])
+        );
         if (docData && Array.isArray(docData.lines)) {
           docData.lines = docData.lines.map((l) =>
             l && (l.boEntryResolved === null || l.boEntryResolved === undefined)
@@ -306,7 +309,9 @@ test.describe('Checklist producción app-vendedores', () => {
         try {
           const body = await res.text();
           allConsole.push(`[CF response ${res.status()}] ${body.slice(0, 400)}`);
-        } catch (_e) { /* ignore */ }
+        } catch (_e) {
+          /* ignore */
+        }
       }
     });
     try {
@@ -318,7 +323,11 @@ test.describe('Checklist producción app-vendedores', () => {
       await page.evaluate(() => {
         const w = /** @type {any} */ (window);
         if (w.unsubApprovedAltas) {
-          try { w.unsubApprovedAltas(); } catch (_e) { /* ignore */ }
+          try {
+            w.unsubApprovedAltas();
+          } catch (_e) {
+            /* ignore */
+          }
           w.unsubApprovedAltas = null;
         }
         if (typeof w.ensureApprovedAltasListener === 'function') {
@@ -340,9 +349,10 @@ test.describe('Checklist producción app-vendedores', () => {
           sapMapEntry: map[normalized] || null,
           approvedAltasListSize: altas.length,
           approvedAltasE2e: altas.find((a) => a && a.cardCodeSap === 'CE2E000001') || null,
-          sapCodeViaFn: typeof /** @type {any} */ (window).sapGetClienteCode === 'function'
-            ? /** @type {any} */ (window).sapGetClienteCode(CLIENT_NAME)
-            : null,
+          sapCodeViaFn:
+            typeof (/** @type {any} */ (window).sapGetClienteCode) === 'function'
+              ? /** @type {any} */ (window).sapGetClienteCode(CLIENT_NAME)
+              : null,
         };
       }, E2E.CLIENT_NAME);
       console.log(`[punto 3 pre-click]`, JSON.stringify(mapInfo));
@@ -419,14 +429,16 @@ test.describe('Checklist producción app-vendedores', () => {
             cardCode: 'CE2E000001',
             clientName: 'CLIENTE PRUEBAS E2E',
             origen: 'manual',
-            waitlistOrigenId: waitlistId,  // excluye la propia waitlist del gate §42
-            lines: [{
-              sku: '9691',
-              cantidad: 1,
-              precio: 100,
-              boEntryResolved: 'same',
-              boEntryPrevio: 0,
-            }],
+            waitlistOrigenId: waitlistId, // excluye la propia waitlist del gate §42
+            lines: [
+              {
+                sku: '9691',
+                cantidad: 1,
+                precio: 100,
+                boEntryResolved: 'same',
+                boEntryPrevio: 0,
+              },
+            ],
             clientVersion: w.APP_VERSION || 'e2e',
             autoAcceptStockChange: true,
             ownerUid: w.currentUser && w.currentUser.uid,
@@ -446,7 +458,10 @@ test.describe('Checklist producción app-vendedores', () => {
       await screen(page, '04_doble_click');
       console.log(`[punto 4] CF invocaciones network = ${cfInvocationCount}`);
       // Validar idempotencia: ambas respuestas con mismo pedidoId.
-      expect(result.r1 && result.r1.pedidoId, 'r1 pedidoId: ' + JSON.stringify(result.r1)).toBeTruthy();
+      expect(
+        result.r1 && result.r1.pedidoId,
+        'r1 pedidoId: ' + JSON.stringify(result.r1)
+      ).toBeTruthy();
       expect(result.r2 && result.r2.pedidoId).toBe(result.r1.pedidoId);
 
       const n = await countE2ePedidos();
@@ -682,7 +697,9 @@ test.describe('Checklist producción app-vendedores', () => {
       // Si SL fallback por timeout/error: "Stock del snapshot" (es BUG UI que Mariano
       // pidió reportar: si el badge no dice "Stock en vivo" con cliente ficticio pero
       // sí con cliente real → hay bug UI).
-      expect(txt, `badge con flag ON debe decir "Stock en vivo", encontrado: "${txt}"`).toMatch(/stock en vivo/i);
+      expect(txt, `badge con flag ON debe decir "Stock en vivo", encontrado: "${txt}"`).toMatch(
+        /stock en vivo/i
+      );
     } finally {
       await cleanupWaitlistAndPedidos(fixture.id);
     }
