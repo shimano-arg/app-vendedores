@@ -18,6 +18,15 @@ import {
   computeBoAbsorption,
 } from './pure/absorb-bo-on-confirm.js';
 import { computeBackorderRawLines, computeBackorderSkuMap } from './pure/backorder-sku-map.js';
+// Tarea L (v1457 2026-10-25): entrada del backorder (filas rojas) + Excel idéntico.
+// Espejo en functions/core/bo_entry_logic.js. Textos en l_bo_entry_texts.js.
+import {
+  computeBoEntryRows,
+  findIdenticalOpenOrder,
+  isExcelIdenticalToOpenOrder,
+  setBoEntryRowResolution,
+  unresolvedBoEntryRows,
+} from './pure/bo_entry_logic.js';
 import { collectAsigRefsForCancel, sumUnitsToFreeOnCancel } from './pure/cpst-cancel-asig-plan.js';
 import {
   collectAsigRefsForItemCancel,
@@ -28,6 +37,7 @@ import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.j
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 import { passesTypeFilter } from './pure/filters.js';
+import { L_BO_ENTRY_TEXTS } from './pure/l_bo_entry_texts.js';
 import {
   displayVendorName,
   escapeHtml,
@@ -356,6 +366,16 @@ const phase0 = {
       computeBoAbsorption,
       applyAbsorptionsToLines,
       buildBackfillUpdate,
+    },
+    // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
+    // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.
+    boEntry: {
+      computeBoEntryRows,
+      setBoEntryRowResolution,
+      unresolvedBoEntryRows,
+      isExcelIdenticalToOpenOrder,
+      findIdenticalOpenOrder,
+      texts: L_BO_ENTRY_TEXTS,
     },
     // v1418 §53 (2026-10-22): "va a SAP" neto unificado.
     computeVaASap,

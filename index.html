@@ -2693,6 +2693,37 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #wcard-rows tr td.chg-neg{color:var(--color-danger);font-weight:700}
 #wcard-rows tr td.chg-pos{color:#059669;font-weight:700}
 #wcard-rows tr td.chg-none{color:var(--text-muted)}
+/* Tarea L (v1457 2026-10-25): "entrada del backorder" — fila roja al cargar
+   un SKU con BO vigente del cliente. La fila principal se pinta en rojo
+   (fef2f2 + border-left) y debajo aparece una sub-fila con oración + 2
+   botones (Son las mismas / Son X más). Al resolverse (clase .resolved) la
+   fila vuelve a color normal. */
+#wcard-rows tr.bo-entry-red td{background:#fef2f2 !important;color:#991b1b !important;font-weight:700;border-left:4px solid #dc2626 !important}
+#wcard-rows tr.bo-entry-red.resolved td{background:#ecfdf5 !important;color:#065f46 !important;border-left-color:#059669 !important}
+#wcard-rows tr.bo-entry-sub td{background:#fef2f2;padding:8px 14px !important;text-align:left !important;font-weight:600;color:#991b1b;border-top:none !important}
+#wcard-rows tr.bo-entry-sub.resolved td{background:#ecfdf5;color:#065f46}
+#wcard-rows tr.bo-entry-sub .bo-entry-oracion{display:block;margin-bottom:6px;font-weight:600;font-size:12px}
+#wcard-rows tr.bo-entry-sub .bo-entry-help{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;background:#fecaca;color:#991b1b;border-radius:50%;font-size:10px;font-weight:800;margin-left:6px;cursor:help;border:1px solid #fca5a5}
+#wcard-rows tr.bo-entry-sub.resolved .bo-entry-help{background:#a7f3d0;color:#065f46;border-color:#6ee7b7}
+#wcard-rows tr.bo-entry-sub .bo-entry-btn{display:inline-block;padding:6px 14px;margin-right:8px;background:#fff;color:#991b1b;border:1.5px solid #dc2626;border-radius:4px;font-size:11px;font-weight:800;cursor:pointer;letter-spacing:.3px;transition:.15s}
+#wcard-rows tr.bo-entry-sub .bo-entry-btn:hover{background:#fef2f2;transform:translateY(-1px)}
+#wcard-rows tr.bo-entry-sub .bo-entry-btn.primary{background:#dc2626;color:#fff}
+#wcard-rows tr.bo-entry-sub .bo-entry-btn.primary:hover{background:#991b1b}
+#wcard-rows tr.bo-entry-sub .bo-entry-btn.selected{background:#059669;color:#fff;border-color:#059669}
+/* Contador "Te faltan N productos por revisar" (debajo de la tabla). */
+.bo-entry-counter{display:inline-block;padding:6px 14px;margin:6px 0;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer}
+.bo-entry-counter:hover{background:#fecaca}
+/* Cartel Excel idéntico. */
+#excel-identico-modal{position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+#excel-identico-modal.hidden{display:none}
+#excel-identico-modal .ei-box{background:#fff;border-radius:10px;padding:24px 28px;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.3);border:1.5px solid #e2e8f0}
+#excel-identico-modal .ei-text{font-size:14px;color:#0f172a;margin-bottom:18px;line-height:1.5}
+#excel-identico-modal .ei-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+#excel-identico-modal .ei-btn{padding:10px 18px;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer;border:1.5px solid;letter-spacing:.3px}
+#excel-identico-modal .ei-btn.primary{background:#1e40af;color:#fff;border-color:#1e40af}
+#excel-identico-modal .ei-btn.primary:hover{background:#1e3a8a}
+#excel-identico-modal .ei-btn.secondary{background:#fff;color:#1e40af;border-color:#1e40af}
+#excel-identico-modal .ei-btn.secondary:hover{background:#eff6ff}
 .waitlist-item{background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-left:4px solid var(--color-accent-violet);border-radius:6px;padding:10px 14px;cursor:pointer;transition:.15s;display:flex;justify-content:space-between;align-items:center;gap:12px}
 .waitlist-item:hover{background:#faf5ff;border-color:#a855f7;transform:translateX(2px)}
 .waitlist-item.has-exceed{border-left-color:var(--color-danger)}
@@ -6741,6 +6772,12 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
           </table>
         </div>
       </div>
+      <!-- Tarea L (v1457): contador "Te faltan N productos por revisar" cuando
+           hay filas rojas de "entrada del backorder" sin resolver. Al clickear
+           lleva a la primera fila roja. -->
+      <div id="bo-entry-counter-wrap" style="display:none;text-align:center;margin-top:6px;flex-shrink:0">
+        <span id="bo-entry-counter" class="bo-entry-counter" onclick="_boEntryScrollToFirstRed()" role="button" tabindex="0"></span>
+      </div>
       <div style="display:flex;gap:10px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap;flex-shrink:0">
         <!-- v1284 (2026-10-20): "Unificar orden" absorbe otras ordenes del
              mismo cliente en lista de espera dentro de esta (la mas nueva).
@@ -6760,6 +6797,18 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              REMOVIDO. El gate ASIG se elimino tambien en v1162 (ver waitlistPasarAPendientes).
              Separacion de flows: ASIG se resuelve desde "Crear Pedido - ST". -->
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tarea L (v1457 2026-10-25): cartel "Este Excel es igual al pedido N° X".
+     Dos opciones, sin jerga técnica. Mostrado por `showExcelIdenticoModal()`. -->
+<div id="excel-identico-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="ei-text">
+  <div class="ei-box">
+    <div class="ei-text" id="ei-text"></div>
+    <div class="ei-actions">
+      <button type="button" class="ei-btn secondary" id="ei-btn-cargar" onclick="_boExcelIdenticoAccion('cargar')"></button>
+      <button type="button" class="ei-btn primary" id="ei-btn-cancelar" onclick="_boExcelIdenticoAccion('cancelar')"></button>
     </div>
   </div>
 </div>
@@ -7013,7 +7062,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1456';
+const APP_VERSION = 'v1457';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17935,6 +17984,12 @@ window._tryCommitPedidoCF = async function(docData){
       notas: l.notas || '',
       origenLinea: l.origen || undefined,
       asigRefs: Array.isArray(l.asigRefs) ? l.asigRefs : undefined,
+      // Tarea L (v1457 2026-10-25): "entrada del backorder". Si el VDE abrió
+      // el modal review y había BO previo del mismo SKU+cliente, aquí viaja
+      // la decisión. undefined = no había BO previo. null = pending (CF
+      // rechazará con UNRESOLVED_BO_ENTRY_ROWS). 'same'/'additional' = OK.
+      boEntryResolved: l.boEntryResolved !== undefined ? l.boEntryResolved : undefined,
+      boEntryPrevio: l.boEntryPrevio !== undefined ? Number(l.boEntryPrevio) : undefined,
     })),
     clientVersion: _appVersion,
     autoAcceptStockChange: !!docData._autoAcceptStockChange,
@@ -22765,6 +22820,34 @@ window.revisionDejarRecalculando = async function(){
     return;
   }
   const btn = document.getElementById('revision-wait-btn');
+  // Tarea L (v1457): antes de reservar orderNum y bloquear UI, chequear si el
+  // Excel es idéntico a alguna orden abierta del cliente. Si sí, cartel
+  // "Es el mismo pedido". `cancelar` corta el flow sin crear nada.
+  try {
+    const pureBoE = window.__phase0 && window.__phase0.pure && window.__phase0.pure.boEntry;
+    if (pureBoE && cli.cardCode) {
+      const excelItems = _revisionParsed.map((l) => ({ code: l.code, qty: l.qty }));
+      const openForCli = (revisionWaitlist || []).filter((w) =>
+        w && !w.closedAt && w.stage !== 'consumed' &&
+        String(w.clientCardCode || '').trim() === String(cli.cardCode).trim()
+      );
+      const r = pureBoE.findIdenticalOpenOrder({ items: excelItems, openOrders: openForCli });
+      if (r.identical && r.openOrderNumber) {
+        const fechaCorta = pureBoE.texts.formatFechaCorta(r.fechaCargaOpenOrder || '');
+        const choice = await window.showExcelIdenticoModal({
+          orderNumber: r.openOrderNumber,
+          fechaCorta,
+        });
+        if (choice === 'cancelar') {
+          // No cargar nada. Reseteamos cualquier estado + salimos.
+          return;
+        }
+        // 'cargar' → seguir con el flow (las filas rojas aparecen igual al abrir el modal review).
+      }
+    }
+  } catch (_eLx) {
+    console.warn('[L excel-identico] check falló (non-blocking):', _eLx && _eLx.message);
+  }
   btn.disabled = true;
   const originalTxt = btn.textContent;
   btn.textContent = 'Guardando...';
@@ -24286,12 +24369,335 @@ function _pendingAppDeSku(sku){
   return total;
 }
 
+// ============================================================================
+// Tarea L (v1457 2026-10-25): "entrada del backorder" (fila roja) + Excel
+// idéntico. Ver docs/plans/2026-10-25-l-bo-entry.md.
+//
+// Flow modal review (#wcard-rows):
+//   1. Al renderear la tabla, llamamos _boEntryComputeForCard(w) que devuelve
+//      el array de filas rojas en estado inicial (resolved=null).
+//   2. _boEntryRenderInline(w) agrega la sub-fila bajo cada <tr> con BO previo
+//      + pinta la clase bo-entry-red.
+//   3. Click en botón "Son las mismas"/"Son X más" → _boEntryResolveRow(w, sku, choice).
+//      Actualiza el estado, re-pinta la sub-fila como `resolved` + ajusta
+//      la celda Pedido de la fila principal con resolvedQty.
+//   4. Contador "Te faltan N productos por revisar" se actualiza al vuelo.
+//   5. Al "Pasar a Pendientes" o Confirmar, si hay rojas sin resolver,
+//      scrollea a la primera + muestra el contador (NO alert).
+//
+// Flow Excel idéntico:
+//   1. En revisionDejarRecalculando, antes de crear el payload, consultar
+//      findIdenticalOpenOrder contra revisionWaitlist filtrado por cardCode.
+//   2. Si identical=true → showExcelIdenticoModal() con 2 botones.
+//      cancelar = NO cargar nada. cargar = seguir con el flujo (filas rojas
+//      aparecen igual).
+// ============================================================================
+
+/**
+ * Estado por waitlist (keyed por w._id) con las filas rojas computadas y su
+ * resolución. Se re-computa al abrir modal.
+ * @type {Map<string, Array<any>>}
+ */
+window._boEntryState = window._boEntryState || new Map();
+
+/**
+ * Compute "filas rojas" para el waitlist pasado. Reusa `_backorderClienteForSku`
+ * del inline (fuente: backorderLines SAP). Devuelve array vacío si no hay
+ * BO previo del cliente+SKU.
+ *
+ * @param {any} w Waitlist (revision_waitlist doc).
+ * @returns {Array<any>} rows BoEntryRow (ver src/pure/bo_entry_logic.js).
+ */
+window._boEntryComputeForCard = function(w) {
+  if (!w || !w.items || !w.clientCardCode) return [];
+  const pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.boEntry;
+  if (!pure || typeof pure.computeBoEntryRows !== 'function') return [];
+  // Shape items: {code, qty, origen?, qtyAsignadaPrevia?}.
+  const items = (w.items || []).map((it) => ({
+    code: it.code,
+    qty: Number(it.qty) || 0,
+    origen: it.origen || null,
+    // Si la línea ya tenía stock asignado previo, pasarlo como piso.
+    qtyAsignadaPrevia: (it.origen === 'stock-asignado' && Array.isArray(it.asigRefs))
+      ? it.asigRefs.reduce((s, r) => s + (Number(r.qtyAsignada) || 0), 0)
+      : 0,
+  }));
+  // boVigente: BO SAP vigente del cliente para los SKUs cargados.
+  const skusCargados = new Set(items.map((x) => String(x.code || '').toLowerCase()));
+  /** @type {Array<any>} */
+  const boVigente = [];
+  if (typeof backorderLines !== 'undefined' && Array.isArray(backorderLines)) {
+    const targetCli = String(w.clientCardCode || '').trim();
+    for (const ln of backorderLines) {
+      if (!ln || !ln.sku) continue;
+      if (!skusCargados.has(String(ln.sku).toLowerCase())) continue;
+      if (String(ln.clienteCode || '').trim() !== targetCli) continue;
+      const cant = parseFloat(ln.pendiente) || 0;
+      if (cant <= 0) continue;
+      boVigente.push({
+        sku: ln.sku,
+        cantidad: cant,
+        fechaIso: ln.fechaDocumento || ln.docDate || null,
+        orderNumber: ln.docNum || null,
+      });
+    }
+  }
+  return pure.computeBoEntryRows({ items, boVigente, clienteCardCode: w.clientCardCode });
+};
+
+/**
+ * Devuelve (o inicializa) el estado de rows para el waitlist.
+ * @param {any} w
+ * @returns {Array<any>}
+ */
+window._boEntryGetState = function(w) {
+  if (!w || !w._id) return [];
+  const existing = window._boEntryState.get(w._id);
+  if (existing) return existing;
+  const rows = window._boEntryComputeForCard(w);
+  window._boEntryState.set(w._id, rows);
+  return rows;
+};
+
+/**
+ * Render inline en el <tbody id="wcard-rows">. Para cada SKU con fila roja,
+ * agrega clase + sub-fila con oración + 2 botones. Idempotente — si ya
+ * existe la sub-fila, no la duplica.
+ *
+ * @param {any} w
+ */
+window._boEntryRenderInline = function(w) {
+  const tbody = document.getElementById('wcard-rows');
+  if (!tbody || !w) return;
+  const rows = window._boEntryGetState(w);
+  if (rows.length === 0) {
+    window._boEntryUpdateCounter(w);
+    return;
+  }
+  const texts = window.__phase0 && window.__phase0.pure && window.__phase0.pure.boEntry
+    ? window.__phase0.pure.boEntry.texts
+    : null;
+  if (!texts) return;
+  // Mapa sku → row.
+  const bySku = new Map();
+  rows.forEach((r) => bySku.set(String(r.sku).toLowerCase(), r));
+  // Primero quitar sub-rows existentes para re-render limpio (idempotencia).
+  const subs = tbody.querySelectorAll('tr.bo-entry-sub');
+  subs.forEach((s) => s.remove());
+  // Para cada tr principal, si su SKU tiene fila roja, agregar clase + sub-tr.
+  const trs = tbody.querySelectorAll('tr:not(.bo-entry-sub)');
+  trs.forEach((tr) => {
+    const firstTd = tr.querySelector('td.mono');
+    const spanSku = firstTd && firstTd.querySelector('span');
+    const skuTxt = spanSku ? String(spanSku.textContent || '').trim() : '';
+    if (!skuTxt) return;
+    const row = bySku.get(skuTxt.toLowerCase());
+    if (!row) return;
+    // Aplicar clase (idempotente).
+    tr.classList.remove('bo-entry-red');
+    tr.classList.remove('resolved');
+    if (row.resolved === null) {
+      tr.classList.add('bo-entry-red');
+    } else {
+      tr.classList.add('bo-entry-red');
+      tr.classList.add('resolved');
+    }
+    // Construir sub-tr.
+    const colspan = tr.cells.length || 13;
+    const subTr = document.createElement('tr');
+    subTr.className = 'bo-entry-sub' + (row.resolved !== null ? ' resolved' : '');
+    subTr.setAttribute('data-sku', skuTxt);
+    const subTd = document.createElement('td');
+    subTd.colSpan = colspan;
+    // Oración principal + help ícono.
+    const span = document.createElement('span');
+    span.className = 'bo-entry-oracion';
+    const fecha = texts.formatFechaCorta(row.fechaBoPrevio);
+    const oracionTxt = texts.filaRojaOracion({
+      cantidad: row.cantidadBoPrevia,
+      fechaCorta: fecha,
+    });
+    span.textContent = oracionTxt;
+    const help = document.createElement('span');
+    help.className = 'bo-entry-help';
+    help.textContent = '?';
+    help.title = texts.ayudaFilaRoja();
+    span.appendChild(help);
+    subTd.appendChild(span);
+    // Botones.
+    const sameBtn = document.createElement('button');
+    sameBtn.type = 'button';
+    sameBtn.className = 'bo-entry-btn primary' + (row.resolved === 'same' ? ' selected' : '');
+    sameBtn.textContent = texts.botonSonLasMismas({ cantidad: row.cantidadNueva });
+    sameBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      window._boEntryResolveRow(w, row.sku, 'same');
+    };
+    subTd.appendChild(sameBtn);
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'bo-entry-btn' + (row.resolved === 'additional' ? ' selected' : '');
+    addBtn.textContent = texts.botonSonMas({
+      cantidad: row.cantidadNueva,
+      total: row.cantidadBoPrevia + row.cantidadNueva,
+    });
+    addBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      window._boEntryResolveRow(w, row.sku, 'additional');
+    };
+    subTd.appendChild(addBtn);
+    subTr.appendChild(subTd);
+    tr.after(subTr);
+  });
+  window._boEntryUpdateCounter(w);
+};
+
+/**
+ * Resuelve una fila roja. Actualiza el estado + re-render inline.
+ * @param {any} w
+ * @param {string} sku
+ * @param {'same' | 'additional'} choice
+ */
+window._boEntryResolveRow = function(w, sku, choice) {
+  if (!w || !w._id) return;
+  const pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.boEntry;
+  if (!pure) return;
+  const state = window._boEntryGetState(w);
+  const idx = state.findIndex((r) => String(r.sku).toLowerCase() === String(sku).toLowerCase());
+  if (idx < 0) return;
+  state[idx] = pure.setBoEntryRowResolution(state[idx], choice);
+  window._boEntryState.set(w._id, state);
+  window._boEntryRenderInline(w);
+};
+
+/**
+ * Actualiza el contador "Te faltan N productos por revisar".
+ * @param {any} w
+ */
+window._boEntryUpdateCounter = function(w) {
+  const wrap = document.getElementById('bo-entry-counter-wrap');
+  const el = document.getElementById('bo-entry-counter');
+  if (!wrap || !el) return;
+  const rows = window._boEntryGetState(w);
+  const pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.boEntry;
+  if (!pure) { wrap.style.display = 'none'; return; }
+  const unresolved = pure.unresolvedBoEntryRows(rows);
+  if (unresolved.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  el.textContent = '↓ ' + pure.texts.contadorFilasRojas({ faltan: unresolved.length });
+};
+
+/**
+ * Scroll a la primera fila roja del tbody. Usado al clickear el contador.
+ */
+window._boEntryScrollToFirstRed = function() {
+  const tbody = document.getElementById('wcard-rows');
+  if (!tbody) return;
+  const first = tbody.querySelector('tr.bo-entry-red:not(.resolved)');
+  if (first) {
+    first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    try { first.style.outline = '2px dashed #dc2626'; } catch (_e) {}
+    setTimeout(() => { try { first.style.outline = ''; } catch (_e) {} }, 1800);
+  }
+};
+
+/**
+ * ¿Hay filas rojas sin resolver para este waitlist? Usado como gate antes de
+ * "Pasar a Pendientes" / "Confirmar". Devuelve el array (vacío si todas OK).
+ * @param {any} w
+ * @returns {Array<any>}
+ */
+window._boEntryGetUnresolved = function(w) {
+  const pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.boEntry;
+  if (!pure) return [];
+  const rows = window._boEntryGetState(w);
+  return pure.unresolvedBoEntryRows(rows);
+};
+
+/**
+ * Obtener línea payload-ready con `boEntryResolved` + `boEntryPrevio` para
+ * cada SKU en el estado. Se usa al armar el payload CF (gate L).
+ * @param {any} w
+ * @param {Array<any>} items Items originales del waitlist/payload.
+ * @returns {Array<any>} items enriquecidos.
+ */
+window._boEntryEnrichItemsForCF = function(w, items) {
+  if (!Array.isArray(items)) return items || [];
+  const rows = window._boEntryGetState(w);
+  if (!rows || rows.length === 0) return items;
+  const bySku = new Map();
+  rows.forEach((r) => bySku.set(String(r.sku).toLowerCase(), r));
+  return items.map((it) => {
+    const r = bySku.get(String(it.code || it.sku || '').toLowerCase());
+    if (!r) return it;
+    return Object.assign({}, it, {
+      boEntryResolved: r.resolved,
+      boEntryPrevio: r.cantidadBoPrevia,
+    });
+  });
+};
+
+// ---------------- Excel idéntico cartel ----------------
+/** @type {{resolve: ((ok: 'cargar' | 'cancelar') => void) | null}} */
+window._boExcelIdenticoResolver = { resolve: null };
+
+/**
+ * Muestra el cartel "Este Excel es igual al pedido N° X". Devuelve una Promise
+ * que resuelve a 'cargar' | 'cancelar' según el botón que apreten.
+ *
+ * @param {{orderNumber: number | string, fechaCorta?: string}} args
+ * @returns {Promise<'cargar' | 'cancelar'>}
+ */
+window.showExcelIdenticoModal = function(args) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('excel-identico-modal');
+    const text = document.getElementById('ei-text');
+    const btnCargar = document.getElementById('ei-btn-cargar');
+    const btnCancelar = document.getElementById('ei-btn-cancelar');
+    const texts = window.__phase0 && window.__phase0.pure && window.__phase0.pure.boEntry
+      ? window.__phase0.pure.boEntry.texts
+      : null;
+    if (!modal || !text || !btnCargar || !btnCancelar || !texts) {
+      resolve('cargar'); // fallback: seguir el flow
+      return;
+    }
+    text.textContent = texts.excelIdenticoOracion({
+      orderNumber: args.orderNumber,
+      fechaCorta: args.fechaCorta || '',
+    });
+    btnCancelar.textContent = texts.botonExcelCancelar();
+    btnCargar.textContent = texts.botonExcelSeguir();
+    modal.classList.remove('hidden');
+    window._boExcelIdenticoResolver.resolve = resolve;
+  });
+};
+
+/**
+ * Handler onclick del cartel Excel idéntico.
+ * @param {'cargar' | 'cancelar'} choice
+ */
+window._boExcelIdenticoAccion = function(choice) {
+  const modal = document.getElementById('excel-identico-modal');
+  if (modal) modal.classList.add('hidden');
+  const r = window._boExcelIdenticoResolver;
+  if (r && typeof r.resolve === 'function') {
+    try { r.resolve(choice); } catch (_e) {}
+    r.resolve = null;
+  }
+};
+
 // ---- MODAL CARD INDIVIDUAL ----
 window.openWaitlistCardModal = function(docId){
   const arr = revisionWaitlist || [];
   const w = arr.find(x => x._id === docId);
   if (!w) { alert('Pedido en espera no encontrado (puede haber sido borrado).'); return; }
   _wcardCurrent = w;
+  // Tarea L (v1457): resetear estado de filas rojas al abrir — fuente fresca
+  // de backorderLines. Si quedó estado previo del mismo w._id, se recomputa.
+  try { if (window._boEntryState) window._boEntryState.delete(w._id); } catch (_e) {}
   // v475: asegurar que backorderLines este hidratado para calcular
   // "Backorder Cliente" del SKU. ensureBackordersListener es idempotente.
   try { if (typeof ensureBackordersListener === 'function') ensureBackordersListener(); } catch(e){}
@@ -25639,6 +26045,10 @@ function _renderWaitlistCard(){
     tr.appendChild(tdDel);
     tbody.appendChild(tr);
   });
+  // Tarea L (v1457 2026-10-25): render inline de filas rojas "entrada del backorder".
+  // Idempotente — si no hay BO previo del cliente+SKU, no renderea nada.
+  try { if (typeof window._boEntryRenderInline === 'function') window._boEntryRenderInline(w); }
+  catch (_eBoRed) { console.warn('[boEntry] render inline falló:', _eBoRed && _eBoRed.message); }
   // v540 (2026-08-18): abierto delete a cualquier usuario autenticado @shimano.
   // Antes: solo owner del doc + admin/gerente. Problema: los VDE no eran owner
   // (los docs los crea el VDI Santi/Ioannis al cargar el pedido en espera del
@@ -36631,6 +37041,29 @@ window.doConfirmPedido = async function(){
     // v1406 §44: resolver vendor del cliente master y alinear ownerVendor +
     // vendorAssigned + assignedVendorUid + cargadoPor antes del persist.
     try { window._enrichPayloadWithClientVendor(docData); } catch (_eEnrich) { /* non-fatal */ }
+    // Tarea L (v1457 2026-10-25): enriquecer docData.lines con boEntryResolved +
+    // boEntryPrevio desde el estado del waitlist (si el pedido viene de ahí).
+    // El CF rechaza con UNRESOLVED_BO_ENTRY_ROWS si falta decisión.
+    try {
+      const _wlId = window._pendingPedidoWaitlistId || null;
+      if (_wlId && window._boEntryState && window._boEntryState.has(_wlId)) {
+        const _rows = window._boEntryState.get(_wlId) || [];
+        const _bySku = new Map();
+        _rows.forEach((r) => _bySku.set(String(r.sku).toLowerCase(), r));
+        if (Array.isArray(docData.lines)) {
+          docData.lines = docData.lines.map((l) => {
+            const r = _bySku.get(String(l.code || '').toLowerCase());
+            if (!r) return l;
+            return Object.assign({}, l, {
+              boEntryResolved: r.resolved,
+              boEntryPrevio: r.cantidadBoPrevia,
+            });
+          });
+        }
+      }
+    } catch (_eL) {
+      console.warn('[L] enrich docData.lines falló (non-blocking):', _eL && _eL.message);
+    }
     // E3 §stock-servidor-atomico (v1430+): intento primero commitPedidoCF que
     // decide server-side con runTransaction. Si está disponible y OK, el
     // resultado substituye a `pedidos.add` (ref.id = result.pedidoId).
@@ -36696,6 +37129,18 @@ window.doConfirmPedido = async function(){
       let msg = 'No se pudo confirmar el pedido.\n\nCódigo: ' + code + '\n' + (_commitCfResult.message || '');
       if (code === 'VERSION_OLD') {
         if (confirm(msg + '\n\nActualizar la app ahora?')) location.reload();
+      } else if (code === 'UNRESOLVED_BO_ENTRY_ROWS') {
+        // Tarea L (v1457 2026-10-25): el CF rechazó porque hay filas rojas
+        // sin resolver en el payload. UI: mensaje simple + scroll a la
+        // primera fila roja del modal review (si está abierto).
+        const _data = _commitCfResult.data || {};
+        const _rows = Array.isArray(_data.rows) ? _data.rows : [];
+        const _skus = _rows.map((r) => r.sku).filter(Boolean).join(', ');
+        alert(
+          (_commitCfResult.message || 'Tenés productos marcados en rojo sin revisar.') +
+            (_skus ? '\n\nProductos pendientes: ' + _skus : '')
+        );
+        try { if (typeof window._boEntryScrollToFirstRed === 'function') window._boEntryScrollToFirstRed(); } catch (_e) {}
       } else if (code === 'CLIENT_HAS_OPEN_WAITLIST') {
         // §57 (2026-10-23): mensaje ya está en `msg` desde el CF (lo trae en
         // `_commitCfResult.message`). Antes concatenábamos un texto adicional

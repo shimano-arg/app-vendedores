@@ -2192,9 +2192,47 @@ match /meli_infracciones_resumen/{docId} {
 
 **Precedente**: `feat-infracciones-meli-export` 2026-10-22 (v1413). Pedido Mariano: integrar al modal "Reportes Excel". Reusa el formato que Mariano dejó armado en `Desktop\INFRACCIONES-MELI.xlsx` (header turquesa oscuro, SI turquesa claro, NO rojo oscuro).
 
-## 56. Un SKU aparece una sola vez por orden, siempre (2026-10-24, v1435)
+## 56. Un SKU aparece una sola vez por orden, siempre (2026-10-24, v1435 — UPDATE v1457 2026-10-25)
 
 Regla fuerte: en TODOS los caminos de creación/modificación de órdenes (unificación §42/§42.2, alta manual de SKU, importación Excel, CPST sobre orden abierta, mezcla cliente+servidor), una orden tiene **un SKU una sola vez**. Nunca más filas duplicadas en una orden ni badge "DUPLICADO".
+
+### UPDATE v1457 (2026-10-25, tarea L): regla de cantidad en unificación
+
+Cuando se unifican dos órdenes del mismo cliente que tienen el mismo SKU, la cantidad resultante es la de la orden **MÁS NUEVA**, NO la suma. La fila se marca en rojo (clase `bo-entry-red` en el modal review `#wcard-rows`) y el vendedor elige entre dos opciones:
+
+- `[Son las mismas (quedan N)]` → `resolvedQty = max(cantidadNueva, piso ASIG)`. Reemplaza el BO previo. Preselect por default.
+- `[Son N más (quedan N+M)]` → `resolvedQty = max(cantidadNueva + cantidadBoPrevia, piso ASIG)`.
+
+**Piso ASIG**: si la línea vieja tenía stock asignado (unidades reservadas vía §40), ese piso se preserva — la cantidad final nunca baja de lo que ya está reservado. Fuente del piso: `line.asigRefs[i].qtyAsignada` (summed). CLAUDE.md §40 preservada.
+
+**Fila roja aparece igual** en estos 3 caminos:
+- Alta manual (`reviewDejarEnEspera`): el VDE agrega un SKU y el cliente ya lo tiene en BO vigente.
+- Import Excel (`revisionDejarRecalculando`): el Excel trae un SKU con BO previo.
+- Unificación §42 (`_createOrUnifyWaitlistPayload`): la orden base y la absorbida comparten SKU.
+
+**Lógica pura**: `src/pure/bo_entry_logic.js` + espejo `functions/core/bo_entry_logic.js` + sync test `tests/unit/audit/bo-entry-logic-sync.test.js` (§57). Textos UI en `src/pure/l_bo_entry_texts.js` (único punto de edición para cambiar la copy sin tocar lógica).
+
+**CF gate**: `commitPedidoCore` rechaza con errorCode `UNRESOLVED_BO_ENTRY_ROWS` si llegan líneas con `boEntryResolved === null` en el payload. Shape: `{ok: false, errorCode: 'UNRESOLVED_BO_ENTRY_ROWS', data: {rows: [{sku, cantidad, boAnterior}]}}`.
+
+**Excel idéntico**: si el Excel COMPLETO (set `{code→qty}`) es igual a una orden abierta del mismo cliente, cartel modal `#excel-identico-modal` con 2 opciones:
+- `[Sí, no cargar nada]` → `cancelar`, no se crea payload.
+- `[No, cargarlo igual]` → sigue el flow; filas rojas aparecen al abrir el modal review.
+
+Chequeo via `findIdenticalOpenOrder({items, openOrders})` del pure helper. Dispara ANTES de reservar el orderNumber (evita quemar órdenes).
+
+**Prohibido**:
+- Suma automática silenciosa al unificar (sin pedir decisión).
+- Mostrar jerga: "backorder", "reconciliar", "unificar", "duplicado". Palabras permitidas: "esperando stock", "pedido", "producto".
+- Modal invasivo (alert/confirm) para la decisión — todo inline en la fila roja.
+- Dejar que la cantidad final sea menor que el piso ASIG (viola §40).
+
+**Tests (adicionales a §56 originales)**:
+- `tests/unit/bo-entry-logic.test.js` (33 tests pure).
+- `tests/unit/audit/bo-entry-logic-sync.test.js` (sync src/pure vs functions/core).
+- `tests/functions/commit-pedido-unresolved-bo-rows.test.js` (6 tests gate CF).
+- `tests/e2e/l_bo_entry.spec.js` (6 escenarios, incluye los 4 obligatorios + smoke + textos).
+
+**Precedente**: `feat-v1457-l-bo-entry-fila-roja-excel-identico` 2026-10-25.
 
 ### Rename badge RESERVADO → STOCK ASIGNADO
 

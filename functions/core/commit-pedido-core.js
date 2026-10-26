@@ -35,6 +35,7 @@
  *   errorCode: 'VERSION_OLD' | 'CLIENT_HAS_OPEN_WAITLIST' | 'STOCK_CHANGED'
  *              | 'SNAPSHOT_TOO_OLD' | 'CONTENTION_RETRY_EXHAUSTED'
  *              | 'VALIDATION_ERROR' | 'PERMISSION_DENIED'
+ *              | 'UNRESOLVED_BO_ENTRY_ROWS'  // tarea L v1457: filas rojas sin resolver
  *
  * GARANTÍAS:
  * - Idempotencia por draftId.
@@ -57,6 +58,14 @@ import {
   buildBackfillUpdate,
   computeBoAbsorption,
 } from './absorb-bo-on-confirm.js';
+// Tarea L (v1457 2026-10-25): payload gate "entrada del backorder" (filas rojas).
+// Si llegan al CF con `boEntryResolved===null`, es bug cliente → errorCode
+// UNRESOLVED_BO_ENTRY_ROWS. Importamos la función solo por sync con el espejo,
+// no se invoca el compute acá (confiamos en el payload del cliente).
+// NOTA: NO uses esto para re-detectar BO server-side; es un gate puro sobre el
+// payload. La detección vive en index.html (cliente).
+// eslint-disable-next-line no-unused-vars
+import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 
@@ -225,6 +234,37 @@ export async function commitPedidoCore(deps, payload) {
         orderNumber: first.orderNumber || null,
         items: Array.isArray(first.items) ? first.items.length : 0,
       }
+    );
+  }
+
+  // 4.5 Tarea L (v1457 2026-10-25): gate UNRESOLVED_BO_ENTRY_ROWS.
+  //
+  // Si el cliente del VDE marcó alguna línea con `boEntryResolved===null`,
+  // significa que había BO previo del mismo SKU+cliente y el VDE no eligió
+  // "son las mismas" ni "son más". Rechazamos — es gate del payload, no
+  // revalidación de BO server-side (no re-busca `backorder_lines`; confía
+  // en el estado capturado por la UI).
+  //
+  // Shape esperado en payload.lines[i].boEntryResolved: 'same' | 'additional' | null | undefined
+  //   - undefined: no había BO previo detectado por el cliente → OK.
+  //   - 'same' / 'additional': el VDE resolvió → OK.
+  //   - null: pendiente de decisión → errorCode.
+  const unresolvedBoRows = (payload.lines || [])
+    .filter((/** @type {any} */ l) => l && l.boEntryResolved === null)
+    .map((/** @type {any} */ l) => ({
+      sku: l.sku,
+      cantidad: Number(l.cantidad) || 0,
+      boAnterior: Number(l.boEntryPrevio) || 0,
+    }));
+  if (unresolvedBoRows.length > 0) {
+    await logCommitRejection(deps, 'UNRESOLVED_BO_ENTRY_ROWS', payload, {
+      unresolvedCount: unresolvedBoRows.length,
+      skus: unresolvedBoRows.map((/** @type {any} */ r) => r.sku),
+    });
+    return makeError(
+      'UNRESOLVED_BO_ENTRY_ROWS',
+      'Tenés productos marcados en rojo sin revisar. Elegí para cada uno si son las mismas unidades o son más.',
+      { rows: unresolvedBoRows }
     );
   }
 
