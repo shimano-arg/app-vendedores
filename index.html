@@ -7013,7 +7013,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1451';
+const APP_VERSION = 'v1455';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17869,6 +17869,32 @@ window._buildClientStockForPayload = function(docData) {
 function _buildClientStockForPayload(docData) {
   return window._buildClientStockForPayload(docData);
 }
+
+// §J (v1455 2026-10-25): mostrar línea gris extra en el modal success cuando
+// la CF absorbió unidades BO del mismo cliente+SKU. UNA sola oración simple,
+// castellano, SIN jerga, sin botones. Visible 5 segundos.
+window._renderConfirmModalBoAbsorbed = function(absorptions, totalCubierto){
+  if (!Array.isArray(absorptions) || absorptions.length === 0) return;
+  const total = Number(totalCubierto) || absorptions.reduce((s, a) => s + (Number(a.cantidad) || 0), 0);
+  if (total <= 0) return;
+  const txt = 'Este envío cubre ' + total + ' unidad' + (total === 1 ? '' : 'es') + ' que el cliente tenía esperando stock.';
+  try {
+    let el = document.getElementById('bo-absorbed-tag');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'bo-absorbed-tag';
+      el.style.cssText = 'position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#f3f4f6;color:#4b5563;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.12);max-width:90%;text-align:center;';
+      document.body.appendChild(el);
+    }
+    el.textContent = txt;
+    el.style.display = 'block';
+    setTimeout(() => {
+      if (el && el.parentNode) el.style.display = 'none';
+    }, 5000);
+  } catch(e) {
+    console.warn('_renderConfirmModalBoAbsorbed render error', e);
+  }
+};
 
 window._tryCommitPedidoCF = async function(docData){
   const _email = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
@@ -36563,6 +36589,13 @@ window.doConfirmPedido = async function(){
           try { showSyncTag(ref._diffVsClient.message || 'Stock cambió al confirmar'); } catch(_e){}
         }
       });
+      // §J (v1455 2026-10-25): modal confirm BO absorbed — una línea gris
+      // "Este envío cubre N unidades que el cliente tenía esperando stock."
+      try {
+        if (typeof window._renderConfirmModalBoAbsorbed === 'function') {
+          window._renderConfirmModalBoAbsorbed(_commitCfResult.absorptions || [], _commitCfResult.boAbsorbedTotal || 0);
+        }
+      } catch(_e){ console.warn('_renderConfirmModalBoAbsorbed', _e); }
       // Flow continúa como si .add() hubiera retornado — pero el CF ya hizo
       // casi todo (crear pedido + cancel ASIG si cpst + §57 marcar waitlist
       // origen consumed/closedAt dentro de la misma transacción). Solo falta
