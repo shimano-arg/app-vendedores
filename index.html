@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1465';
+const APP_VERSION = 'v1466';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27712,19 +27712,45 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // Fix pre-existente de v1284 (importedFromOrder se perdia) + nuevos campos
   // origen/asigRefs del fix "Unificar orden preservando identidad ASIG".
   // Permite al call-site decidir getDisp por linea y cancelar ASIG por linea.
+  // v1466 (2026-10-26) hotfix STOCK_CHANGED loop reportado por Santi 16:46 ART
+  // (ORDEN 533 MARISA LUJAN IANUNZIO C27184733760). Waitlists CPST (como la
+  // Uvh1A4bhWfriBW5KZlO5 unificada 23/10 00:59 por Mariano desde la 536) tienen
+  // `w.source='stock-asignado-batch'` + `w.pedidosOrigenes[]` populated A NIVEL
+  // DOCUMENTO pero `w.items[].origen`/`w.items[].asigRefs` vacíos. Al "Pasar a
+  // Pendientes" el payload a commitPedidoCF llegaba con `origenLinea=undefined`
+  // → el core aplicaba fórmula GLOBAL (CLAUDE.md §33/§35) `breakdown.libre` en
+  // vez de `utilizablePara(cardCode)` → fisico=20 reservadas=20 → libre=0 →
+  // qtyBO=qty → STOCK_CHANGED (sin clientStock no se podía filtrar como
+  // false positive).
+  // Fix: derivar origen+asigRefs POR SKU desde pedidosOrigenes del doc si
+  // el item NO los trae explícitos. Idempotente para items v1382+ ya bien
+  // poblados.
+  const _wlCpstOrigen = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.waitlistCpstOrigen) || null;
+  const _origenesBySku = _wlCpstOrigen && _wlCpstOrigen.buildOrigenesBySkuFromWaitlist
+    ? _wlCpstOrigen.buildOrigenesBySkuFromWaitlist(w)
+    : null;
   const finalItems = (w.items || [])
-    .map(it => ({
-      code: it.code,
-      desc: it.desc,
-      qty: it.qty || 0,
-      precioExcel: null,
-      needsReview: false,
-      // v1284: color de fila importada post-unificacion persiste al confirmar
-      ...(typeof it.importedFromOrder === 'number' ? { importedFromOrder: it.importedFromOrder } : {}),
-      // v1382: identidad ASIG por linea (orden CPST o items de CPST absorbido)
-      ...(it.origen ? { origen: it.origen } : {}),
-      ...(Array.isArray(it.asigRefs) && it.asigRefs.length > 0 ? { asigRefs: it.asigRefs.map(r => ({ ...r })) } : {}),
-    }))
+    .map(it => {
+      const _enriched = _wlCpstOrigen && _wlCpstOrigen.enrichItemWithCpstOrigen
+        ? _wlCpstOrigen.enrichItemWithCpstOrigen(it, _origenesBySku)
+        : {};
+      return {
+        code: it.code,
+        desc: it.desc,
+        qty: it.qty || 0,
+        precioExcel: null,
+        needsReview: false,
+        // v1284: color de fila importada post-unificacion persiste al confirmar
+        ...(typeof it.importedFromOrder === 'number' ? { importedFromOrder: it.importedFromOrder } : {}),
+        // v1382 + v1466: identidad ASIG por linea. Si el item trae origen
+        // explicito gana (v1382+); si no, _enriched lo deriva desde
+        // pedidosOrigenes (v1466 fix).
+        ...(_enriched.origen ? { origen: _enriched.origen } : {}),
+        ...(Array.isArray(_enriched.asigRefs) && _enriched.asigRefs.length > 0
+          ? { asigRefs: _enriched.asigRefs }
+          : {}),
+      };
+    })
     .filter(it => it.qty > 0);
   if (!finalItems.length) {
     alert('No hay ninguna linea con qty > 0 en el pedido. Agrega o corrige unidades antes de pasar a Pendientes.');
@@ -27743,7 +27769,20 @@ window._waitlistPasarAPendientesContinuar = function(w){
   // Cargar en orders[] usando el mismo mapping que confirmExcelPedido.
   const outLines = finalItems.map(l => {
     const precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0;
-    return {code: l.code, desc: l.desc, cat: '', fam: '', sub: '', precio, needsReview: false, qty: l.qty, sinStock: false};
+    // v1466 (2026-10-26): preservar origen+asigRefs+importedFromOrder desde
+    // finalItems hasta orders[]. Antes se perdían aquí → splitPedidoLine
+    // computaba getDisp con fallback _docIsExAsig (OK) pero el payload CF
+    // viajaba sin origenLinea → core aplicaba fórmula global → STOCK_CHANGED.
+    // Reportado Santi 2026-10-26 16:46 ART ORDEN 533.
+    return {
+      code: l.code, desc: l.desc, cat: '', fam: '', sub: '', precio,
+      needsReview: false, qty: l.qty, sinStock: false,
+      ...(l.origen ? { origen: l.origen } : {}),
+      ...(Array.isArray(l.asigRefs) && l.asigRefs.length > 0
+        ? { asigRefs: l.asigRefs.map(r => ({ ...r })) }
+        : {}),
+      ...(typeof l.importedFromOrder === 'number' ? { importedFromOrder: l.importedFromOrder } : {}),
+    };
   });
   orders[currentOrderKey] = outLines;
   try { saveOrders(); } catch(e){}

@@ -137,6 +137,15 @@ import {
   mergeLinesFromOrders,
 } from './pure/unificar-ordenes.js';
 import { computeVirtualAsigFifo } from './pure/virtual-asig-fifo.js';
+// v1466 (2026-10-26): hotfix STOCK_CHANGED loop reportado por Santi ~16:46 ART.
+// Waitlists CPST con pedidosOrigenes[] en doc pero items[].origen vacío → el
+// payload CF llegaba sin origen → fórmula global → qtyBO>0 → STOCK_CHANGED.
+// Deriva origen+asigRefs por SKU desde pedidosOrigenes del documento como
+// fallback cuando items no los tienen.
+import {
+  buildOrigenesBySkuFromWaitlist,
+  enrichItemWithCpstOrigen,
+} from './pure/waitlist-cpst-origen.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import {
@@ -371,6 +380,11 @@ const phase0 = {
     buildAsigRefsForLine,
     splitPedidoLine,
     reenrichPedidoLine,
+    // v1466 §64 (2026-10-26): fallback origen+asigRefs desde pedidosOrigenes.
+    waitlistCpstOrigen: {
+      buildOrigenesBySkuFromWaitlist,
+      enrichItemWithCpstOrigen,
+    },
     // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.
     absorbBoOnConfirm: {
       computeBoAbsorption,
