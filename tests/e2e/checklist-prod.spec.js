@@ -54,31 +54,10 @@ async function doLogin(page) {
   await page.locator('#login-pass').first().fill(CREDS.password);
   await page.locator('#login-submit-btn').first().click();
   await page.waitForSelector('button:has-text("Salir")', { timeout: 30000 });
-  // Patch E2E: pisar _tryCommitPedidoCF para forzar boEntryResolved='same' en
-  // las líneas que lleguen con null (bypasa UNRESOLVED_BO_ENTRY_ROWS cuando el
-  // state fue poblado espúreamente — bug UI que mencionó Mariano).
-  await page.evaluate(() => {
-    const w = /** @type {any} */ (window);
-    const orig = w._tryCommitPedidoCF;
-    if (typeof orig === 'function' && !w._e2ePatchTryCommit) {
-      w._e2ePatchTryCommit = true;
-      w._tryCommitPedidoCF = async function (docData) {
-        console.log(
-          '[E2E patch] docData.lines[0]=',
-          JSON.stringify(docData && docData.lines && docData.lines[0])
-        );
-        if (docData && Array.isArray(docData.lines)) {
-          docData.lines = docData.lines.map((l) =>
-            l && (l.boEntryResolved === null || l.boEntryResolved === undefined)
-              ? Object.assign({}, l, { boEntryResolved: 'same' })
-              : l
-          );
-          console.log('[E2E patch] post-patch lines[0]=', JSON.stringify(docData.lines[0]));
-        }
-        return orig.call(this, docData);
-      };
-    }
-  });
+  // v1461 (2026-10-26): patch E2E `_tryCommitPedidoCF` REMOVIDO. El fix real
+  // está en commit-pedido-core.js (CF filter `boEntryPrevio > 0`) + index.html
+  // (enricher filter `cantidadBoPrevia > 0`). Antes el patch bypasaba el gate
+  // UNRESOLVED_BO_ENTRY_ROWS que se disparaba sin BO previo real.
   // Dismiss el announcement modal de dark mode si aparece (bloquea clicks).
   // Primero intentar la función oficial, si falla ocultar brutalmente por CSS.
   await page.evaluate(() => {
