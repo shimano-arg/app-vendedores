@@ -37,6 +37,12 @@ import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.j
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 import { passesTypeFilter } from './pure/filters.js';
+// v1470 (2026-10-26): sanitizador undefined para writes Firestore. Fix bug
+// Federico Castelanelli "Function WriteBatch.update() called with invalid
+// data. Unsupported field value: undefined (found in document
+// revision_waitlist/ZPvU3dOUKtkMeNf1lnq)". Replica el fix v1469 server-side
+// pero para el cliente web SDK v8 (compat).
+import { isSanitizedPath, stripUndefined } from './pure/firestore-sanitize.js';
 import { L_BO_ENTRY_TEXTS } from './pure/l_bo_entry_texts.js';
 import {
   displayVendorName,
@@ -384,6 +390,11 @@ const phase0 = {
     waitlistCpstOrigen: {
       buildOrigenesBySkuFromWaitlist,
       enrichItemWithCpstOrigen,
+    },
+    // v1470 (2026-10-26) §64 — sanitizador undefined para writes Firestore.
+    firestoreSanitize: {
+      stripUndefined,
+      isSanitizedPath,
     },
     // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.
     absorbBoOnConfirm: {
