@@ -148,7 +148,9 @@ describe('v1431 fallback strict', () => {
       // §67 (v1454): el bloque post-ok=false ahora termina en `return;` seguido
       // del comentario "§67 (v1454 2026-10-25): FALLBACK LEGACY ELIMINADO" en
       // vez de "Fallback legacy". Match ambos para compat durante la transición.
-      const code = INDEX_HTML.slice(start, start + 4500);
+      // v1469 (2026-10-26): handler CONTENTION_RETRY_EXHAUSTED agregó rama de
+      // mensaje genérico; aumentar margen a 6000.
+      const code = INDEX_HTML.slice(start, start + 6000);
       expect(code).toMatch(/return;\s*\n\s*\}\s*\n\s*\/\/\s*(Fallback legacy|§67 \(v1454)/);
     });
   });
