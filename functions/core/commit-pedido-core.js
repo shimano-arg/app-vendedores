@@ -249,8 +249,15 @@ export async function commitPedidoCore(deps, payload) {
   //   - undefined: no había BO previo detectado por el cliente → OK.
   //   - 'same' / 'additional': el VDE resolvió → OK.
   //   - null: pendiente de decisión → errorCode.
+  // Fix v1461 (2026-10-26): sólo rechazar si hay BO previo REAL (> 0). Si
+  // `boEntryPrevio` es 0, falsy o no reportado, significa que la UI/pure no
+  // encontró BO vigente para ese cliente+SKU → la fila roja es espúrea y no
+  // debe bloquear. Cumple la regla de Mariano: "una línea requiere resolución
+  // SÓLO si el cliente tiene BO vigente por ese SKU al cargarla".
   const unresolvedBoRows = (payload.lines || [])
-    .filter((/** @type {any} */ l) => l && l.boEntryResolved === null)
+    .filter(
+      (/** @type {any} */ l) => l && l.boEntryResolved === null && Number(l.boEntryPrevio) > 0
+    )
     .map((/** @type {any} */ l) => ({
       sku: l.sku,
       cantidad: Number(l.cantidad) || 0,
