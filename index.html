@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1469';
+const APP_VERSION = 'v1470';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -29816,6 +29816,85 @@ const fbDb = firebase.firestore();
 // Reportado por Mariano 2026-09-16.
 window.fbDb = fbDb;
 try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
+
+// v1470 (2026-10-26) hotfix bug Federico Castelanelli:
+// "Function WriteBatch.update() called with invalid data. Unsupported field
+// value: undefined (found in document revision_waitlist/ZPvU3dOUKtkMeNf1lnq)"
+// — el SDK web Firestore v8 (compat) RECHAZA `undefined` igual que admin SDK.
+// Multiples helpers escriben campos opcionales que pueden ser undefined
+// (boEntryResolved, origen, asigRefs, importedFromOrder) y rompían el write.
+// Fix: monkey-patch de DocumentReference.update/set + WriteBatch.update/set
+// que aplica `stripUndefined` recursivamente CUANDO el doc path es
+// `revision_waitlist/*` o `pedidos/*`. Único lugar de instalación — todos
+// los call-sites existentes y futuros quedan cubiertos sin edit manual.
+// Pure helper en src/pure/firestore-sanitize.js (shippeado via bundle).
+(function _installFirestoreSanitizePatch(){
+  try {
+    const _pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.firestoreSanitize;
+    if (!_pure || typeof _pure.stripUndefined !== 'function') {
+      console.warn('[v1470] firestoreSanitize no disponible en __phase0, saltando monkey-patch');
+      return;
+    }
+    const _strip = _pure.stripUndefined;
+    const _isSanitized = _pure.isSanitizedPath;
+    // DocumentReference prototype (acceso vía instancia any).
+    const _sampleDocRef = fbDb.collection('__sanitize_probe__').doc('x');
+    const _DocProto = Object.getPrototypeOf(_sampleDocRef);
+    if (_DocProto && typeof _DocProto.update === 'function' && typeof _DocProto.set === 'function') {
+      const _origUpdate = _DocProto.update;
+      const _origSet = _DocProto.set;
+      _DocProto.update = function _patchedUpdate(data, ...rest) {
+        try {
+          if (data && typeof data === 'object' && this && typeof this.path === 'string' && _isSanitized(this.path)) {
+            return _origUpdate.call(this, _strip(data), ...rest);
+          }
+        } catch (_e) { /* silent */ }
+        return _origUpdate.call(this, data, ...rest);
+      };
+      _DocProto.set = function _patchedSet(data, opts, ...rest) {
+        try {
+          if (data && typeof data === 'object' && this && typeof this.path === 'string' && _isSanitized(this.path)) {
+            if (opts !== undefined) return _origSet.call(this, _strip(data), opts, ...rest);
+            return _origSet.call(this, _strip(data), ...rest);
+          }
+        } catch (_e) { /* silent */ }
+        if (opts !== undefined) return _origSet.call(this, data, opts, ...rest);
+        return _origSet.call(this, data, ...rest);
+      };
+    }
+    // WriteBatch prototype.
+    const _sampleBatch = fbDb.batch();
+    const _BatchProto = Object.getPrototypeOf(_sampleBatch);
+    if (_BatchProto && typeof _BatchProto.update === 'function' && typeof _BatchProto.set === 'function') {
+      const _origBatchUpdate = _BatchProto.update;
+      const _origBatchSet = _BatchProto.set;
+      _BatchProto.update = function _patchedBatchUpdate(ref, dataOrField, ...rest) {
+        try {
+          if (ref && typeof ref.path === 'string' && _isSanitized(ref.path)
+              && dataOrField && typeof dataOrField === 'object' && rest.length === 0) {
+            return _origBatchUpdate.call(this, ref, _strip(dataOrField));
+          }
+        } catch (_e) { /* silent */ }
+        return _origBatchUpdate.call(this, ref, dataOrField, ...rest);
+      };
+      _BatchProto.set = function _patchedBatchSet(ref, data, opts, ...rest) {
+        try {
+          if (ref && typeof ref.path === 'string' && _isSanitized(ref.path)
+              && data && typeof data === 'object') {
+            if (opts !== undefined) return _origBatchSet.call(this, ref, _strip(data), opts, ...rest);
+            return _origBatchSet.call(this, ref, _strip(data), ...rest);
+          }
+        } catch (_e) { /* silent */ }
+        if (opts !== undefined) return _origBatchSet.call(this, ref, data, opts, ...rest);
+        return _origBatchSet.call(this, ref, data, ...rest);
+      };
+    }
+    // Marca para debug + tests.
+    window.__v1470_sanitizePatchInstalled = true;
+  } catch (e) {
+    console.error('[v1470] monkey-patch firestore-sanitize fallo:', e && e.message);
+  }
+})();
 
 // v614b (2026-08-24): currentUser cambiado de 'let' a 'var' para que sea
 // visible como window.currentUser desde el bundle IIFE (Panel de Control
