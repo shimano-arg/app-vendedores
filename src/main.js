@@ -78,6 +78,16 @@ import { suggestForSku } from './pure/product-suggestions.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
 import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
+// Tarea L (v1457 2026-10-25): entrada del backorder (filas rojas) + Excel idéntico.
+// Espejo en functions/core/bo_entry_logic.js. Textos en l_bo_entry_texts.js.
+import {
+  computeBoEntryRows,
+  findIdenticalOpenOrder,
+  isExcelIdenticalToOpenOrder,
+  setBoEntryRowResolution,
+  unresolvedBoEntryRows,
+} from './pure/bo_entry_logic.js';
+import { L_BO_ENTRY_TEXTS } from './pure/l_bo_entry_texts.js';
 import {
   enrichPayloadWithClientVendor,
   formatAssignedVendorReason,
@@ -356,6 +366,16 @@ const phase0 = {
       computeBoAbsorption,
       applyAbsorptionsToLines,
       buildBackfillUpdate,
+    },
+    // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
+    // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.
+    boEntry: {
+      computeBoEntryRows,
+      setBoEntryRowResolution,
+      unresolvedBoEntryRows,
+      isExcelIdenticalToOpenOrder,
+      findIdenticalOpenOrder,
+      texts: L_BO_ENTRY_TEXTS,
     },
     // v1418 §53 (2026-10-22): "va a SAP" neto unificado.
     computeVaASap,
