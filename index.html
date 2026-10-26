@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1467';
+const APP_VERSION = 'v1468';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17973,8 +17973,21 @@ window._updateLiveStockBadge = function(){
 window._buildClientStockForPayload = function(docData) {
   try {
     if (!docData || !Array.isArray(docData.lines)) return null;
-    const bdFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockBreakdown
-      && window.__phase0.pure.stockBreakdown.getStockBreakdown;
+    // v1468 hotfix (2026-10-26) BUG RAIZ: el bundle expone getStockBreakdown
+    // DIRECTO en window.__phase0.pure (ver src/main.js:431), NO bajo un
+    // sub-objeto `stockBreakdown`. El lookup viejo
+    // (window.__phase0.pure.stockBreakdown.getStockBreakdown) SIEMPRE fue
+    // undefined desde v1443 → helper devolvía null → clientStock nunca
+    // viajaba al payload → clientSnapshotProvided: false siempre → el
+    // comparador v1447 §64.1 no podía filtrar false positives por qtyBO>0 →
+    // STOCK_CHANGED loop reportado por Santi ORDEN 533 2026-10-26 17:28.
+    // Fallback a stockBreakdown.getStockBreakdown por si en el futuro se
+    // reagrupa como sub-objeto (como está waitlistCpstOrigen).
+    const _pure = window.__phase0 && window.__phase0.pure;
+    const bdFn = _pure && (
+      _pure.getStockBreakdown
+      || (_pure.stockBreakdown && _pure.stockBreakdown.getStockBreakdown)
+    );
     if (typeof bdFn !== 'function') return null;
     // v1467 hotfix (2026-10-26): `window.getStockFisico` NUNCA se asignó
     // (grep del repo: solo `window.getStockTransito` existe). Antes el helper
