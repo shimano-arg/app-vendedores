@@ -30,12 +30,15 @@ import { describe, expect, it } from 'vitest';
  */
 function canSeeFichaFromPopup(alta, userRole, myVendor, effVendor) {
   if (!alta || !alta.cardCodeSap) return false; // leads no activados
-  const isAdminGerIntern =
-    userRole === 'admin' || userRole === 'gerente' || userRole === 'interno';
+  const isAdminGerIntern = userRole === 'admin' || userRole === 'gerente' || userRole === 'interno';
   if (isAdminGerIntern) return true;
   if (userRole !== 'vendedor') return false;
-  const my = String(myVendor || '').toUpperCase().trim();
-  const eff = String(effVendor || '').toUpperCase().trim();
+  const my = String(myVendor || '')
+    .toUpperCase()
+    .trim();
+  const eff = String(effVendor || '')
+    .toUpperCase()
+    .trim();
   if (!my || !eff) return false;
   return my === eff;
 }
@@ -82,9 +85,9 @@ describe('v1446 §52 — guard Ficha cliente en popup del mapa', () => {
   });
 
   it('VDE Mauricio (NO match effVendor) NO ve el botón', () => {
-    expect(
-      canSeeFichaFromPopup(MUNDO_ESTURION, 'vendedor', 'MAURICIO GIL', EFF_VENDOR_ME)
-    ).toBe(false);
+    expect(canSeeFichaFromPopup(MUNDO_ESTURION, 'vendedor', 'MAURICIO GIL', EFF_VENDOR_ME)).toBe(
+      false
+    );
   });
 
   it('VDE sin vendorKey asignado NO ve el botón', () => {
@@ -92,9 +95,9 @@ describe('v1446 §52 — guard Ficha cliente en popup del mapa', () => {
   });
 
   it('Alta sin effVendor resuelto (zona huérfana) → VDE NO ve el botón', () => {
-    expect(
-      canSeeFichaFromPopup(MUNDO_ESTURION, 'vendedor', 'GONZALO DE LA ROSA', null)
-    ).toBe(false);
+    expect(canSeeFichaFromPopup(MUNDO_ESTURION, 'vendedor', 'GONZALO DE LA ROSA', null)).toBe(
+      false
+    );
   });
 
   it('Alta sin effVendor + admin → sí ve', () => {
@@ -118,7 +121,9 @@ describe('v1446 §52 — guard Ficha cliente en popup del mapa', () => {
     expect(
       canSeeFichaFromPopup(MUNDO_ESTURION, 'viewer', 'GONZALO DE LA ROSA', EFF_VENDOR_ME)
     ).toBe(false);
-    expect(canSeeFichaFromPopup(MUNDO_ESTURION, 'unassigned', 'GONZALO DE LA ROSA', EFF_VENDOR_ME)).toBe(false);
+    expect(
+      canSeeFichaFromPopup(MUNDO_ESTURION, 'unassigned', 'GONZALO DE LA ROSA', EFF_VENDOR_ME)
+    ).toBe(false);
     expect(canSeeFichaFromPopup(MUNDO_ESTURION, '', 'GONZALO DE LA ROSA', EFF_VENDOR_ME)).toBe(
       false
     );
