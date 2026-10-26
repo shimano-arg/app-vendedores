@@ -65,7 +65,11 @@ import { getStockBreakdown } from './pedido-snapshot-core.js';
 // pasa a correr efectivamente cada 5-10 min, se puede bajar.
 const SNAPSHOT_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 horas
 const MAX_RETRY_ATTEMPTS = 5;
-const VALID_ORIGENS = new Set(['manual', 'excel', 'cpst', 'auto', 'reparto']);
+// §67 (2026-10-25 v1454): se agrega 'manual_backorder' al set válido para
+// absorber el flow Generar Backorder manual de index.html:_gbConfirmar. Antes
+// pedidos.add directo sin _commitVersion → bloqueaba E10 GREEN. Con esto el
+// camino de GB pasa por commitPedidoCF y queda sellado con _commitVersion.
+const VALID_ORIGENS = new Set(['manual', 'excel', 'cpst', 'auto', 'reparto', 'manual_backorder']);
 
 /**
  * @param {CommitPedidoDeps} deps
@@ -186,16 +190,18 @@ export async function commitPedidoCore(deps, payload) {
       { field: 'waitlistOrigenId' }
     );
   }
+  // §67 (2026-10-25 v1454): manual_backorder NO consume waitlist — es un flow
+  // paralelo (VDE/admin arma backorder manual sin pasar por lista de espera).
+  // Skipeamos el chequeo CLIENT_HAS_OPEN_WAITLIST.
+  const skipOpenWaitlistCheck = payload.origen === 'manual_backorder';
   // Para pedidos directos (manual/excel sin waitlistOrigenId) o pedidos que
   // nacen de waitlist (cpst, o manual/excel con waitlistOrigenId): aplicar
   // el check SIEMPRE excluyendo la propia waitlist cuando corresponde.
   // §42 permite a lo sumo UNA orden abierta por cliente; si el pedido viene
   // de esa única orden, el check debe ignorarla.
-  const openWaitlists = await findOpenWaitlistsForClientExcludingSelf(
-    deps,
-    payload.cardCode,
-    waitlistOrigenId
-  );
+  const openWaitlists = skipOpenWaitlistCheck
+    ? []
+    : await findOpenWaitlistsForClientExcludingSelf(deps, payload.cardCode, waitlistOrigenId);
   if (openWaitlists.length > 0) {
     const first = openWaitlists[0];
     // §64.2 (v1448): log antes del return.
@@ -527,87 +533,136 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   const lineasResultado = [];
   /** @type {Array<any>} */
   const docLines = [];
-  for (const payloadLine of payload.lines) {
-    const sku = String(payloadLine.sku || '').toUpperCase();
-    const cantidad = Number(payloadLine.cantidad) || 0;
-    if (!sku || cantidad <= 0) continue;
 
-    const fisicoDep11 = Number(warehouseBreakdown[sku]?.['11'] || 0);
-    const transitoDep12 = Number(warehouseBreakdown[sku]?.['12'] || 0);
-
-    const breakdown = getStockBreakdown(
-      sku,
-      {
-        getStockFisico: () => fisicoDep11,
-        getStockTransito: () => transitoDep12,
-        pedidos,
-        ingresosRepartoActivos: repartosActivos,
-      },
-      { now }
-    );
-
-    // CLAUDE.md §33 + §35: fórmula POR LÍNEA.
-    // - origenLinea='stock-asignado' con asigRefs populated → utilizablePara
-    //   (incluye reservas propias que serán canceladas por el bloque CPST).
-    // - cualquier otra línea → libre global (no suma reservas propias; una
-    //   nueva línea manual no cancela ASIG propia existente).
-    const esStockAsignado =
-      payloadLine.origenLinea === 'stock-asignado' &&
-      Array.isArray(payloadLine.asigRefs) &&
-      payloadLine.asigRefs.length > 0;
-    const utilizable = esStockAsignado
-      ? breakdown.utilizablePara(payload.cardCode)
-      : breakdown.libre;
-    const qtyConfirmed = Math.min(cantidad, utilizable);
-    const qtyBO = cantidad - qtyConfirmed;
-
-    let reason = 'ok';
-    if (qtyBO > 0 && qtyConfirmed === 0) reason = 'stock_no_disponible';
-    else if (qtyBO > 0) reason = 'stock_parcial';
-
-    lineasResultado.push({
-      sku,
-      qtyConfirmed,
-      qtyBO,
-      reason,
-      libre: breakdown.libre,
-      utilizablePara: utilizable,
-      // §64 (v1443): preservar breakdown para logging STOCK_CHANGED.
-      breakdown,
-    });
-
-    if (qtyConfirmed > 0) {
-      docLines.push({
-        code: sku,
-        qty: qtyConfirmed,
-        qtyOpen: qtyConfirmed,
-        qtyInvoiced: 0,
-        qtyCancelled: 0,
-        qtyRecycled: 0,
-        state: 'confirmed',
-        precio: Number(payloadLine.precio) || 0,
-        notas: payloadLine.notas || '',
-        origen: payloadLine.origenLinea || undefined,
-        asigRefs: Array.isArray(payloadLine.asigRefs) ? payloadLine.asigRefs : undefined,
+  // §67 (2026-10-25 v1454): origen='manual_backorder' usa linesPrebuilt del
+  // payload sin recomputar breakdown. El flow GB manual arma las líneas con
+  // state=ASIG/BO + campos propios (asigCliTipo='manual-backorder',
+  // targetMonth, manualBackorder, asigReserva, asigAt) que no se derivan del
+  // breakdown. Validamos shape mínimo y propagamos. CLIENT_HAS_OPEN_WAITLIST
+  // ya skippeado arriba; aquí NO corremos STOCK_CHANGED (el objetivo del BO
+  // manual ES capturar demanda incluso sin stock físico).
+  if (payload.origen === 'manual_backorder') {
+    const prebuilt = Array.isArray(payload.linesPrebuilt) ? payload.linesPrebuilt : [];
+    if (prebuilt.length === 0) {
+      await logCommitRejection(deps, 'VALIDATION_ERROR', payload, {
+        validationReason: 'manual_backorder requiere linesPrebuilt no-vacío',
+        validationData: { field: 'linesPrebuilt' },
+      });
+      return makeError('VALIDATION_ERROR', 'manual_backorder requiere linesPrebuilt no-vacío', {
+        field: 'linesPrebuilt',
       });
     }
-    if (qtyBO > 0) {
-      docLines.push({
-        code: sku,
-        qty: qtyBO,
-        qtyOpen: qtyBO,
-        qtyInvoiced: 0,
-        qtyCancelled: 0,
-        qtyRecycled: 0,
-        state: 'BO',
-        precio: Number(payloadLine.precio) || 0,
-        notas: payloadLine.notas || '',
+    for (const l of prebuilt) {
+      if (!l || !l.code) continue;
+      const q = Number(l.qty) || 0;
+      if (q <= 0) continue;
+      const state = String(l.state || '').toUpperCase();
+      if (state !== 'ASIG' && state !== 'BO') continue; // defensa
+      docLines.push({ ...l, qty: q, qtyOpen: Number(l.qtyOpen) || q, state });
+      lineasResultado.push({
+        sku: String(l.code).toUpperCase(),
+        qtyConfirmed: state === 'ASIG' ? q : 0,
+        qtyBO: state === 'BO' ? q : 0,
+        reason: 'manual_backorder_prebuilt',
       });
     }
-  }
+    if (docLines.length === 0) {
+      await logCommitRejection(deps, 'VALIDATION_ERROR', payload, {
+        validationReason: 'manual_backorder sin líneas válidas tras filter',
+        validationData: { field: 'linesPrebuilt' },
+      });
+      return makeError(
+        'VALIDATION_ERROR',
+        'manual_backorder sin líneas válidas (state ∈ {ASIG, BO}, qty > 0)',
+        { field: 'linesPrebuilt' }
+      );
+    }
+  } else {
+    for (const payloadLine of payload.lines) {
+      const sku = String(payloadLine.sku || '').toUpperCase();
+      const cantidad = Number(payloadLine.cantidad) || 0;
+      if (!sku || cantidad <= 0) continue;
+
+      const fisicoDep11 = Number(warehouseBreakdown[sku]?.['11'] || 0);
+      const transitoDep12 = Number(warehouseBreakdown[sku]?.['12'] || 0);
+
+      const breakdown = getStockBreakdown(
+        sku,
+        {
+          getStockFisico: () => fisicoDep11,
+          getStockTransito: () => transitoDep12,
+          pedidos,
+          ingresosRepartoActivos: repartosActivos,
+        },
+        { now }
+      );
+
+      // CLAUDE.md §33 + §35: fórmula POR LÍNEA.
+      // - origenLinea='stock-asignado' con asigRefs populated → utilizablePara
+      //   (incluye reservas propias que serán canceladas por el bloque CPST).
+      // - cualquier otra línea → libre global (no suma reservas propias; una
+      //   nueva línea manual no cancela ASIG propia existente).
+      const esStockAsignado =
+        payloadLine.origenLinea === 'stock-asignado' &&
+        Array.isArray(payloadLine.asigRefs) &&
+        payloadLine.asigRefs.length > 0;
+      const utilizable = esStockAsignado
+        ? breakdown.utilizablePara(payload.cardCode)
+        : breakdown.libre;
+      const qtyConfirmed = Math.min(cantidad, utilizable);
+      const qtyBO = cantidad - qtyConfirmed;
+
+      let reason = 'ok';
+      if (qtyBO > 0 && qtyConfirmed === 0) reason = 'stock_no_disponible';
+      else if (qtyBO > 0) reason = 'stock_parcial';
+
+      lineasResultado.push({
+        sku,
+        qtyConfirmed,
+        qtyBO,
+        reason,
+        libre: breakdown.libre,
+        utilizablePara: utilizable,
+        // §64 (v1443): preservar breakdown para logging STOCK_CHANGED.
+        breakdown,
+      });
+
+      if (qtyConfirmed > 0) {
+        docLines.push({
+          code: sku,
+          qty: qtyConfirmed,
+          qtyOpen: qtyConfirmed,
+          qtyInvoiced: 0,
+          qtyCancelled: 0,
+          qtyRecycled: 0,
+          state: 'confirmed',
+          precio: Number(payloadLine.precio) || 0,
+          notas: payloadLine.notas || '',
+          origen: payloadLine.origenLinea || undefined,
+          asigRefs: Array.isArray(payloadLine.asigRefs) ? payloadLine.asigRefs : undefined,
+        });
+      }
+      if (qtyBO > 0) {
+        docLines.push({
+          code: sku,
+          qty: qtyBO,
+          qtyOpen: qtyBO,
+          qtyInvoiced: 0,
+          qtyCancelled: 0,
+          qtyRecycled: 0,
+          state: 'BO',
+          precio: Number(payloadLine.precio) || 0,
+          notas: payloadLine.notas || '',
+        });
+      }
+    }
+  } // close else (payload.origen !== 'manual_backorder')
 
   // 5.7 Compute diffVsClient.
-  const diffVsClient = computeDiffVsClient(lineasResultado, payload);
+  // §67 (v1454): skip para manual_backorder (lineasResultado no tiene breakdown
+  // y el objetivo es capturar demanda incluso sin stock físico).
+  const diffVsClient =
+    payload.origen === 'manual_backorder' ? null : computeDiffVsClient(lineasResultado, payload);
   if (diffVsClient && !payload.autoAcceptStockChange) {
     // §64.2 (v1448): compute skuDetails + propagar via err._data. El catch
     // del retry loop (línea ~240) hace `await logCommitRejection(...,
@@ -845,13 +900,34 @@ function cancelAsigRefsFromPrefetched(tx, payload, newPedidoId, nowIso, snapshot
 /** @param {any} payload @param {any[]} docLines @param {string} nowIso @param {any} deps */
 function buildPedidoDocData(payload, docLines, nowIso, deps) {
   const FieldValue = deps.FieldValue || null;
+  // §67 (v1454): source/transferidoSAP derivados por origen. manual_backorder
+  // nunca va a SAP (skipSap=true, via='manual-backorder'); cpst usa el batch
+  // marker; el resto delega al payload.source.
+  const isManualBo = payload.origen === 'manual_backorder';
+  const resolvedSource = isManualBo
+    ? 'manual-backorder'
+    : payload.origen === 'cpst'
+      ? 'stock-asignado-batch'
+      : payload.source || '';
+  const resolvedTransferidoSAP = isManualBo
+    ? {
+        via: 'manual-backorder',
+        skipSap: true,
+        docNum: null,
+        docEntry: null,
+        createdAt: nowIso,
+      }
+    : null;
+  const netAmount = isManualBo
+    ? Math.round(computeGrossAmountAll(docLines))
+    : computeNetAmount(docLines);
   const base = {
     _draftId: payload.draftId,
     _commitVersion: 'commitPedidoCore_v1',
     clientCardCode: payload.cardCode,
     clientName: payload.clientName || '',
     origen: payload.origen,
-    source: payload.origen === 'cpst' ? 'stock-asignado-batch' : payload.source || '',
+    source: resolvedSource,
     lines: docLines,
     stage: 'confirmed',
     confirmedAt: FieldValue ? FieldValue.serverTimestamp() : nowIso,
@@ -860,19 +936,36 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
     closedReason: null,
     schemaVersion: 2,
     sapLinkage: { soDocEntry: null, lastInvoiceDocEntry: null, lastSyncAt: null },
-    transferidoSAP: null,
+    transferidoSAP: resolvedTransferidoSAP,
     sendingSapLock: null,
     formaEntrega: payload.formaEntrega || null,
     condicionPago: payload.condicionPago || '',
     observaciones: payload.observaciones || '',
-    netAmountArs: computeNetAmount(docLines),
-    subtotalArs: computeNetAmount(docLines),
+    netAmountArs: netAmount,
+    subtotalArs: netAmount,
     discountPct: 0,
     ownerUid: payload.ownerUid || null,
     ownerEmail: payload.ownerEmail || null,
     ownerVendor: payload.ownerVendor || null,
     cargadoPorUid: payload.ownerUid || null,
     cargadoPorEmail: payload.ownerEmail || null,
+    // §44/§46 (v1406/v1412): persistimos los campos vendedor-del-master si
+    // vinieron en el payload (los calcula el cliente via
+    // _enrichPayloadWithClientVendor). Null-safe para flows legacy que no
+    // los enviaban.
+    vendorAssigned: payload.vendorAssigned || null,
+    assignedVendorUid: payload.assignedVendorUid || null,
+    assignedVendorEmail: payload.assignedVendorEmail || null,
+    assignedVendorReason: payload.assignedVendorReason || null,
+    // §67 (v1454): preservar la key canónica + tipo + province + locName del
+    // payload para el camino manual_backorder (listener agrupa por `key`).
+    key: payload.key || null,
+    tipo: payload.tipo || null,
+    province: payload.province || null,
+    locName: payload.locName || null,
+    clientProvince: payload.clientProvince || null,
+    clientLocality: payload.clientLocality || null,
+    orderNumber: payload.orderNumber || null,
     // §57 (2026-10-23): preserva link al waitlist origen para auditoría +
     // consumers legacy (bloque v1058 que ya persistía `waitlistOrigenId`
     // desde el cliente). CF ahora es la autoridad.
@@ -886,6 +979,21 @@ function computeNetAmount(lines) {
   let s = 0;
   for (const l of lines) {
     if (!l || l.state !== 'confirmed') continue;
+    s += (Number(l.qty) || 0) * (Number(l.precio) || 0);
+  }
+  return s;
+}
+
+/**
+ * §67 (v1454): gross total sumando TODAS las líneas (ASIG + BO) para
+ * manual_backorder. computeNetAmount filtra `state=confirmed` (flow normal);
+ * backorder manual quiere mostrar la demanda total.
+ * @param {any[]} lines
+ */
+function computeGrossAmountAll(lines) {
+  let s = 0;
+  for (const l of lines) {
+    if (!l) continue;
     s += (Number(l.qty) || 0) * (Number(l.precio) || 0);
   }
   return s;

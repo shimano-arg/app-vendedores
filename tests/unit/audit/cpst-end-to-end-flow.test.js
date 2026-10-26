@@ -25,20 +25,23 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
   describe('cliente: mapping payload CPST', () => {
     it('_tryCommitPedidoCF mapea source=stock-asignado-batch → origen=cpst', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 2500);
-      expect(code).toMatch(/stock-asignado-batch.*cpst/);
+      // §67 (v1454): rango subido a 5500 porque el body del helper creció con
+      // el mapping extendido source → origen (manual_backorder) + nuevos
+      // campos linesPrebuilt/skipSap/routing.
+      const code = INDEX_HTML.slice(start, start + 5500);
+      expect(code).toMatch(/stock-asignado-batch[\s\S]*?cpst/);
     });
 
     it('_tryCommitPedidoCF propaga asigRefs de cada línea al payload', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 2500);
+      const code = INDEX_HTML.slice(start, start + 5500);
       expect(code).toMatch(/asigRefs:/);
       expect(code).toMatch(/l\.asigRefs/);
     });
 
     it('_tryCommitPedidoCF propaga origen por línea (origenLinea)', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 2500);
+      const code = INDEX_HTML.slice(start, start + 5500);
       expect(code).toMatch(/origenLinea:/);
     });
   });

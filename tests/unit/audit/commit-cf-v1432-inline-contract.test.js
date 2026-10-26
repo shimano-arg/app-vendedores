@@ -30,7 +30,7 @@ describe('v1432 inline contract: _tryCommitPedidoCF', () => {
 
   it('rama aborted hace retry con backoff dentro del while', () => {
     const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-    const code = INDEX_HTML.slice(start, start + 7000);
+    const code = INDEX_HTML.slice(start, start + 9500); // §67 (v1454): subido de 7000 por body expandido
     expect(code).toMatch(/_ABORTED_RETRY_CODES\.has\(code\)/);
     expect(code).toMatch(/abortedAttempts\s*<\s*window\._ABORTED_RETRY_BACKOFFS_MS\.length/);
     expect(code).toMatch(/setTimeout.*wait/);
@@ -39,7 +39,7 @@ describe('v1432 inline contract: _tryCommitPedidoCF', () => {
 
   it('retries agotados → CONTENTION_RETRY_EXHAUSTED (NUNCA fallback)', () => {
     const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-    const code = INDEX_HTML.slice(start, start + 7000);
+    const code = INDEX_HTML.slice(start, start + 9500); // §67 (v1454): subido de 7000 por body expandido
     expect(code).toMatch(/aborted retry exhausted/);
     expect(code).toMatch(/errorCode:\s*['"]CONTENTION_RETRY_EXHAUSTED['"]/);
   });
@@ -57,7 +57,7 @@ describe('v1432 inline contract: _tryCommitPedidoCF', () => {
 
   it('post-hoc recovery devuelve {ok:true, idempotentHit, _postHocRecovery}', () => {
     const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-    const code = INDEX_HTML.slice(start, start + 7000);
+    const code = INDEX_HTML.slice(start, start + 9500); // §67 (v1454): subido de 7000 por body expandido
     expect(code).toContain("'post_hoc_recovery'");
     expect(code).toContain('_postHocRecovery: true');
     expect(code).toMatch(/idempotentHit:\s*true/);
@@ -69,19 +69,19 @@ describe('v1432 inline contract: _tryCommitPedidoCF', () => {
 
   it('fallback log motivo = network_or_cf_down (red real)', () => {
     const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-    const code = INDEX_HTML.slice(start, start + 7000);
+    const code = INDEX_HTML.slice(start, start + 9500); // §67 (v1454): subido de 7000 por body expandido
     expect(code).toContain("'network_or_cf_down'");
   });
 
   it('fallback log motivo = post_hoc_recovery cuando se recupera', () => {
     const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-    const code = INDEX_HTML.slice(start, start + 7000);
+    const code = INDEX_HTML.slice(start, start + 9500); // §67 (v1454): subido de 7000 por body expandido
     expect(code).toContain("'post_hoc_recovery'");
   });
 
   it('errores de negocio NUNCA van a rama red/aborted', () => {
     const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-    const code = INDEX_HTML.slice(start, start + 7000);
+    const code = INDEX_HTML.slice(start, start + 9500); // §67 (v1454): subido de 7000 por body expandido
     // Return con errorCode mapeado al final de las ramas red/aborted.
     expect(code).toContain('PERMISSION_DENIED');
     expect(code).toContain('VALIDATION_ERROR');
