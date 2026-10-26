@@ -2,13 +2,13 @@
 /**
  * Tests para la validación `SNAPSHOT_TOO_OLD` en `commitPedidoCore`.
  *
- * Contexto v1454 §60 UPDATE (2026-10-25):
+ * Contexto v1456 §60 UPDATE (2026-10-25):
  *   El sync pasó a Cloud Scheduler → syncSapCatalogStockCF (cada 5 min,
  *   confiable). Cron GHA removido del workflow Python. Threshold bajado
  *   8h → 30 min. El audit E10 confirmó que el hueco de 24 min del 23/10
  *   fue el propio deploy de la CF, no falla del scheduler.
  *
- * Qué validan estos tests (v1454):
+ * Qué validan estos tests (v1456):
  *   T1  snapshot con 10 min → sin error (dentro de 30 min).
  *   T2  snapshot con 20 min → sin error.
  *   T3  snapshot con 29 min 59 s → sin error (frontera inferior).
@@ -115,14 +115,14 @@ const basePayload = {
   clientName: 'TEST SA',
   origen: 'manual',
   lines: [{ sku: 'CSKU1', cantidad: 1 }],
-  clientVersion: 'v1454',
+  clientVersion: 'v1456',
   ownerUid: 'U1',
   ownerEmail: 'u1@test.com',
 };
 
 const auth = { uid: 'U1', token: { email: 'u1@test.com' } };
 
-describe('SNAPSHOT_TOO_OLD threshold v1454 §60 UPDATE (30 min, 2026-10-25)', () => {
+describe('SNAPSHOT_TOO_OLD threshold v1456 §60 UPDATE (30 min, 2026-10-25)', () => {
   it('T1 — 10 min: OK, sin error', async () => {
     const now = Date.now();
     const { deps } = makeDeps(now - 10 * 60 * 1000, now);

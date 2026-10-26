@@ -4717,7 +4717,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
-### v1454 (2026-10-25) — §60 UPDATE Cierre F (cron GHA off + SNAPSHOT_MAX_AGE_MS 30 min + badge umbrales + email failure)
+### v1456 (2026-10-25) — §60 UPDATE Cierre F (cron GHA off + SNAPSHOT_MAX_AGE_MS 30 min + badge umbrales + email failure)
 
 Rama `feat-v1454-cron-gha-off-snapshot-30min` → `main`.
 
@@ -4725,12 +4725,12 @@ Rama `feat-v1454-cron-gha-off-snapshot-30min` → `main`.
 
 **Problema**: el hueco de 24 min del 23/10 era el propio deploy de la CF `syncSapCatalogStockCF` (confirmado por audit E10, PR #1210). GHA cron saltea runs por saturación (cadencia efectiva 2-5h vs declarada cada 5 min). El sync productivo pasó a vivir en Cloud Scheduler → `syncSapCatalogStockCF` (confiable, cada 5 min). El workflow Python GHA queda como respaldo manual, pero el cron redundante ya no suma — solo gasta runners.
 
-**Cambio** (v1454 cierra tarea F del plan 2026-10-25):
+**Cambio** (v1456 cierra tarea F del plan 2026-10-25):
 
 - **`.github/workflows/sync-sap-catalog-stock.yml`**: removido el `schedule: cron`. Queda solo `workflow_dispatch` (respaldo manual). Agregado step `Notify failure` con `if: failure()` que manda email a `erbinomariano@gmail.com` via smtplib + `GMAIL_APP_PASSWORD` (mismo pattern que `send-rendiciones-email`).
 - **`functions/core/commit-pedido-core.js`**: `SNAPSHOT_MAX_AGE_MS` 8h → **30 min**. Con Cloud Scheduler cada 5 min, 30 min = 6 corridas de margen. Si falla, Fase 3 Capa 2 (v1445) ya cae a live-SL vía `deps.fetchStockLive` cuando el flag `live_sl.enabled=true`.
 - **`index.html:_updateSapHealthBadge`**: umbrales `< 5 min` fresh / `5-30 min` stale / `>= 30 min` muy stale. Tooltip actualizado: menciona Cloud Scheduler, no GHA cron.
-- Bump `APP_VERSION` + `CACHE_VERSION` → `v1454`.
+- Bump `APP_VERSION` + `CACHE_VERSION` → `v1456`.
 
 **Por qué 30 min y no menor**: 30 min es el threshold anterior (pre v1439 subido a 8h por GHA inestable); vuelve a ser realista con Cloud Scheduler estable. Más bajo (ej. 10 min) rebotaría pedidos cuando la CF reintenta un run tras timeout transitorio.
 

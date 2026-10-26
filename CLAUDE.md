@@ -2524,9 +2524,9 @@ read-only por default. Detectó en prod 2026-10-23:
 VDE**: usar `window.__phase0.pure.waitlistVisibility.filterWaitlistsForVendor`.
 NO duplicar la lógica inline — es receta de regresión.
 
-## 60. SNAPSHOT_MAX_AGE_MS debe reflejar la cadencia operativa real del sync (2026-10-23, v1439 — UPDATE v1454 2026-10-25)
+## 60. SNAPSHOT_MAX_AGE_MS debe reflejar la cadencia operativa real del sync (2026-10-23, v1439 — UPDATE v1456 2026-10-25)
 
-### v1454 §60 UPDATE (2026-10-25) — Cierre F: cron GHA off + threshold 30 min
+### v1456 §60 UPDATE (2026-10-25) — Cierre F: cron GHA off + threshold 30 min
 
 **Estado actual**: el sync productivo del `app_config/stock_snapshot` vive en **Cloud Scheduler → syncSapCatalogStockCF** (schedule cada 5 min, confiable). El cron GHA del workflow `sync-sap-catalog-stock.yml` fue REMOVIDO; queda solo `workflow_dispatch` como respaldo manual + step `Notify failure` que manda email a `erbinomariano@gmail.com` cuando el dispatch MANUAL falla.
 
@@ -2540,7 +2540,7 @@ NO duplicar la lógica inline — es receta de regresión.
 - `syncSapCatalogStockCF` (Cloud Scheduler) → ya tiene el audit cadencia (PR #1210) que corre periódicamente y reporta si pasan >15 min sin corrida exitosa.
 - Workflow `sync-sap-catalog-stock.yml` (manual) → step `Notify failure` con smtplib + `GMAIL_APP_PASSWORD` manda email a `erbinomariano@gmail.com`. Pattern reusado de `send-rendiciones-email`.
 
-**Rollback simple**: si el Cloud Scheduler se cae, re-habilitar el cron GHA requiere uncomment 3 líneas del `schedule:` del workflow + bumpear `SNAPSHOT_MAX_AGE_MS` a 8h de nuevo. Documentado en README §41 v1454.
+**Rollback simple**: si el Cloud Scheduler se cae, re-habilitar el cron GHA requiere uncomment 3 líneas del `schedule:` del workflow + bumpear `SNAPSHOT_MAX_AGE_MS` a 8h de nuevo. Documentado en README §41 v1456.
 
 ---
 

@@ -19,7 +19,7 @@ name: Sync SAP Catalog + Stock (Service Layer)
 #                              Setear via Settings > Secrets > Actions.
 
 on:
-  # v1454 §60 UPDATE (2026-10-25): cron GHA REMOVIDO. El sync vive en Cloud
+  # v1456 §60 UPDATE (2026-10-25): cron GHA REMOVIDO. El sync vive en Cloud
   # Scheduler → syncSapCatalogStockCF (schedule cada 5 min, confiable). GHA
   # scheduler saltaba runs por saturación (cadencia efectiva 2-5h vs declarada
   # cada 5 min, ver CLAUDE.md §60). Este workflow queda SOLO como respaldo
@@ -110,7 +110,7 @@ jobs:
         run: python scripts/sync_sap_to_firestore.py
 
       - name: Notify failure (email a erbinomariano@gmail.com)
-        # v1454 §60 UPDATE (2026-10-25): si el workflow dispatch MANUAL falla
+        # v1456 §60 UPDATE (2026-10-25): si el workflow dispatch MANUAL falla
         # mandamos email usando el mismo pattern que send-rendiciones-email
         # (smtplib + GMAIL_APP_PASSWORD). Como el cron se removió, este step
         # solo dispara cuando alguien corre manualmente y algo rompe (SAP SL
@@ -137,7 +137,7 @@ jobs:
               f"Run:  {os.environ.get('RUN_URL','')}\n\n"
               f"Revisa los logs del run para causa raiz. El sync productivo\n"
               f"vive en Cloud Scheduler -> syncSapCatalogStockCF; este workflow\n"
-              f"es solo respaldo manual (v1454 Sect 60 UPDATE)."
+              f"es solo respaldo manual (v1456 Sect 60 UPDATE)."
           )
           msg = MIMEText(body, 'plain', 'utf-8')
           msg['Subject'] = f"[APP VENDEDORES] Sync SAP manual FALLO (run {os.environ.get('RUN_ID','')})"

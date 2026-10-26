@@ -52,11 +52,16 @@
  * @property {(params: any) => Promise<any>} [fetchStockLive] Fase 3 Capa 2 v1445: callable al SL para live fisicoDep11
  */
 
+import {
+  applyAbsorptionsToLines,
+  buildBackfillUpdate,
+  computeBoAbsorption,
+} from './absorb-bo-on-confirm.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 
 // Threshold de staleness del snapshot stock server-side.
-// v1454 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
+// v1456 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
 // Cloud Scheduler → syncSapCatalogStockCF (cada 5 min, confiable). El cron
 // GHA del workflow Python se removió (saltaba runs por saturación). Con el
 // scheduler nuevo + el audit E10 que mostró que el hueco de 24 min del 23/10
@@ -227,6 +232,28 @@ export async function commitPedidoCore(deps, payload) {
         return commitInTransaction(deps, tx, payload, now, nowIso);
       });
       log('commitPedidoCore OK', { draftId: payload.draftId, attempts, pedidoId: result.pedidoId });
+      // §J (v1455): operations_log entry fire-and-forget si hubo absorciones.
+      if (Array.isArray(result.absorptions) && result.absorptions.length > 0) {
+        try {
+          deps.fbDb
+            .collection('operations_log')
+            .add({
+              type: 'bo_absorbed',
+              newPedidoId: result.pedidoId,
+              cardCode: payload.cardCode,
+              userId: payload.ownerUid || null,
+              userEmail: payload.ownerEmail || null,
+              absorptions: result.absorptions,
+              totalCubierto: result.boAbsorbedTotal || 0,
+              timestamp: new Date(now),
+            })
+            .catch((/** @type {any} */ _e) => {
+              log('operations_log bo_absorbed write failed', { err: _e && _e.message });
+            });
+        } catch (_e) {
+          // No propagar.
+        }
+      }
       return { ...result, servidorNowMs: now, commitAtIso: nowIso };
     } catch (e) {
       const err = /** @type {any} */ (e);
@@ -735,6 +762,48 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     waitlistOrigenSnap = { ref: wlRef, exists: wlSnap.exists };
   }
 
+  // 5.7c §J (v1455 2026-10-25) — Compute absorciones de BO + pre-fetch pedidos origen.
+  /** @type {Record<string, number>} */
+  const qtyConfirmedPorSku = {};
+  for (const l of docLines) {
+    if (!l || l.state !== 'confirmed') continue;
+    const sku = String(l.code || '').toUpperCase();
+    qtyConfirmedPorSku[sku] = (qtyConfirmedPorSku[sku] || 0) + (Number(l.qty) || 0);
+  }
+  const absorptionInputLines = Object.keys(qtyConfirmedPorSku)
+    .filter((sku) => qtyConfirmedPorSku[sku] > 0)
+    .map((sku) => ({ sku, cantidad: qtyConfirmedPorSku[sku] }));
+  const absorbResult =
+    absorptionInputLines.length > 0
+      ? computeBoAbsorption({
+          cardCode: payload.cardCode,
+          lines: absorptionInputLines,
+          allPedidos: pedidos,
+          now,
+        })
+      : { absorptions: [], totalCubierto: 0 };
+  /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
+  const absorbOrigenSnapshots = new Map();
+  if (absorbResult.absorptions.length > 0) {
+    const uniquePedidoIds = new Set(
+      absorbResult.absorptions.map((/** @type {any} */ a) => String(a.pedidoIdOrigen))
+    );
+    for (const pid of uniquePedidoIds) {
+      if (asigOrigenSnapshots.has(pid)) {
+        const existingSnap = asigOrigenSnapshots.get(pid);
+        if (existingSnap) absorbOrigenSnapshots.set(pid, existingSnap);
+        continue;
+      }
+      const refDoc = deps.fbDb.collection('pedidos').doc(pid);
+      const snap = await tx.get(refDoc);
+      absorbOrigenSnapshots.set(pid, {
+        ref: refDoc,
+        exists: snap.exists,
+        data: snap.exists ? snap.data() || {} : null,
+      });
+    }
+  }
+
   // ===== A partir de acá, solo WRITES (ningún tx.get). =====
 
   // 5.8 Escribir pedido nuevo.
@@ -758,6 +827,28 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // 5.9 Cancelar ASIG originales si origen='cpst' (usa snapshots pre-fetched).
   if (payload.origen === 'cpst' && asigOrigenSnapshots.size > 0) {
     cancelAsigRefsFromPrefetched(tx, payload, pedidoRef.id, nowIso, asigOrigenSnapshots);
+  }
+
+  // 5.9b §J (v1455 2026-10-25) — Aplicar absorciones de BO sobre pedidos
+  // origen pre-fetcheados. Mutaciones: qtyOpen -= absorbed; si 0 → cancelled
+  // + closedReason='absorbed_by_newer_confirmed'. Audit en _backfill (§55).
+  if (absorbResult.absorptions.length > 0) {
+    /** @type {Map<string, Array<any>>} */
+    const absByPedido = new Map();
+    for (const a of absorbResult.absorptions) {
+      const pid = String(a.pedidoIdOrigen);
+      if (!absByPedido.has(pid)) absByPedido.set(pid, []);
+      const arr = absByPedido.get(pid);
+      if (arr) arr.push(a);
+    }
+    for (const [pid, absList] of absByPedido) {
+      const snap = absorbOrigenSnapshots.get(pid);
+      if (!snap || !snap.exists) continue;
+      const data = snap.data || {};
+      const newLines = applyAbsorptionsToLines(data.lines || [], absList, pedidoRef.id, nowIso);
+      const newBackfill = buildBackfillUpdate(data._backfill || {}, absList, pedidoRef.id, nowIso);
+      tx.update(snap.ref, { lines: newLines, _backfill: newBackfill, updatedAt: nowIso });
+    }
   }
 
   // 5.10 §57 (2026-10-23) — marcar waitlist origen `stage='consumed'` + `closedAt`
@@ -786,6 +877,10 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     pedidoId: pedidoRef.id,
     lines: lineasResultado,
     diffVsClient,
+    // §J (v1455): absorciones expuestas al cliente para modal "cubre N u"
+    // + extensión del oneliner _origenesACancelar en index.html.
+    absorptions: absorbResult.absorptions,
+    boAbsorbedTotal: absorbResult.totalCubierto,
     attempts: 1,
   };
 }
