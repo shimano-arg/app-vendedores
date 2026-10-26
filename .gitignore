@@ -181,3 +181,6 @@ scripts/debug-*
 scripts/force-*
 scripts/_*
 scripts/audit/_*
+tests/e2e/evidencia/_output/
+tests/e2e/evidencia/_reports/
+tests/e2e/evidencia/**/_output/
