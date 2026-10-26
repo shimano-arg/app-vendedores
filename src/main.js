@@ -59,6 +59,7 @@ import {
   isPachiRestricted,
   PACHI_EMAIL,
   PACHI_UID,
+  PACHI_UIDS,
   PACHI_VENDOR_KEY,
   pachiGuard,
 } from './pure/pachi-restrictions.js';
@@ -380,6 +381,7 @@ const phase0 = {
     // + guards centralizados. Documentado en INFORME_CAMBIOS_PACHI.md.
     pachiRestrictions: {
       PACHI_UID,
+      PACHI_UIDS,
       PACHI_EMAIL,
       PACHI_VENDOR_KEY,
       isPachiRestricted,

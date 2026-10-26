@@ -1,28 +1,34 @@
 // @ts-check
 /**
- * Perfil operativo de PACHI — restricciones por UID (2026-10-26).
+ * Perfil operativo PACHI — restricciones por UID (2026-10-26, v1463).
  *
- * PACHI es un VDE proxy (vendorKey PACHI) con uid confirmado en roles.
- * Mariano pidió explícitamente que la excepción se centralice en UN SOLO
- * lugar por UID (no por email, no comparaciones regadas).
+ * Mariano pidió "la excepción se centraliza en UN SOLO lugar" — en v1460 era
+ * una constante `PACHI_UID` (string). En v1463 pasa a `PACHI_UIDS` (lista)
+ * para permitir que el user de prueba `pruebas.pachi@shimano.com.ar`
+ * (UID tUJHiLDyLHWvbkpWgCQXWJcucfV2) herede las mismas restricciones sin
+ * tocar la cuenta real de PACHI (UID LaBFi1xkSLObzLEdRoP8fonZ06r2).
  *
- * Esta constante + helpers son la ÚNICA fuente de verdad. Cualquier otro
- * sitio que necesite check de PACHI debe importar `isPachiRestricted(uid)`.
- *
- * Las 8 restricciones (ver INFORME_CAMBIOS_PACHI.md):
- *   A. Backorder solo lectura (no crea/edita/borra; rules Firestore bloquean escritura).
- *   B. Stock asignado sin acceso (sin botón + guard JS en openAsignacionBackorderModal).
- *   C. Visitas solo versión rápida (sin botón "Clásica" + guard en openVisitaModal).
- *   D. Contactos solo versión rápida (sin botón "Clásica" + guard).
- *   E. Rutas fuera menú (sin tab Rutas + guard en setTab('rutas')).
- *   F. SAP fuera menú (sin botón + guard en openSapPanel).
- *   G. Pedidos confirmados SAP fuera menú (cubierto por F — SAP modal oculto).
- *   H. Panel "Alertas y tareas" oculto sin dejar espacio vacío.
+ * El set sigue siendo UNA sola fuente de verdad; cualquier consumidor
+ * invoca `isPachiRestricted(uid)` que devuelve true si el UID está en la lista.
  *
  * Para los demás usuarios NO cambia nada.
  */
 
-export const PACHI_UID = 'LaBFi1xkSLObzLEdRoP8fonZ06r2';
+/**
+ * Lista de UIDs sujetos a las restricciones PACHI.
+ * - LaBFi1xkSLObzLEdRoP8fonZ06r2: PACHI real (pachinaba@gmail.com).
+ * - tUJHiLDyLHWvbkpWgCQXWJcucfV2: user de prueba Playwright E2E
+ *   (pruebas.pachi@shimano.com.ar). Mismo rol/vendor que PACHI real.
+ *   Permite correr tests sin tocar su cuenta.
+ */
+export const PACHI_UIDS = Object.freeze([
+  'LaBFi1xkSLObzLEdRoP8fonZ06r2',
+  'tUJHiLDyLHWvbkpWgCQXWJcucfV2',
+]);
+
+// Compat retrocompatible: PACHI_UID (el real) se preserva para quien lo
+// importe aislado. Nuevos consumidores deben usar PACHI_UIDS o isPachiRestricted.
+export const PACHI_UID = PACHI_UIDS[0];
 export const PACHI_EMAIL = 'pachinaba@gmail.com';
 export const PACHI_VENDOR_KEY = 'PACHI';
 
@@ -32,7 +38,7 @@ export const PACHI_VENDOR_KEY = 'PACHI';
  * @returns {boolean}
  */
 export function isPachiRestricted(uid) {
-  return !!uid && uid === PACHI_UID;
+  return !!uid && PACHI_UIDS.includes(uid);
 }
 
 /**
