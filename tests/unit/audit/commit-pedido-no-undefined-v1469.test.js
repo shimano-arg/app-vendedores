@@ -118,10 +118,14 @@ describe('v1469 §64 hotfix Santi 17:40 CONTENTION_RETRY_EXHAUSTED espúreo', ()
     const idx = html.indexOf("code === 'CONTENTION_RETRY_EXHAUSTED'");
     expect(idx).toBeGreaterThan(0);
     const slice = html.slice(idx, idx + 1500);
-    // Post-fix v1469: detecta si es contention real por lastError.
+    // Post-v1469: detecta si es contention real por lastError.
     expect(slice).toMatch(/_isContencion/);
     expect(slice).toMatch(/aborted\|contention\|conflict\|unavailable\|deadline/);
-    expect(slice).toMatch(/error interno/);
+    // Post-v1471 §68: usa pure mensajes-vendedor con sub-codes
+    // CONTENTION_RETRY_EXHAUSTED_REAL / _OTRO. El texto "error interno"
+    // vive en el pure, no inline.
+    expect(slice).toMatch(/CONTENTION_RETRY_EXHAUSTED_REAL/);
+    expect(slice).toMatch(/CONTENTION_RETRY_EXHAUSTED_OTRO/);
     // Pre-fix: alertaba "concurrencia" siempre.
     expect(slice).not.toMatch(
       /'\\n\\nHay mucha concurrencia.*Reintentá en 10 segundos\.'[\s\n]*\}/

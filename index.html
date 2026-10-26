@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1470';
+const APP_VERSION = 'v1471';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23060,8 +23060,13 @@ window.revisionDejarRecalculando = async function(){
     showSyncTag('Pedido guardado en espera: ' + cli.nombre + ' (Orden ' + ordenNum + ')');
     closeRevisionModal();
   } catch(e) {
+    // v1471 §68: mensaje humanizado desde pure (sin "undefined", "batch",
+    // "Firestore"). El código técnico va al final para WhatsApp a Mariano.
     console.error('revisionDejarRecalculando', e);
-    alert('Error guardando en espera: ' + (e.message || e));
+    const _mv = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor) || null;
+    const _fmt = _mv && _mv.formatMensajeConCodigo ? _mv.formatMensajeConCodigo : (c) => 'No pudimos guardar los cambios. Volvé a intentar; si sigue pasando, avisale a Mariano.\n\nCódigo técnico: ' + c;
+    const _codigoDebug = String(e && (e.code || e.name) || 'SAVE_WAITLIST_FAILED').toUpperCase();
+    alert(_fmt('SAVE_WAITLIST_FAILED') + '\nDetalle: ' + _codigoDebug);
   } finally {
     btn.disabled = false;
     btn.textContent = originalTxt;
@@ -27373,8 +27378,12 @@ window.reviewDejarEnEspera = async function(){
     if (typeof closeReviewDialog === 'function') closeReviewDialog();
     if (typeof closePedidoModal === 'function') closePedidoModal();
   } catch(e) {
+    // v1471 §68: mensaje humanizado desde pure.
     console.error('reviewDejarEnEspera', e);
-    alert('Error guardando en Espera: ' + (e.message || e));
+    const _mv = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor) || null;
+    const _fmt = _mv && _mv.formatMensajeConCodigo ? _mv.formatMensajeConCodigo : (c) => 'No pudimos guardar los cambios. Volvé a intentar; si sigue pasando, avisale a Mariano.\n\nCódigo técnico: ' + c;
+    const _codigoDebug = String(e && (e.code || e.name) || 'SAVE_WAITLIST_FAILED').toUpperCase();
+    alert(_fmt('SAVE_WAITLIST_FAILED') + '\nDetalle: ' + _codigoDebug);
   }
 };
 
@@ -37399,43 +37408,28 @@ window.doConfirmPedido = async function(){
       return;
     }
     if (_commitCfResult && _commitCfResult.ok === false) {
-      // CF rechazó con errorCode → modal apropiado. NUNCA cae a fallback legacy.
-      // v1431 hotfix: cubre explícitamente los 7 códigos del contrato.
+      // v1471 §68 (2026-10-26): mensajes humanizados. Única fuente de verdad en
+      // src/pure/mensajes-vendedor.js. Formato: una oración qué pasó + una
+      // oración qué hacer. Código técnico al final para WhatsApp a Mariano.
+      // Sin jerga: nada de "snapshot", "transacción", "concurrencia", "SKU",
+      // "payload", "batch", "Firestore".
       const code = _commitCfResult.errorCode || 'UNKNOWN';
-      let msg = 'No se pudo confirmar el pedido.\n\nCódigo: ' + code + '\n' + (_commitCfResult.message || '');
+      const _mv = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor) || null;
+      const _getMsg = _mv && _mv.getMensajeParaErrorCode ? _mv.getMensajeParaErrorCode : (c) => ({ texto: 'No pudimos completar la acción. Avisale a Mariano.' });
+      const _fmt = _mv && _mv.formatMensajeConCodigo ? _mv.formatMensajeConCodigo : (c, o) => _getMsg(c).texto + '\n\nCódigo técnico: ' + c;
+
       if (code === 'VERSION_OLD') {
-        if (confirm(msg + '\n\nActualizar la app ahora?')) location.reload();
+        if (confirm(_fmt(code))) location.reload();
       } else if (code === 'UNRESOLVED_BO_ENTRY_ROWS') {
-        // Tarea L (v1457 2026-10-25): el CF rechazó porque hay filas rojas
-        // sin resolver en el payload. UI: mensaje simple + scroll a la
-        // primera fila roja del modal review (si está abierto).
-        const _data = _commitCfResult.data || {};
-        const _rows = Array.isArray(_data.rows) ? _data.rows : [];
-        const _skus = _rows.map((r) => r.sku).filter(Boolean).join(', ');
-        alert(
-          (_commitCfResult.message || 'Tenés productos marcados en rojo sin revisar.') +
-            (_skus ? '\n\nProductos pendientes: ' + _skus : '')
-        );
+        // Tarea L (v1457): mensaje humano + scroll a primera fila roja.
+        alert(_fmt(code));
         try { if (typeof window._boEntryScrollToFirstRed === 'function') window._boEntryScrollToFirstRed(); } catch (_e) {}
       } else if (code === 'CLIENT_HAS_OPEN_WAITLIST') {
-        // §57 (2026-10-23): mensaje ya está en `msg` desde el CF (lo trae en
-        // `_commitCfResult.message`). Antes concatenábamos un texto adicional
-        // casi idéntico → línea repetida en el alert.
-        //
-        // CF ya excluye la waitlist origen (payload.waitlistOrigenId); si
-        // llegamos acá es porque hay OTRA orden abierta ajena. El guard
-        // informativo del cliente (§42.2 en pedidos-modal) debería haberla
-        // ofrecido unificar antes de llegar a la CF.
-        const _data = _commitCfResult.data || {};
-        let _detalle = '';
-        if (_data.orderNumber) {
-          _detalle = '\n\nOrden conflictiva: ORDEN ' + _data.orderNumber;
-          if (_data.waitlistId) _detalle += ' (' + _data.waitlistId + ')';
-        }
-        alert(msg + _detalle);
+        alert(_fmt(code));
       } else if (code === 'STOCK_CHANGED') {
-        // Permitir reintentar aceptando el diff.
-        if (confirm(msg + '\n\n¿Confirmar con back order?')) {
+        // Reintento con autoAccept.
+        const _m = _getMsg('STOCK_CHANGED');
+        if (confirm(_m.texto)) {
           docData._autoAcceptStockChange = true;
           try {
             const _retry = await window._tryCommitPedidoCF(docData);
@@ -37447,38 +37441,24 @@ window.doConfirmPedido = async function(){
               saveOrders();
               if (typeof renderPedidosTab === 'function') renderPedidosTab();
             } else {
-              alert('Reintento falló: ' + (_retry?.message || 'desconocido'));
+              alert(_fmt(_retry?.errorCode || 'UNKNOWN'));
             }
           } catch(e) {
-            alert('Error en reintento: ' + (e?.message || String(e)));
+            alert(_fmt('UNKNOWN'));
           }
         }
       } else if (code === 'SNAPSHOT_TOO_OLD') {
-        // 2026-10-23: ver CLAUDE.md §60. Mensaje mejorado sin pedir reintento al vendedor.
-        var _syncAt = details?.snapshotUpdatedAt, _syncHora = '';
-        try { if (_syncAt) { _syncHora = new Date(_syncAt).toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'}); } } catch(_e) {}
-        var _ageMin = details?.snapshotAgeMinutes || Math.floor((details?.snapshotAgeMs || 0) / 60000);
-        alert('El pedido no se pudo confirmar ahora.\n\n' + (_syncHora ? ('Último sync de stock: ' + _syncHora + ' (hace ' + _ageMin + ' min).') : 'Snapshot de stock desactualizado.') + '\n\nQueda en espera; cuando se refresque el snapshot lo intentás de nuevo.');
+        alert(_fmt(code));
       } else if (code === 'CONTENTION_RETRY_EXHAUSTED') {
-        // v1469 (2026-10-26): no decir "concurrencia" cuando el lastError
-        // no es realmente aborted/contention/conflict. Reportado Santi
-        // ORDEN 533 17:40 ART: 5 retries por `Cannot use undefined` —
-        // nada de concurrencia, era bug server. Mensaje genérico cubre.
+        // v1471 §68: diferenciar según lastError, usando mensajes del pure.
         const _le = String((details && details.lastError) || '');
         const _isContencion = /aborted|contention|conflict|unavailable|deadline/i.test(_le);
-        if (_isContencion) {
-          alert(msg + '\n\nHay mucha concurrencia sobre este SKU. Reintentá en 10 segundos.');
-        } else {
-          alert('No se pudo confirmar el pedido por un error interno. Reportalo a Mariano con la hora exacta y el cliente/orden.');
-        }
-      } else if (code === 'VALIDATION_ERROR') {
-        alert(msg + '\n\nEl payload tiene algo mal. Reportalo a Mariano.');
-      } else if (code === 'PERMISSION_DENIED') {
-        alert(msg + '\n\nTu usuario no tiene permiso para confirmar este pedido. Volvé a loguearte.');
-      } else if (code === 'INTERNAL') {
-        alert(msg + '\n\nError interno del servidor. Reintentá en 1 min. Si persiste, reportalo a Mariano.');
+        const _subCode = _isContencion ? 'CONTENTION_RETRY_EXHAUSTED_REAL' : 'CONTENTION_RETRY_EXHAUSTED_OTRO';
+        alert(_fmt(_subCode));
+      } else if (code === 'VALIDATION_ERROR' || code === 'PERMISSION_DENIED' || code === 'SAP_UNAVAILABLE' || code === 'INTERNAL') {
+        alert(_fmt(code));
       } else {
-        alert(msg);
+        alert(_fmt('UNKNOWN'));
       }
       return;
     }

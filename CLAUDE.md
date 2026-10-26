@@ -3145,3 +3145,58 @@ Esperado: `backorder computed: N SKUs, M SQ open, K lineas (X requests)`.
 - Cambiar el shape de `backorderBySku` (seguir siendo `{sku: int}` JSON string). Para extensiones, usar `backorderBySkuDetail` o un campo nuevo.
 - Hacer que la fase backorder bloquee el sync principal. Si falla, `backorderComputedByCF=false` y seguir. Nunca `throw` desde el bloque.
 
+
+
+## 68. Mensajes de error visibles al vendedor: humanos, sin jerga, código técnico al final (2026-10-26, v1471)
+
+**Regla fuerte**: todo mensaje de error que ve un vendedor (`alert`, `confirm`, modal) se escribe para alguien que no es técnico. Formato estricto:
+
+- **Una oración** que dice QUÉ PASÓ.
+- **Una oración** que dice QUÉ HACER.
+- Nada más en el texto principal.
+- El **código técnico** va al final en una línea aparte: `Código técnico: <ERRORCODE>` — para que el vendedor lo mande por WhatsApp a Mariano.
+
+**Prohibido en el texto principal**:
+
+- **Códigos crudos**: `STOCK_CHANGED`, `CONTENTION_RETRY_EXHAUSTED`, `UNRESOLVED_BO_ENTRY_ROWS`, `VERSION_OLD`, `CLIENT_HAS_OPEN_WAITLIST`, `SNAPSHOT_TOO_OLD`, `VALIDATION_ERROR`, `PERMISSION_DENIED`, `SAP_UNAVAILABLE`, `INTERNAL`.
+- **Jerga técnica**: `snapshot`, `transacción`/`transaccion`, `concurrencia`, `SKU`, `payload`, `batch`, `Firestore`, `undefined`, `backend`, `callable`.
+
+**Fuente única de verdad**: `src/pure/mensajes-vendedor.js` → `MENSAJES_VENDEDOR` (frozen). Un mensaje por `errorCode`. Expuesto en `window.__phase0.pure.mensajesVendedor.{MENSAJES_VENDEDOR, PALABRAS_PROHIBIDAS, getMensajeParaErrorCode, formatMensajeConCodigo}`.
+
+**Ejemplos del tono** (literales de v1471):
+
+- `STOCK_CHANGED`: "No pudimos confirmar el pedido porque el stock cambió mientras lo revisabas. Tocá Aceptar para confirmarlo igual; lo que no haya queda esperando stock."
+- `SAVE_WAITLIST_FAILED`: "No pudimos guardar los cambios. Volvé a intentar; si sigue pasando, avisale a Mariano."
+- `CONTENTION_RETRY_EXHAUSTED_REAL`: "Este pedido quedó trabado por un intento anterior. Esperá 10 segundos y volvé a tocar Pasar a Pendientes."
+- `CONTENTION_RETRY_EXHAUSTED_OTRO` (cuando el `lastError` no es contention real): "No pudimos confirmar el pedido por un error del sistema. Avisale a Mariano con la hora exacta y el cliente."
+- `UNRESOLVED_BO_ENTRY_ROWS`: "Tenés productos marcados en rojo sin revisar. Para cada uno, elegí si son las mismas unidades o son más."
+- `VERSION_OLD`: "Hay una versión nueva de la app. Tocá Aceptar para actualizar."
+- `SNAPSHOT_TOO_OLD`: "El pedido no se puede confirmar ahora porque los datos de stock están viejos. Queda en espera; cuando se actualicen lo volvemos a intentar solos."
+- `CLIENT_HAS_OPEN_WAITLIST`: "Este cliente ya tiene otra orden abierta esperando. Primero cerrá o unificá esa orden y después volvé."
+- `PERMISSION_DENIED`: "Tu usuario no tiene permiso para esta acción. Cerrá sesión y volvé a entrar; si sigue, avisale a Mariano."
+- `SAP_UNAVAILABLE`: "No pudimos consultar el stock al sistema porque no responde. Esperá un minuto y volvé a intentar."
+- `INTERNAL`: "Hubo un error inesperado al confirmar el pedido. Volvé a intentar en un minuto; si sigue, avisale a Mariano."
+- `UNKNOWN`: "No pudimos confirmar el pedido. Avisale a Mariano con la hora y el cliente."
+
+**Cómo aplicar**:
+
+1. **Nunca escribir el texto inline** en index.html / src/domains/. Siempre leer de `window.__phase0.pure.mensajesVendedor.getMensajeParaErrorCode(code).texto` o `formatMensajeConCodigo(code)`.
+2. **Fallback defensivo** si el bundle no cargó (SW stale pre-v1471): tener un string literal inline con el mismo tono + `Código técnico: X`.
+3. **Al agregar un nuevo `errorCode`** en commitPedidoCF, releaseAsigCF u otro CF que devuelve códigos al cliente, agregar también la entrada en `MENSAJES_VENDEDOR` en el **mismo PR**.
+4. **Si el error depende de contexto** (ej. CONTENTION_RETRY_EXHAUSTED distingue por `lastError`), usar sub-codes en el pure (`CONTENTION_RETRY_EXHAUSTED_REAL`, `CONTENTION_RETRY_EXHAUSTED_OTRO`) con texto específico cada uno.
+
+**Test obligatorio**: `tests/unit/mensajes-vendedor.test.js` verifica para CADA entry de `MENSAJES_VENDEDOR` que el `texto` NO contiene ninguna de las `PALABRAS_PROHIBIDAS` (case-insensitive para la mayoría; códigos crudos case-sensitive porque son uppercase). Si agregás un mensaje nuevo con jerga, el test te lo pilla antes del commit.
+
+**Call-sites auditados y migrados en v1471**:
+- `index.html:_tryCommitPedidoCF` handler (los 9 errorCodes del contrato commitPedidoCF).
+- `index.html:revisionDejarRecalculando` catch (guardado Excel waitlist).
+- `index.html:reviewDejarEnEspera` catch (guardado manual waitlist).
+
+**Precedente** (por qué esta regla existe):
+
+- v1469 (2026-10-26) CONTENTION_RETRY_EXHAUSTED decía "Hay mucha concurrencia sobre este SKU. Reintentá en 10 segundos." aunque el `lastError` real era "Cannot use undefined as a Firestore value". Mariano reportó: el vendedor no entiende "concurrencia" ni "SKU", y la info útil es "avisá al soporte".
+- Federico Castelanelli (misma fecha): alert "Error guardando en espera: Function WriteBatch.update() called with invalid data. Unsupported field value: undefined (found in document revision_waitlist/ZPvU3dOUKtkMeNf1lnq)" — ilegible. Un vendedor no sabe qué hacer con eso.
+
+**Prohibido**: concatenar `e.message || e` crudo en un alert visible al vendedor. Pueden ir en `console.error` para debug, pero el texto del alert siempre viene del pure.
+
+**Rollback**: revertir el pure + los call-sites. Los textos técnicos viejos vuelven. Sin regresión de funcionalidad.
