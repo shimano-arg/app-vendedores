@@ -48,6 +48,7 @@ export function initAdmin() {
 export const E2E = {
   CLIENT_ID: 'e2e-test-client',
   CLIENT_NAME: 'CLIENTE PRUEBAS E2E',
+  CARD_CODE: 'CE2E000001',
   VENDOR_KEY: 'PRUEBAS E2E',
   USER_EMAIL: 'pruebas.e2e@shimano.com.ar',
   TEST_SKU: '9691',
@@ -59,10 +60,10 @@ export async function createE2eWaitlist(items = [{ code: E2E.TEST_SKU, qty: 1, p
   if (!db) throw new Error('firebase-admin init failed');
   const now = new Date().toISOString();
   const payload = {
-    clientCardCode: null,
+    clientCardCode: E2E.CARD_CODE,
     clientName: E2E.CLIENT_NAME,
     clientFantasia: E2E.CLIENT_NAME,
-    cardCodeSap: null,
+    cardCodeSap: E2E.CARD_CODE,
     assignedVendor: E2E.VENDOR_KEY,
     ownerVendor: E2E.VENDOR_KEY,
     ownerUid: await getE2eUid(),
