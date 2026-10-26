@@ -250,8 +250,8 @@ export async function commitPedidoCore(deps, payload) {
   //   - 'same' / 'additional': el VDE resolvió → OK.
   //   - null: pendiente de decisión → errorCode.
   const unresolvedBoRows = (payload.lines || [])
-    .filter((l) => l && l.boEntryResolved === null)
-    .map((l) => ({
+    .filter((/** @type {any} */ l) => l && l.boEntryResolved === null)
+    .map((/** @type {any} */ l) => ({
       sku: l.sku,
       cantidad: Number(l.cantidad) || 0,
       boAnterior: Number(l.boEntryPrevio) || 0,
@@ -259,7 +259,7 @@ export async function commitPedidoCore(deps, payload) {
   if (unresolvedBoRows.length > 0) {
     await logCommitRejection(deps, 'UNRESOLVED_BO_ENTRY_ROWS', payload, {
       unresolvedCount: unresolvedBoRows.length,
-      skus: unresolvedBoRows.map((r) => r.sku),
+      skus: unresolvedBoRows.map((/** @type {any} */ r) => r.sku),
     });
     return makeError(
       'UNRESOLVED_BO_ENTRY_ROWS',

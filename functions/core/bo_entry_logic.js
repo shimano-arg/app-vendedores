@@ -154,15 +154,16 @@ export function unresolvedBoEntryRows(rows) {
 /**
  * ¿El Excel cargado es idéntico a la orden abierta pasada?
  *
- * @param {Object} args
- * @param {Array<CargaItem>} args.items
- * @param {Object} args.openOrder {_id, orderNumber, items: [{code, qty}], createdAt}
+ * @param {{items?: Array<CargaItem>, openOrder?: any}} args
+ *   args.openOrder shape: {_id, orderNumber, items: [{code, qty}], createdAt}
  * @returns {{identical: boolean, openOrderNumber?: number, fechaCargaOpenOrder?: string}}
  */
 export function isExcelIdenticalToOpenOrder(args) {
   if (!args || !args.items || !args.openOrder) return { identical: false };
   const items = Array.isArray(args.items) ? args.items : [];
-  const openItems = Array.isArray(args.openOrder.items) ? args.openOrder.items : [];
+  /** @type {any} */
+  const openOrder = args.openOrder;
+  const openItems = Array.isArray(openOrder.items) ? openOrder.items : [];
   if (items.length === 0 || openItems.length === 0) return { identical: false };
 
   /** @param {Array<any>} arr @returns {Map<string, number>} */
@@ -189,7 +190,7 @@ export function isExcelIdenticalToOpenOrder(args) {
     if (b.get(k) !== v) return { identical: false };
   }
   let fechaCargaOpenOrder;
-  const t = args.openOrder.createdAt;
+  const t = openOrder.createdAt;
   if (t) {
     if (typeof t === 'string') fechaCargaOpenOrder = t;
     else if (typeof t.toDate === 'function') {
@@ -210,7 +211,7 @@ export function isExcelIdenticalToOpenOrder(args) {
   }
   return {
     identical: true,
-    openOrderNumber: Number(args.openOrder.orderNumber) || undefined,
+    openOrderNumber: Number(openOrder.orderNumber) || undefined,
     fechaCargaOpenOrder,
   };
 }
@@ -218,9 +219,7 @@ export function isExcelIdenticalToOpenOrder(args) {
 /**
  * ¿Alguna de las órdenes abiertas pasadas es idéntica al Excel?
  *
- * @param {Object} args
- * @param {Array<CargaItem>} args.items
- * @param {Array<Object>} args.openOrders
+ * @param {{items?: Array<CargaItem>, openOrders?: Array<any>}} args
  * @returns {{identical: boolean, openOrderNumber?: number, fechaCargaOpenOrder?: string, openOrderId?: string}}
  */
 export function findIdenticalOpenOrder(args) {
@@ -228,9 +227,11 @@ export function findIdenticalOpenOrder(args) {
   const openOrders = Array.isArray(args.openOrders) ? args.openOrders : [];
   if (openOrders.length === 0) return { identical: false };
   for (const o of openOrders) {
-    const r = isExcelIdenticalToOpenOrder({ items: args.items, openOrder: o });
+    /** @type {any} */
+    const oo = o;
+    const r = isExcelIdenticalToOpenOrder({ items: args.items, openOrder: oo });
     if (r.identical) {
-      return Object.assign({}, r, { openOrderId: o && o._id ? String(o._id) : undefined });
+      return Object.assign({}, r, { openOrderId: oo && oo._id ? String(oo._id) : undefined });
     }
   }
   return { identical: false };
