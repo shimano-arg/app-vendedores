@@ -448,3 +448,81 @@ El prompt del usuario menciona:
 El script `scripts/audit/S_dry_run_fusion_duplicados.cjs` existe desde
 v1435 (§56). Su `--apply` sigue frenado. Este plan NO lo arranca ni lo
 diseña — es tarea aparte post-medición.
+
+Reescrito 2026-10-25 (tarea K): regla nueva **`qty_fusion = max(qty_orden_mas_nueva, qty_asignada)`** en vez de sumatoria. Dry-run only. Ver output en [docs/auditoria/46_S_DRY_RUN_FUSION_NUEVA_REGLA_2026-10-25.md](../auditoria/46_S_DRY_RUN_FUSION_NUEVA_REGLA_2026-10-25.md).
+
+---
+
+## Medición prod 2026-10-25
+
+**Script:** `scripts/audit/W_backorder_inflado_medicion.cjs`
+**Corrida:** 2026-10-26T00:48:18.820Z (7-day window para M2, Top-25 para M3)
+**Reporte completo:** [docs/auditoria/45_W_MEDICION_BACKORDER_INFLADO_2026-10-25.md](../auditoria/45_W_MEDICION_BACKORDER_INFLADO_2026-10-25.md)
+
+### Resumen por métrica (tabla ASCII)
+
+```
++-----------------------------------------------------+-----------+
+| Métrica                                             |     Valor |
++-----------------------------------------------------+-----------+
+| M1  Pares cliente+SKU con BO vigente (total)        |      2921 |
+|     - En 1 orden (OK, 1 BO = 1 orden)               |      2560 |
+|     - En 2+ órdenes (CANDIDATO FUSIÓN)              |       361 |
+| M1  Unidades BO vigentes totales                    |     10472 |
+|     - Unidades BO en pares multi                    |      2903 |
+|     - Unidades reducibles por fusión                |      1046 |
+|     - % inflación estimada                          |       10% |
++-----------------------------------------------------+-----------+
+| M2  Pares BO + envío SAP posterior (ventana 7d)     |        20 |
+|     - Unidades BO fantasma post-envío               |       147 |
++-----------------------------------------------------+-----------+
+| M3  SKUs con backorderApp.total >> físico (umbral)  |       322 |
+|     - Top-25 por gap (mostrados en doc)             |        25 |
++-----------------------------------------------------+-----------+
+| M4  BOs con createdAt > 90d (cleanup §37)           |       510 |
+|     - Unidades afectadas                            |      1603 |
++-----------------------------------------------------+-----------+
+| M5  Clientes con multi waitlist/BO abierto          |        64 |
++-----------------------------------------------------+-----------+
+| M6  Órdenes con ASIG + BO vivos mismo SKU (§40.11)  |         7 |
+|     - Unidades afectadas                            |        26 |
++-----------------------------------------------------+-----------+
+| M7  (resumen) ya cubierto arriba                    |         - |
++-----------------------------------------------------+-----------+
+```
+
+### Veredicto
+
+**HAY backorder inflado significativo.** Confirma las 3 hipótesis top del
+plan:
+
+- **S1 (ALTA)** confirmada por M2: 20 pares con BO vigente + envío SAP
+  posterior en los últimos 7 días. 147u fantasma. Volumen chico pero
+  real; proyectado a 90d → ~1.800u/trimestre.
+- **E6 (ALTA)** confirmada por M1 (parcialmente) + M6: 361 pares con BO
+  en 2+ órdenes (1046u reducibles por fusión). M6 además muestra 7 casos
+  de ASIG+BO vivos mismo SKU → §40.11 revertSobreAsignadas puede no
+  estar cerrando el 100% o quedan sync lags.
+- **E1 (MEDIA)** cubierta parcialmente por M1: la métrica no distingue
+  "mismo Excel re-cargado" vs "pedidos independientes legítimamente", pero
+  el 10% de inflación agregado + 361 pares candidatos a fusión indica
+  volumen suficiente para justificar Fase B.
+
+**Script S (regla nueva) complementa:** `qty_fusion = max(qty_orden_mas_nueva, qty_asignada)` reduce 1595u (vs 1046u que calculaba W por `qtyTotal - qtyMax`). La diferencia: S usa el input más reciente del VDE como demanda target, no la línea individual más grande. En prod: 350 pares candidatos, 130 órdenes afectadas, 1 caso donde la ASIG es piso efectivo (max > qtyNueva).
+
+**Backlog adicional detectado:**
+
+- **M4**: 510 líneas BO con >90d (1603u). Candidato a cleanup aparte
+  (§37 ya los deja de reservar, pero inflan la cola `backorderApp` del
+  breakdown). Impacto en forecast y reporting.
+- **M3**: 322 SKUs con backorder desproporcionado al físico. Fuente de
+  verdad para priorizar reposición.
+- **M5**: 64 clientes con fragmentación de órdenes. Compliance §42 real
+  < 100% (esperable: §42 solo opera al crear waitlist nuevo; pedidos ya
+  en `pedidos` con BO abierto no se migran).
+
+### Próximo paso (fuera del alcance de esta tarea)
+
+Mariano decide con Fase B (diseño del fix de salida S1 + control de
+entrada E1-E6). Esta medición es la **línea base**: cuando se implemente
+el fix, correr W de nuevo y comparar antes/después.
