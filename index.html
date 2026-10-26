@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1466';
+const APP_VERSION = 'v1467';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17976,6 +17976,21 @@ window._buildClientStockForPayload = function(docData) {
     const bdFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockBreakdown
       && window.__phase0.pure.stockBreakdown.getStockBreakdown;
     if (typeof bdFn !== 'function') return null;
+    // v1467 hotfix (2026-10-26): `window.getStockFisico` NUNCA se asignó
+    // (grep del repo: solo `window.getStockTransito` existe). Antes el helper
+    // pasaba `window.getStockFisico=undefined` → `getStockBreakdown` tiraba
+    // TypeError al invocar `deps.getStockFisico(sku)` → catch devolvía null →
+    // `clientSnapshotProvided: false` → comparador v1447 caía al compor-
+    // tamiento histórico y disparaba STOCK_CHANGED en loop para cualquier
+    // `qtyBO > 0`, aunque cliente y server tuvieran los MISMOS valores
+    // (reportado Santi 2026-10-26 17:15 ORDEN 533 SKUs CUDC151MGA/HGA).
+    // Fix: usar el mismo pattern que los 10 call-sites de getStockBreakdown
+    // en index.html (ej. línea 7325): fallback a getStockDisponibleVenta.
+    const _gsf = (typeof getStockDisponibleVenta === 'function')
+      ? getStockDisponibleVenta
+      : (typeof window.getStockDisponibleVenta === 'function'
+        ? window.getStockDisponibleVenta
+        : () => 0);
     const cardCode = String(docData.clientCardCode || '').trim();
     /** @type {Record<string, any>} */
     const out = {};
@@ -17986,7 +18001,7 @@ window._buildClientStockForPayload = function(docData) {
         const bd = bdFn(sku, {
           pedidos: typeof globalPedidos !== 'undefined' ? globalPedidos : [],
           revisionWaitlist: typeof revisionWaitlist !== 'undefined' ? revisionWaitlist : [],
-          getStockFisico: window.getStockFisico,
+          getStockFisico: _gsf,
           getStockTransito: window.getStockTransito,
         });
         if (!bd) continue;
