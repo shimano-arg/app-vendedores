@@ -58,6 +58,12 @@ import {
   summarizeStorageUsage,
 } from './pure/panel-metrics.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
+// §J (v1455 2026-10-25) — Absorción de BO al confirmar. Pure + espejo en functions/core.
+import {
+  applyAbsorptionsToLines,
+  buildBackfillUpdate,
+  computeBoAbsorption,
+} from './pure/absorb-bo-on-confirm.js';
 // v1418 §53 (2026-10-22): computeVaASap unifica el "va a SAP" en los 3 lugares
 // (modal detalle, Planner card, payload SL). Fixture ORDEN 524 PONTORIERO.
 import { computeVaASap, readDiscountPct, sumConfirmedBruto } from './pure/pedido-va-a-sap.js';
@@ -345,6 +351,12 @@ const phase0 = {
     buildAsigRefsForLine,
     splitPedidoLine,
     reenrichPedidoLine,
+    // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.
+    absorbBoOnConfirm: {
+      computeBoAbsorption,
+      applyAbsorptionsToLines,
+      buildBackfillUpdate,
+    },
     // v1418 §53 (2026-10-22): "va a SAP" neto unificado.
     computeVaASap,
     readDiscountPct,

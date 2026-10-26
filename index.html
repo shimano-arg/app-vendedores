@@ -36705,8 +36705,10 @@ window.doConfirmPedido = async function(){
       // v1280 (2026-10-14) + v1382 (2026-10-20): grab + reset de
       // pedidosOrigenes para pasarlo al paso de cancelacion de ASIG originales.
       // v1382: unificar con docData.lines[].asigRefs (identidad por linea).
+      // v1455 §J (2026-10-25): ALSO incluir BO absorbidos — pedidos del mismo
+      // cardCode+SKU con state='BO' + qtyOpen>0. CLAUDE.md §35.
       // Dedupe por (pedidoId, lineIndex) para no cancelar 2 veces una misma
-      // ASIG que viene tanto en el global como en una linea. CLAUDE.md §35.
+      // referencia (ASIG + absorbido).
       const _origenesACancelar = (function(){
         const result = [];
         const seen = new Set();
@@ -36727,6 +36729,34 @@ window.doConfirmPedido = async function(){
               for (const r of line.asigRefs) push(r);
             }
           }
+        }
+        // §J: BO absorption client-side (fallback legacy; CF OK ya lo hizo server).
+        try {
+          const _compute = window.__phase0 && window.__phase0.pure && window.__phase0.pure.absorbBoOnConfirm && window.__phase0.pure.absorbBoOnConfirm.computeBoAbsorption;
+          if (_compute && typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+            const _confirmedBySku = {};
+            for (const l of (docData.lines || [])) {
+              if (!l || l.state !== 'confirmed') continue;
+              const sku = String(l.code || '').toUpperCase();
+              _confirmedBySku[sku] = (_confirmedBySku[sku] || 0) + (Number(l.qty) || 0);
+            }
+            const _absorbInput = Object.keys(_confirmedBySku)
+              .filter((s) => _confirmedBySku[s] > 0)
+              .map((s) => ({ sku: s, cantidad: _confirmedBySku[s] }));
+            if (_absorbInput.length > 0) {
+              const _absResult = _compute({
+                cardCode: docData.clientCardCode || '',
+                lines: _absorbInput,
+                allPedidos: globalPedidos,
+                now: Date.now(),
+              });
+              for (const a of (_absResult.absorptions || [])) {
+                push({ pedidoId: a.pedidoIdOrigen, lineIndex: a.lineIndexOrigen, qtyAsignada: a.cantidad, sku: a.sku, _isBoAbsorb: true });
+              }
+            }
+          }
+        } catch(_eAbs) {
+          console.warn('[§J] BO absorb compute (fallback legacy) fallo:', _eAbs && _eAbs.message);
         }
         return result.length > 0 ? result : null;
       })();
