@@ -1166,6 +1166,7 @@ function scrubFunctionsFromObject(obj) {
   if (Array.isArray(obj)) {
     return obj.map((v) => scrubFunctionsFromObject(v)).filter((v) => v !== undefined);
   }
+  /** @type {Record<string, any>} */
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
     if (typeof v === 'function') continue;
