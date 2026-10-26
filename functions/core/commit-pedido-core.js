@@ -61,7 +61,7 @@ import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-wait
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 
 // Threshold de staleness del snapshot stock server-side.
-// v1454 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
+// v1456 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
 // Cloud Scheduler → syncSapCatalogStockCF (cada 5 min, confiable). El cron
 // GHA del workflow Python se removió (saltaba runs por saturación). Con el
 // scheduler nuevo + el audit E10 que mostró que el hueco de 24 min del 23/10

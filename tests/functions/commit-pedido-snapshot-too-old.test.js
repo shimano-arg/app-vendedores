@@ -2,19 +2,19 @@
 /**
  * Tests para la validación `SNAPSHOT_TOO_OLD` en `commitPedidoCore`.
  *
- * Contexto 2026-10-23 (post bloqueo prod 13:41 ART):
- *   El workflow `sync-sap-catalog-stock.yml` tiene cron cada 5 min pero
- *   GHA scheduler saltea; los runs efectivos son cada 2-5 h. Threshold
- *   anterior de 45 min hacía que toda confirmación post-primer sync del
- *   día cayera en `SNAPSHOT_TOO_OLD`. Subido a 8 h.
+ * Contexto v1456 §60 UPDATE (2026-10-25):
+ *   El sync pasó a Cloud Scheduler → syncSapCatalogStockCF (cada 5 min,
+ *   confiable). Cron GHA removido del workflow Python. Threshold bajado
+ *   8h → 30 min. El audit E10 confirmó que el hueco de 24 min del 23/10
+ *   fue el propio deploy de la CF, no falla del scheduler.
  *
- * Qué validan estos tests:
- *   T1  snapshot con 30 min → sin error.
- *   T2  snapshot con 2 h → sin error (bajo 8 h).
- *   T3  snapshot con 5 h → sin error (realista hoy).
- *   T4  snapshot con 7 h 59 min → sin error (frontera inferior).
- *   T5  snapshot con 8 h 1 min → `SNAPSHOT_TOO_OLD` con mensaje nuevo
- *       (incluye hora último sync + minutos de edad).
+ * Qué validan estos tests (v1456):
+ *   T1  snapshot con 10 min → sin error (dentro de 30 min).
+ *   T2  snapshot con 20 min → sin error.
+ *   T3  snapshot con 29 min 59 s → sin error (frontera inferior).
+ *   T4  snapshot con 31 min → `SNAPSHOT_TOO_OLD` + mensaje nuevo
+ *       (nuevo test agregado por el plan 2026-10-25 G).
+ *   T5  snapshot con 2 h → `SNAPSHOT_TOO_OLD`.
  *   T6  snapshot con 24 h → `SNAPSHOT_TOO_OLD` + escribe log en
  *       `operations_log` con `errorCode='SNAPSHOT_TOO_OLD'` +
  *       `snapshotOrigin='server:app_config/stock_snapshot'`.
@@ -25,7 +25,6 @@ import { commitPedidoCore } from '../../functions/core/commit-pedido-core.js';
 
 /**
  * Mock minimal — solo lo necesario para que llegue al snapshot age check.
- * No necesita strict (el check es pre-tx-set).
  */
 function makeMockDb(updatedAtMs, operationsLogSink) {
   const stockConfig = {
@@ -43,7 +42,6 @@ function makeMockDb(updatedAtMs, operationsLogSink) {
     data: () => ({ cardCode: 'C123', clientName: 'Test', vendorKey: 'K' }),
   };
 
-  // Registry por path para que tx.get() consulte el mismo doc que el collection().
   const docRegistry = new Map();
   docRegistry.set('app_config/stock_snapshot', stockConfig);
   docRegistry.set('roles/U1', roleDoc);
@@ -117,56 +115,59 @@ const basePayload = {
   clientName: 'TEST SA',
   origen: 'manual',
   lines: [{ sku: 'CSKU1', cantidad: 1 }],
-  clientVersion: 'v1439',
+  clientVersion: 'v1456',
   ownerUid: 'U1',
   ownerEmail: 'u1@test.com',
 };
 
 const auth = { uid: 'U1', token: { email: 'u1@test.com' } };
 
-describe('SNAPSHOT_TOO_OLD threshold (post 2026-10-23 fix)', () => {
-  it('T1 — 30 min: OK, sin error', async () => {
+describe('SNAPSHOT_TOO_OLD threshold v1456 §60 UPDATE (30 min, 2026-10-25)', () => {
+  it('T1 — 10 min: OK, sin error', async () => {
     const now = Date.now();
-    const { deps } = makeDeps(now - 30 * 60 * 1000, now);
-    const r = await commitPedidoCore(deps, basePayload, auth);
-    expect(r.ok || r.errorCode !== 'SNAPSHOT_TOO_OLD').toBe(true);
-  });
-
-  it('T2 — 2 h: OK, sin error', async () => {
-    const now = Date.now();
-    const { deps } = makeDeps(now - 2 * 60 * 60 * 1000, now);
+    const { deps } = makeDeps(now - 10 * 60 * 1000, now);
     const r = await commitPedidoCore(deps, basePayload, auth);
     expect(r.errorCode === 'SNAPSHOT_TOO_OLD').toBe(false);
   });
 
-  it('T3 — 5 h: OK, sin error', async () => {
+  it('T2 — 20 min: OK, sin error', async () => {
     const now = Date.now();
-    const { deps } = makeDeps(now - 5 * 60 * 60 * 1000, now);
+    const { deps } = makeDeps(now - 20 * 60 * 1000, now);
     const r = await commitPedidoCore(deps, basePayload, auth);
     expect(r.errorCode === 'SNAPSHOT_TOO_OLD').toBe(false);
   });
 
-  it('T4 — 7 h 59 min: OK, sin error (frontera inferior)', async () => {
+  it('T3 — 29 min 59 s: OK, sin error (frontera inferior)', async () => {
     const now = Date.now();
-    const { deps } = makeDeps(now - (7 * 60 + 59) * 60 * 1000, now);
+    const { deps } = makeDeps(now - (29 * 60 + 59) * 1000, now);
     const r = await commitPedidoCore(deps, basePayload, auth);
     expect(r.errorCode === 'SNAPSHOT_TOO_OLD').toBe(false);
   });
 
-  it('T5 — 8 h 1 min: SNAPSHOT_TOO_OLD con mensaje nuevo', async () => {
+  it('T4 — 31 min: SNAPSHOT_TOO_OLD con mensaje nuevo', async () => {
     const now = Date.now();
-    const { deps } = makeDeps(now - (8 * 60 + 1) * 60 * 1000, now);
+    const { deps } = makeDeps(now - 31 * 60 * 1000, now);
     const r = await commitPedidoCore(deps, basePayload, auth);
     expect(r.ok).toBe(false);
     expect(r.errorCode).toBe('SNAPSHOT_TOO_OLD');
     expect(r.message).toMatch(/Último sync de stock/);
     expect(r.message).toMatch(/queda en espera/);
     expect(r.message).not.toMatch(/45 minutos/);
+    expect(r.message).not.toMatch(/8h/);
     expect(r.message).not.toMatch(/Esperá unos minutos y reintentá/);
-    expect(r.data.snapshotAgeMinutes).toBeGreaterThanOrEqual(481);
+    expect(r.data.snapshotAgeMinutes).toBeGreaterThanOrEqual(31);
     expect(r.data.snapshotUpdatedAt).toBeTruthy();
     expect(r.data.snapshotOrigin).toBe('server');
     expect(r.data.canRefresh).toBe(false);
+  });
+
+  it('T5 — 2 h: SNAPSHOT_TOO_OLD', async () => {
+    const now = Date.now();
+    const { deps } = makeDeps(now - 2 * 60 * 60 * 1000, now);
+    const r = await commitPedidoCore(deps, basePayload, auth);
+    expect(r.ok).toBe(false);
+    expect(r.errorCode).toBe('SNAPSHOT_TOO_OLD');
+    expect(r.data.snapshotAgeMinutes).toBeGreaterThanOrEqual(120);
   });
 
   it('T6 — 24 h: SNAPSHOT_TOO_OLD + log en operations_log', async () => {
@@ -175,8 +176,6 @@ describe('SNAPSHOT_TOO_OLD threshold (post 2026-10-23 fix)', () => {
     const r = await commitPedidoCore(deps, basePayload, auth);
     expect(r.ok).toBe(false);
     expect(r.errorCode).toBe('SNAPSHOT_TOO_OLD');
-    // Fire-and-forget: puede estar async. Esperamos un tick.
-    await new Promise((res) => setTimeout(res, 10));
     expect(operationsLogSink.length).toBeGreaterThan(0);
     const entry = operationsLogSink[0];
     expect(entry.type).toBe('commit_pedido_rejected');
