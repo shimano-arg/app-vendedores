@@ -27,7 +27,7 @@
  */
 
 import { sapGet, sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
-import { filterLinesByLiveStock } from './sap-stock-recheck-core.js';
+import { buildSkipSetForCpstLines, filterLinesByLiveStock } from './sap-stock-recheck-core.js';
 
 /**
  * @typedef {Object} SlDeps
@@ -600,10 +600,17 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     // FAIL-OPEN por diseño: si el GET falla (SL down, timeout, parse), sigue
     // con el POST como antes de v1051. Esta capa es aditiva — no debe empeorar
     // el flow si SAP tiene un hipo transiente.
+    // v1473 §39 (2026-10-26): skip SKUs con origen=stock-asignado+asigRefs.
+    // Esas líneas ya validaron utilizablePara(cardCode) en commitPedidoCore;
+    // el whs11 raw de SAP las degrada espuriamente (SAP tiene esa qty
+    // Committed en otro doc, pero la reserva propia del cliente las respalda).
+    // Fix defensivo equivalente al v1466 pero en el envío a SAP.
+    const _skipCpstSet = buildSkipSetForCpstLines(afterData && afterData.lines);
     const stockCheck = await filterLinesByLiveStock(
       session,
       built.payload.DocumentLines || [],
-      deps.sl
+      deps.sl,
+      { skipByItemCode: _skipCpstSet }
     );
     if (!stockCheck.checkSucceeded) {
       // v1180 (2026-10-07, Opcion 1 post-incident Ricardo): FAIL-SAFE en vez
