@@ -44,6 +44,15 @@ import { passesTypeFilter } from './pure/filters.js';
 // pero para el cliente web SDK v8 (compat).
 import { isSanitizedPath, stripUndefined } from './pure/firestore-sanitize.js';
 import { L_BO_ENTRY_TEXTS } from './pure/l_bo_entry_texts.js';
+// v1471 §68 (2026-10-26): mensajes humanos para vendedores. Unica fuente de
+// verdad de los textos de error que ven en alert/confirm. Sin códigos, sin
+// jerga técnica. Formato: una oración qué pasó + una oración qué hacer.
+import {
+  formatMensajeConCodigo,
+  getMensajeParaErrorCode,
+  MENSAJES_VENDEDOR,
+  PALABRAS_PROHIBIDAS,
+} from './pure/mensajes-vendedor.js';
 import {
   displayVendorName,
   escapeHtml,
@@ -395,6 +404,13 @@ const phase0 = {
     firestoreSanitize: {
       stripUndefined,
       isSanitizedPath,
+    },
+    // v1471 §68 (2026-10-26) — mensajes humanos para vendedores.
+    mensajesVendedor: {
+      MENSAJES_VENDEDOR,
+      PALABRAS_PROHIBIDAS,
+      getMensajeParaErrorCode,
+      formatMensajeConCodigo,
     },
     // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.
     absorbBoOnConfirm: {
