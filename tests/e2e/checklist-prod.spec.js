@@ -517,26 +517,155 @@ test.describe('Checklist producción app-vendedores', () => {
     }
   });
 
-  test('punto 7: botón Ficha cliente desde modal cliente abre la ficha', async ({ page }) => {
+  test('punto 7: pin popup Ficha cliente abre modal "FICHA CLIENTE" DIRECTO (sin modal revisión)', async ({
+    page,
+  }) => {
     test.skip(!CREDS.email, 'creds not configured');
     await doLogin(page);
+    await page.waitForTimeout(5000);
 
-    // Intentar abrir modal cliente desde el mapa (popup) o buscador. Si no
-    // hay cliente clickeable fácil, al menos verificar que #ficha-cliente-modal
-    // existe en el DOM.
-    const fichaModalExists = await page.locator('#ficha-cliente-modal').count();
-    expect(fichaModalExists).toBeGreaterThanOrEqual(1);
-    await screen(page, '07a_pre_ficha');
-
-    // Verifica que la función global `openFichaClienteFromClientModal` existe
-    // (expuesta en window). Es el entry-point que usan los popups del mapa y
-    // los modales SAP (`openFichaClienteFromSapModal`).
-    const fnAvailable = await page.evaluate(() => {
-      const fn = /** @type {any} */ (window).openFichaClienteFromClientModal;
-      return typeof fn === 'function';
+    // v1464 (2026-10-26): simular el click del botón "Ficha cliente" del popup
+    // del pin invocando openFichaClienteDirect directamente con cardCode de
+    // CLIENTE PRUEBAS E2E (CE2E000001). El flow real del popup del pin arma el
+    // onclick con openFichaClienteDirect('<name>','<prov>','<loc>','<vendor>').
+    const existsFn = await page.evaluate(() => {
+      return typeof (/** @type {any} */ (window).openFichaClienteDirect) === 'function';
     });
-    expect(fnAvailable, 'window.openFichaClienteFromClientModal debe estar expuesta').toBe(true);
-    await screen(page, '07b_ficha_fn_disponible');
+    expect(existsFn, 'window.openFichaClienteDirect debe estar expuesta').toBe(true);
+
+    // El modal de revisión (#client-modal) NO debe estar visible antes.
+    const revisionVisibleBefore = await page
+      .locator('#client-modal.open')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    expect(revisionVisibleBefore, 'modal revisión NO debe estar abierto pre-click').toBe(false);
+
+    // Simular el click (equivalente a lo que hace el onclick del botón del pin).
+    await page.evaluate(() => {
+      const fn = /** @type {any} */ (window).openFichaClienteDirect;
+      fn('CLIENTE PRUEBAS E2E', 'BUENOS AIRES', 'CABA', 'PRUEBAS E2E');
+    });
+    await page.waitForTimeout(1500);
+    await screen(page, '07a_post_click_pin_ficha');
+
+    // 1) Modal FICHA CLIENTE visible.
+    const fichaOpen = await page
+      .locator('#ficha-cliente-modal.open')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    expect(fichaOpen, 'modal FICHA CLIENTE debe estar visible').toBe(true);
+
+    // 2) Modal de REVISIÓN (#client-modal) NO debe estar visible — el fix v1464
+    // garantiza que no abre.
+    const revisionVisibleAfter = await page
+      .locator('#client-modal.open')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    expect(revisionVisibleAfter, 'modal revisión NO debe aparecer').toBe(false);
+
+    // 3) Modal muestra pestañas "Clasificación" + "Buyer" (contenido de la ficha).
+    const bodyTxt = await page
+      .locator('#ficha-cliente-modal')
+      .first()
+      .innerText()
+      .catch(() => '');
+    expect(bodyTxt.toLowerCase(), 'modal ficha debe contener "clasificación" o "buyer"').toMatch(
+      /clasificaci|buyer/
+    );
+
+    await page.evaluate(() => {
+      const el = document.getElementById('ficha-cliente-modal');
+      if (el) el.classList.remove('open');
+    });
+  });
+
+  test('punto 7b: contraste del título h2 del modal de revisión >= 4.5 (modo claro + oscuro)', async ({
+    page,
+  }) => {
+    test.skip(!CREDS.email, 'creds not configured');
+    await doLogin(page);
+    await page.waitForTimeout(3000);
+
+    // Abrir el modal de revisión programáticamente con el cliente E2E.
+    await page.evaluate(() => {
+      const fn = /** @type {any} */ (window).openClientModal;
+      if (typeof fn === 'function') fn('CLIENTE PRUEBAS E2E', 'C', 'BUENOS AIRES', 'CABA');
+    });
+    await page.waitForTimeout(1500);
+
+    const measure = async (mode) => {
+      await page.evaluate((m) => {
+        document.documentElement.setAttribute('data-theme', m);
+        document.body.classList.toggle('dark', m === 'dark');
+      }, mode);
+      await page.waitForTimeout(300);
+      const colors = await page.evaluate(() => {
+        const h2 = /** @type {any} */ (document.getElementById('cm-name'));
+        if (!h2) return null;
+        const head = h2.closest('.modal-head');
+        const cs = window.getComputedStyle(h2);
+        const bgCs = window.getComputedStyle(head || h2);
+        return { color: cs.color, bg: bgCs.backgroundColor };
+      });
+      return colors;
+    };
+    const parse = (str) => {
+      const m = (str || '').match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+      return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+    };
+    const lum = (c) => {
+      const [r, g, b] = c.map((v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (fg, bg) => {
+      const l1 = lum(fg);
+      const l2 = lum(bg);
+      const [a, b] = l1 > l2 ? [l1, l2] : [l2, l1];
+      return (a + 0.05) / (b + 0.05);
+    };
+
+    // Si el background del modal-head es gradient, getComputedStyle devuelve
+    // rgba(0,0,0,0) o similar. En ese caso usamos el fallback de la paleta
+    // apple-design (azul oscuro #0f172a).
+    const fallbackBg = [15, 23, 42]; // #0f172a (modal-head gradient start)
+
+    const evidenciaDir = `tests/e2e/evidencia/${new Date().toISOString().slice(0, 10)}/ficha`;
+    fs.mkdirSync(evidenciaDir, { recursive: true });
+
+    for (const mode of ['light', 'dark']) {
+      const colors = await measure(mode);
+      expect(colors, `colors medidos en modo ${mode}`).toBeTruthy();
+      const fg = parse(colors.color);
+      let bg = parse(colors.bg);
+      if (
+        !bg ||
+        (bg[0] === 0 &&
+          bg[1] === 0 &&
+          bg[2] === 0 &&
+          (colors.bg.includes('rgba(0, 0, 0, 0)') || colors.bg.includes('transparent')))
+      ) {
+        bg = fallbackBg;
+      }
+      expect(fg, `fg modo ${mode}: ${colors.color}`).toBeTruthy();
+      const ratio = contrast(fg, bg);
+      console.log(
+        `[punto 7b] contraste modo=${mode}: ${ratio.toFixed(2)}:1 (fg=${colors.color} bg=${colors.bg}, bgUsed=${JSON.stringify(bg)})`
+      );
+      await page.screenshot({ path: `${evidenciaDir}/07b_${mode}.png`, fullPage: true });
+      expect(ratio, `contraste modo ${mode}`).toBeGreaterThanOrEqual(4.5);
+    }
+
+    // Cleanup: cerrar modal.
+    await page.evaluate(() => {
+      const el = document.getElementById('client-modal');
+      if (el) el.classList.remove('open');
+    });
   });
 
   test('punto 8: badge Sync stock legible (menor a 5 min esperado)', async ({ page }) => {

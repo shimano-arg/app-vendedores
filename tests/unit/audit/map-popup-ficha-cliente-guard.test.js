@@ -142,8 +142,12 @@ describe('v1446 §52 — guard Ficha cliente en popup del mapa', () => {
     expect(slice).toMatch(/_isAdminGerIntern/);
     // Guard: vendedor && myVendor === effVendor (uppercase).
     expect(slice).toMatch(/_myVendor === _effVendorUp/);
-    // openClientModal se invoca con los 4 params desde el onclick.
-    expect(slice).toMatch(/openClientModal\(/);
+    // v1464 (2026-10-26): el onclick ahora invoca openFichaClienteDirect
+    // (ficha real directa, sin pasar por el modal de revisión). Reemplaza
+    // openClientModal que era el patrón original de v1446.
+    expect(slice).toMatch(/openFichaClienteDirect\(/);
+    // El modal de revisión NO debe invocarse desde el popup del pin.
+    expect(slice).not.toMatch(/openClientModal\(/);
     // CSS class para mobile layout.
     expect(html).toMatch(/\.map-popup-actions/);
   });
