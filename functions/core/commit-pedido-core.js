@@ -620,11 +620,24 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     const skuDetails = diffVsClient.skuChanged.map((/** @type {any} */ ch) => {
       const serverLine = lineasResultado.find((/** @type {any} */ l) => l.sku === ch.sku) || {};
       const serverBd = serverLine.breakdown || null;
+      // §64.3 (v1453): `serverBd.utilizablePara` es una FUNCIÓN
+      // (`src/pure/stock-breakdown.js:327 utilizablePara = (cardCode) => {...}`),
+      // no un número. Pre-fix guardábamos la función como campo del log entry →
+      // Firestore rechazaba silenciosamente ("Cannot encode value: function").
+      // Los 10 eventos STOCK_CHANGED reales desde v1443 (23/10 15:37 ART)
+      // perdieron su log. Fix: invocamos la función con el cardCode del payload
+      // para obtener el número efectivo auditado.
+      const _utilizableParaNum =
+        serverBd && typeof serverBd.utilizablePara === 'function'
+          ? Number(serverBd.utilizablePara(payload && payload.cardCode)) || 0
+          : serverBd && typeof serverBd.utilizablePara === 'number'
+            ? serverBd.utilizablePara
+            : null;
       const serverPayload = {
         qtyConfirmed: ch.podesLlevar,
         qtyBO: ch.aBackOrder,
         libre: serverBd ? serverBd.libre : null,
-        utilizablePara: serverBd ? serverBd.utilizablePara : null,
+        utilizablePara: _utilizableParaNum,
         fisicoDep11: serverBd ? serverBd.fisicoDep11 : null,
         reservadasTotal: serverBd ? serverBd.reservadasTotal : null,
         backorderAppTotal: serverBd && serverBd.backorderApp ? serverBd.backorderApp.total : null,
@@ -1117,7 +1130,14 @@ async function logCommitRejection(deps, errorCode, payload, extra) {
       },
       extra || {}
     );
-    await deps.fbDb.collection('operations_log').add(entry);
+    // §64.3 (v1453): scrubber defensivo. Firestore rechaza silenciosamente
+    // writes con `typeof === 'function'`. El fix principal invoca
+    // `serverBd.utilizablePara(cardCode)` para resolver a número ANTES de
+    // llegar acá, pero este scrubber es red de seguridad para futuras
+    // adiciones al extra que accidentalmente arrastren una función (ej.
+    // breakdown method que alguien agregue más adelante).
+    const scrubbed = scrubFunctionsFromObject(entry);
+    await deps.fbDb.collection('operations_log').add(scrubbed);
   } catch (e) {
     if (deps.log) {
       deps.log('operations_log write failed (commit_pedido_rejected)', {
@@ -1126,4 +1146,32 @@ async function logCommitRejection(deps, errorCode, payload, extra) {
       });
     }
   }
+}
+
+/**
+ * §64.3 (v1453) — walk recursivo que remueve cualquier valor
+ * `typeof === 'function'`. Firestore no acepta funciones; el write silently
+ * se queda a medias. Preserva Date, Timestamp, arrays, nested objects.
+ *
+ * @param {any} obj
+ * @returns {any}
+ */
+function scrubFunctionsFromObject(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'function') return undefined;
+  if (typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return obj;
+  // Firestore Timestamp u otros objetos opacos: no recurrir.
+  if (typeof obj.toMillis === 'function' || typeof obj.toDate === 'function') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((v) => scrubFunctionsFromObject(v)).filter((v) => v !== undefined);
+  }
+  /** @type {Record<string, any>} */
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'function') continue;
+    const scrubbed = scrubFunctionsFromObject(v);
+    if (scrubbed !== undefined) out[k] = scrubbed;
+  }
+  return out;
 }
