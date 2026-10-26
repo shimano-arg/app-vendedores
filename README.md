@@ -4717,6 +4717,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1453 (2026-10-25) — §64.3 Fix logging STOCK_CHANGED: `utilizablePara` función → número + scrubber defensivo
+
+Rama `fix-v1453-logging-no-functions` → `main`.
+
+**Problema (identificado en audit §64 PR #1207 2026-10-25)**: desde v1443 (23/10 15:37 ART), los 10 eventos STOCK_CHANGED reales en prod NO escribieron entry en `operations_log`. Causa: `functions/core/commit-pedido-core.js:627` guardaba `serverBd.utilizablePara` como campo del log entry. `utilizablePara` es una **función arrow** en `src/pure/stock-breakdown.js:327` (`utilizablePara = (cardCode) => min(fisico, libre + reservasPropias)`), no un número. Firestore rechaza silenciosamente writes con `typeof === 'function'`: `Cannot encode value: (cardCode) => {...}`. §64.2 PR #1208 (logging centralizado) NO lo arregló — el issue ya existía en el shape del `_logExtra`.
+
+**Fix doble** (fail-safe en profundidad):
+
+1. **Resolución del valor** (`functions/core/commit-pedido-core.js:643-655`): invocar `serverBd.utilizablePara(payload.cardCode)` para obtener el `number` efectivo que vio el server para ESE cliente. Antes se guardaba la función misma; ahora se guarda el resultado numérico auditado — más útil para el debugging del incidente (compara `utilizablePara(cardCode)` cliente vs servidor).
+
+2. **Scrubber defensivo** (`functions/core/commit-pedido-core.js:1172-1197`): walk recursivo `scrubFunctionsFromObject(obj)` en `logCommitRejection` que elimina cualquier `typeof === 'function'` antes del `collection('operations_log').add()`. Preserva Date, Timestamp (via `.toMillis`/`.toDate` heurística), arrays, nested objects. Red de seguridad para futuras adiciones al `extra` que accidentalmente arrastren una función (ej. breakdown method que alguien agregue más adelante).
+
+**Test de regresión** (`tests/functions/commit-pedido-logging-no-functions.test.js`, 3 tests):
+- Walk recursivo detecta `typeof === 'function'` en cualquier profundidad del log entry.
+- `skuDetails[].server.utilizablePara` DEBE ser `number | null`, nunca `function`.
+- JSON.stringify sanity check (red backup).
+
+**Repro pre-fix**: el test falla con `FUNCIONES encontradas en log entry: [ '$.skuDetails[0].server.utilizablePara' ]`.
+
+**Impacto en prod**: STOCK_CHANGED es el path más frecuente de rechazo del CF (vendedor con snapshot stale). Al deploy, los próximos eventos escriben entry completo con cliente+servidor valores + mismatch flags → script `V_stock_changed_falsos_positivos.cjs` finalmente puede diagnosticar casos reales.
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF`. Sin cambio en rules ni en el cliente — el fix es puramente server-side. No requiere `index.html` ni `sw.js` bump funcional, pero bumpeados por disciplina (§20 workflow deploy).
+
+**Suite completa post-v1453**: unit 1739 PASS + functions 707 PASS (3 nuevos sobre v1452).
+
+**Precedente**: audit §64 PR #1207 2026-10-25 identificó el bug como "1-line fix delegado por §31". El fix real resultó ser 2-sided: invocar la función + scrubber como defensa.
+
+**Rollback**: revertir las modificaciones en `commit-pedido-core.js` (bloque `_utilizableParaNum` + helper `scrubFunctionsFromObject` + llamada `scrubbed = scrubFunctionsFromObject(entry)` en logCommitRejection). El shape `serverBd.utilizablePara` siendo función es anterior a v1443; el fix no cambia la API pure.
+
 ### v1451 (2026-10-25) — §65 Port `collect_backorder_from_sqs` Python → Node + compute dentro de `syncSapCatalogStockCF`
 
 Rama `feat-v1451-backorder-cf-port` → `main`.
