@@ -24,7 +24,7 @@ describe('v1467 §64 hotfix Santi 17:15 ORDEN 533 — getStockFisico fallback', 
     const html = readFileSync('index.html', 'utf8');
     const idx = html.indexOf('window._buildClientStockForPayload = function(docData)');
     expect(idx).toBeGreaterThan(0);
-    const slice = html.slice(idx, idx + 2500);
+    const slice = html.slice(idx, idx + 4000);
     // Post-fix: NO debe haber `getStockFisico: window.getStockFisico` sin fallback.
     expect(slice).not.toMatch(/getStockFisico:\s*window\.getStockFisico\s*,/);
     // Debe usar el pattern con fallback a getStockDisponibleVenta.
