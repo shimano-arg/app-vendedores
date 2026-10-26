@@ -1,16 +1,62 @@
-// S — v1435 §56 (2026-10-24): DRY-RUN de fusión por SKU en órdenes abiertas.
-//
-// Simula `mergeLinesFromOrders` sobre los datos legacy identificados por
-// `S_sku_duplicados_prod.cjs`. Imprime tabla ANTES → DESPUÉS por orden en
-// `docs/auditoria/22_DRY_RUN_FUSION_DUPLICADOS.md`.
-//
-// `--apply` NO se corre acá. Para persistir, Mariano autoriza aparte y se
-// agrega el bloque con `_backfill` snapshot (patrón CLAUDE.md §55).
-//
-// Uso:
-//   node scripts/audit/S_dry_run_fusion_duplicados.cjs
+#!/usr/bin/env node
+// @ts-check
+/*
+ * ================================================================
+ * S — DRY-RUN de fusion por SKU con REGLA NUEVA (plan #1206)
+ * ================================================================
+ *
+ * Reescrito 2026-10-25 (tarea K cierre total).
+ *
+ * REGLA NUEVA DE FUSION:
+ *   Para pares (cliente, SKU) con BO repartido en 2+ ordenes:
+ *     qty_fusion = max(qty_orden_mas_nueva, qty_asignada_del_cliente)
+ *
+ *   RATIONALE: "cantidad declarada reemplaza, no suma" (plan #1206).
+ *   La demanda real es la del input mas reciente del VDE. Pero si el
+ *   cliente ya tiene ASIG vigente (reparto hecho por Pablo), ese piso
+ *   NO se puede bajar — representa stock fisico ya comprometido.
+ *
+ * REGLA VIEJA (v1435 §56, intra-orden):
+ *     qty_fusion = sum(qtys) de todas las lineas del SKU en la orden
+ *
+ *   La vieja regla sigue vigente para dedupe INTRA-orden (§56). La
+ *   nueva regla aplica a fusion INTER-orden (misma pareja cliente+SKU
+ *   en ordenes distintas) — caso tipico Mariano "Excel re-cargado".
+ *
+ * NO tiene --apply. Dry-run only. Si Mariano autoriza aparte, agregar
+ * --apply con snapshot `_backfill` (CLAUDE.md §55).
+ *
+ * Uso:
+ *   node scripts/audit/S_dry_run_fusion_duplicados.cjs
+ */
+
+'use strict';
 
 const PROJECT = 'app-vendedores-shimano';
+
+const argv = process.argv.slice(2);
+if (argv.includes('--apply')) {
+  console.error('[S] ERROR: --apply NO esta implementado.');
+  console.error('[S] Este script es dry-run only. Ver plan en');
+  console.error('[S]   docs/plans/2026-10-25-backorder-inflado-analisis.md');
+  console.error('[S] Si Mariano autoriza, agregar bloque --apply con snapshot _backfill §55.');
+  process.exit(2);
+}
+
+/** @param {any} t */
+function tsToMs(t) {
+  if (!t) return 0;
+  if (typeof t === 'number') return t;
+  if (typeof t.toMillis === 'function') { try { return t.toMillis(); } catch (_e) { return 0; } }
+  if (typeof t.toDate === 'function') { try { return t.toDate().getTime(); } catch (_e) { return 0; } }
+  if (typeof t === 'string') { const n = Date.parse(t); return Number.isNaN(n) ? 0 : n; }
+  return 0;
+}
+
+/** @param {any} v */
+function tdMd(v) {
+  return String(v == null ? '' : v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
 
 async function main() {
   const admin = require('../../functions/node_modules/firebase-admin');
@@ -19,152 +65,207 @@ async function main() {
   if (!admin.apps.length) admin.initializeApp({ projectId: PROJECT });
   const db = admin.firestore();
 
-  // Importa la pure fn vía ESM dynamic import. En Node 20 CommonJS, usamos
-  // require del módulo esm wrapper — pero `src/pure/unificar-ordenes.js` es
-  // puro ESM. Alternativa simple: replicamos la fusión inline (idéntico al
-  // helper, mismo contrato) para no mezclar runtimes.
-  const norm = (s) => String(s || '').toUpperCase().trim();
-
-  /**
-   * @param {Array<any>} refsA
-   * @param {Array<any>} refsB
-   */
-  const unionRefs = (refsA, refsB) => {
-    const seen = new Map();
-    for (const r of [...(refsA || []), ...(refsB || [])]) {
-      if (!r || !r.pedidoId || !Number.isFinite(Number(r.lineIndex))) continue;
-      const k = r.pedidoId + '|' + r.lineIndex;
-      if (!seen.has(k)) {
-        seen.set(k, Object.assign({}, r, { qtyAsignada: Number(r.qtyAsignada) || 0 }));
-      } else {
-        const prev = seen.get(k);
-        const q = Number(r.qtyAsignada) || 0;
-        if (q > (prev.qtyAsignada || 0)) prev.qtyAsignada = q;
-      }
-    }
-    return Array.from(seen.values());
-  };
-
-  /**
-   * @param {Array<any>} lines
-   */
-  const fuseLines = (lines) => {
-    /** @type {Map<string, any>} */
-    const bySku = new Map();
-    const order = [];
-    for (const l of lines || []) {
-      if (!l || !l.code) continue;
-      const key = norm(l.code);
-      const existing = bySku.get(key);
-      if (!existing) {
-        bySku.set(key, Object.assign({}, l));
-        order.push(key);
-      } else {
-        existing.qty = (Number(existing.qty) || 0) + (Number(l.qty) || 0);
-        if (l.origen === 'stock-asignado' || existing.origen === 'stock-asignado') {
-          existing.origen = 'stock-asignado';
-        }
-        const union = unionRefs(existing.asigRefs, l.asigRefs);
-        if (union.length > 0) existing.asigRefs = union;
-      }
-    }
-    return order.map((k) => bySku.get(k));
-  };
-
   const nowIso = new Date().toISOString();
   console.log('================================================================');
-  console.log('S DRY-RUN — Fusión por SKU @ ' + nowIso);
+  console.log('S DRY-RUN — Fusion por SKU REGLA NUEVA @ ' + nowIso);
   console.log('================================================================');
+  console.log('');
+  console.log('Regla:   qty_fusion = max(qty_orden_mas_nueva, qty_asignada)');
+  console.log('(NO sumar; "cantidad declarada reemplaza" + piso ASIG).');
+  console.log('');
 
-  const [waitlistSnap, pedidosSnap] = await Promise.all([
-    db.collection('revision_waitlist').get(),
-    db.collection('pedidos').get(),
-  ]);
+  const pedidosSnap = await db.collection('pedidos').where('closedAt', '==', null).get();
+  /** @type {Array<any>} */
+  const pedidos = [];
+  pedidosSnap.forEach((d) => pedidos.push(Object.assign({ _fsId: d.id }, d.data())));
+  console.log('[S] Pedidos abiertos: ' + pedidos.length);
 
-  /** @type {Array<{coleccion:string,docId:string,orderNumber:string,cliente:string,antes:number,despues:number,delta:number,sku:string[]}>} */
-  const changes = [];
+  // 1. Agrupar lineas BO vivas por (cardCode|sku) + ASIG como piso.
+  /** @type {Map<string, {cardCode:string, clientName:string, sku:string, boLines:Array<{pedidoId:string, orderNumber:string, lineIndex:number, qtyOpen:number, qty:number, createdAtMs:number}>}>} */
+  const paresBo = new Map();
+  /** @type {Map<string, number>} */
+  const asigPorPar = new Map();
 
-  const procesar = (coleccion, docId, cliente, orderNumber, items) => {
-    if (!Array.isArray(items) || items.length === 0) return;
-    const fused = fuseLines(items);
-    if (fused.length < items.length) {
-      // Hay fusión.
-      const codes = Array.from(new Set(items.map((i) => norm(i.code)))).sort();
-      changes.push({
-        coleccion,
-        docId,
-        orderNumber,
-        cliente,
-        antes: items.length,
-        despues: fused.length,
-        delta: items.length - fused.length,
-        sku: codes.filter((c) => items.filter((i) => norm(i.code) === c).length >= 2),
-      });
-    }
-  };
-
-  waitlistSnap.forEach((d) => {
-    const w = d.data() || {};
-    if (w.closedAt || w.stage === 'consumed') return;
-    procesar('revision_waitlist', d.id, w.clientName || '(sin cliente)', String(w.orderNumber || ''), w.items);
-  });
-  pedidosSnap.forEach((d) => {
-    const p = d.data() || {};
-    if (p.closedAt) return;
-    if (p.stage !== 'pending' && p.stage !== 'confirmed') return;
-    procesar('pedidos', d.id, p.clientName || '(sin cliente)', String(p.orderNumber || ''), p.lines);
-  });
-
-  console.log('Órdenes con fusión posible: ' + changes.length);
-  const totalDelta = changes.reduce((s, c) => s + c.delta, 0);
-  console.log('Total filas a fusionar: ' + totalDelta);
-
-  const lines = [];
-  lines.push('# Audit 22 — DRY-RUN fusión SKU duplicados (§56 v1435)');
-  lines.push('');
-  lines.push('Generado: ' + nowIso);
-  lines.push('');
-  lines.push('**Script:** `scripts/audit/S_dry_run_fusion_duplicados.cjs` (DRY-RUN, read-only).');
-  lines.push('');
-  lines.push('**Qué simula:** la fusión que `mergeLinesFromOrders` + `dedupeLinesByCode` (v1435 §56) aplican a datos nuevos. Las filas con el mismo SKU se agrupan en una sola con qty sumada + preserva origen=stock-asignado + union de asigRefs.');
-  lines.push('');
-  lines.push('**`--apply` NO está implementado acá.** Mariano autoriza aparte si quiere persistir la fusión; en ese caso agregar bloque con snapshot `_backfill` (CLAUDE.md §55).');
-  lines.push('');
-  lines.push('## Resumen');
-  lines.push('');
-  lines.push('- Órdenes afectadas: ' + changes.length);
-  lines.push('- Filas totales a fusionar (unidades no se pierden): ' + totalDelta);
-  lines.push('');
-  lines.push('## ANTES → DESPUÉS por orden');
-  lines.push('');
-  if (changes.length === 0) {
-    lines.push('_No hay órdenes con SKU duplicado. Nada que fusionar._');
-  } else {
-    lines.push('| Colección | Orden | Cliente | SKUs duplicados | Antes (#filas) | Después (#filas) | Delta |');
-    lines.push('|---|---:|---|---|---:|---:|---:|');
-    for (const c of changes) {
-      lines.push(
-        '| ' + c.coleccion +
-        ' | ' + (c.orderNumber || '-') +
-        ' | ' + c.cliente +
-        ' | ' + c.sku.join(', ') +
-        ' | ' + c.antes +
-        ' | ' + c.despues +
-        ' | -' + c.delta +
-        ' |'
-      );
+  for (const p of pedidos) {
+    if (!p || !Array.isArray(p.lines)) continue;
+    if (p.source === 'sync-sap') continue;
+    const cardCode = String(p.clientCardCode || '').trim();
+    const clientName = String(p.clientName || '').trim();
+    const client = cardCode || ('name:' + clientName);
+    const createdMs = tsToMs(p.createdAt);
+    const lines = p.lines;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (!l || !l.code) continue;
+      const qo = Number(l.qtyOpen) || 0;
+      if (qo <= 0) continue;
+      const sku = String(l.code).toUpperCase().trim();
+      const key = client + '|' + sku;
+      if (l.state === 'BO') {
+        const row = paresBo.get(key) || { cardCode, clientName, sku, boLines: [] };
+        row.boLines.push({
+          pedidoId: p._fsId,
+          orderNumber: String(p.orderNumber || ''),
+          lineIndex: i,
+          qtyOpen: qo,
+          qty: Number(l.qty) || qo,
+          createdAtMs: createdMs,
+        });
+        paresBo.set(key, row);
+      } else if (l.state === 'ASIG') {
+        asigPorPar.set(key, (asigPorPar.get(key) || 0) + qo);
+      }
     }
   }
 
-  const outDir = path.join(__dirname, '..', '..', 'docs', 'auditoria');
-  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-  const outPath = path.join(outDir, '22_DRY_RUN_FUSION_DUPLICADOS.md');
-  fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
+  // 2. Filtrar candidatos: pares con BO en 2+ ordenes.
+  /** @type {Array<{cardCode:string, clientName:string, sku:string, boLines:Array<any>, qtyAsignada:number, qtyOrdenMasNueva:number, qtyActualTotal:number, qtyFusionNueva:number, qtyFusionVieja:number, deltaNueva:number, deltaVieja:number, ordenTargetId:string, ordenTargetNumber:string}>} */
+  const candidatos = [];
+  for (const [key, row] of paresBo) {
+    const uniqOrders = new Set(row.boLines.map((l) => l.pedidoId));
+    if (uniqOrders.size < 2) continue;
+    row.boLines.sort((a, b) => b.createdAtMs - a.createdAtMs);
+    const masNueva = row.boLines[0];
+    const qtyOrdenMasNueva = row.boLines
+      .filter((l) => l.pedidoId === masNueva.pedidoId)
+      .reduce((s, l) => s + l.qtyOpen, 0);
+    const qtyAsignada = asigPorPar.get(key) || 0;
+    const qtyActualTotal = row.boLines.reduce((s, l) => s + l.qtyOpen, 0);
+    const qtyFusionVieja = qtyActualTotal;
+    const qtyFusionNueva = Math.max(qtyOrdenMasNueva, qtyAsignada);
+    candidatos.push({
+      cardCode: row.cardCode,
+      clientName: row.clientName,
+      sku: row.sku,
+      boLines: row.boLines,
+      qtyAsignada,
+      qtyOrdenMasNueva,
+      qtyActualTotal,
+      qtyFusionNueva,
+      qtyFusionVieja,
+      deltaNueva: qtyActualTotal - qtyFusionNueva,
+      deltaVieja: qtyActualTotal - qtyFusionVieja,
+      ordenTargetId: masNueva.pedidoId,
+      ordenTargetNumber: masNueva.orderNumber,
+    });
+  }
+  candidatos.sort((a, b) => b.deltaNueva - a.deltaNueva);
+
+  // 3. Totales.
+  const totalCandidatos = candidatos.length;
+  const totalLineasAfectadas = candidatos.reduce((s, c) => s + c.boLines.length, 0);
+  const totalOrdenesAfectadas = new Set(candidatos.flatMap((c) => c.boLines.map((l) => l.pedidoId))).size;
+  const totalUnidadesActuales = candidatos.reduce((s, c) => s + c.qtyActualTotal, 0);
+  const totalUnidadesPostFusion = candidatos.reduce((s, c) => s + c.qtyFusionNueva, 0);
+  const totalUnidadesReducidas = totalUnidadesActuales - totalUnidadesPostFusion;
+  const casosConAsigPiso = candidatos.filter((c) => c.qtyAsignada > 0 && c.qtyAsignada > c.qtyOrdenMasNueva).length;
+  const casosDondeNuevaIgualVieja = candidatos.filter((c) => c.qtyFusionNueva === c.qtyFusionVieja).length;
+
+  console.log('================================================================');
+  console.log('RESUMEN');
+  console.log('================================================================');
+  console.log('Pares candidatos a fusion inter-orden:   ' + totalCandidatos);
+  console.log('Lineas BO totales a fusionar:             ' + totalLineasAfectadas);
+  console.log('Ordenes afectadas (distintas):            ' + totalOrdenesAfectadas);
   console.log('');
-  console.log('Output: ' + outPath);
+  console.log('Unidades BO actuales (suma de lineas):    ' + totalUnidadesActuales);
+  console.log('Unidades POST FUSION regla nueva:         ' + totalUnidadesPostFusion);
+  console.log('Unidades reducidas (regla nueva):         ' + totalUnidadesReducidas);
+  console.log('');
+  console.log('Casos donde ASIG es el piso (max):        ' + casosConAsigPiso);
+  console.log('Casos donde regla nueva == regla vieja:   ' + casosDondeNuevaIgualVieja);
+  console.log('  (= la orden mas nueva ya contenia todo o ya habia 1 sola linea)');
+  console.log('');
+
+  // 5. Markdown.
+  const outDir = path.join(__dirname, '..', '..', 'docs', 'auditoria');
+  fs.mkdirSync(outDir, { recursive: true });
+  const outPath = path.join(outDir, '46_S_DRY_RUN_FUSION_NUEVA_REGLA_2026-10-25.md');
+
+  const lines = [];
+  lines.push('# S — Dry-run fusion duplicados REGLA NUEVA @ ' + nowIso);
+  lines.push('');
+  lines.push('**Script:** `scripts/audit/S_dry_run_fusion_duplicados.cjs` (dry-run only, no --apply).');
+  lines.push('');
+  lines.push('**Plan asociado:** `docs/plans/2026-10-25-backorder-inflado-analisis.md` (#1206).');
+  lines.push('');
+  lines.push('## Regla nueva vs vieja');
+  lines.push('');
+  lines.push('| Regla | Formula | Semantica |');
+  lines.push('|---|---|---|');
+  lines.push('| **VIEJA (v1435 §56)** | `qty_fusion = sum(qtys)` | Suma todas las lineas del SKU |');
+  lines.push('| **NUEVA (este script)** | `qty_fusion = max(qty_orden_mas_nueva, qty_asignada)` | La orden mas reciente declara la demanda; ASIG propia es piso irreducible |');
+  lines.push('');
+  lines.push('La regla vieja sigue vigente para **intra-orden** (`mergeLinesFromOrders` dentro de una sola orden). La regla nueva aplica a **inter-orden** (misma pareja cliente+SKU repartida en 2+ ordenes).');
+  lines.push('');
+  lines.push('**Por que ASIG es piso**: una linea ASIG viva significa que Pablo repartio stock fisico para ese cliente+SKU. Bajar la fusion por debajo de la ASIG dejaria unidades asignadas sin cobertura en el BO declarado. Si qty_orden_mas_nueva < qty_asignada, la fusion mantiene el nivel de la ASIG.');
+  lines.push('');
+  lines.push('## Resumen');
+  lines.push('');
+  lines.push('| Metrica | Valor |');
+  lines.push('|---|---:|');
+  lines.push('| Pares candidatos a fusion inter-orden | ' + totalCandidatos + ' |');
+  lines.push('| Lineas BO totales a fusionar | ' + totalLineasAfectadas + ' |');
+  lines.push('| Ordenes afectadas (distintas) | ' + totalOrdenesAfectadas + ' |');
+  lines.push('| Unidades BO actuales (suma de lineas) | ' + totalUnidadesActuales + ' |');
+  lines.push('| Unidades post-fusion regla nueva | ' + totalUnidadesPostFusion + ' |');
+  lines.push('| Unidades reducidas (regla nueva) | ' + totalUnidadesReducidas + ' |');
+  lines.push('| Casos donde ASIG es el piso | ' + casosConAsigPiso + ' |');
+  lines.push('| Casos regla nueva == regla vieja | ' + casosDondeNuevaIgualVieja + ' |');
+  lines.push('');
+  lines.push('## Comparacion de reglas por caso');
+  lines.push('');
+  lines.push('Mostrando los top 50 candidatos ordenados por `delta_regla_nueva` desc.');
+  lines.push('');
+  if (candidatos.length === 0) {
+    lines.push('_No hay pares con BO repartido en 2+ ordenes. Nada que fusionar._');
+  } else {
+    lines.push('| cardCode | clientName | sku | n_lines | qty_actual | qty_orden_nueva | qty_asig | qty_regla_nueva | qty_regla_vieja | reduccion_nueva |');
+    lines.push('|---|---|---|---:|---:|---:|---:|---:|---:|---:|');
+    for (const c of candidatos.slice(0, 50)) {
+      lines.push('| ' + tdMd(c.cardCode || '-') +
+        ' | ' + tdMd(c.clientName || '-') +
+        ' | ' + tdMd(c.sku) +
+        ' | ' + c.boLines.length +
+        ' | ' + c.qtyActualTotal +
+        ' | ' + c.qtyOrdenMasNueva +
+        ' | ' + c.qtyAsignada +
+        ' | ' + c.qtyFusionNueva +
+        ' | ' + c.qtyFusionVieja +
+        ' | ' + c.deltaNueva +
+        ' |');
+    }
+  }
+  lines.push('');
+  lines.push('## Interpretacion');
+  lines.push('');
+  lines.push('- **qty_regla_nueva < qty_regla_vieja** en TODOS los casos donde la orden nueva declaro menos que la suma. Intencional: la demanda real es la del ultimo input.');
+  lines.push('- **qty_regla_nueva > qty_regla_vieja** NUNCA ocurre: `max(a, b) <= a + b` por construccion cuando `a, b >= 0`.');
+  lines.push('- **qty_regla_nueva == qty_regla_vieja** en los ' + casosDondeNuevaIgualVieja + ' casos donde la orden mas nueva ya contenia toda la demanda (o solo hay 1 linea por orden). Sin beneficio ni perjuicio ahi.');
+  lines.push('- **Casos con ASIG piso** (' + casosConAsigPiso + '): la regla nueva usa la ASIG como minimo. Protege stock ya asignado por Pablo.');
+  lines.push('');
+  lines.push('## Si se autoriza --apply (futuro)');
+  lines.push('');
+  lines.push('1. Para cada candidato, mover todas las lineas BO al pedido `ordenTarget` (= la orden mas nueva).');
+  lines.push('2. Actualizar `line.qty = qty_regla_nueva` + `line.qtyOpen = qty_regla_nueva` en la linea target.');
+  lines.push('3. Cerrar las demas lineas BO con `line.state = cancelled`, `qtyOpen = 0`, `closedReason = "fusion_bo_inter_orden"`, `cancelledAt = nowIso`, `cancelledBy = system`.');
+  lines.push('4. Guardar snapshot `_backfill.<slug>_<timestamp>` por doc modificado con los valores anteriores (CLAUDE.md §55 obligatorio).');
+  lines.push('5. Escribir `operations_log` entry con tipo `fusion_bo_inter_orden_apply`, counts y per-doc delta.');
+  lines.push('6. Correr script W post-apply para validar que `qtyBoReducibles` bajo.');
+  lines.push('');
+  lines.push('**Autorizacion requerida de Mariano antes de implementar `--apply`.**');
+  lines.push('');
+  lines.push('Script: `scripts/audit/S_dry_run_fusion_duplicados.cjs` (dry-run only).');
+  lines.push('');
+
+  fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
+  console.log('[S] Markdown escrito en: ' + outPath);
+  console.log('');
+  console.log('[S] Para persistir la fusion (--apply): Mariano autoriza aparte.');
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error('[S] Error:', e && e.message ? e.message : String(e));
+  console.error(e && e.stack ? e.stack : '');
   process.exit(1);
 });
