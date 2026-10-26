@@ -54,6 +54,7 @@
 
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
+import { computeBoAbsorption, applyAbsorptionsToLines, buildBackfillUpdate } from './absorb-bo-on-confirm.js';
 
 // Threshold de staleness del snapshot stock server-side.
 // 2026-10-23 (post deploy PR #1185/#1188): el workflow "Sync SAP Catalog +
