@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1471';
+const APP_VERSION = 'v1472';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -23060,9 +23060,19 @@ window.revisionDejarRecalculando = async function(){
     showSyncTag('Pedido guardado en espera: ' + cli.nombre + ' (Orden ' + ordenNum + ')');
     closeRevisionModal();
   } catch(e) {
-    // v1471 §68: mensaje humanizado desde pure (sin "undefined", "batch",
-    // "Firestore"). El código técnico va al final para WhatsApp a Mariano.
+    // v1471 §68: mensaje humanizado desde pure.
+    // v1472 §70: log a operations_log con contexto (función + datos del flow).
     console.error('revisionDejarRecalculando', e);
+    try {
+      if (typeof window._logClientWriteFailed === 'function') {
+        window._logClientWriteFailed('revision_waitlist', e, {
+          handler: 'revisionDejarRecalculando',
+          op: 'save_excel',
+          clientCardCode: cli && cli.cardCode ? cli.cardCode : null,
+          orderNumber: typeof ordenNum !== 'undefined' ? ordenNum : null,
+        });
+      }
+    } catch (_eLog) { /* silent */ }
     const _mv = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor) || null;
     const _fmt = _mv && _mv.formatMensajeConCodigo ? _mv.formatMensajeConCodigo : (c) => 'No pudimos guardar los cambios. Volvé a intentar; si sigue pasando, avisale a Mariano.\n\nCódigo técnico: ' + c;
     const _codigoDebug = String(e && (e.code || e.name) || 'SAVE_WAITLIST_FAILED').toUpperCase();
@@ -27379,7 +27389,18 @@ window.reviewDejarEnEspera = async function(){
     if (typeof closePedidoModal === 'function') closePedidoModal();
   } catch(e) {
     // v1471 §68: mensaje humanizado desde pure.
+    // v1472 §70: log a operations_log con contexto (función + datos del flow).
     console.error('reviewDejarEnEspera', e);
+    try {
+      if (typeof window._logClientWriteFailed === 'function') {
+        window._logClientWriteFailed('revision_waitlist', e, {
+          handler: 'reviewDejarEnEspera',
+          op: 'save_manual',
+          clientCardCode: currentOrderClient && currentOrderClient.cardCode ? currentOrderClient.cardCode : null,
+          orderNumber: typeof ordenNum !== 'undefined' ? ordenNum : null,
+        });
+      }
+    } catch (_eLog) { /* silent */ }
     const _mv = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor) || null;
     const _fmt = _mv && _mv.formatMensajeConCodigo ? _mv.formatMensajeConCodigo : (c) => 'No pudimos guardar los cambios. Volvé a intentar; si sigue pasando, avisale a Mariano.\n\nCódigo técnico: ' + c;
     const _codigoDebug = String(e && (e.code || e.name) || 'SAVE_WAITLIST_FAILED').toUpperCase();
@@ -29830,13 +29851,66 @@ try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
 // "Function WriteBatch.update() called with invalid data. Unsupported field
 // value: undefined (found in document revision_waitlist/ZPvU3dOUKtkMeNf1lnq)"
 // — el SDK web Firestore v8 (compat) RECHAZA `undefined` igual que admin SDK.
-// Multiples helpers escriben campos opcionales que pueden ser undefined
-// (boEntryResolved, origen, asigRefs, importedFromOrder) y rompían el write.
+// Los campos undefined los introdujeron la tarea L (v1457: boEntryResolved,
+// boEntryPrevio) y el helper de v1466 (origen, asigRefs al pasar waitlist CPST
+// a Pendientes). Pre-v1457 no había mezcla de campos opcionales que llegaran
+// como undefined simultáneamente.
 // Fix: monkey-patch de DocumentReference.update/set + WriteBatch.update/set
 // que aplica `stripUndefined` recursivamente CUANDO el doc path es
 // `revision_waitlist/*` o `pedidos/*`. Único lugar de instalación — todos
 // los call-sites existentes y futuros quedan cubiertos sin edit manual.
 // Pure helper en src/pure/firestore-sanitize.js (shippeado via bundle).
+//
+// DEUDA técnica (CLAUDE.md §69): este monkey-patch es solución urgente;
+// debe reemplazarse por una función única `safeWriteWaitlist(ref, data)` /
+// `safeWritePedido(ref, data)` que todos los call-sites usen, con test que
+// falle si aparece batch.update/set/update directo a esas colecciones fuera
+// de ella.
+//
+// v1472 (2026-10-26) extendido: tap de errores en el write. Si el write
+// a revision_waitlist/* o pedidos/* falla, loguear a operations_log con
+// type='client_write_failed'. Antes dependíamos de screenshots del
+// vendedor; ahora el error queda en Firestore con todos los datos para
+// debug (CLAUDE.md §70).
+// v1472 (2026-10-26) CLAUDE.md §70: logger centralizado de errores de write
+// client-side. Fire-and-forget. Nunca propaga ni bloquea el flow. Usa add()
+// no batch para evitar que un error de log genere otro error de log.
+// Rules: operations_log.create permite request.resource.data.userUid ==
+// auth.uid, por eso userUid es obligatorio.
+window._logClientWriteFailed = function(path, errorObj, extra) {
+  try {
+    if (!currentUser || !currentUser.uid) return;
+    if (!fbDb || !firebase || !firebase.firestore) return;
+    const parts = String(path || '').split('/');
+    const collection = parts[0] || '';
+    const documentId = parts.slice(1).join('/') || '';
+    const errMsg = String((errorObj && errorObj.message) || errorObj || 'unknown').slice(0, 2000);
+    const errCode = String((errorObj && errorObj.code) || '').slice(0, 200);
+    const _entry = {
+      type: 'client_write_failed',
+      userUid: currentUser.uid,
+      userEmail: currentUser.email || null,
+      collection,
+      documentId,
+      errMessage: errMsg,
+      errCode: errCode || null,
+      clientVersion: typeof _appVersion !== 'undefined' ? _appVersion : (window.APP_VERSION || null),
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    if (extra && typeof extra === 'object') {
+      for (const k of Object.keys(extra)) {
+        if (!(k in _entry) && extra[k] !== undefined) _entry[k] = extra[k];
+      }
+    }
+    fbDb.collection('operations_log').add(_entry).catch((_e) => {
+      // Fallback: console. Si el log del log falla, no hay más capas.
+      console.warn('[client_write_failed log] skipped:', _e && _e.message);
+    });
+  } catch (_e) {
+    // Nunca propagar. El logger es defensa, no bloqueador.
+  }
+};
+
 (function _installFirestoreSanitizePatch(){
   try {
     const _pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.firestoreSanitize;
@@ -29846,6 +29920,22 @@ try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
     }
     const _strip = _pure.stripUndefined;
     const _isSanitized = _pure.isSanitizedPath;
+    // v1472: tap error en la promise del write. No cambia el shape que ve el
+    // caller (devuelve la misma promise); solo encadena un .then(null, ...)
+    // paralelo que loguea sin consumir el error. Si el caller tiene su .catch
+    // lo recibe normal (como ahora).
+    const _tapError = (promise, path, op) => {
+      try {
+        promise.then(() => {}, (err) => {
+          try {
+            if (typeof window._logClientWriteFailed === 'function') {
+              window._logClientWriteFailed(path, err, { op });
+            }
+          } catch (_e) { /* silent */ }
+        });
+      } catch (_e) { /* silent */ }
+      return promise;
+    };
     // DocumentReference prototype (acceso vía instancia any).
     const _sampleDocRef = fbDb.collection('__sanitize_probe__').doc('x');
     const _DocProto = Object.getPrototypeOf(_sampleDocRef);
@@ -29855,7 +29945,7 @@ try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
       _DocProto.update = function _patchedUpdate(data, ...rest) {
         try {
           if (data && typeof data === 'object' && this && typeof this.path === 'string' && _isSanitized(this.path)) {
-            return _origUpdate.call(this, _strip(data), ...rest);
+            return _tapError(_origUpdate.call(this, _strip(data), ...rest), this.path, 'update');
           }
         } catch (_e) { /* silent */ }
         return _origUpdate.call(this, data, ...rest);
@@ -29863,8 +29953,10 @@ try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
       _DocProto.set = function _patchedSet(data, opts, ...rest) {
         try {
           if (data && typeof data === 'object' && this && typeof this.path === 'string' && _isSanitized(this.path)) {
-            if (opts !== undefined) return _origSet.call(this, _strip(data), opts, ...rest);
-            return _origSet.call(this, _strip(data), ...rest);
+            const _p = opts !== undefined
+              ? _origSet.call(this, _strip(data), opts, ...rest)
+              : _origSet.call(this, _strip(data), ...rest);
+            return _tapError(_p, this.path, 'set');
           }
         } catch (_e) { /* silent */ }
         if (opts !== undefined) return _origSet.call(this, data, opts, ...rest);
@@ -29872,13 +29964,23 @@ try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
       };
     }
     // WriteBatch prototype.
+    // Nota: batch.update/set NO devuelven promise (devuelven el batch para
+    // encadenar). El error se propaga en batch.commit(). Parcheamos
+    // commit() también para loguear si falla, pero sin saber qué doc exacto
+    // rompió — Firestore sí incluye el path en el error.message.
     const _sampleBatch = fbDb.batch();
     const _BatchProto = Object.getPrototypeOf(_sampleBatch);
     if (_BatchProto && typeof _BatchProto.update === 'function' && typeof _BatchProto.set === 'function') {
       const _origBatchUpdate = _BatchProto.update;
       const _origBatchSet = _BatchProto.set;
+      const _origBatchCommit = _BatchProto.commit;
       _BatchProto.update = function _patchedBatchUpdate(ref, dataOrField, ...rest) {
         try {
+          // Track refs sensibles del batch para logger de commit.
+          if (ref && typeof ref.path === 'string' && _isSanitized(ref.path)) {
+            if (!this._v1472_sensitiveRefs) this._v1472_sensitiveRefs = [];
+            this._v1472_sensitiveRefs.push({ path: ref.path, op: 'update' });
+          }
           if (ref && typeof ref.path === 'string' && _isSanitized(ref.path)
               && dataOrField && typeof dataOrField === 'object' && rest.length === 0) {
             return _origBatchUpdate.call(this, ref, _strip(dataOrField));
@@ -29888,6 +29990,10 @@ try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
       };
       _BatchProto.set = function _patchedBatchSet(ref, data, opts, ...rest) {
         try {
+          if (ref && typeof ref.path === 'string' && _isSanitized(ref.path)) {
+            if (!this._v1472_sensitiveRefs) this._v1472_sensitiveRefs = [];
+            this._v1472_sensitiveRefs.push({ path: ref.path, op: 'set' });
+          }
           if (ref && typeof ref.path === 'string' && _isSanitized(ref.path)
               && data && typeof data === 'object') {
             if (opts !== undefined) return _origBatchSet.call(this, ref, _strip(data), opts, ...rest);
@@ -29897,9 +30003,28 @@ try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
         if (opts !== undefined) return _origBatchSet.call(this, ref, data, opts, ...rest);
         return _origBatchSet.call(this, ref, data, ...rest);
       };
+      _BatchProto.commit = function _patchedBatchCommit(...args) {
+        const _sensitiveRefs = this._v1472_sensitiveRefs || [];
+        const _p = _origBatchCommit.apply(this, args);
+        if (_sensitiveRefs.length > 0) {
+          try {
+            _p.then(() => {}, (err) => {
+              for (const r of _sensitiveRefs) {
+                try {
+                  if (typeof window._logClientWriteFailed === 'function') {
+                    window._logClientWriteFailed(r.path, err, { op: 'batch_' + r.op, batchRefsCount: _sensitiveRefs.length });
+                  }
+                } catch (_e) { /* silent */ }
+              }
+            });
+          } catch (_e) { /* silent */ }
+        }
+        return _p;
+      };
     }
     // Marca para debug + tests.
     window.__v1470_sanitizePatchInstalled = true;
+    window.__v1472_errorLoggerInstalled = true;
   } catch (e) {
     console.error('[v1470] monkey-patch firestore-sanitize fallo:', e && e.message);
   }

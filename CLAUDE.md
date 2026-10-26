@@ -3200,3 +3200,96 @@ Esperado: `backorder computed: N SKUs, M SQ open, K lineas (X requests)`.
 **Prohibido**: concatenar `e.message || e` crudo en un alert visible al vendedor. Pueden ir en `console.error` para debug, pero el texto del alert siempre viene del pure.
 
 **Rollback**: revertir el pure + los call-sites. Los textos técnicos viejos vuelven. Sin regresión de funcionalidad.
+
+
+## 69. DEUDA técnica — reemplazar monkey-patch firestore-sanitize por función única de escritura (abierta 2026-10-26 v1472)
+
+**Estado**: ABIERTA. Prioridad media. Autorizada por Mariano 2026-10-26 tras cierre del incidente Federico.
+
+**Qué hay hoy (v1470-v1472)**: monkey-patch del prototype de `DocumentReference.update/set` + `WriteBatch.update/set` + `WriteBatch.commit` instalado en `index.html` justo después de inicializar `fbDb`. Intercepta writes a `revision_waitlist/*` y `pedidos/*` y aplica `stripUndefined` (CLAUDE.md §64 + §70). Instalado como fix urgente del bug Federico (undefined introducido por tarea L v1457 + helper v1466).
+
+**Por qué es deuda**: el monkey-patch funciona pero no es idiomático. El riesgo:
+- Un futuro desarrollador agrega un write a `revision_waitlist/*` o `pedidos/*` desde un chunk lazy que carga DESPUÉS del patch — queda cubierto por herencia del prototype, OK, pero la lectura del código no deja clara la expectativa.
+- Un futuro upgrade de Firebase SDK (ej. compat v8 → modular v9/v10) puede cambiar la ergonomía de los prototypes y romper silenciosamente el patch.
+- El pattern "monkey-patch prototype" es antipattern en teams con varios devs.
+
+**Objetivo del refactor**:
+
+1. Agregar helper puro `src/pure/safe-write.js` con 2 funciones:
+   ```
+   safeWriteWaitlist(fbDb, docId, data, { op, batch }) → Promise | batch
+   safeWritePedido(fbDb, docId, data, { op, batch }) → Promise | batch
+   ```
+   - `op`: `'update' | 'set'` (default `'update'`).
+   - `batch`: si viene, encadena al batch; si no, hace write directo y devuelve Promise.
+   - Aplica `stripUndefined` internamente (via el helper existente `src/pure/firestore-sanitize.js`).
+   - Loguea el error con `_logClientWriteFailed` si falla (consistente con §70).
+
+2. Reemplazar los 19 call-sites directos actuales de `fbDb.collection('revision_waitlist').doc(X).update/set(...)` y `fbDb.collection('pedidos').doc(X).update/set(...)` para que usen el helper.
+
+3. Agregar test de regresión en `tests/unit/audit/safe-write-usage.test.js` que falla si el conteo de call-sites directos a esas colecciones (fuera de `safe-write.js`) sube respecto al baseline (0 post-refactor).
+
+4. Después del refactor, remover el monkey-patch del `index.html` + bajar el baseline del test a 0.
+
+**Baseline actual (v1472)**: **19 call-sites directos** a `revision_waitlist/*` o `pedidos/*` desde `index.html`. Lista en `tests/unit/audit/safe-write-call-sites-baseline.test.js` (ver T1).
+
+**Mientras tanto**: el monkey-patch cubre todos los call-sites existentes y futuros sin edit manual (deuda compensada funcionalmente). Nuevo call-site se agrega directo con `fbDb.collection('X').doc(Y).update({...})` y el patch lo intercepta.
+
+**Rollback de esta deuda** (si en el futuro se decide quedarse con monkey-patch): dropear §69, mantener el patch. Es decisión arquitectónica revisitada en su momento.
+
+**Precedente**: incidente Federico 2026-10-26 — el `undefined` llegó a Firestore porque los 12 call-sites directos NO conocían el sanitizador. El monkey-patch cerró el gap. El refactor cerrará la deuda.
+
+
+## 70. Errores de write client-side se loguean a operations_log (2026-10-26, v1472)
+
+**Regla fuerte**: todo error de write a Firestore desde el cliente (fallo del SDK web Firestore v8 compat, ej. invalid data, permission-denied, failed-precondition, unavailable) se registra en `operations_log` con shape documentado. Antes dependíamos de screenshots del vendedor o de reportes verbales — perdíamos datos clave para debug.
+
+**Shape del log entry** (`operations_log/{auto-id}`):
+
+```js
+{
+  type: 'client_write_failed',
+  userUid: '<auth.uid>',             // REQUERIDO por rules.
+  userEmail: '<auth.email>',
+  collection: 'revision_waitlist',   // o 'pedidos'
+  documentId: '<docId>',
+  errMessage: '<e.message slice 2000>',
+  errCode: '<e.code>' | null,
+  clientVersion: 'v1472',
+  op: 'update' | 'set' | 'batch_update' | 'batch_set',
+  handler: 'revisionDejarRecalculando',  // opcional, call-site semántico
+  clientCardCode: '<CXX>',               // opcional, contexto negocio
+  orderNumber: 533,                       // opcional
+  batchRefsCount: 3,                     // solo si op='batch_*'
+  timestamp: ServerTimestamp,
+}
+```
+
+**Cómo se escribe**:
+
+1. **Automático** vía monkey-patch (§69 deuda): `DocumentReference.update/set` + `WriteBatch.commit` interceptados. Si el write a `revision_waitlist/*` o `pedidos/*` falla, el logger se dispara sin que el call-site haga nada. Shape mínimo: `op`, path parseado a `collection`+`documentId`, errMessage, errCode.
+
+2. **Manual** en los catch de call-sites críticos para agregar contexto de negocio (`handler`, `clientCardCode`, `orderNumber`). Hoy: `revisionDejarRecalculando` y `reviewDejarEnEspera`. Agregar en nuevos catch que tengan contexto útil.
+
+**Firestore rules** (`firestore.rules:263`): `operations_log.create` ya permite al cliente autenticado escribir SI `request.resource.data.userUid == request.auth.uid`. El logger setea `userUid: currentUser.uid` → write OK sin cambio de rules.
+
+**Fire-and-forget**: el logger NUNCA propaga ni bloquea el flow. Si el log falla también (ej. offline, rules fail), `console.warn` y seguir. El objetivo es defensa, no criticidad.
+
+**Prohibido**:
+- Loggear errores con `userUid` falso o ajeno (rules lo rechazan).
+- Hacer el logger `await`-eable en call-sites: debe ser fire-and-forget siempre.
+- Loggear datos sensibles (passwords, tokens, PII fuera del cardCode/orderNumber que ya son operacionales).
+- Deshabilitar el logger para "silenciar ruido". Si hay demasiados errores, se arregla la causa, no se apaga el log.
+
+**Cómo auditar errores de un vendedor**:
+```python
+db.collection('operations_log') \
+  .where('type', '==', 'client_write_failed') \
+  .where('userEmail', '==', 'federico.castelanelli@shimano.com.ar') \
+  .order_by('timestamp', direction='DESCENDING') \
+  .limit(50)
+```
+
+**Precedente**: Federico Castelanelli 2026-10-26 — error "WriteBatch.update() invalid data undefined" solo visible en el navegador del vendedor, enviado por WhatsApp como foto. Sin este log, un vendedor que no reporta pierde datos silenciosamente.
+
+**Alcance actual**: colecciones `revision_waitlist/*` y `pedidos/*` (vía monkey-patch). Si en el futuro otra colección tiene problemas, extender `isSanitizedPath` para incluirla.
