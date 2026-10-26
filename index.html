@@ -7089,7 +7089,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1461';
+const APP_VERSION = 'v1462';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -8284,9 +8284,25 @@ function pointInDistributorScope(p){
 var approvedAltasByLoc = {};
 var approvedAltasList = [];
 var unsubApprovedAltas = null;
+// v1462 (2026-10-26): snapshot del assignedVendor que armó el listener. Si
+// cambia (ej. assignedVendor llega tarde después del primer read de roles),
+// re-attach idempotente.
+var _approvedAltasListenerVendor = null;
 
 function ensureApprovedAltasListener(){
-  if (unsubApprovedAltas || !currentUser || !fbDb) return;
+  if (!currentUser || !fbDb) return;
+  // v1462 Fix re-attach: si ya hay listener Y el vendor del listener coincide
+  // con el assignedVendor actual, es idempotente — no hacer nada. Si cambió
+  // (null → "PACHI", "FOO" → "BAR"), unsubscribe + re-attach.
+  if (unsubApprovedAltas) {
+    if (_approvedAltasListenerVendor === assignedVendor) return;
+    console.log('[approvedAltas] assignedVendor cambió (' + _approvedAltasListenerVendor + ' → ' + assignedVendor + '), re-attach');
+    try { unsubApprovedAltas(); } catch (_e) { /* ignore */ }
+    unsubApprovedAltas = null;
+    _approvedAltasListenerVendor = null;
+    approvedAltasList = [];
+    approvedAltasByLoc = {};
+  }
   // v548: para vendedor filtramos server-side por assignedVendor. Las rules
   // solo dejan leer docs donde assignedVendor == roles/{uid}.vendor (o
   // ownerUid == uid, cubierto por unsubAltaCliMine). Sin el .where explicito
@@ -8303,6 +8319,7 @@ function ensureApprovedAltasListener(){
     }
     q = q.where('assignedVendor', '==', assignedVendor);
   }
+  _approvedAltasListenerVendor = assignedVendor;
   unsubApprovedAltas = q
     .onSnapshot(qs => {
       approvedAltasByLoc = {};
@@ -31008,6 +31025,12 @@ async function fetchAndApplyRole(){
   }
   userRole = data.role || 'unassigned';
   assignedVendor = data.vendor || null;
+  // v1462 (2026-10-26): si el listener approvedAltas se armó antes con otro
+  // assignedVendor (o sin él), re-attach ahora que tenemos el valor correcto.
+  // Idempotente: si ya está armado con el mismo vendor, no hace nada.
+  try {
+    if (typeof ensureApprovedAltasListener === 'function') ensureApprovedAltasListener();
+  } catch (_eAlt) { /* non-fatal */ }
   myWhatsappNumber = data.whatsapp || null;
   myRendicionesApproverUid = data.rendicionesApproverUid || null;
   // v1420 §54 (2026-10-22): flag opt-in para editar la Ficha Cliente de
