@@ -7062,7 +7062,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1458';
+const APP_VERSION = 'v1459';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -25415,13 +25415,20 @@ function _renderWaitlistCard(){
   // devuelve OK. Detectado por Playwright E2E punto 11 con cliente ficticio.
   const _titleEl = document.getElementById('wcard-title');
   if (_titleEl) {
+    // Guardar snapshot del badge pre-existente (preservar estado "Stock en vivo"
+    // seteado por _updateLiveStockBadge entre re-renders).
+    let _preservedBadge = document.getElementById('wcard-live-sl-badge');
+    let _preservedText = _preservedBadge ? _preservedBadge.textContent : '';
+    let _preservedStyle = _preservedBadge ? _preservedBadge.getAttribute('style') : null;
     _titleEl.textContent = 'Pedido en espera — ' + w.clientName + _ordenTxt + ' ';
-    let _badgeEl = document.getElementById('wcard-live-sl-badge');
-    if (!_badgeEl) {
-      _badgeEl = document.createElement('span');
-      _badgeEl.id = 'wcard-live-sl-badge';
+    const _badgeEl = document.createElement('span');
+    _badgeEl.id = 'wcard-live-sl-badge';
+    if (_preservedStyle) {
+      _badgeEl.setAttribute('style', _preservedStyle);
+    } else {
       _badgeEl.style.display = 'none';
     }
+    _badgeEl.textContent = _preservedText;
     _titleEl.appendChild(_badgeEl);
   }
   const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
