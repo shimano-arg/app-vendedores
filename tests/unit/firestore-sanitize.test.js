@@ -207,7 +207,8 @@ describe('v1470 §64 — monkey-patch instalado en index.html', () => {
     expect(idxFbDb).toBeGreaterThan(0);
     expect(idxPatch).toBeGreaterThan(idxFbDb);
     // Verifica que el patch cubre DocumentReference y WriteBatch.
-    const slice = html.slice(idxPatch, idxPatch + 4000);
+    // v1472: amplio slice porque el patch agregó tap de error + commit intercept.
+    const slice = html.slice(idxPatch, idxPatch + 6000);
     expect(slice).toMatch(/_DocProto/);
     expect(slice).toMatch(/_BatchProto/);
     expect(slice).toMatch(/_patchedUpdate/);
