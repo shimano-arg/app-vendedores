@@ -25,9 +25,9 @@
  * "spec escrito, env bloqueó la ejecución, smoke manual OK".
  */
 
-import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { expect, test } from '@playwright/test';
 
 const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL || '';
 const TEST_USER_PASSWORD = process.env.TEST_USER_PASSWORD || '';
@@ -50,7 +50,10 @@ test.describe('v1454 §60 UPDATE badge "Sync stock" (G)', () => {
     if (await emailInput.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await emailInput.fill(TEST_USER_EMAIL);
       await page.locator('input[type="password"]').fill(TEST_USER_PASSWORD);
-      await page.locator('button[type="submit"], button:has-text("Ingresar"), button:has-text("Login")').first().click();
+      await page
+        .locator('button[type="submit"], button:has-text("Ingresar"), button:has-text("Login")')
+        .first()
+        .click();
     }
 
     // 2. Esperar que la app arranque y el badge aparezca.
