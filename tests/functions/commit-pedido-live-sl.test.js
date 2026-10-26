@@ -8,8 +8,9 @@
  *   T2 — fetchStockLive ok=true + no fallback → overridea fisicoDep11.
  *        commitPedidoCore computa breakdown con el valor live.
  *   T3 — fetchStockLive snapshotFallback=true + snapshot fresco → usa snapshot.
- *   T4 — fetchStockLive snapshotFallback=true + snapshot vencido (>8h) →
+ *   T4 — fetchStockLive snapshotFallback=true + snapshot vencido (>30 min) →
  *        throw SAP_UNAVAILABLE.
+ *        v1454 §60 UPDATE: threshold bajado 8h -> 30 min.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { commitPedidoCore } from '../../functions/core/commit-pedido-core.js';
@@ -192,10 +193,11 @@ describe('§63 Capa 2 — commitPedidoCore con fetchStockLive', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('T4 — fetchStockLive fallback + snapshot vencido (>8h) → SAP_UNAVAILABLE', async () => {
+  it('T4 — fetchStockLive fallback + snapshot vencido (>30 min v1454) → SAP_UNAVAILABLE', async () => {
     const state = baseStateWithStock('SKU-A', 10);
     state.app_config.stock_snapshot.updatedAt = {
-      toMillis: () => nowRef.getTime() - 9 * 60 * 60 * 1000, // 9h atrás
+      // v1454 §60 UPDATE: threshold BAJADO 8h -> 30 min. 45 min dispara.
+      toMillis: () => nowRef.getTime() - 45 * 60 * 1000, // 45 min atrás
     };
     const { fbDb } = makeMockDb(state);
     const fetchStockLive = vi.fn(async () => ({
@@ -221,7 +223,7 @@ describe('§63 Capa 2 — commitPedidoCore con fetchStockLive', () => {
     );
     expect(r.ok).toBe(false);
     expect(r.errorCode).toBe('SAP_UNAVAILABLE');
-    expect(r.data.snapshotAgeMinutes).toBeGreaterThan(500);
+    expect(r.data.snapshotAgeMinutes).toBeGreaterThan(30);
     expect(r.data.liveReason).toBe('sl_error');
   });
 });

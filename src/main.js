@@ -11,6 +11,12 @@
 
 // E3 (e2b-perf 2026-07-28): loader para chunks lazy.
 import { installChunkStubs } from './loader.js';
+// §J (v1455 2026-10-25) — Absorción de BO al confirmar. Pure + espejo en functions/core.
+import {
+  applyAbsorptionsToLines,
+  buildBackfillUpdate,
+  computeBoAbsorption,
+} from './pure/absorb-bo-on-confirm.js';
 import { computeBackorderRawLines, computeBackorderSkuMap } from './pure/backorder-sku-map.js';
 import { collectAsigRefsForCancel, sumUnitsToFreeOnCancel } from './pure/cpst-cancel-asig-plan.js';
 import {
@@ -345,6 +351,12 @@ const phase0 = {
     buildAsigRefsForLine,
     splitPedidoLine,
     reenrichPedidoLine,
+    // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.
+    absorbBoOnConfirm: {
+      computeBoAbsorption,
+      applyAbsorptionsToLines,
+      buildBackfillUpdate,
+    },
     // v1418 §53 (2026-10-22): "va a SAP" neto unificado.
     computeVaASap,
     readDiscountPct,
