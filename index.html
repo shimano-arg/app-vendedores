@@ -7013,7 +7013,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1455';
+const APP_VERSION = 'v1456';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17909,11 +17909,21 @@ window._tryCommitPedidoCF = async function(docData){
   const draftId = docData._draftId || (docData.key + '|' + String(docData.orderNumber || Math.random().toString(36).slice(2, 10)));
   // Persistir draftId en docData para que el fallback use el mismo valor que mandó al CF.
   docData._draftId = draftId;
+  // §67 (v1454): mapeo source → origen. 'manual-backorder' es el flow GB
+  // que ahora pasa también por el CF con linesPrebuilt (no re-computa).
+  const _origenFromSource = docData.origen /* GB preset-ea esto */
+    || (docData.source === 'stock-asignado-batch'
+          ? 'cpst'
+          : docData.source === 'manual-backorder'
+            ? 'manual_backorder'
+            : docData.source === 'excel'
+              ? 'excel'
+              : 'manual');
   const payload = {
     draftId,
     cardCode: String(docData.clientCardCode || '').trim(),
     clientName: docData.clientName || '',
-    origen: docData.source === 'stock-asignado-batch' ? 'cpst' : (docData.source === 'excel' ? 'excel' : 'manual'),
+    origen: _origenFromSource,
     lines: (docData.lines || []).map((l) => ({
       sku: l.code,
       cantidad: Number(l.qty) || 0,
@@ -17933,6 +17943,28 @@ window._tryCommitPedidoCF = async function(docData){
     // hacía POST pedidos.add → carrera que disparaba false positive 23/10 11:37.
     // El cliente ya persistía este campo en docData.waitlistOrigenId (v1058).
     waitlistOrigenId: docData.waitlistOrigenId || null,
+    // §67 (v1454): manual_backorder usa linesPrebuilt + skipSap. CF preserva
+    // state/ASIG/BO/asigAt/precio/manualBackorder sin recomputar breakdown.
+    linesPrebuilt: _origenFromSource === 'manual_backorder'
+      ? (docData.linesPrebuilt || docData.lines)
+      : undefined,
+    skipSap: _origenFromSource === 'manual_backorder' ? true : undefined,
+    // §44/§46: campos vendedor-del-master que ya calculó
+    // _enrichPayloadWithClientVendor; se persisten en el pedido via core.
+    vendorAssigned: docData.vendorAssigned || null,
+    assignedVendorUid: docData.assignedVendorUid || null,
+    assignedVendorEmail: docData.assignedVendorEmail || null,
+    assignedVendorReason: docData.assignedVendorReason || null,
+    ownerVendor: docData.ownerVendor || null,
+    // §67 (v1454): preservar key canónica + routing fields para que el
+    // listener agrupe correctamente el pedido GB en Pedidos > Confirmados.
+    key: docData.key || null,
+    tipo: docData.tipo || null,
+    province: docData.province || null,
+    locName: docData.locName || null,
+    clientProvince: docData.clientProvince || null,
+    clientLocality: docData.clientLocality || null,
+    orderNumber: docData.orderNumber || null,
     // §64 (2026-10-23 v1443): snapshot que el cliente usó al armar el pedido.
     // Opcional; si viene, la CF lo loguea en operations_log cuando dispara
     // STOCK_CHANGED, permitiendo comparar lado-a-lado sin inferir. Pedido
@@ -19347,7 +19379,29 @@ window._gbConfirmar = async function(){
     // v1406 §44: resolver vendor del cliente master y setear
     // vendorAssigned/assignedVendorUid/ownerVendor + cargadoPor del user actual.
     try { window._enrichPayloadWithClientVendor(docData); } catch (_eEnrich) { /* non-fatal */ }
-    const ref = await fbDb.collection('pedidos').add(docData);
+    // §67 (v1454 2026-10-25): migración de pedidos.add directo a commitPedidoCF.
+    // Antes el GB manual escribía Firestore sin pasar por el CF → sin
+    // _commitVersion → bloqueaba E10 GREEN (criterio a: 0 pedidos activos sin
+    // _commitVersion). Ahora pasa por commitPedidoCF con origen='manual_backorder'
+    // + linesPrebuilt + skipSap=true. Core preserva state/ASIG/BO/asigAt/precio/
+    // manualBackorder sin recomputar breakdown (es demanda incluso sin stock
+    // físico — ver CLAUDE.md §67).
+    docData._draftId = 'manual-backorder|' + orderNum + '|' + Date.now();
+    docData.origen = 'manual_backorder';
+    docData.skipSap = true;
+    docData.linesPrebuilt = docData.lines;
+    const _gbCfResult = await (window._tryCommitPedidoCF
+      ? window._tryCommitPedidoCF(docData)
+      : Promise.resolve(null));
+    if (!_gbCfResult || _gbCfResult.ok !== true) {
+      const _msg = _gbCfResult && _gbCfResult.ok === false
+        ? (_gbCfResult.message || _gbCfResult.errorCode || 'error desconocido')
+        : 'No se pudo contactar al servidor. Reintentá en 1 minuto.';
+      alert('Error guardando backorder: ' + _msg + '\n\nEl borrador queda intacto. Reintentá.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar Backorder'; }
+      return;
+    }
+    const ref = { id: _gbCfResult.pedidoId };
     try {
       if (typeof logOp === 'function') logOp('manual_backorder_create', 'pedidos/' + ref.id, r.nombre, {
         cliente: r.nombre,
@@ -36693,6 +36747,38 @@ window.doConfirmPedido = async function(){
       }
       return;
     }
+    // §67 (v1454 2026-10-25): FALLBACK LEGACY ELIMINADO como parte de E10 Fase 2.
+    //
+    // Antes: si _tryCommitPedidoCF devolvía null (CF no disponible por red/
+    // timeout/404), caíamos a `fbDb.collection('pedidos').add(docData)` directo
+    // → escribía Firestore sin pasar por el CF → sin `_commitVersion` →
+    // bloqueaba E10 GREEN (criterio: 0 pedidos activos sin `_commitVersion`).
+    //
+    // Ahora: si CF no disponible, informamos al VDE + preservamos globals
+    // cleanup (CLAUDE.md §52) + dejamos el borrador vivo. El VDE reintenta en
+    // 1 minuto. El `_tryCommitPedidoCF` ya tiene post-hoc idempotency recovery
+    // (v1432): si la red cae después de que el CF creó el pedido, el próximo
+    // _tryCommitPedidoCF detecta el pedido via `_draftId` y lo "recupera" sin
+    // duplicar — por eso el reintento manual es seguro.
+    //
+    // Trade-off aceptado por Mariano: downtime CF ⇒ downtime pedidos. CF tiene
+    // 0 incidentes recientes + draft lock atómico (§64.3) + 3× aborted retry
+    // en client (v1432) + post-hoc idempotency recovery.
+    alert('No se pudo contactar al servidor para confirmar el pedido.\n\n' +
+      'El borrador queda intacto en "En curso". Reintentá en 1 minuto.\n\n' +
+      'Si el problema persiste, avisá al admin: puede estar caída la CF.');
+    // Reset defensivo de globals pendingPedido* (idempotente §52).
+    window._pendingPedidoOrderNumber = null;
+    window._pendingPedidoWaitlistId = null;
+    window._pendingPedidoSource = null;
+    window._pendingPedidoOrigenes = null;
+    window._pendingBypassAsigGate = null;
+    return; // NO cerrar modales ni borrar orders[] — dejar el borrador vivo.
+    // --- INICIO BLOQUE REMOVIDO (fallback legacy pre-§67) ---
+    // Preservado como código muerto bajo `if (false)` para rollback rápido en
+    // caso de incidente. Eliminar en v1455+.
+    // biome-ignore lint/correctness/noUnreachableCode: fallback legacy pre-§67 preservado para rollback (eliminar en v1455+)
+    if (false) {
     // Fallback legacy (CF no disponible): seguir con pedidos.add directo.
     fbDb.collection('pedidos').add(docData).then((ref)=>{
       showSyncTag('Pedido pendiente guardado');
@@ -37147,6 +37233,7 @@ window.doConfirmPedido = async function(){
       window._pendingPedidoOrigenes = null;
       window._pendingBypassAsigGate = null;
     });
+    } // close if (false) — §67 (v1454) fallback legacy preservado pero inalcanzable.
   }
   closeConfirmDialog();
   closePedidoModal();

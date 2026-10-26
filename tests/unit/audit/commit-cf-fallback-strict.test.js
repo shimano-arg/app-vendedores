@@ -145,22 +145,30 @@ describe('v1431 fallback strict', () => {
     it('después del handler de ok=false hay return (NO cae a fallback)', () => {
       const start = INDEX_HTML.indexOf('_commitCfResult && _commitCfResult.ok === false');
       // 2026-10-23 §60: handler SNAPSHOT_TOO_OLD expandió el bloque; aumentar margen.
+      // §67 (v1454): el bloque post-ok=false ahora termina en `return;` seguido
+      // del comentario "§67 (v1454 2026-10-25): FALLBACK LEGACY ELIMINADO" en
+      // vez de "Fallback legacy". Match ambos para compat durante la transición.
       const code = INDEX_HTML.slice(start, start + 4500);
-      // El bloque termina en `return;`
-      expect(code).toMatch(/return;\s*\n\s*\}\s*\n\s*\/\/\s*Fallback legacy/);
+      expect(code).toMatch(/return;\s*\n\s*\}\s*\n\s*\/\/\s*(Fallback legacy|§67 \(v1454)/);
     });
   });
 
-  describe('fallback legacy explicitado SOLO para CF no disponible', () => {
-    it('comentario de fallback dice "CF no disponible"', () => {
-      expect(INDEX_HTML).toMatch(/Fallback legacy[\s\S]{0,100}CF no disponible/);
+  describe('§67 (v1454): fallback legacy eliminado — queda como código muerto bajo if(false) para rollback', () => {
+    it('comentario de fallback dice "FALLBACK LEGACY ELIMINADO"', () => {
+      expect(INDEX_HTML).toMatch(/FALLBACK LEGACY ELIMINADO/);
     });
 
-    it('fallback pedidos.add existe (preservado para red/CF caído)', () => {
-      // El pedidos.add directo sigue ahí para el caso red/CF caído.
+    it('fallback pedidos.add sigue en el código pero preservado dentro de if(false)', () => {
+      // §67 (v1454): el `pedidos.add(docData)` sigue físicamente en el archivo
+      // envuelto en `if (false)` para rollback rápido. Deja de ejecutarse en
+      // runtime (eliminar en v1455+).
       const addMatches = INDEX_HTML.match(/fbDb\.collection\(['"]pedidos['"]\)\.add\(docData\)/g);
       expect(addMatches).toBeTruthy();
       expect(addMatches.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('bloque unreachable envuelto en if(false) con biome-ignore', () => {
+      expect(INDEX_HTML).toMatch(/biome-ignore[\s\S]{0,200}noUnreachableCode/);
     });
   });
 });
