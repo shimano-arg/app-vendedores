@@ -2943,7 +2943,11 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
    Mariano con screenshot 2026-08-26. */
 
 .modal-head{padding:16px 22px;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:flex-start;gap:16px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff}
-.modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px}
+/* v1464 (2026-10-26): color explícito blanco para que el h2 del header sea
+   legible en modo claro y oscuro contra el fondo azul oscuro del gradient.
+   Antes algún h2 (ej. #cm-name del modal de revisión) heredaba text-primary
+   del body y se renderizaba oscuro casi ilegible. Pedido Mariano cambio 2. */
+.modal-head h2{font-size:18px;font-weight:800;margin-bottom:4px;color:#ffffff}
 .modal-head .subt{font-size:12px;opacity:.78;display:flex;gap:10px;flex-wrap:wrap}
 .modal-head .badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;letter-spacing:.5px}
 .modal-head .badge.tipo{background:rgba(255,255,255,.15)}
@@ -7089,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1463';
+const APP_VERSION = 'v1464';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10219,15 +10223,15 @@ function drawSapAltaPins(){
         _isAdminGerIntern ||
         (_role === 'vendedor' && _myVendor && _effVendorUp && _myVendor === _effVendorUp);
       if (_canSeeFicha) {
-        const _safeTipo = 'C';
         const _safeProv = escapeAttr(a.provincia || '');
         const _safeLoc = escapeAttr(localidad || '');
         const _safeName = escapeAttr(nombre);
-        // Cierra el popup del mapa + abre la ficha. map._closePopup() asegura
-        // que el popup no quede flotando encima del modal.
+        const _safeVendor = escapeAttr(a.assignedVendor || effVendor || '');
+        // v1464 (2026-10-26): un click abre la ficha real directo (sin pasar
+        // por el modal de revisión). Cambio 1 pedido Mariano.
         const _onclick =
           "try{document.querySelectorAll('.leaflet-popup-close-button').forEach(b=>b.click())}catch(e){};" +
-          "openClientModal('" + _safeName + "','" + _safeTipo + "','" + _safeProv + "','" + _safeLoc + "')";
+          "openFichaClienteDirect('" + _safeName + "','" + _safeProv + "','" + _safeLoc + "','" + _safeVendor + "')";
         fichaBtn =
           '<button onclick="' + _onclick + '" ' +
           'style="border:1.5px solid #1d4ed8;background:var(--bg-elevated);color:#1d4ed8">' +
@@ -12244,6 +12248,34 @@ window.openFichaClienteFromClientModal = openFichaClienteFromClientModal;
 // delega en openFichaClienteFromClientModal() que ya hace el populate +
 // abre el modal Ficha. saveClientCreditoChequeFromModal + saveClientCategoria
 // funcionan igual porque leen docId del #client-modal.dataset.
+// v1464 (2026-10-26): abrir Ficha Cliente directo desde el popup del pin del mapa,
+// sin pasar por el modal de revisión (openClientModal). Pedido Mariano cambio 1:
+// un click, se abre el modal "FICHA CLIENTE" con el nombre y el SAP del cliente del pin.
+// Reusa el pattern de openFichaClienteFromSapModal: setea #client-modal.dataset como
+// "virtual open" (sin abrirlo visualmente) + delega en openFichaClienteFromClientModal.
+function openFichaClienteDirect(clientName, provincia, localidad, assignedVendor){
+  if (!clientName || !provincia || !localidad) {
+    alert('Faltan datos del cliente (nombre/provincia/localidad).');
+    return;
+  }
+  if (typeof window.clientLocId !== 'function') {
+    alert('clientLocId no disponible (bundle)');
+    return;
+  }
+  var docId = window.clientLocId(provincia, localidad, clientName);
+  var cmEl = document.getElementById('client-modal');
+  if (cmEl) {
+    cmEl.dataset.docId = docId;
+    cmEl.dataset.vendor = assignedVendor || '';
+    cmEl.dataset.provincia = provincia;
+    cmEl.dataset.localidad = localidad;
+    cmEl.dataset.clientName = clientName;
+  }
+  // Reutilizar el populate + apertura del modal Ficha. NO abre el client-modal visualmente.
+  openFichaClienteFromClientModal();
+}
+window.openFichaClienteDirect = openFichaClienteDirect;
+
 function openFichaClienteFromSapModal(fsId){
   if (!fsId) { alert('Falta ID del alta'); return; }
   var a = (typeof approvedAltasList !== 'undefined' && Array.isArray(approvedAltasList))
