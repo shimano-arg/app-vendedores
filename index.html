@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1468';
+const APP_VERSION = 'v1469';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -37381,7 +37381,17 @@ window.doConfirmPedido = async function(){
         var _ageMin = details?.snapshotAgeMinutes || Math.floor((details?.snapshotAgeMs || 0) / 60000);
         alert('El pedido no se pudo confirmar ahora.\n\n' + (_syncHora ? ('Último sync de stock: ' + _syncHora + ' (hace ' + _ageMin + ' min).') : 'Snapshot de stock desactualizado.') + '\n\nQueda en espera; cuando se refresque el snapshot lo intentás de nuevo.');
       } else if (code === 'CONTENTION_RETRY_EXHAUSTED') {
-        alert(msg + '\n\nHay mucha concurrencia sobre este SKU. Reintentá en 10 segundos.');
+        // v1469 (2026-10-26): no decir "concurrencia" cuando el lastError
+        // no es realmente aborted/contention/conflict. Reportado Santi
+        // ORDEN 533 17:40 ART: 5 retries por `Cannot use undefined` —
+        // nada de concurrencia, era bug server. Mensaje genérico cubre.
+        const _le = String((details && details.lastError) || '');
+        const _isContencion = /aborted|contention|conflict|unavailable|deadline/i.test(_le);
+        if (_isContencion) {
+          alert(msg + '\n\nHay mucha concurrencia sobre este SKU. Reintentá en 10 segundos.');
+        } else {
+          alert('No se pudo confirmar el pedido por un error interno. Reportalo a Mariano con la hora exacta y el cliente/orden.');
+        }
       } else if (code === 'VALIDATION_ERROR') {
         alert(msg + '\n\nEl payload tiene algo mal. Reportalo a Mariano.');
       } else if (code === 'PERMISSION_DENIED') {

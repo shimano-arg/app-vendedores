@@ -387,23 +387,58 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     if (lockSnap.exists) {
       const lockData = lockSnap.data() || {};
       if (lockData.pedidoId) {
-        // Lock ya existe para este draftId. Devolver idempotent hit.
-        // Leemos el pedido para construir el lines[] del response.
+        // v1469 (2026-10-26): defensa contra lock HUÉRFANO/VENCIDO. Antes
+        // devolvía idempotentHit siempre, aunque el pedido referenciado
+        // no existiera o el lock fuera viejo. Si el lock quedó tomado por
+        // una tx que crasheó mid-write (ej. undefined en Firestore), los
+        // retries subsecuentes morían contra ese lock. Ahora: (a) si el
+        // pedido referenciado NO existe → tratar como lock huérfano,
+        // continuar flow (sobre-escribe el lock al final). (b) si tiene
+        // más de 2 min (TTL soft) sin pedido existente → idem huérfano.
         const pedidoRef = deps.fbDb.collection('pedidos').doc(lockData.pedidoId);
         const pedidoSnap = await tx.get(pedidoRef);
-        const pedidoData = pedidoSnap.exists ? pedidoSnap.data() || {} : {};
-        (deps.log || (() => {}))('commitInTransaction idempotent via draftLock', {
-          draftId: payload.draftId,
-          pedidoId: lockData.pedidoId,
-        });
-        return {
-          ok: true,
-          pedidoId: lockData.pedidoId,
-          lines: deriveLinesFromExisting(pedidoData),
-          diffVsClient: null,
-          idempotentHit: true,
-          _idempotentSource: 'draft_lock',
-        };
+        if (pedidoSnap.exists) {
+          const pedidoData = pedidoSnap.data() || {};
+          (deps.log || (() => {}))('commitInTransaction idempotent via draftLock', {
+            draftId: payload.draftId,
+            pedidoId: lockData.pedidoId,
+          });
+          return {
+            ok: true,
+            pedidoId: lockData.pedidoId,
+            lines: deriveLinesFromExisting(pedidoData),
+            diffVsClient: null,
+            idempotentHit: true,
+            _idempotentSource: 'draft_lock',
+          };
+        }
+        // Lock sin pedido. Chequear TTL (2 min).
+        const LOCK_TTL_MS = 2 * 60 * 1000;
+        let lockAgeMs = Infinity;
+        if (lockData.createdAt) {
+          const createdAtMs =
+            typeof lockData.createdAt === 'string'
+              ? Date.parse(lockData.createdAt)
+              : typeof lockData.createdAt.toMillis === 'function'
+                ? lockData.createdAt.toMillis()
+                : null;
+          if (typeof createdAtMs === 'number' && Number.isFinite(createdAtMs)) {
+            lockAgeMs = now - createdAtMs;
+          }
+        }
+        // Lock huérfano siempre (sin pedido): seguir flow. El tx.set al
+        // final sobre-escribe el lock con el nuevo pedidoId. El createdAt
+        // fuerza el fast-expire al próximo intento si vuelve a crashear.
+        (deps.log || (() => {}))(
+          'commitInTransaction draftLock HUERFANO: pedido no existe, continuo',
+          {
+            draftId: payload.draftId,
+            lockPedidoIdInexistente: lockData.pedidoId,
+            lockAgeMs,
+            lockTtlMs: LOCK_TTL_MS,
+          }
+        );
+        // No return — fall through to normal flow.
       }
     }
   }
@@ -704,7 +739,17 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
       });
 
       if (qtyConfirmed > 0) {
-        docLines.push({
+        // v1469 hotfix (2026-10-26): nunca escribir campos undefined. Firestore
+        // admin SDK sin ignoreUndefinedProperties rechaza `tx.set` con
+        // "Cannot use undefined as a Firestore value" cuando una línea manual
+        // tiene origenLinea=undefined. El retry loop no reconoce el error
+        // (no es _errorCode), reintenta 5× con el mismo write, agota y
+        // devuelve CONTENTION_RETRY_EXHAUSTED espúreo. Reportado Santi
+        // ORDEN 533 2026-10-26 17:40 ART (docId=1Yatel0fyEtMWB6HVd5j
+        // lastError: "Cannot use undefined as a Firestore value found in
+        // field lines.0.origen").
+        /** @type {Record<string, any>} */
+        const _lineConfirmed = {
           code: sku,
           qty: qtyConfirmed,
           qtyOpen: qtyConfirmed,
@@ -714,9 +759,12 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
           state: 'confirmed',
           precio: Number(payloadLine.precio) || 0,
           notas: payloadLine.notas || '',
-          origen: payloadLine.origenLinea || undefined,
-          asigRefs: Array.isArray(payloadLine.asigRefs) ? payloadLine.asigRefs : undefined,
-        });
+        };
+        if (payloadLine.origenLinea) _lineConfirmed.origen = payloadLine.origenLinea;
+        if (Array.isArray(payloadLine.asigRefs) && payloadLine.asigRefs.length > 0) {
+          _lineConfirmed.asigRefs = payloadLine.asigRefs;
+        }
+        docLines.push(_lineConfirmed);
       }
       if (qtyBO > 0) {
         docLines.push({
