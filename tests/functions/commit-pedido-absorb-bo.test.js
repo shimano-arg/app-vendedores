@@ -98,9 +98,7 @@ function makeMockDb(fixture) {
       const tx = {
         async get(ref) {
           if (hasWritten) {
-            throw new Error(
-              'STRICT: tx.get after tx.write (viola §58 ALL reads before writes)'
-            );
+            throw new Error('STRICT: tx.get after tx.write (viola §58 ALL reads before writes)');
           }
           txEvents.push({ op: 'get', path: ref._path });
           return ref.get();
@@ -191,9 +189,7 @@ describe('§J absorb BO — integración commitPedidoCore', () => {
     });
     expect(r.boAbsorbedTotal).toBe(5);
     // Pedido BO quedó actualizado: line cancelled.
-    const updatePed = _written.find(
-      (w) => w.op === 'update' && w.path === 'pedidos/ped-BO-A'
-    );
+    const updatePed = _written.find((w) => w.op === 'update' && w.path === 'pedidos/ped-BO-A');
     expect(updatePed).toBeTruthy();
     expect(updatePed.data.lines[0].state).toBe('cancelled');
     expect(updatePed.data.lines[0].qtyOpen).toBe(0);

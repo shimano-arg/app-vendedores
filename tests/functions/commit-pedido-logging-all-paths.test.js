@@ -261,7 +261,8 @@ describe('§64.2 — TODO rechazo loguea en operations_log', () => {
   it('SNAPSHOT_TOO_OLD → log entry con snapshotAgeMinutes (desde _logExtra)', async () => {
     const state = baseState('SKU-A', 10);
     state.app_config.stock_snapshot.updatedAt = {
-      toMillis: () => nowRef.getTime() - 9 * 60 * 60 * 1000, // 9h > 8h threshold
+      // v1454 §60 UPDATE: threshold BAJADO 8h -> 30 min. 45 min dispara.
+      toMillis: () => nowRef.getTime() - 45 * 60 * 1000, // 45 min > 30 min
     };
     const { fbDb, operationsLogSink } = makeMockDb(state);
     const r = await commitPedidoCore({ fbDb, now: () => nowRef }, { ...BASE_PAYLOAD });
@@ -270,7 +271,7 @@ describe('§64.2 — TODO rechazo loguea en operations_log', () => {
     expect(operationsLogSink.length).toBe(1);
     const e = operationsLogSink[0];
     expect(e.errorCode).toBe('SNAPSHOT_TOO_OLD');
-    expect(e.snapshotAgeMinutes).toBeGreaterThan(500);
+    expect(e.snapshotAgeMinutes).toBeGreaterThan(30);
     expect(e.snapshotOrigin).toBe('server:app_config/stock_snapshot');
   });
 

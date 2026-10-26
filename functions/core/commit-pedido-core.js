@@ -52,9 +52,13 @@
  * @property {(params: any) => Promise<any>} [fetchStockLive] Fase 3 Capa 2 v1445: callable al SL para live fisicoDep11
  */
 
+import {
+  applyAbsorptionsToLines,
+  buildBackfillUpdate,
+  computeBoAbsorption,
+} from './absorb-bo-on-confirm.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
-import { computeBoAbsorption, applyAbsorptionsToLines, buildBackfillUpdate } from './absorb-bo-on-confirm.js';
 
 // Threshold de staleness del snapshot stock server-side.
 // v1454 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
@@ -756,13 +760,21 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   const absorptionInputLines = Object.keys(qtyConfirmedPorSku)
     .filter((sku) => qtyConfirmedPorSku[sku] > 0)
     .map((sku) => ({ sku, cantidad: qtyConfirmedPorSku[sku] }));
-  const absorbResult = absorptionInputLines.length > 0
-    ? computeBoAbsorption({ cardCode: payload.cardCode, lines: absorptionInputLines, allPedidos: pedidos, now })
-    : { absorptions: [], totalCubierto: 0 };
+  const absorbResult =
+    absorptionInputLines.length > 0
+      ? computeBoAbsorption({
+          cardCode: payload.cardCode,
+          lines: absorptionInputLines,
+          allPedidos: pedidos,
+          now,
+        })
+      : { absorptions: [], totalCubierto: 0 };
   /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
   const absorbOrigenSnapshots = new Map();
   if (absorbResult.absorptions.length > 0) {
-    const uniquePedidoIds = new Set(absorbResult.absorptions.map((/** @type {any} */ a) => String(a.pedidoIdOrigen)));
+    const uniquePedidoIds = new Set(
+      absorbResult.absorptions.map((/** @type {any} */ a) => String(a.pedidoIdOrigen))
+    );
     for (const pid of uniquePedidoIds) {
       if (asigOrigenSnapshots.has(pid)) {
         const existingSnap = asigOrigenSnapshots.get(pid);

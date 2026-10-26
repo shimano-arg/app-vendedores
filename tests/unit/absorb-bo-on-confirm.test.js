@@ -4,12 +4,12 @@
  *
  * 10 casos canónicos del plan + edge cases.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  computeBoAbsorption,
   applyAbsorptionsToLines,
-  buildBackfillUpdate,
   buildBackfillKey,
+  buildBackfillUpdate,
+  computeBoAbsorption,
 } from '../../src/pure/absorb-bo-on-confirm.js';
 
 /** @param {string} iso */

@@ -394,12 +394,14 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
   });
 
   describe('SNAPSHOT_TOO_OLD', () => {
-    // §60 (v1439): threshold subido 45min -> 8h por cadencia real del
-    // workflow sync. Test actualizado para disparar sobre 8h+.
-    it('rechaza si snapshot >8h antiguo (threshold §60)', async () => {
+    // §60 (v1439): threshold 45min -> 8h por cadencia real del workflow sync.
+    // §60 UPDATE (v1454, 2026-10-25): threshold BAJADO 8h -> 30 min. Cloud
+    // Scheduler → syncSapCatalogStockCF cada 5 min reemplaza al cron GHA.
+    // Test actualizado para disparar sobre 30 min+.
+    it('rechaza si snapshot >30 min antiguo (threshold §60 v1454)', async () => {
       const state = baseStateWithStock('SKU-A', 10, []);
       state.app_config.stock_snapshot.updatedAt = {
-        toMillis: () => nowRef.getTime() - (8 * 60 + 1) * 60 * 1000, // 8h 1min
+        toMillis: () => nowRef.getTime() - 31 * 60 * 1000, // 31 min
       };
       const { fbDb } = makeMockDb(state);
       const r = await commitPedidoCore(

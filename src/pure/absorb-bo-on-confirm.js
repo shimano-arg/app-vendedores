@@ -44,7 +44,9 @@
  * @returns {string}
  */
 function norm(s) {
-  return String(s || '').toUpperCase().trim();
+  return String(s || '')
+    .toUpperCase()
+    .trim();
 }
 
 /**
@@ -77,8 +79,8 @@ function toMillis(ts) {
  */
 export function computeBoAbsorption(params) {
   const cardCode = (params && params.cardCode) || '';
-  const lines = (params && Array.isArray(params.lines)) ? params.lines : [];
-  const allPedidos = (params && Array.isArray(params.allPedidos)) ? params.allPedidos : [];
+  const lines = params && Array.isArray(params.lines) ? params.lines : [];
+  const allPedidos = params && Array.isArray(params.allPedidos) ? params.allPedidos : [];
 
   if (!cardCode || lines.length === 0 || allPedidos.length === 0) {
     return { absorptions: [], totalCubierto: 0 };
@@ -110,10 +112,7 @@ export function computeBoAbsorption(params) {
     // ¿Tiene alguna línea BO que absorbe?
     const matches = p.lines.some(
       (/** @type {any} */ l) =>
-        l &&
-        l.state === 'BO' &&
-        Number(l.qtyOpen || 0) > 0 &&
-        cantidadPorSku.has(norm(l.code))
+        l && l.state === 'BO' && Number(l.qtyOpen || 0) > 0 && cantidadPorSku.has(norm(l.code))
     );
     if (!matches) continue;
     candidatos.push({ pedido: p, createdAtMs: toMillis(p.createdAt) });

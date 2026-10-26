@@ -27,9 +27,9 @@
  * "spec escrito, env bloqueó la ejecución, smoke manual OK".
  */
 
-import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { expect, test } from '@playwright/test';
 
 const TEST_USER_EMAIL = process.env.TEST_USER_EMAIL || '';
 const TEST_USER_PASSWORD = process.env.TEST_USER_PASSWORD || '';
@@ -50,7 +50,9 @@ test.beforeAll(async () => {
 test.describe('v1455 §J BO absorb al confirmar (J)', () => {
   test.skip(!TEST_USER_EMAIL || !TEST_USER_PASSWORD, 'TEST_USER_EMAIL/PASSWORD no provistos');
 
-  test('al confirmar nuevo pedido, BO previo del mismo cliente+SKU queda reducido', async ({ page }) => {
+  test('al confirmar nuevo pedido, BO previo del mismo cliente+SKU queda reducido', async ({
+    page,
+  }) => {
     // 1. Login.
     await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     const emailInput = page.locator('input[type="email"]');
@@ -77,7 +79,7 @@ test.describe('v1455 §J BO absorb al confirmar (J)', () => {
     // 4. Verificar que la función _renderConfirmModalBoAbsorbed esté
     //    expuesta en window (regresión del wire client-side).
     const hasRenderFn = await page.evaluate(() => {
-      return typeof /** @type {any} */ (window)._renderConfirmModalBoAbsorbed === 'function';
+      return typeof (/** @type {any} */ (window)._renderConfirmModalBoAbsorbed) === 'function';
     });
     expect(hasRenderFn).toBe(true);
 
@@ -161,6 +163,15 @@ test.describe('v1455 §J BO absorb al confirmar (J)', () => {
     await page.screenshot({ path: screenshotFinal, fullPage: false });
     console.log('[J] Screenshot final:', screenshotFinal);
 
-    console.log('[J] Fixture test completado. Cliente:', CLIENTE_TEST, 'SKU:', SKU_TEST, 'BO previo:', QTY_BO_PREVIO, 'qty nuevo:', QTY_NUEVO);
+    console.log(
+      '[J] Fixture test completado. Cliente:',
+      CLIENTE_TEST,
+      'SKU:',
+      SKU_TEST,
+      'BO previo:',
+      QTY_BO_PREVIO,
+      'qty nuevo:',
+      QTY_NUEVO
+    );
   });
 });
