@@ -7093,7 +7093,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1473';
+const APP_VERSION = 'v1474';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14221,7 +14221,7 @@ function _exportLegacyFull(){
           Tipo: tipo === 'C' ? 'Cliente' : 'Prospecto',
           Cliente: clientName,
           Mes: c.month,
-          'Fecha Pedido': c.confirmedAt ? new Date(c.confirmedAt).toLocaleString() : '',
+          'Fecha Pedido': (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible) ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(c.confirmedAt, {style: 'datetime', fallback: ''}) : (c.confirmedAt ? new Date(c.confirmedAt).toLocaleString() : ''),
           Codigo: l.code,
           Producto: l.desc,
           Categoria: l.cat || '',
@@ -14257,7 +14257,7 @@ function _exportLegacyFull(){
           Tipo: tipo === 'C' ? 'Cliente' : 'Prospecto',
           Cliente: clientName,
           Mes: c.month,
-          'Fecha Confirmacion': c.confirmedAt ? new Date(c.confirmedAt).toLocaleString() : '',
+          'Fecha Confirmacion': (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible) ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(c.confirmedAt, {style: 'datetime', fallback: ''}) : (c.confirmedAt ? new Date(c.confirmedAt).toLocaleString() : ''),
           Codigo: l.code,
           Producto: l.desc,
           Categoria: l.cat || '',
@@ -14303,7 +14303,7 @@ function _exportLegacyFull(){
         pedidoDetailRows.push({
           Estado: stage,
           Mes: c.month || '',
-          'Fecha confirmacion': c.confirmedAt ? new Date(c.confirmedAt).toLocaleDateString() : '',
+          'Fecha confirmacion': (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible) ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(c.confirmedAt, {fallback: ''}) : (c.confirmedAt ? new Date(c.confirmedAt).toLocaleDateString() : ''),
           Zona: vm ? vm.zone : '-',
           Vendedor: titleCase(vendor || ''),
           Provincia: titleCase(prov),
@@ -28533,12 +28533,13 @@ function renderPendientesList(){
     html += '<div class="confirmed-card" style="border-left-color:#d97706" onclick="viewPedido(\'pending\',\'' + escapeAttr(it.key) + '\',' + it.idx + ')">';
     html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month" style="background:#d97706">' + escapeHtml(it.conf.month) + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
-    html += '<div class="cc-summary" style="color:var(--color-warning)">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
+    html += '<div class="cc-summary" style="color:var(--color-warning)">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(it.conf.confirmedAt, {locale: 'es-AR', fallback: ''}) : (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString('es-AR') : '')) + '</div>';
     // v921: chip countdown auto-confirm. El data-deadline lo consume el tick
     // de setInterval (window.tickPendientesAutoConfirmChips) para actualizar
     // el mm:ss cada 1s sin re-renderizar toda la lista.
     if (_autoConfEnabled && it.conf.confirmedAt) {
-      const _confTs = new Date(it.conf.confirmedAt).getTime();
+      const _confDate = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible) ? window.__phase0.pure.parseDateFlexible.parseFirestoreDate(it.conf.confirmedAt) : null;
+      const _confTs = _confDate ? _confDate.getTime() : new Date(it.conf.confirmedAt).getTime();
       if (Number.isFinite(_confTs)) {
         const _deadline = _confTs + _autoConfMs;
         html += '<div class="pending-auto-confirm-chip" data-deadline="' + _deadline + '" style="display:inline-flex;align-items:center;gap:4px;background:#fef3c7;color:#78350f;border:1px solid #fcd34d;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;margin-top:6px">'
@@ -28875,7 +28876,7 @@ function renderConfirmadosList(){
     const _monthLbl = is100Bo ? 'BACKORDER' : (it.conf.month || '');
     html += '<div class="cc-head"><div class="cc-name">' + escapeHtml(it.clientName) + '</div><div class="cc-month">' + escapeHtml(_monthLbl) + _ordChip + '</div></div>';
     html += '<div class="cc-meta">' + escapeHtml(it.locName) + ' / ' + escapeHtml(titleCase(it.prov)) + '</div>';
-    html += '<div class="cc-summary">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString() : '') + '</div>';
+    html += '<div class="cc-summary">' + lineCount + ' productos &middot; ' + units + ' unidades &middot; ' + (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(it.conf.confirmedAt, {locale: 'es-AR', fallback: ''}) : (it.conf.confirmedAt ? new Date(it.conf.confirmedAt).toLocaleDateString('es-AR') : '')) + '</div>';
     // v1184 (2026-10-07, fix cowork): badge amarillo si el pedido no tiene
     // clientCardCode resuelto y la CF resolvePedidoCardCodeCF no logro
     // resolverlo despues de 24h. Admin ve el badge y puede agregar manualmente
@@ -29265,13 +29266,13 @@ window.viewPedido = function(stage, key, idx){
     }
     // Fecha confirmacion
     infoHtml += '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-default);font-size:10px;color:var(--text-muted)">';
-    infoHtml += 'Confirmado el ' + (c.confirmedAt ? new Date(c.confirmedAt).toLocaleString('es-AR') : '-');
+    infoHtml += 'Confirmado el ' + (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(c.confirmedAt, {locale: 'es-AR', style: 'datetime'}) : (c.confirmedAt ? new Date(c.confirmedAt).toLocaleString('es-AR') : '-'));
     infoHtml += '</div>';
     // Estado SAP
     if (c.transferidoSAP) {
       const ts = c.transferidoSAP;
       const tsAt = ts.at && ts.at.toDate ? ts.at.toDate().toLocaleString('es-AR')
-                  : (ts.transferredAt ? new Date(ts.transferredAt).toLocaleString('es-AR') : '-');
+                  : (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(ts.transferredAt, {locale: 'es-AR', style: 'datetime'}) : (ts.transferredAt ? new Date(ts.transferredAt).toLocaleString('es-AR') : '-'));
       infoHtml += '<div style="margin-top:8px;padding:8px 10px;background:var(--color-success-bg);border:1px solid #86efac;border-radius:5px;font-size:11px;color:var(--color-success)">';
       infoHtml += '<b>&#10003; En SAP</b> &middot; DocNum: <b>' + (ts.docNum || '-') + '</b><br>';
       infoHtml += '<span style="font-size:10px">Via: ' + escapeHtml(ts.via || 'manual') + ' &middot; ' + tsAt + '</span>';

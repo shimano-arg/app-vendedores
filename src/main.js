@@ -98,6 +98,15 @@ import {
   summarizeSentryStatus,
   summarizeStorageUsage,
 } from './pure/panel-metrics.js';
+// PR1 (v1474 2026-10-26 §71): parse de fechas tolerante a Timestamp/Date/ISO/number.
+// Elimina dependencia del formato persistido. Reportado ORDEN 530 SUSANA ANDRILI
+// ("Invalid Date" en tarjeta porque confirmedAt era Timestamp pre-v1473).
+import {
+  formatFirestoreDate,
+  isFirestoreTimestamp,
+  parseFirestoreDate,
+  toIsoStringFlexible,
+} from './pure/parse-date-flexible.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
 // v1418 §53 (2026-10-22): computeVaASap unifica el "va a SAP" en los 3 lugares
 // (modal detalle, Planner card, payload SL). Fixture ORDEN 524 PONTORIERO.
@@ -411,6 +420,13 @@ const phase0 = {
       PALABRAS_PROHIBIDAS,
       getMensajeParaErrorCode,
       formatMensajeConCodigo,
+    },
+    // PR1 (v1474 2026-10-26 §71) — parse fecha tolerante a múltiples formatos.
+    parseDateFlexible: {
+      parseFirestoreDate,
+      toIsoStringFlexible,
+      formatFirestoreDate,
+      isFirestoreTimestamp,
     },
     // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.
     absorbBoOnConfirm: {

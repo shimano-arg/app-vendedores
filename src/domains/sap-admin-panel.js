@@ -1509,7 +1509,14 @@ function renderPedidoCard(p, status) {
     html += '<div class="sap-card-meta" style="margin-top:4px;color:#065f46;font-weight:600">';
     html +=
       'Transferido: ' +
-      (ts.transferredAt ? new Date(ts.transferredAt).toLocaleString('es-AR') : '');
+      (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible
+        ? window.__phase0.pure.parseDateFlexible.formatFirestoreDate(ts.transferredAt, {
+            style: 'datetime',
+            fallback: '',
+          })
+        : ts.transferredAt
+          ? new Date(ts.transferredAt).toLocaleString('es-AR')
+          : '');
     if (ts.transferredBy) html += ' por ' + escapeHtml(ts.transferredBy);
     if (ts.batchId) html += ' &middot; Lote: ' + escapeHtml(ts.batchId);
     if (ts.sapDocRange) html += ' &middot; SAP doc: ' + escapeHtml(ts.sapDocRange);
