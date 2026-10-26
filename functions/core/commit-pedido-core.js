@@ -1164,9 +1164,7 @@ function scrubFunctionsFromObject(obj) {
   // Firestore Timestamp u otros objetos opacos: no recurrir.
   if (typeof obj.toMillis === 'function' || typeof obj.toDate === 'function') return obj;
   if (Array.isArray(obj)) {
-    return obj
-      .map((v) => scrubFunctionsFromObject(v))
-      .filter((v) => v !== undefined);
+    return obj.map((v) => scrubFunctionsFromObject(v)).filter((v) => v !== undefined);
   }
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
