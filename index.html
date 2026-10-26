@@ -7062,7 +7062,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1457';
+const APP_VERSION = 'v1458';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -25409,7 +25409,21 @@ function _renderWaitlistCard(){
   const _savedScrollTop = _wcardModalBody ? _wcardModalBody.scrollTop : 0;
   // v499: incluir Orden N en el titulo del modal card si esta.
   const _ordenTxt = w.orderNumber ? ' · ORDEN ' + w.orderNumber : '';
-  document.getElementById('wcard-title').textContent = 'Pedido en espera — ' + w.clientName + _ordenTxt;
+  // Fix UI (2026-10-26): preservar <span id="wcard-live-sl-badge"> dentro del
+  // <h2 id="wcard-title">. textContent destruía el span → _updateLiveStockBadge
+  // (§63 Fase 3 Capa 2 live_sl) no podía escribir el badge aunque el callable
+  // devuelve OK. Detectado por Playwright E2E punto 11 con cliente ficticio.
+  const _titleEl = document.getElementById('wcard-title');
+  if (_titleEl) {
+    _titleEl.textContent = 'Pedido en espera — ' + w.clientName + _ordenTxt + ' ';
+    let _badgeEl = document.getElementById('wcard-live-sl-badge');
+    if (!_badgeEl) {
+      _badgeEl = document.createElement('span');
+      _badgeEl.id = 'wcard-live-sl-badge';
+      _badgeEl.style.display = 'none';
+    }
+    _titleEl.appendChild(_badgeEl);
+  }
   const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
   document.getElementById('wcard-subt').textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov') + ' · Vendor asignado: ' + (w.vendorAssigned || 'sin asignar') + ' · Cargado por ' + (w.ownerDisplayName || w.ownerEmail || '') + ' · ' + ts;
   // v477: render seccion "SAP Asignado - Con Stock" del cliente.

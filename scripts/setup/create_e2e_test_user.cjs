@@ -17,6 +17,7 @@ const PROJECT = 'app-vendedores-shimano';
 const EMAIL = 'pruebas.e2e@shimano.com.ar';
 const VENDOR_KEY = 'PRUEBAS E2E';
 const CLIENT_NAME = 'CLIENTE PRUEBAS E2E';
+const CARD_CODE = 'CE2E000001';
 
 function genPassword() {
   return crypto.randomBytes(16).toString('base64').replace(/[+/=]/g, '').slice(0, 20);
@@ -71,7 +72,8 @@ async function main() {
   await db.collection('roles').doc(uid).set({
     role: 'vendedor',
     email: EMAIL,
-    vendorKey: VENDOR_KEY,
+    vendor: VENDOR_KEY,          // frontend lee data.vendor → assignedVendor
+    vendorKey: VENDOR_KEY,       // compat con otros consumidores
     displayName: 'Pruebas E2E',
     createdBy: 'scripts/setup/create_e2e_test_user.cjs',
     createdAt: new Date().toISOString(),
@@ -82,7 +84,7 @@ async function main() {
   await db.collection('client_applications').doc(CLIENT_ID).set({
     comercio: CLIENT_NAME,
     fantasia: CLIENT_NAME,
-    cardCodeSap: null,
+    cardCodeSap: CARD_CODE,
     assignedVendor: VENDOR_KEY,
     assignedVendorUid: uid,
     assignedVendorEmail: EMAIL,
@@ -94,6 +96,16 @@ async function main() {
     _e2e: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+  }, { merge: true });
+
+  // También crear en sap_clients para que sapGetClienteCode() resuelva.
+  // Shape que usa el listener (src/domains/sap-admin-panel.js:52-59):
+  // { clientName, sapCode } indexado por sapNorm(clientName).
+  await db.collection('sap_clients').doc(CARD_CODE).set({
+    clientName: CLIENT_NAME,
+    sapCode: CARD_CODE,
+    _e2e: true,
+    _syncedAt: new Date().toISOString(),
   }, { merge: true });
 
   addSecretVersion('test-user-email', EMAIL);
