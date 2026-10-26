@@ -127,13 +127,31 @@ export async function fetchLiveWhs11Availability(session, itemCodes, deps) {
  * retorna todas las líneas intactas con `checkSucceeded=false` + `checkError`.
  * El caller decide si logea y sigue (recomendado) o aborta.
  *
+ * v1473 (2026-10-26) — `opts.skipByItemCode` para líneas CPST (origen=
+ * stock-asignado + asigRefs). Esas líneas YA pasaron por
+ * `breakdown.utilizablePara(cardCode)` en `commitPedidoCore` (CLAUDE.md §33 +
+ * §35 + §39): la reserva propia del cliente las respalda. Re-chequear contra
+ * whs 11 raw de SAP las degrada espuriamente porque SAP ya tiene esa qty
+ * "Committed" en otro doc. Equivalente operacional a §39 utilizablePara en
+ * el envío a SAP. Reportado Federico ORDEN 530 (único caso real HOY fue
+ * sap_item_not_found, no insufficient; el skip es defensivo para prevenir el
+ * bug equivalente a v1466 pero en el envío a SAP).
+ *
  * @param {import('./sap-sl-client.js').SapSession} session
  * @param {Array<DocumentLine>} documentLines Post-dedup, post-buildQuotationPayload.
  * @param {import('./sap-sl-client.js').SapSlDeps} deps
+ * @param {{skipByItemCode?: Set<string> | string[]}} [opts]
  * @returns {Promise<StockRecheckResult>}
  */
-export async function filterLinesByLiveStock(session, documentLines, deps) {
+export async function filterLinesByLiveStock(session, documentLines, deps, opts) {
   const lines = Array.isArray(documentLines) ? documentLines : [];
+  const _skipSetSrc = opts && opts.skipByItemCode ? opts.skipByItemCode : null;
+  const skipSet =
+    _skipSetSrc instanceof Set
+      ? _skipSetSrc
+      : Array.isArray(_skipSetSrc)
+        ? new Set(_skipSetSrc.map((c) => String(c).toUpperCase()))
+        : new Set();
   if (lines.length === 0) {
     return {
       keptLines: [],
@@ -142,10 +160,19 @@ export async function filterLinesByLiveStock(session, documentLines, deps) {
       checkSucceeded: true,
     };
   }
-  const itemCodes = Array.from(
-    new Set(lines.map((l) => (l && l.ItemCode ? String(l.ItemCode) : '')).filter(Boolean))
+  // Items que SI pasan por el recheck (los que NO están en skipSet).
+  const itemCodesForQuery = Array.from(
+    new Set(
+      lines
+        .map((l) => (l && l.ItemCode ? String(l.ItemCode) : ''))
+        .filter(Boolean)
+        .filter((c) => !skipSet.has(c.toUpperCase()))
+    )
   );
-  const avail = await fetchLiveWhs11Availability(session, itemCodes, deps);
+  const avail =
+    itemCodesForQuery.length > 0
+      ? await fetchLiveWhs11Availability(session, itemCodesForQuery, deps)
+      : /** @type {{ok: true, map: Map<string, number>}} */ ({ ok: true, map: new Map() });
   if (!avail.ok) {
     // Fail-open: mantener todas las líneas.
     return {
@@ -153,7 +180,7 @@ export async function filterLinesByLiveStock(session, documentLines, deps) {
       degradedLines: [],
       availabilityMap: new Map(),
       checkSucceeded: false,
-      checkError: avail.error,
+      checkError: /** @type {{ok: false, error: string}} */ (avail).error,
     };
   }
   const map = avail.map;
@@ -163,6 +190,12 @@ export async function filterLinesByLiveStock(session, documentLines, deps) {
   const degraded = [];
   for (const l of lines) {
     if (!l || !l.ItemCode) continue;
+    const itemCodeUp = String(l.ItemCode).toUpperCase();
+    // v1473 §39: líneas CPST con reserva propia validada — NO re-chequear.
+    if (skipSet.has(itemCodeUp)) {
+      kept.push(l);
+      continue;
+    }
     const requested = Number(l.Quantity) || 0;
     const available = map.has(l.ItemCode) ? Number(map.get(l.ItemCode)) : 0;
     if (requested <= available) {
@@ -182,4 +215,30 @@ export async function filterLinesByLiveStock(session, documentLines, deps) {
     availabilityMap: map,
     checkSucceeded: true,
   };
+}
+
+/**
+ * Construye el `skipByItemCode` Set desde `pedido.lines`: incluye SKUs que
+ * tengan al menos una línea con `origen='stock-asignado'` + `asigRefs`
+ * populated. Esos SKUs ya pasaron por `utilizablePara(cardCode)` en el
+ * commit; el recheck contra whs11 raw los degrada espuriamente.
+ *
+ * CLAUDE.md §33 + §35 + §39 (equivalente operacional en el envío a SAP).
+ *
+ * @param {Array<any>} pedidoLines
+ * @returns {Set<string>}
+ */
+export function buildSkipSetForCpstLines(pedidoLines) {
+  const out = new Set();
+  if (!Array.isArray(pedidoLines)) return out;
+  for (const l of pedidoLines) {
+    if (!l) continue;
+    if (l.origen !== 'stock-asignado') continue;
+    if (!Array.isArray(l.asigRefs) || l.asigRefs.length === 0) continue;
+    const sku = String(l.code || l.sku || '')
+      .toUpperCase()
+      .trim();
+    if (sku) out.add(sku);
+  }
+  return out;
 }

@@ -1122,8 +1122,14 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
     source: resolvedSource,
     lines: docLines,
     stage: 'confirmed',
-    confirmedAt: FieldValue ? FieldValue.serverTimestamp() : nowIso,
-    createdAt: FieldValue ? FieldValue.serverTimestamp() : nowIso,
+    // v1473 (2026-10-26): confirmedAt/createdAt como ISO string, consistente
+    // con pedidos pre-v1457 y con el formato que el cliente web lee sin
+    // `.toDate()` (todos los call-sites hacen `new Date(c.confirmedAt)` o
+    // `.slice(0,10)`). Antes `FieldValue.serverTimestamp()` devolvía objeto
+    // Timestamp al snapshot → la tarjeta de Pedidos > Confirmados mostraba
+    // "Invalid Date" (reportado Federico ORDEN 530 SUSANA ANDRILI).
+    confirmedAt: nowIso,
+    createdAt: nowIso,
     closedAt: null,
     closedReason: null,
     schemaVersion: 2,

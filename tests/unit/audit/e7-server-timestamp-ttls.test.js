@@ -47,11 +47,21 @@ describe('E7 — serverTimestamp en campos TTL del cliente', () => {
   });
 });
 
-describe('E7 — commitPedidoCF ya usa serverTimestamp server-side', () => {
+describe('E7 — commitPedidoCF usa timestamp server-side (serverTimestamp O nowIso)', () => {
   const CORE = readFileSync('functions/core/commit-pedido-core.js', 'utf8');
 
-  it('buildPedidoDocData usa FieldValue.serverTimestamp para confirmedAt y createdAt', () => {
-    expect(CORE).toMatch(/confirmedAt:\s*FieldValue\s*\?\s*FieldValue\.serverTimestamp\(\)/);
-    expect(CORE).toMatch(/createdAt:\s*FieldValue\s*\?\s*FieldValue\.serverTimestamp\(\)/);
+  it('v1473: buildPedidoDocData usa nowIso (string ISO server-side)', () => {
+    // v1473 (2026-10-26): cambio FieldValue.serverTimestamp() → nowIso string
+    // porque la UI (tarjeta Pedidos > Confirmados) hace new Date(c.confirmedAt)
+    // y con Timestamp Firestore devuelve "Invalid Date" (reportado Federico
+    // ORDEN 530 SUSANA ANDRILI). nowIso = new Date(now).toISOString() donde
+    // now = Date.now() del CF → también server-side authoritative, equivalente
+    // a serverTimestamp() en términos anti-clock-skew. NO acepta campo del
+    // payload cliente.
+    expect(CORE).toMatch(/confirmedAt:\s*nowIso/);
+    expect(CORE).toMatch(/createdAt:\s*nowIso/);
+    // Anti-regresión: NO debe usar un campo del payload cliente.
+    expect(CORE).not.toMatch(/confirmedAt:\s*payload\.confirmedAt/);
+    expect(CORE).not.toMatch(/createdAt:\s*payload\.createdAt/);
   });
 });
