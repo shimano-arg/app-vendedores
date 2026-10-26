@@ -315,8 +315,8 @@ describe('findIdenticalOpenOrder', () => {
   });
 
   it('T3: openOrders vacío → false', () => {
-    expect(findIdenticalOpenOrder({ items: [{ code: 'A', qty: 1 }], openOrders: [] }).identical).toBe(
-      false
-    );
+    expect(
+      findIdenticalOpenOrder({ items: [{ code: 'A', qty: 1 }], openOrders: [] }).identical
+    ).toBe(false);
   });
 });

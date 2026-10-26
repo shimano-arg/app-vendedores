@@ -100,7 +100,9 @@ test.describe('v1457 Tarea L — "entrada del backorder" (fila roja + Excel idé
     expect(modalExists).toBeGreaterThan(0);
   });
 
-  test('escenario 1: Excel idéntico → "Sí, no cargar nada" → resuelve "cancelar"', async ({ page }) => {
+  test('escenario 1: Excel idéntico → "Sí, no cargar nada" → resuelve "cancelar"', async ({
+    page,
+  }) => {
     await doLogin(page);
     const r = await page.evaluate(async () => {
       /** @type {any} */ const w = window;
@@ -116,7 +118,9 @@ test.describe('v1457 Tarea L — "entrada del backorder" (fila roja + Excel idé
     await screen(page, '01_excel_identico_cancelar');
   });
 
-  test('escenario 2: Excel idéntico → "No, cargarlo igual" → resuelve "cargar"', async ({ page }) => {
+  test('escenario 2: Excel idéntico → "No, cargarlo igual" → resuelve "cargar"', async ({
+    page,
+  }) => {
     await doLogin(page);
     const r = await page.evaluate(async () => {
       /** @type {any} */ const w = window;
@@ -130,19 +134,24 @@ test.describe('v1457 Tarea L — "entrada del backorder" (fila roja + Excel idé
     await screen(page, '02_excel_identico_cargar');
   });
 
-  test('escenario 3: fila roja → "Son las mismas" → resuelve same + resolvedQty=cantidadNueva', async ({ page }) => {
+  test('escenario 3: fila roja → "Son las mismas" → resuelve same + resolvedQty=cantidadNueva', async ({
+    page,
+  }) => {
     await doLogin(page);
-    const r = await page.evaluate((args) => {
-      /** @type {any} */ const w = window;
-      const pure = w.__phase0.pure.boEntry;
-      const rows = pure.computeBoEntryRows({
-        items: [{ code: args.sku, qty: args.qtyNueva }],
-        boVigente: [{ sku: args.sku, cantidad: args.qtyBo, fechaIso: '2026-10-12T00:00:00Z' }],
-      });
-      if (rows.length !== 1) return { error: 'rows.length != 1', rows };
-      const resolved = pure.setBoEntryRowResolution(rows[0], 'same');
-      return { rows, resolved };
-    }, { sku: SKU_TEST, qtyNueva: QTY_NUEVO, qtyBo: QTY_BO_PREVIO });
+    const r = await page.evaluate(
+      (args) => {
+        /** @type {any} */ const w = window;
+        const pure = w.__phase0.pure.boEntry;
+        const rows = pure.computeBoEntryRows({
+          items: [{ code: args.sku, qty: args.qtyNueva }],
+          boVigente: [{ sku: args.sku, cantidad: args.qtyBo, fechaIso: '2026-10-12T00:00:00Z' }],
+        });
+        if (rows.length !== 1) return { error: 'rows.length != 1', rows };
+        const resolved = pure.setBoEntryRowResolution(rows[0], 'same');
+        return { rows, resolved };
+      },
+      { sku: SKU_TEST, qtyNueva: QTY_NUEVO, qtyBo: QTY_BO_PREVIO }
+    );
     expect(r.rows).toHaveLength(1);
     expect(r.rows[0].resolved).toBe(null);
     expect(r.resolved.resolved).toBe('same');
@@ -150,18 +159,23 @@ test.describe('v1457 Tarea L — "entrada del backorder" (fila roja + Excel idé
     await screen(page, '03_fila_roja_same');
   });
 
-  test('escenario 4: fila roja → "Son X más" → resuelve additional + resolvedQty=suma', async ({ page }) => {
+  test('escenario 4: fila roja → "Son X más" → resuelve additional + resolvedQty=suma', async ({
+    page,
+  }) => {
     await doLogin(page);
-    const r = await page.evaluate((args) => {
-      /** @type {any} */ const w = window;
-      const pure = w.__phase0.pure.boEntry;
-      const rows = pure.computeBoEntryRows({
-        items: [{ code: args.sku, qty: args.qtyNueva }],
-        boVigente: [{ sku: args.sku, cantidad: args.qtyBo, fechaIso: '2026-10-12T00:00:00Z' }],
-      });
-      const resolved = pure.setBoEntryRowResolution(rows[0], 'additional');
-      return { rows, resolved };
-    }, { sku: SKU_TEST, qtyNueva: QTY_NUEVO, qtyBo: QTY_BO_PREVIO });
+    const r = await page.evaluate(
+      (args) => {
+        /** @type {any} */ const w = window;
+        const pure = w.__phase0.pure.boEntry;
+        const rows = pure.computeBoEntryRows({
+          items: [{ code: args.sku, qty: args.qtyNueva }],
+          boVigente: [{ sku: args.sku, cantidad: args.qtyBo, fechaIso: '2026-10-12T00:00:00Z' }],
+        });
+        const resolved = pure.setBoEntryRowResolution(rows[0], 'additional');
+        return { rows, resolved };
+      },
+      { sku: SKU_TEST, qtyNueva: QTY_NUEVO, qtyBo: QTY_BO_PREVIO }
+    );
     expect(r.resolved.resolved).toBe('additional');
     expect(r.resolved.resolvedQty).toBe(QTY_NUEVO + QTY_BO_PREVIO);
     await screen(page, '04_fila_roja_additional');

@@ -171,7 +171,9 @@ export function isExcelIdenticalToOpenOrder(args) {
     const m = new Map();
     for (const it of arr) {
       if (!it) continue;
-      const code = String(it.code || it.sku || '').toLowerCase().trim();
+      const code = String(it.code || it.sku || '')
+        .toLowerCase()
+        .trim();
       if (!code) continue;
       const qty = Number(it.qty) || 0;
       if (qty <= 0) continue;
