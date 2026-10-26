@@ -5967,7 +5967,14 @@
   border-bottom: 1px solid #e5e5ea !important;
   padding: 20px 28px !important;
 }
-.modal-overlay .modal-head h2 {
+/* v1464 (2026-10-26): limitar la regla a los modales que fueron apple-migrados
+   (tienen inline style con background override). El #client-modal mantiene el
+   gradient CSS default (azul oscuro) sin inline → su h2 queda blanco por
+   `.modal-head h2 { color: #ffffff }` en index.html. Antes la regla aplicaba
+   a TODOS los modal-head h2 pisando a #1d1d1f incluso sobre fondo azul oscuro
+   → título ilegible (reportado por Mariano cambio 2). */
+.modal-overlay .modal-head[style*="linear-gradient"] h2,
+.modal-overlay .modal-head[style*="background:"] h2 {
   color: #1d1d1f !important;
   font-size: 20px !important;
   font-weight: 700 !important;
