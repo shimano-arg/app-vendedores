@@ -95,6 +95,15 @@ window.openSapPanel = function () {
     userRole !== 'gerente'
   )
     return;
+  // Perfil PACHI (v1460 2026-10-26): restricciones F+G — sin acceso al modal SAP
+  // (incluye Pedidos Confirmados SAP que vive adentro).
+  try {
+    const _p = window.__phase0 && window.__phase0.pure && window.__phase0.pure.pachiRestrictions;
+    const _uid = (window.currentUser && window.currentUser.uid) || null;
+    if (_p && _p.pachiGuard(_uid, { feature: 'Panel SAP' })) return;
+  } catch (_e) {
+    /* ignore */
+  }
   document.getElementById('sap-modal').classList.add('open');
   // si todavia no estaba escuchando, asegurar la suscripcion
   if (!window.unsubSapClients || !window.unsubSapProducts) listenSapMaps();

@@ -373,6 +373,21 @@ if (typeof window.unsubVisits === 'undefined') window.unsubVisits = null;
 window.visitMode = 'visita';
 window.openVisitaModal = function (mode) {
   mode = mode === 'contacto' ? 'contacto' : 'visita';
+  // Perfil PACHI (v1460 2026-10-26): restricciones C+D — solo versión rápida.
+  // Si PACHI intenta abrir la clásica (directo o via choice), redirect a la rápida
+  // sin alert (feature equivalente, no bloqueo visible).
+  try {
+    const _p = window.__phase0 && window.__phase0.pure && window.__phase0.pure.pachiRestrictions;
+    const _uid = (window.currentUser && window.currentUser.uid) || null;
+    if (_p && _p.isPachiRestricted && _p.isPachiRestricted(_uid)) {
+      if (typeof window.openQuickVisitaModal === 'function') {
+        window.openQuickVisitaModal(mode);
+        return;
+      }
+    }
+  } catch (_e) {
+    /* ignore */
+  }
   window.visitMode = mode;
   applyVisitModeUI(mode);
   document.getElementById('visita-modal').classList.add('open');

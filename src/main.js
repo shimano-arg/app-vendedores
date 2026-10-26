@@ -53,6 +53,15 @@ import {
   findOpenWaitlistsForClient as findOpenWaitlistsForClientExcludingSelf,
   formatWaitlistForMessage,
 } from './pure/open-waitlists.js';
+// Perfil operativo PACHI (2026-10-26): restricciones centralizadas por UID.
+import {
+  isPachiBodyFlagActive,
+  isPachiRestricted,
+  PACHI_EMAIL,
+  PACHI_UID,
+  PACHI_VENDOR_KEY,
+  pachiGuard,
+} from './pure/pachi-restrictions.js';
 import {
   canViewPanel,
   computeAgeMinutes,
@@ -366,6 +375,16 @@ const phase0 = {
       computeBoAbsorption,
       applyAbsorptionsToLines,
       buildBackfillUpdate,
+    },
+    // Perfil operativo PACHI (2026-10-26) — ÚNICA fuente de verdad del UID
+    // + guards centralizados. Documentado en INFORME_CAMBIOS_PACHI.md.
+    pachiRestrictions: {
+      PACHI_UID,
+      PACHI_EMAIL,
+      PACHI_VENDOR_KEY,
+      isPachiRestricted,
+      isPachiBodyFlagActive,
+      pachiGuard,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.
