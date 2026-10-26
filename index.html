@@ -7013,7 +7013,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1453';
+const APP_VERSION = 'v1454';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -7367,14 +7367,18 @@ window._updateSapHealthBadge = function _updateSapHealthBadge() {
                    : ageMin < 1440 ? (Math.floor(ageMin/60) + ' h ' + (ageMin%60) + ' min')
                    : (Math.floor(ageMin/1440) + ' d ' + Math.floor((ageMin%1440)/60) + ' h');
     let cls, txt;
-    // Umbrales nuevos (edad snapshot, NO estado SAP):
-    // < 1h = fresh, 1-8h = stale, >= 8h = muy stale (match threshold servidor).
-    if (ageMin < 60) { cls = 'sap-ok'; txt = 'Sync stock: ' + humanAge; }
-    else if (ageMin < 480) { cls = 'sap-warn'; txt = 'Sync stock: ' + humanAge; }
+    // v1454 §60 UPDATE (2026-10-25): umbrales ajustados tras pasar a Cloud
+    // Scheduler → syncSapCatalogStockCF cada 5 min. Threshold servidor
+    // SNAPSHOT_TOO_OLD = 30 min.
+    //   < 5 min  = fresh (verde, dentro de la cadencia normal).
+    //   5-30 min = stale (amarillo, puede haber saltado 1-6 corridas).
+    //   >= 30 min = muy stale (rojo, match threshold servidor).
+    if (ageMin < 5) { cls = 'sap-ok'; txt = 'Sync stock: ' + humanAge; }
+    else if (ageMin < 30) { cls = 'sap-warn'; txt = 'Sync stock: ' + humanAge; }
     else { cls = 'sap-err'; txt = 'Sync stock: ' + humanAge; }
     el.className = 'hdr-info-badge ' + cls;
     lbl.textContent = txt;
-    el.title = 'Último sync del snapshot de stock hace ' + humanAge + ' (' + at + ').\n\nFuente: app_config/stock_snapshot.updatedAt (workflow Sync SAP Catalog + Stock, cron cada 5 min pero GHA scheduler saltea; runs reales cada 2-5 h).\n\nAviso: este badge NO refleja estado real de SAP; solo cuándo entró el último snapshot al Firestore.\n\nSi el pedido devuelve SNAPSHOT_TOO_OLD (>8h), queda en espera; cuando corra el workflow lo retomás.';
+    el.title = 'Último sync del snapshot de stock hace ' + humanAge + ' (' + at + ').\n\nFuente: app_config/stock_snapshot.updatedAt (Cloud Scheduler → syncSapCatalogStockCF cada 5 min, confiable). Workflow GHA Python queda como respaldo manual.\n\nUmbrales: < 5 min = fresh, 5-30 min = stale, >= 30 min = muy stale.\n\nSi el pedido devuelve SNAPSHOT_TOO_OLD (>30 min sin fallback live), queda en espera; cuando corra la CF lo retomás.';
   } catch(e) {}
 };
 try {

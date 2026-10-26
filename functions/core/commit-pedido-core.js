@@ -56,14 +56,16 @@ import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-wait
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 
 // Threshold de staleness del snapshot stock server-side.
-// 2026-10-23 (post deploy PR #1185/#1188): el workflow "Sync SAP Catalog +
-// Stock" tiene cron cada 5 min PERO el GHA scheduler lo saltea; los runs
-// efectivos son cada 2-5 horas (saturación). Threshold anterior 45 min
-// hacía SNAPSHOT_TOO_OLD en todas las confirmaciones post-primer sync del
-// día. Subido a 8 horas: red de seguridad real contra sync muerto por
-// medio día; no bloquea operación normal. Si en el futuro el workflow
-// pasa a correr efectivamente cada 5-10 min, se puede bajar.
-const SNAPSHOT_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 horas
+// v1454 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
+// Cloud Scheduler → syncSapCatalogStockCF (cada 5 min, confiable). El cron
+// GHA del workflow Python se removió (saltaba runs por saturación). Con el
+// scheduler nuevo + el audit E10 que mostró que el hueco de 24 min del 23/10
+// fue el propio deploy de la CF (no falla real del scheduler), 30 min es un
+// threshold que detecta sync muerto rápido sin bloquear operación normal
+// (6 corridas de margen entre runs). Si rompe, la CF Fase 3 Capa 2 cae a
+// live-SL vía deps.fetchStockLive — SNAPSHOT_TOO_OLD solo dispara si NO hay
+// fallback live configurado.
+const SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutos
 const MAX_RETRY_ATTEMPTS = 5;
 const VALID_ORIGENS = new Set(['manual', 'excel', 'cpst', 'auto', 'reparto']);
 

@@ -2524,7 +2524,27 @@ read-only por default. Detectó en prod 2026-10-23:
 VDE**: usar `window.__phase0.pure.waitlistVisibility.filterWaitlistsForVendor`.
 NO duplicar la lógica inline — es receta de regresión.
 
-## 60. SNAPSHOT_MAX_AGE_MS debe reflejar la cadencia operativa real del sync (2026-10-23, v1439)
+## 60. SNAPSHOT_MAX_AGE_MS debe reflejar la cadencia operativa real del sync (2026-10-23, v1439 — UPDATE v1454 2026-10-25)
+
+### v1454 §60 UPDATE (2026-10-25) — Cierre F: cron GHA off + threshold 30 min
+
+**Estado actual**: el sync productivo del `app_config/stock_snapshot` vive en **Cloud Scheduler → syncSapCatalogStockCF** (schedule cada 5 min, confiable). El cron GHA del workflow `sync-sap-catalog-stock.yml` fue REMOVIDO; queda solo `workflow_dispatch` como respaldo manual + step `Notify failure` que manda email a `erbinomariano@gmail.com` cuando el dispatch MANUAL falla.
+
+**Threshold vigente**: `SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000` (30 min). Con 5-min cadence efectiva de la CF, 30 min = 6 corridas de margen. Si falla, Fase 3 Capa 2 (v1445) cae a live-SL vía `deps.fetchStockLive`.
+
+**Badge umbrales** (`index.html:_updateSapHealthBadge`): `< 5 min` fresh / `5-30 min` stale / `>= 30 min` muy stale.
+
+**Motivo del cambio**: el hueco de 24 min del 23/10 era el propio deploy de la CF (confirmado por audit E10, rama `audit-cadencia-cf` → PR #1210), NO falla del Cloud Scheduler. El scheduler funciona bien; la "cadencia inestable" era de GHA. Con GHA cron apagado, no hay duplicación ni interferencia, y el threshold vuelve al realista pre-v1439.
+
+**Alerta por falla**:
+- `syncSapCatalogStockCF` (Cloud Scheduler) → ya tiene el audit cadencia (PR #1210) que corre periódicamente y reporta si pasan >15 min sin corrida exitosa.
+- Workflow `sync-sap-catalog-stock.yml` (manual) → step `Notify failure` con smtplib + `GMAIL_APP_PASSWORD` manda email a `erbinomariano@gmail.com`. Pattern reusado de `send-rendiciones-email`.
+
+**Rollback simple**: si el Cloud Scheduler se cae, re-habilitar el cron GHA requiere uncomment 3 líneas del `schedule:` del workflow + bumpear `SNAPSHOT_MAX_AGE_MS` a 8h de nuevo. Documentado en README §41 v1454.
+
+---
+
+### v1439 (2026-10-23) — contexto histórico del bloqueo prod 13:41 ART
 
 **Regla fuerte**: el threshold `SNAPSHOT_MAX_AGE_MS` en `functions/core/commit-pedido-core.js` (hoy **8 horas**) debe ser mayor que la cadencia EFECTIVA (no la declarada) del workflow `sync-sap-catalog-stock.yml`. Si el workflow saltea runs, el threshold tiene que absorberlo o toda confirmación bloquea.
 

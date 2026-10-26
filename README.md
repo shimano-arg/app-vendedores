@@ -4717,6 +4717,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1454 (2026-10-25) — §60 UPDATE Cierre F (cron GHA off + SNAPSHOT_MAX_AGE_MS 30 min + badge umbrales + email failure)
+
+Rama `feat-v1454-cron-gha-off-snapshot-30min` → `main`.
+
+**Antes**: `.github/workflows/sync-sap-catalog-stock.yml` tenía `schedule: - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'` (cada 5 min). `SNAPSHOT_MAX_AGE_MS` en `functions/core/commit-pedido-core.js` = 8 horas. Badge "Sync stock" umbrales: < 1h fresh, 1-8h stale, >= 8h muy stale.
+
+**Problema**: el hueco de 24 min del 23/10 era el propio deploy de la CF `syncSapCatalogStockCF` (confirmado por audit E10, PR #1210). GHA cron saltea runs por saturación (cadencia efectiva 2-5h vs declarada cada 5 min). El sync productivo pasó a vivir en Cloud Scheduler → `syncSapCatalogStockCF` (confiable, cada 5 min). El workflow Python GHA queda como respaldo manual, pero el cron redundante ya no suma — solo gasta runners.
+
+**Cambio** (v1454 cierra tarea F del plan 2026-10-25):
+
+- **`.github/workflows/sync-sap-catalog-stock.yml`**: removido el `schedule: cron`. Queda solo `workflow_dispatch` (respaldo manual). Agregado step `Notify failure` con `if: failure()` que manda email a `erbinomariano@gmail.com` via smtplib + `GMAIL_APP_PASSWORD` (mismo pattern que `send-rendiciones-email`).
+- **`functions/core/commit-pedido-core.js`**: `SNAPSHOT_MAX_AGE_MS` 8h → **30 min**. Con Cloud Scheduler cada 5 min, 30 min = 6 corridas de margen. Si falla, Fase 3 Capa 2 (v1445) ya cae a live-SL vía `deps.fetchStockLive` cuando el flag `live_sl.enabled=true`.
+- **`index.html:_updateSapHealthBadge`**: umbrales `< 5 min` fresh / `5-30 min` stale / `>= 30 min` muy stale. Tooltip actualizado: menciona Cloud Scheduler, no GHA cron.
+- Bump `APP_VERSION` + `CACHE_VERSION` → `v1454`.
+
+**Por qué 30 min y no menor**: 30 min es el threshold anterior (pre v1439 subido a 8h por GHA inestable); vuelve a ser realista con Cloud Scheduler estable. Más bajo (ej. 10 min) rebotaría pedidos cuando la CF reintenta un run tras timeout transitorio.
+
+**Verificación**:
+- Tests: `tests/functions/commit-pedido-snapshot-too-old.test.js` actualizado (T1-T3 OK bajo 30 min, T4 = 31 min dispara nuevo, T5/T6 = 2h/24h siguen disparando + log). `tests/functions/commit-pedido-core.test.js` y `commit-pedido-logging-all-paths.test.js` y `commit-pedido-live-sl.test.js` actualizados para disparar sobre 30 min+.
+- E2E: `tests/e2e/g_snapshot_30min.spec.js` verifica badge format "X min" / "X h Y min".
+- Deploy: `firebase deploy --only functions:commitPedidoCF --project app-vendedores-shimano`. Pages auto-deploy al merge PR.
+
+**Rollback**: revertir el edit en los 3 archivos + redeploy functions. Si el Cloud Scheduler se cae, re-habilitar el cron GHA es trivial (uncomment las 3 líneas del `schedule:` del workflow).
+
+**Alerta email**: step `Notify failure` del workflow solo dispara si el workflow MANUAL (workflow_dispatch) falla. Como el cron se removió, es "cuando alguien lo corre a mano y rompe". Para alerta por falla del Cloud Scheduler → `syncSapCatalogStockCF`, usar el audit cadencia existente (PR #1210 reporta FAIL si pasan >15 min sin corrida).
+
 ### v1453 (2026-10-25) — §64.3 Fix logging STOCK_CHANGED: `utilizablePara` función → número + scrubber defensivo
 
 Rama `fix-v1453-logging-no-functions` → `main`.

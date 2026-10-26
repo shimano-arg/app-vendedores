@@ -19,18 +19,13 @@ name: Sync SAP Catalog + Stock (Service Layer)
 #                              Setear via Settings > Secrets > Actions.
 
 on:
-  schedule:
-    # v508 (2026-08-13): cada 5 min. Antes cada 30 min (:13/:43). Cada
-    # corrida tarda ~4-5 min - CABE en la ventana con concurrency guard
-    # (si aun corre, la nueva se skipea). Desfasado en :02/:07/:12/:17/...
-    # (offset :02) para evitar picos de GitHub Actions en :00/:05 exactos.
-    #
-    # Impacto:
-    #   - SAP SL: ~6x mas requests/hora al Service Layer. Consultar con
-    #     David si SAP-B1 lo soporta sostenido (baseline ~30 req/corrida).
-    #   - GH Actions minutos: 5 min * 12 = 60 min/hora * 24 = 1440 min/dia.
-    #     Repo publico -> unlimited. Repo privado -> excede free tier.
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
+  # v1454 §60 UPDATE (2026-10-25): cron GHA REMOVIDO. El sync vive en Cloud
+  # Scheduler → syncSapCatalogStockCF (schedule cada 5 min, confiable). GHA
+  # scheduler saltaba runs por saturación (cadencia efectiva 2-5h vs declarada
+  # cada 5 min, ver CLAUDE.md §60). Este workflow queda SOLO como respaldo
+  # manual via workflow_dispatch (ej. Firestore roto, CF caída, backfill
+  # diagnóstico). Si el workflow MANUAL falla, step "Notify failure" manda
+  # email a erbinomariano@gmail.com (requisito del plan 2026-10-25).
   workflow_dispatch:
     inputs:
       dry_run:
@@ -113,6 +108,46 @@ jobs:
           # origen durante rollout paralelo con syncSapCatalogStockCF.
           SYNC_SOURCE: ${{ github.event_name == 'schedule' && 'gha-cron' || 'manual-dispatch' }}
         run: python scripts/sync_sap_to_firestore.py
+
+      - name: Notify failure (email a erbinomariano@gmail.com)
+        # v1454 §60 UPDATE (2026-10-25): si el workflow dispatch MANUAL falla
+        # mandamos email usando el mismo pattern que send-rendiciones-email
+        # (smtplib + GMAIL_APP_PASSWORD). Como el cron se removió, este step
+        # solo dispara cuando alguien corre manualmente y algo rompe (SAP SL
+        # caído, Firestore quota, credenciales malas). Mariano quiere saber.
+        if: ${{ failure() }}
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_FROM: bot.shimano.pesca@gmail.com
+          MAIL_TO: erbinomariano@gmail.com
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os, smtplib
+          from email.mime.text import MIMEText
+          pwd = os.environ.get('GMAIL_APP_PASSWORD', '')
+          if not pwd:
+              print('::warning::GMAIL_APP_PASSWORD no configurada; skip notify')
+              raise SystemExit(0)
+          body = (
+              f"Workflow 'Sync SAP Catalog + Stock' fallo en dispatch manual.\n\n"
+              f"Repo: {os.environ.get('REPO','')}\n"
+              f"Run:  {os.environ.get('RUN_URL','')}\n\n"
+              f"Revisa los logs del run para causa raiz. El sync productivo\n"
+              f"vive en Cloud Scheduler -> syncSapCatalogStockCF; este workflow\n"
+              f"es solo respaldo manual (v1454 Sect 60 UPDATE)."
+          )
+          msg = MIMEText(body, 'plain', 'utf-8')
+          msg['Subject'] = f"[APP VENDEDORES] Sync SAP manual FALLO (run {os.environ.get('RUN_ID','')})"
+          msg['From'] = os.environ.get('MAIL_FROM', '')
+          msg['To']   = os.environ.get('MAIL_TO', '')
+          with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as s:
+              s.login(os.environ['MAIL_FROM'], pwd)
+              s.send_message(msg)
+          print(f"notify email enviado a {os.environ.get('MAIL_TO','')}")
+          PY
 
       - name: Commit stock.json if changed
         # stock.json es consumido por el Google Sheet "Inventario-Bot" via
