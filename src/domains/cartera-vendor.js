@@ -16,6 +16,11 @@
  */
 
 import { applyChipFilter, sortClientes } from '../pure/cartera-vendor-filter.js';
+// v1482 §82 (2026-10-27): fuente única de labels Ficha Cliente. La columna
+// TIPO antes mostraba el código ("B") en vez del label legible ("B - sin
+// descuento") — pendiente conocido pre-v1482. Reusamos la pure fn que ya
+// consume Masterfile export para no duplicar el mapeo.
+import { labelForFichaField } from '../pure/ficha-cliente-labels.js';
 
 /** @type {Map<string, any>} */
 const carteraDocCache = new Map();
@@ -327,7 +332,8 @@ function buildClienteRow(c) {
   const tipoBadge = document.createElement('span');
   tipoBadge.style.cssText =
     'padding:2px 6px;border-radius:4px;background:var(--bg-input);font-size:11px;font-weight:700';
-  tipoBadge.textContent = c.cliTipo || '-';
+  // v1482 §82: label de la Ficha ("B - sin descuento") vs código ("B").
+  tipoBadge.textContent = labelForFichaField('cliTipo', c.cliTipo);
   tdTipo.appendChild(tipoBadge);
   tr.appendChild(tdTipo);
 
@@ -513,7 +519,7 @@ window.exportCarteraToExcel = async function exportCarteraToExcel() {
       row.getCell(1).value = c.clientName || '';
       row.getCell(2).value = c.provincia || '';
       row.getCell(3).value = c.localidad || '';
-      row.getCell(4).value = c.cliTipo || '';
+      row.getCell(4).value = labelForFichaField('cliTipo', c.cliTipo);
       row.getCell(5).value = c.ultimaVisitaPresencial || '';
       row.getCell(6).value = c.ultimoContacto || '';
       row.getCell(7).value = c.ultimaCompra || '';
