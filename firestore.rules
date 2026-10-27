@@ -82,12 +82,20 @@ service cloud.firestore {
     match /roles/{uid} {
       // Planner Task 2: agregado isMariano() para que onPlannerStageChanged CF
       // pueda leer roles/{uid}.email server-side al enviar notif VDI.
+      // v1491 §89 cap 2 (2026-10-27): agregado resource.data.role=='vendedor'
+      // para que cualquier user autenticado pueda listar los VDEs y resolver
+      // vendorKey → UID client-side (`enrichPayloadWithClientVendor` →
+      // `resolveClientVendorFromMaster`). Antes v1491 el VDE no podía leerlos
+      // → `vdeUsers=[]` → payload sin assignedVendorUid → gate server
+      // VENDOR_UID_MISSING rechazaba. Exposición: nombre + email de los VDEs
+      // (datos ya conocidos internamente). Admin SDK (CFs) bypassa rules.
       allow read: if request.auth != null && (
         request.auth.uid == uid
         || isAdmin()
         || isGerente()
         || isMariano()
         || resource.data.internalPartnerUid == request.auth.uid
+        || resource.data.role == 'vendedor'
       );
       // v917 (2026-09-14, SecAudit Sprint 0 CRIT-01): cerrar auto-escalation
       // admin. Antes: `role in ['unassigned','admin']` permitia que CUALQUIER
