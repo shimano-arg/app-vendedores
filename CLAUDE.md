@@ -3445,3 +3445,49 @@ Todos tienen fallback inline que replica el pure (soportando string ISO) por si 
 **Diagnóstico recurrente**: si en el futuro el Planner vuelve a mostrar 0 cards en Oferta/Pending/Facturar/Cobrado post-cambio al formato de fecha, correr `scripts/audit/AH_verif_planner_vacio.cjs` (read-only) para ver cuántos pedidos tienen `createdAt` string vs Timestamp y verificar si la query devuelve 0.
 
 **Precedente**: `fix-planner-vacio-v1479` 2026-10-27. Query AH verif prod devolvió: 486 pedidos / 486 string ISO / query con Date: 0 / query con ISO: 442.
+
+## 85. Fechas de Firestore son string ISO O Timestamp — pasar siempre por un parser único (2026-10-27, v1487)
+
+**Regla fuerte**: cualquier script Python o CF que lea un campo de fecha de Firestore (`createdAt`, `updatedAt`, `confirmedAt`, `closedAt`, etc.) DEBE pasar por `parse_firestore_date(v)` (Python) o `parseFirestoreDate(v)` (JS). Jamás llamar `.isoformat()` directo sobre el valor crudo — algunos docs tienen Timestamp nativo + otros tienen string ISO + algunos tienen datetime, y la mezcla se da en la MISMA colección.
+
+**Causa raíz de la regla**: PR #1185 §57 (2026-10-23, `functions/core/commit-pedido-core.js:1157`) introdujo `updatedAt: nowIso` string ISO en `revision_waitlist` cuando se marca consumed. Los docs viejos tenían `updatedAt` como Timestamp nativo (SERVER_TIMESTAMP resuelto). El workflow `Sync SAP to BigQuery` (`scripts/sync_sap_to_bigquery.py:1484`) hacía `updated_at.isoformat()` → `AttributeError: 'str' object has no attribute 'isoformat'` → 8 runs seguidos FAILURE desde 2026-10-26 00:05 UTC (runs 1401-1408). Resultado: tablas BQ `revision_waitlist`/`dashboard_snapshot`/`pedido_estado_sap`/`backorder_por_vendedor` desactualizadas ~37 horas.
+
+**Pure fn Python** (`scripts/sync_sap_to_bigquery.py:243`):
+
+```python
+def parse_firestore_date(v):
+    """Acepta Timestamp, datetime, string ISO, None. Devuelve string ISO o None."""
+    if v is None:
+        return None
+    if hasattr(v, 'isoformat'):
+        try:
+            return v.isoformat()
+        except Exception:
+            return None
+    if isinstance(v, str):
+        return v if v else None
+    return None
+```
+
+**Equivalente JS**: `src/pure/parse-date-flexible.js:parseFirestoreDate` (ya existente desde v1474).
+
+**Call-sites del script Python migrados en v1487** (5 líneas que hacían `.isoformat()` directo):
+
+- `scripts/sync_sap_to_bigquery.py:1376` — `targets.updated_at`.
+- `scripts/sync_sap_to_bigquery.py:1483-1484` — `revision_waitlist.items.created_at + updated_at` (bug activo).
+- `scripts/sync_sap_to_bigquery.py:1565-1567` — `campaigns.created_at + archived_at` (tenía fallback inline duplicado — unificado).
+
+Las otras ocurrencias de `.isoformat()` son valores INTERNOS del script (`now_iso()`, `sq_doc_date` del SAP SL) — esos siguen OK.
+
+**Dry-run obligatorio** antes de ejecutar backfills o workflows post-cambio: `python scripts/audit/AL_dryrun_sync_waitlist.py` (lee prod + simula el sync sin escribir BQ via `DRY_RUN=true`).
+
+**Test unit**: `tests/python/test_parse_firestore_date.py` cubre los 4 tipos de entrada + edge cases (None, string vacío, número, dict sin `isoformat`) + repro del bug prod. Correr con `python tests/python/test_parse_firestore_date.py`.
+
+**Prohibido**:
+- Agregar un nuevo `.isoformat()` directo sobre un campo de Firestore sin pasar por `parse_firestore_date`.
+- Asumir que un campo "siempre es Timestamp" o "siempre es string" — hay docs mezclados.
+- Duplicar la lógica tolerante inline (como el fallback v1352 en `campaigns.created_at` que v1487 unificó).
+
+**Impacto conocido en BQ post-fallo (26/10 00:05 UTC → 27/10 fix)**: tablas Firestore→BQ y BQ→Firestore de los pasos ≥8b del `main()` NO corrieron ~37 horas. Las tablas SAP→BQ (pasos 1-8d: invoices, items, business partners) **sí** se actualizaron cada corrida porque corren ANTES del paso que falla. Una sola corrida exitosa post-fix pone todo al día (`truncate_on_empty=True` en `_load_to_bq_with_schema` + reemplazo completo cada run).
+
+**Precedente**: `fix-v1487-sync-bq-parse-date` 2026-10-27. Dry-run contra prod devolvió 602 rows OK sin AttributeError.

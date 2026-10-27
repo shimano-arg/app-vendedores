@@ -239,6 +239,39 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def parse_firestore_date(v):
+    """v1487 §85 (2026-10-27) — fuente única para fechas Firestore.
+
+    Equivalente Python de src/pure/parse-date-flexible.js:parseFirestoreDate.
+    Acepta los 4 tipos que vienen de Firestore y devuelve string ISO o None:
+      - Firestore Timestamp (DatetimeWithNanoseconds): tiene .isoformat().
+      - datetime nativo: tiene .isoformat().
+      - string ISO (ej. "2026-10-26T15:14:08.550Z"): devuelve tal cual.
+      - None/undefined: devuelve None.
+
+    Fix bug sync_waitlist_from_firestore (26/10 00:05, PR #1185 §57 2026-10-23
+    introdujo `updatedAt: nowIso` string en commit-pedido-core.js:1157 al
+    marcar waitlist consumed). El sync asumía Timestamp → AttributeError
+    'str' object has no attribute 'isoformat'. Fix: usar parse_firestore_date
+    en TODOS los call-sites de .isoformat() sobre valores de Firestore.
+
+    CLAUDE.md §85: las fechas de Firestore pueden ser Timestamp O string ISO
+    simultáneamente (hay docs viejos con Timestamp + nuevos con string).
+    Nunca asumir tipo; siempre pasar por parse_firestore_date (Python) o
+    parseFirestoreDate (JS).
+    """
+    if v is None:
+        return None
+    if hasattr(v, 'isoformat'):
+        try:
+            return v.isoformat()
+        except Exception:
+            return None
+    if isinstance(v, str):
+        return v if v else None
+    return None
+
+
 def log(msg: str) -> None:
     print(f'[{now_iso()}] {msg}', flush=True)
 
@@ -1373,7 +1406,8 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
             'target_canas_ars':  _safe_num(by_fam.get('CANAS')),
             'target_lineas_ars': _safe_num(by_fam.get('LINEAS')),
             'target_visitas':   _safe_int(data.get('targetVisitas')),
-            'updated_at':       updated_at.isoformat() if updated_at else None,
+            # v1487 §85: parse_firestore_date tolera Timestamp + string ISO.
+            'updated_at':       parse_firestore_date(updated_at),
             'updated_by':       data.get('updatedBy', ''),
             'updated_by_email': data.get('updatedByEmail', ''),
             '_sync_timestamp':  sync_ts,
@@ -1480,8 +1514,12 @@ def sync_waitlist_from_firestore(db: firestore.Client, sync_ts: str) -> list:
                 'first_stock_total':   _safe_num(it.get('firstStockTotal')),
                 'first_backorder':     _safe_num(it.get('firstBackorder')),
                 'first_disponible':    _safe_num(it.get('firstDisponible')),
-                'created_at':          created_at.isoformat() if created_at else None,
-                'updated_at':          updated_at.isoformat() if updated_at else None,
+                # v1487 §85 BUG FIX: parse_firestore_date tolera string ISO.
+                # Causa raíz 2026-10-26 00:05: PR #1185 §57 (2026-10-23)
+                # commit-pedido-core.js:1157 escribe updatedAt como string ISO
+                # al marcar waitlist consumed. Sync BQ asumía Timestamp.
+                'created_at':          parse_firestore_date(created_at),
+                'updated_at':          parse_firestore_date(updated_at),
                 '_sync_timestamp':     sync_ts,
             })
     log(f'[WAITLIST] {docs_count} docs -> {items_count} items (rows con qty > 0)')
@@ -1560,11 +1598,11 @@ def sync_campaigns_from_firestore(db: firestore.Client, sync_ts: str) -> list:
             'scope_values_json': json.dumps([str(v) for v in scope_vals if v]),
             'created_by':       data.get('createdBy', ''),
             'created_by_email': data.get('createdByEmail', ''),
-            # v1352: created_at/archived_at pueden venir como datetime (SERVER_TIMESTAMP
-            # resuelto) o como string ISO (en algunos docs antiguos cargados a mano).
-            'created_at':       (created_at.isoformat() if hasattr(created_at, 'isoformat') else created_at) if created_at else None,
+            # v1487 §85: unificado via parse_firestore_date (reemplaza fallback
+            # inline v1352 que ya hacía lo mismo pero duplicado).
+            'created_at':       parse_firestore_date(created_at),
             'archived':         bool(data.get('archivedManually')),
-            'archived_at':      (archived_at.isoformat() if hasattr(archived_at, 'isoformat') else archived_at) if archived_at else None,
+            'archived_at':      parse_firestore_date(archived_at),
             'archived_by':      data.get('archivedBy', ''),
             '_sync_timestamp':  sync_ts,
         })
