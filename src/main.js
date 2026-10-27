@@ -143,6 +143,10 @@ import {
 // (ORDEN 502 OSVALDO MASERA et al). Pure fn que resuelve desc de línea con
 // fallback a catálogo. Usado por UI render + commit-pedido-core server-side.
 import { hasDesc, resolveLineDesc } from './pure/resolve-line-desc.js';
+// v1484 (2026-10-27): resolver prov/loc de pedidos huérfanos desde
+// client_master por cardCode. Usada por renderPendientesList +
+// renderConfirmadosList en index.html.
+import { resolveOrphanPedidoLocation } from './pure/resolve-orphan-pedido-location.js';
 // v1416 §42.2 (2026-10-22): guard "Revisá tu pedido" ofrece unificación en vez
 // de bloqueo seco. Reusa helpers §42 (findOpenWaitlistsForClient) + pure helpers
 // propios de merge (mergeWaitlistIntoOrderLines, buildUnifiedAtReviewUpdate,
@@ -447,6 +451,10 @@ const phase0 = {
       isFirestoreTimestamp,
       pedidoDateForPlanner,
       plannerCutoffIsoForQuery,
+    },
+    // v1484 §83 (2026-10-27) — resolve prov/loc huérfano via client_master.
+    resolveOrphanPedidoLocation: {
+      resolveOrphanPedidoLocation,
     },
     // v1482 §82 (2026-10-27) — Ficha Cliente labels fuente única. Reusado por
     // exportMasterClientes + cartera-vendor columna TIPO + tests.
