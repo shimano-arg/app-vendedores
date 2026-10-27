@@ -249,4 +249,124 @@ test.describe('PACHI perfil operativo', () => {
 
     await screen(page, 'restricciones_todas');
   });
+
+  // v1481 §81 (2026-10-27): PACHI iter 3 — sidebar-left panel.
+  // El panel izquierdo del mapa (#sidebar-left-buttons) debe mostrar
+  // SOLO 3 botones: Campañas, Dashboard, Exportar. Los otros 6 NO deben
+  // existir en el DOM (proxies no creados por el renderer).
+  test('escenario 3 — sidebar-left panel SOLO Campañas + Dashboard + Exportar', async ({
+    page,
+  }) => {
+    test.skip(!CREDS.email, 'test-pachi-* secrets no configurados');
+    await loginPachi(page);
+    // Asegurarse que el renderer ya corrió (se llama al init post-login).
+    await page.waitForTimeout(1500);
+
+    // Contrato dura: NO existen los 6 proxies de botones ocultos.
+    const hiddenIds = [
+      'seguimiento-btn',
+      'backorders-btn',
+      'asignacion-backorder-btn',
+      'forecast-btn',
+      'revision-btn',
+      'waitlist-btn',
+    ];
+    for (const id of hiddenIds) {
+      const proxyCount = await page
+        .locator(`#sidebar-left-buttons [data-proxy-for="${id}"]`)
+        .count();
+      expect(
+        proxyCount,
+        `v1481 §81: proxy #sidebar-left-buttons [data-proxy-for="${id}"] NO debe existir para PACHI`
+      ).toBe(0);
+    }
+
+    // Contrato positivo: SÍ existen Campañas, Dashboard y Exportar.
+    const visibleProxies = ['mis-camps-btn', 'dashboard-btn'];
+    for (const id of visibleProxies) {
+      const proxyCount = await page
+        .locator(`#sidebar-left-buttons [data-proxy-for="${id}"]`)
+        .count();
+      expect(proxyCount, `v1481 §81: proxy ${id} debe existir para PACHI`).toBeGreaterThanOrEqual(
+        1
+      );
+    }
+    // Exportar: el id del proxy es dinámico (btn-export o inferido). Verifico
+    // por texto label.
+    const exportProxy = await page
+      .locator('#sidebar-left-buttons button:has-text("Exportar")')
+      .count();
+    expect(exportProxy, 'v1481 §81: proxy Exportar debe existir para PACHI').toBeGreaterThanOrEqual(
+      1
+    );
+
+    // Totales: 3 proxies visibles (Campañas, Dashboard, Exportar).
+    const totalBtns = await page.locator('#sidebar-left-buttons button').count();
+    expect(totalBtns, 'v1481 §81: sidebar-left debe tener exactamente 3 botones para PACHI').toBe(
+      3
+    );
+
+    await screen(page, 'v1481_sidebar_left_3_botones');
+
+    // Defense in depth: las open*Modal fns están envueltas con pachiGuard.
+    // Verificar que invocar window.openBackordersModal() no abre el modal.
+    page.on('dialog', (d) => d.accept().catch(() => null));
+    const guardResult = await page.evaluate(() => {
+      const fnNames = [
+        'openBackordersModal',
+        'openAsignacionBackorderModal',
+        'openForecastModal',
+        'openRepartoModal',
+        'openDepositoModal',
+      ];
+      const results = {};
+      for (const fn of fnNames) {
+        try {
+          if (typeof window[fn] === 'function') {
+            // Debe ser un wrapper __pachiWrapped1481 que no abre nada.
+            results[fn] = {
+              wrapped: !!window[fn].__pachiWrapped1481,
+              callReturned: window[fn](),
+            };
+          } else {
+            results[fn] = { wrapped: null, callReturned: 'fn-missing' };
+          }
+        } catch (e) {
+          results[fn] = { wrapped: null, callReturned: 'threw:' + (e && e.message) };
+        }
+      }
+      return results;
+    });
+    await page.waitForTimeout(500);
+    for (const [fn, info] of Object.entries(guardResult)) {
+      if (info.wrapped !== null) {
+        expect(
+          info.wrapped,
+          `v1481 §81: ${fn} debe estar wrapped con __pachiWrapped1481 para PACHI`
+        ).toBe(true);
+      }
+    }
+
+    // Confirmar que ningún modal protegido quedó open después del attack.
+    const openModalIds = await page.evaluate(() => {
+      const ids = [
+        'backorders-modal',
+        'forecast-modal',
+        'reparto-modal',
+        'deposito-modal',
+        'cartera-modal',
+        'seguimiento-modal',
+      ];
+      return ids.filter((id) => {
+        const el = document.getElementById(id);
+        return el && el.classList.contains('open');
+      });
+    });
+    expect(
+      openModalIds,
+      `v1481 §81: ningún modal protegido debe estar open después de intento alt-path. Abiertos: ${openModalIds.join(', ')}`
+    ).toEqual([]);
+
+    await screen(page, 'v1481_guards_bloquean_alt_path');
+  });
 });

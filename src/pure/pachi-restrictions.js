@@ -33,6 +33,69 @@ export const PACHI_EMAIL = 'pachinaba@gmail.com';
 export const PACHI_VENDOR_KEY = 'PACHI';
 
 /**
+ * IDs de los botones ORIGINALES del header que al moverse al panel izquierdo
+ * del mapa (`#sidebar-left-buttons`) crean proxies que PACHI no debe ver.
+ *
+ * Fuente única (v1481 §81, 2026-10-27): el renderer `_moveButtonsToSidebarLeft`
+ * en `index.html` consulta esta lista. Si el UID actual está en `PACHI_UIDS`
+ * y el id está acá, el proxy NO se crea (el original ya está oculto por
+ * `moved-to-sidebar-left` CSS en desktop).
+ *
+ * Reportado prod 2026-10-27 (v1478): aunque v1478 ocultó los originales con
+ * CSS gates, los proxies del sidebar-left seguían visibles porque el
+ * `syncVisibility` del proxy mira `orig.style.display` (inline) y los gates
+ * CSS no setean inline — setean computed style.
+ *
+ * Los 6 IDs corresponden a los labels que Mariano pidió ocultar:
+ *   - seguimiento-btn        → "Seguimiento" (abre modal Cartera via openCarteraModal).
+ *   - backorders-btn         → "Backorder" (abre openBackordersModal).
+ *   - asignacion-backorder-btn → "Stock Asig." (abre openAsignacionBackorderModal).
+ *   - forecast-btn           → "Forecast" (abre openForecastModal).
+ *   - revision-btn           → "Reparto" (abre openRepartoModal via overrideClick).
+ *   - waitlist-btn           → "Depósito" (abre openDepositoModal via overrideClick).
+ *
+ * PACHI SÍ ve en ese panel: `mis-camps-btn` (Campañas), `dashboard-btn`
+ * (Dashboard), `_exportBtn` (Exportar).
+ */
+export const PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS = Object.freeze([
+  'seguimiento-btn',
+  'backorders-btn',
+  'asignacion-backorder-btn',
+  'forecast-btn',
+  'revision-btn',
+  'waitlist-btn',
+]);
+
+/**
+ * Features (globales de `window`) que PACHI NO puede abrir por ningún camino
+ * (atajo teclado, URL hash, menú contextual, `window.X()` desde consola).
+ * El wrapper correspondiente en `index.html` consulta esta lista + llama a
+ * `pachiGuard(uid, {feature})` ANTES de ejecutar la función original.
+ *
+ * v1481 §81 (2026-10-27): defense in depth. Aunque el botón esté oculto,
+ * cualquier otro camino (prompt URL, bookmarklet admin, programa que haga
+ * `window.openBackordersModal()`) queda bloqueado para PACHI.
+ */
+export const PACHI_BLOCKED_OPEN_FNS = Object.freeze([
+  'openBackordersModal',
+  'openAsignacionBackorderModal',
+  'openForecastModal',
+  'openRepartoModal',
+  'openDepositoModal',
+  'openCarteraModal',
+  'openSeguimientoModal',
+]);
+
+/**
+ * Returns true if the given sidebar-left button id should be HIDDEN for PACHI.
+ * @param {string} btnId
+ * @returns {boolean}
+ */
+export function isSidebarLeftBtnHiddenForPachi(btnId) {
+  return !!btnId && PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.includes(btnId);
+}
+
+/**
  * Returns true if the given uid is subject to PACHI restrictions.
  * @param {string | null | undefined} uid
  * @returns {boolean}
