@@ -127,6 +127,10 @@ import {
   formatAssignedVendorReason,
   resolveClientVendorFromMaster,
 } from './pure/resolve-client-vendor.js';
+// PR4 (v1477 2026-10-26 §75): fix "undefined" en Pedidos > Confirmados
+// (ORDEN 502 OSVALDO MASERA et al). Pure fn que resuelve desc de línea con
+// fallback a catálogo. Usado por UI render + commit-pedido-core server-side.
+import { hasDesc, resolveLineDesc } from './pure/resolve-line-desc.js';
 // v1416 §42.2 (2026-10-22): guard "Revisá tu pedido" ofrece unificación en vez
 // de bloqueo seco. Reusa helpers §42 (findOpenWaitlistsForClient) + pure helpers
 // propios de merge (mergeWaitlistIntoOrderLines, buildUnifiedAtReviewUpdate,
@@ -427,6 +431,11 @@ const phase0 = {
       toIsoStringFlexible,
       formatFirestoreDate,
       isFirestoreTimestamp,
+    },
+    // PR4 (v1477 2026-10-26 §75) — resolve-line-desc.
+    resolveLineDesc: {
+      resolveLineDesc,
+      hasDesc,
     },
     // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.
     absorbBoOnConfirm: {
