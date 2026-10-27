@@ -6959,6 +6959,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         <h2 style="margin:0 0 4px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',sans-serif;font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#1d1d1f">Reparto de ingresos</h2>
         <div style="font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;letter-spacing:-0.1px;color:#86868b">Repartí manualmente las unidades entre los clientes con backorder.</div>
       </div>
+      <!-- v1492 §91 (2026-10-27): botón export Excel. Estilo pill apple inline
+           para evitar propagación lenta vía SW cache del CSS (§21). -->
+      <button type="button" onclick="window.exportRepartoToExcel && window.exportRepartoToExcel()" aria-label="Exportar a Excel" title="Exportar todos los ingresos pendientes a Excel" style="border:0.5px solid rgba(0,0,0,.1);background:#fff;color:#1d1d1f;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:500;letter-spacing:-0.1px;font-family:inherit;display:inline-flex;align-items:center;gap:6px;transition:transform .12s ease-out,background .15s ease;flex-shrink:0">
+        <span style="font-size:14px">↓</span> Exportar Excel
+      </button>
       <button class="reparto-apple-close" onclick="closeRepartoModal()" aria-label="Cerrar" style="border:none;background:rgba(120,120,128,.12);width:30px;height:30px;border-radius:50%;cursor:pointer;color:#86868b;font-size:16px;display:flex;align-items:center;justify-content:center;transition:transform .12s ease-out,background .15s ease">&times;</button>
     </div>
     <div style="padding:16px 26px 20px;display:flex;flex-direction:column;gap:14px;flex:1 1 0;overflow:hidden;min-height:0;box-sizing:border-box">
@@ -7109,7 +7114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1490';
+const APP_VERSION = 'v1492';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
