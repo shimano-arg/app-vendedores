@@ -15,12 +15,14 @@ describe('v1423 §57 — texto botón "Ficha Cliente" simplificado', () => {
     expect(INDEX_HTML).not.toMatch(/Ficha Cliente \(perfil para segmentar\)/);
   });
 
-  it('modal SAP (openSapAltaInfoModal) usa el texto nuevo "Ficha Cliente"', () => {
+  it('modal SAP (openSapAltaInfoModal) usa el texto "Ficha Cliente"', () => {
+    // v1483: Ficha Cliente ahora inline dentro del template string del button
+    // en vez de concat. Busco "Ficha Cliente" en el button mismo.
     const idx = INDEX_HTML.indexOf('openFichaClienteFromSapModal');
     expect(idx).toBeGreaterThan(0);
     const slice = INDEX_HTML.slice(idx, idx + 1000);
-    expect(slice).toMatch(/'Ficha Cliente'/);
-    expect(slice).not.toMatch(/'Ficha Cliente \(perfil para segmentar\)'/);
+    expect(slice).toMatch(/>Ficha Cliente</);
+    expect(slice).not.toMatch(/Ficha Cliente \(perfil para segmentar\)/);
   });
 
   it('modal cliente POINT (#client-modal) también usa "Ficha Cliente"', () => {
@@ -53,11 +55,17 @@ describe('v1423 §57 — fila de 3 botones centrada en modal SAP', () => {
     expect(slice).toMatch(/gap\s*:\s*8px/);
   });
 
-  it('botón Ficha Cliente sigue centrado arriba de la fila', () => {
-    // El botón Ficha Cliente está en un div propio con justify-content:center.
-    const idx = INDEX_HTML.indexOf('openFichaClienteFromSapModal');
-    expect(idx).toBeGreaterThan(0);
-    const slice = INDEX_HTML.slice(idx - 400, idx);
+  it('botón Ficha Cliente está dentro de la misma fila sap-alta-footer-row (v1483)', () => {
+    // v1483 (2026-10-27): Ficha Cliente ya NO está en div propio; vive en la
+    // misma fila que Guardar, Editar direccion, Cerrar. Verifica que el
+    // button openFichaClienteFromSapModal esté DESPUÉS del start del div
+    // sap-alta-footer-row Y ANTES del cierre (fin del bloque).
+    const idxRow = INDEX_HTML.indexOf('\'<div class="sap-alta-footer-row"');
+    const idxFicha = INDEX_HTML.indexOf('openFichaClienteFromSapModal');
+    expect(idxRow).toBeGreaterThan(0);
+    expect(idxFicha).toBeGreaterThan(idxRow);
+    // La fila sigue siendo justify-content:center.
+    const slice = INDEX_HTML.slice(idxRow, idxRow + 400);
     expect(slice).toMatch(/justify-content\s*:\s*center/);
   });
 
