@@ -85,6 +85,66 @@ export function labelForFichaField(field, value) {
 }
 
 /**
+ * Busca el doc `client_master` que corresponde a un cardCode SAP.
+ * Scan `clientMasterCache` por `sapCardCode` OR `cardCodeSap` (ambos aliases
+ * aparecen en prod según el flow que creó el doc).
+ *
+ * **Por qué existe (v1485 §84, 2026-10-27 bug fix)**: en v1482 el export
+ * buscaba `clientMasterCache.get(clientLocId(point.province, point.name, name))`
+ * — slug derivado del padrón POINTS. Para clientes como ALBERTO MAXERA, el
+ * POINTS dice `name="Palermo (C14)"` pero la Ficha persiste con
+ * `localidad="COLEGIALES"` → genera docId distinto → cmData undefined → los
+ * 6 campos salían "-" aunque la Ficha estaba cargada. `sapCardCode` es único
+ * y SIEMPRE identifica el doc correcto. Pattern ya existente en
+ * `index.html:_resolveVendorFallback` (línea 15788+).
+ *
+ * @param {string | null | undefined} cardCode  ej. "C20110561068".
+ * @param {Map<string, any> | null | undefined} clientMasterCache
+ * @returns {any | null}  cmData o null si no se encuentra / cardCode vacío.
+ */
+export function findCmDataByCardCode(cardCode, clientMasterCache) {
+  const cc = String(cardCode || '').trim();
+  if (!cc || !clientMasterCache || typeof clientMasterCache.forEach !== 'function') {
+    return null;
+  }
+  // Scan TODOS los docs con el cardCode (puede haber duplicados: uno
+  // importado SAP sin Ficha + otro con Ficha populated). Preferir el que
+  // tiene al menos un campo Ficha populated. Caso MAXERA: hay 2 docs; el
+  // slug SAP-import no tiene campos Ficha, el slug Ficha sí.
+  /** @type {Array<any>} */
+  const candidates = [];
+  clientMasterCache.forEach((cmData) => {
+    if (!cmData) return;
+    const cc1 = String(cmData.sapCardCode || '').trim();
+    const cc2 = String(cmData.cardCodeSap || '').trim();
+    if (cc1 === cc || cc2 === cc) {
+      candidates.push(cmData);
+    }
+  });
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+  // Múltiples docs: preferir el que tenga al menos UN campo Ficha populated.
+  const FICHA_FIELDS = [
+    'cliTipo',
+    'fidelidad',
+    'prefContacto',
+    'tamano',
+    'especializacion',
+    'tipoLocal',
+    'creditoCheque',
+  ];
+  for (const c of candidates) {
+    for (const f of FICHA_FIELDS) {
+      if (c[f] !== null && c[f] !== undefined && c[f] !== '') {
+        return c;
+      }
+    }
+  }
+  // Ninguno tiene Ficha populated → devolver el primero (ambos equivalentes).
+  return candidates[0];
+}
+
+/**
  * Compone la fila de columnas de la pestaña Clasificación para un cliente.
  * Nombres de columnas exactos como pide Mariano en el pedido. Celdas vacías
  * se completan con "-".
