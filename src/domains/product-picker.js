@@ -255,12 +255,14 @@ function renderProductPicker() {
     const disp = dispReal != null ? dispReal : dispFisico;
     const trans =
       typeof window.getStockTransito === 'function' ? window.getStockTransito(p.code) : null;
-    // v705: badge visible con el nro de unidades disponibles REAL (max amarillo
-    // pastel) al lado del stockDot. Ayuda al vendedor a decidir la qty sin abrir
-    // tooltips.
-    let dispBadge = '';
+    // v1489 §87 (2026-10-27): quitamos la etiqueta amarilla "N libres" inline
+    // (ensuciaba la lista). El punto verde/rojo a la izquierda ya indica
+    // disponibilidad; la cantidad exacta queda disponible en el hover del
+    // SKU (title del span del codigo) y en el tooltip del stockDot. Antes v705
+    // habia agregado el chip visible — v1489 lo pasa a tooltip-only.
+    let skuTitle = '';
     if (disp != null && disp > 0) {
-      const dispBadgeTitle =
+      skuTitle =
         dispFisico != null && dispFisico !== disp
           ? 'Disponible REAL: ' +
             disp +
@@ -270,12 +272,6 @@ function renderProductPicker() {
             (dispFisico - disp) +
             ')'
           : 'Disponible: ' + disp + ' u';
-      dispBadge =
-        ' <span style="background:#fef9c3;color:#78350f;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:800;vertical-align:middle;border:1px solid #fde68a" title="' +
-        escapeAttr(dispBadgeTitle) +
-        '">' +
-        disp +
-        ' libres</span>';
     }
     // v980 (2026-09-17): color del punto alineado con "libre para la venta"
     // (getStockRealmenteDisponible). Antes verde = hay fisico dep 11 (aunque
@@ -332,15 +328,12 @@ function renderProductPicker() {
       '\')"' +
       (inCamp ? ' title="' + escapeAttr(campTitle) + '"' : '') +
       '>';
-    html +=
-      '<div class="code">' +
-      stockDot +
-      escapeHtml(p.code) +
-      dispBadge +
-      campBadge +
-      asigBadge +
-      boBadge +
-      '</div>';
+    // v1489 §87: SKU envuelto en <span> con title de disponibilidad para
+    // preservar el hover-tooltip sin la etiqueta inline permanente.
+    const skuHtml = skuTitle
+      ? '<span title="' + escapeAttr(skuTitle) + '">' + escapeHtml(p.code) + '</span>'
+      : escapeHtml(p.code);
+    html += '<div class="code">' + stockDot + skuHtml + campBadge + asigBadge + boBadge + '</div>';
     html += '<div><div class="pdesc">' + escapeHtml(p.desc) + '</div>';
     html +=
       '<div class="pcat"><span>' +
