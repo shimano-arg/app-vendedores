@@ -446,4 +446,61 @@ test.describe('PACHI perfil operativo', () => {
       if (typeof window.closePedidoModal === 'function') window.closePedidoModal();
     });
   });
+
+  // v1494 §93 (2026-10-27): PACHI iter 5 — handler Enviar a lista de espera
+  // no debe tirar alert "Solo Mariano/Ioannis/Santi/Pablo". _revisionCanUse
+  // ahora delega a canRevisionEmailOrUid (fuente única).
+  test('escenario 5 — PACHI puede enviar borrador a lista de espera sin alert', async ({
+    page,
+  }) => {
+    test.skip(!CREDS.email, 'test-pachi-* secrets no configurados');
+    await loginPachi(page);
+
+    // 1. _revisionCanUse() debe devolver true para PACHI test.
+    const canUse = await page.evaluate(() => {
+      if (typeof window._revisionCanUse !== 'function') return { exposed: false };
+      return { exposed: true, result: !!window._revisionCanUse() };
+    });
+    expect(canUse.exposed).toBe(true);
+    expect(canUse.result).toBe(true);
+
+    // 2. Interceptar alerts para verificar que NO salta el mensaje viejo.
+    const alerts = [];
+    page.on('dialog', async (d) => {
+      alerts.push(d.message());
+      await d.dismiss().catch(() => {});
+    });
+
+    // 3. Abrir modal carga con cliente dummy + agregar 1 línea stub en orders.
+    await page.evaluate(() => {
+      window.openPedidoModal('CLIENTE TEST VC', 'C', 'SAN LUIS', 'LOC TEST VC');
+      // Simular 1 línea cargada.
+      const key = window.currentOrderKey;
+      if (key && typeof window.orders === 'object') {
+        window.orders[key] = [{ code: 'TEST_SKU', desc: 'TEST DESC', qty: 1, price: 100 }];
+      }
+    });
+    await page.waitForTimeout(300);
+
+    // 4. Llamar enviarBorradorAListaEspera. Debe pasar _revisionCanUse SIN
+    //    el alert viejo. El confirm nativo lo cerramos con dismiss (test).
+    await page.evaluate(() => {
+      if (typeof window.enviarBorradorAListaEspera === 'function') {
+        // Dispara el flujo; dialog handler captura cualquier alert/confirm.
+        try {
+          window.enviarBorradorAListaEspera();
+        } catch (_e) {}
+      }
+    });
+    await page.waitForTimeout(800);
+
+    // 5. Verificar que NINGÚN alert contiene el mensaje viejo.
+    const alertWithOldMsg = alerts.find((a) => a.includes('Solo Mariano, Ioannis, Santi o Pablo'));
+    expect(
+      alertWithOldMsg,
+      `v1494 §93: alert viejo "Solo Mariano..." NO debe aparecer. Alerts vistos: ${JSON.stringify(alerts)}`
+    ).toBeUndefined();
+
+    await screen(page, 'v1494_enviar_lista_espera');
+  });
 });
