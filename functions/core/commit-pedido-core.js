@@ -68,6 +68,9 @@ import {
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
+// PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
+// Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
+import { resolveLineDesc } from './resolve-line-desc-core.js';
 // PR 2 §72 (v1475 2026-10-26) — chequea que cada SKU exista en sap_products
 // catalog ANTES del tx. Rechaza con SKU_NOT_IN_SAP_CATALOG preservando
 // waitlist origen (no la consume). CAPA (b) de la defensa en profundidad.
@@ -705,6 +708,44 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   /** @type {Array<any>} */
   const docLines = [];
 
+  // PR 4 §75 (v1477 2026-10-26): catalog map {code → {descripcion}} para
+  // resolver descripción de líneas desde el payload. Lectura paralela post-
+  // SKU_NOT_IN_SAP_CATALOG gate (todos los SKUs ya validados que existen).
+  // Si el cliente mandó desc en el payload, se usa; si no, se cae al catálogo.
+  /** @type {Record<string, {descripcion: string}>} */
+  const catalogDescMap = {};
+  try {
+    const _skusForDesc = (payload.lines || [])
+      .map((/** @type {any} */ l) =>
+        String((l && l.sku) || '')
+          .toUpperCase()
+          .trim()
+      )
+      .filter(Boolean);
+    const _uniqSkus = Array.from(new Set(_skusForDesc));
+    if (_uniqSkus.length > 0) {
+      const _catSnaps = await Promise.all(
+        _uniqSkus.map((/** @type {string} */ s) =>
+          deps.fbDb.collection('sap_products').doc(s).get()
+        )
+      );
+      for (let i = 0; i < _uniqSkus.length; i++) {
+        const snap = _catSnaps[i];
+        if (snap.exists) {
+          const d = snap.data() || {};
+          catalogDescMap[_uniqSkus[i]] = {
+            descripcion: String(d.descripcion || d.desc || d.name || '').trim(),
+          };
+        }
+      }
+    }
+  } catch (_catErr) {
+    // Non-fatal: si el read falla, el helper cae a payload.desc o ''.
+    (deps.log || (() => {}))('catalog desc map read failed (non-blocking)', {
+      err: _catErr && _catErr.message,
+    });
+  }
+
   // §67 (2026-10-25 v1454): origen='manual_backorder' usa linesPrebuilt del
   // payload sin recomputar breakdown. El flow GB manual arma las líneas con
   // state=ASIG/BO + campos propios (asigCliTipo='manual-backorder',
@@ -811,6 +852,11 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
         /** @type {Record<string, any>} */
         const _lineConfirmed = {
           code: sku,
+          // PR 4 §75 (v1477 2026-10-26): resolver desc desde línea del payload
+          // o catálogo. ANTES: no se escribía nada → "undefined" en Pedidos >
+          // Confirmados (ORDEN 502 OSVALDO MASERA). Prioridad: payloadLine.desc
+          // (ya resuelto cliente) → catalog lookup → '' (nunca "undefined").
+          desc: resolveLineDesc(payloadLine, catalogDescMap),
           qty: qtyConfirmed,
           qtyOpen: qtyConfirmed,
           qtyInvoiced: 0,
@@ -829,6 +875,8 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
       if (qtyBO > 0) {
         docLines.push({
           code: sku,
+          // PR 4 §75 (v1477): mismo pattern que confirmed.
+          desc: resolveLineDesc(payloadLine, catalogDescMap),
           qty: qtyBO,
           qtyOpen: qtyBO,
           qtyInvoiced: 0,
@@ -1182,6 +1230,34 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
     source: resolvedSource,
     lines: docLines,
     stage: 'confirmed',
+    // PR 4 §75 (v1477 2026-10-26): copiar `month` del payload. Antes NO se
+    // escribía → tarjeta Pedidos > Confirmados mostraba "sin mes" en pedidos
+    // CPST (ORDEN 502). El cliente lo arma como `MESES[mesIdx] + ' ' + anio`
+    // en doConfirmPedido:36890. Si falta, fallback a mes/año de nowIso.
+    month:
+      payload.month ||
+      (function _fallbackMonth() {
+        try {
+          const _MESES_ES = [
+            'Enero',
+            'Febrero',
+            'Marzo',
+            'Abril',
+            'Mayo',
+            'Junio',
+            'Julio',
+            'Agosto',
+            'Septiembre',
+            'Octubre',
+            'Noviembre',
+            'Diciembre',
+          ];
+          const _d = new Date(nowIso);
+          return _MESES_ES[_d.getMonth()] + ' ' + _d.getFullYear();
+        } catch (_e) {
+          return '';
+        }
+      })(),
     // v1473 (2026-10-26): confirmedAt/createdAt como ISO string, consistente
     // con pedidos pre-v1457 y con el formato que el cliente web lee sin
     // `.toDate()` (todos los call-sites hacen `new Date(c.confirmedAt)` o

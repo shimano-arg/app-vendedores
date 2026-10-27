@@ -77,10 +77,12 @@ async function main() {
     const data = d.data() || {};
     const role = String(data.role || '').trim();
     if (!['vendedor', 'interno', 'admin', 'gerente'].includes(role)) return;
+    // resolveClientVendorFromMaster espera u.vendorKey (línea 225 del pure).
     users.push({
       uid: d.id,
       email: String(data.email || '').trim(),
       role,
+      vendorKey: String(data.vendor || '').toUpperCase().trim(),
       vendor: String(data.vendor || '').toUpperCase().trim(),
       displayName: String(data.displayName || '').trim(),
     });
@@ -177,6 +179,20 @@ async function main() {
   console.log('  By reason:');
   for (const [r, c] of Object.entries(results.by_reason)) {
     console.log(`    ${r}: ${c}`);
+  }
+  // Detalle de los no-resolvibles para Mariano.
+  if (results.no_resolvable > 0) {
+    console.log();
+    console.log('NO resolvibles (vendor_sin_uid o similar) — Mariano revisa roles/ y assignedVendor del cliente:');
+    for (const v of pedidoVictims) {
+      const cardCode = String(v.data.clientCardCode || '').trim();
+      const clientName = String(v.data.clientName || '').trim();
+      if (!cardCode) continue;
+      const r = resolveFn(cardCode, clientName);
+      if (!r.resolved || !r.vendorUid) {
+        console.log(`  ${v.id} orden=${v.data.orderNumber} cliente="${clientName}" card=${cardCode} vendor="${v.data.vendorAssigned || '?'}" reason=${r.reason}`);
+      }
+    }
   }
 
   if (!apply) {
