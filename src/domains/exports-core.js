@@ -20,6 +20,56 @@ window.exportMasterClientes = async function () {
     return;
   }
   showSyncTag('Generando masterfile de clientes...');
+
+  // v1482 §82: cargar client_buyer_stats en bloque (1 doc por cardCode SAP)
+  // ANTES de armar las filas, así cada fila tiene su buyer stats + fecha
+  // última compra sin romper el flujo. Fire-and-forget si falla: cada fila
+  // cae a "-" en los campos Buyer. Admin/gerente ve toda la colección;
+  // vendedor ve sólo los suyos (rules). Si la rule bloquea → catch → vacío.
+  // Pedido Mariano: no inventar cálculo de "Fecha última compra"; si no
+  // existe se omite. buyer_stats.stats_12m.ultimaCompra YA existe.
+  const buyerStatsIdx = new Map();
+  try {
+    const bsSnap = await fbDb.collection('client_buyer_stats').get();
+    bsSnap.forEach((d) => {
+      buyerStatsIdx.set(d.id, d.data() || {});
+    });
+  } catch (_e) {
+    console.warn(
+      '[masterfile] client_buyer_stats no cargado (rule denied o red):',
+      _e && _e.message
+    );
+  }
+  // Helpers del pure fn (fallback inline si bundle no cargó).
+  const _fcLabels =
+    (window.__phase0 && window.__phase0.pure && window.__phase0.pure.fichaClienteLabels) || null;
+  const _clasifRow = (cmd) =>
+    _fcLabels && _fcLabels.fichaClienteClasifRow
+      ? _fcLabels.fichaClienteClasifRow(cmd)
+      : {
+          'Tipo de cliente': '-',
+          Fidelidad: '-',
+          'Preferencia de contacto': '-',
+          Tamaño: '-',
+          Especialización: '-',
+          'Tipo de local': '-',
+          'Crédito cheque (ARS)': cmd && cmd.creditoCheque ? Number(cmd.creditoCheque) : '-',
+        };
+  const _buyerRow = (bs) =>
+    _fcLabels && _fcLabels.fichaClienteBuyerRow
+      ? _fcLabels.fichaClienteBuyerRow(bs, '12m')
+      : {
+          'Monto total (12m)': '-',
+          'Facturas (12m)': '-',
+          'Promedio por factura (12m)': '-',
+          'Frecuencia (días entre compras)': '-',
+          'Facturas por mes (12m)': '-',
+          'Primera compra': '-',
+          'Última compra': '-',
+          'Días desde última compra': '-',
+        };
+  const _fillDash = (row) =>
+    _fcLabels && _fcLabels.fillDashInEmpty ? _fcLabels.fillDashInEmpty(row) : row;
   // Scope por vendor (v331): el export respeta el filtro de zona activo en el
   // dropdown. Admin/gerente/viewer con 'Todas' obtienen null -> sin filtro
   // (exporta todo el pais). Vendedor obtiene {assignedVendor}. VDI obtiene
@@ -228,6 +278,8 @@ window.exportMasterClientes = async function () {
         const altaMatch = altas.find((a) => (a.comercio || a.fantasia || '') === name);
         if (altaMatch) cardCode = altaMatch.cardCodeSap || '';
       }
+      // v1482 §82: Buyer stats indexado por cardCode SAP.
+      const _buyerStats = cardCode ? buyerStatsIdx.get(cardCode) || null : null;
       rows.push(
         Object.assign(
           {
@@ -247,13 +299,14 @@ window.exportMasterClientes = async function () {
             'Localidad declarada': localityCust,
             'Lat (geocode)': customLat || lat,
             'Lng (geocode)': customLng || lon,
-            // v1055 (2026-09-24): limite de credito ARS para pagar con cheque.
-            // Editable admin/gerente desde Master Clientes UI, guardado en
-            // client_master.creditoCheque (para POINTS matcheados con SAP).
-            'Credito cheque (ARS)':
-              cmData.creditoCheque != null ? Number(cmData.creditoCheque) : '',
           },
-          _classifRow(province, localityMap, name)
+          // v1482 §82: ORDEN importa. Legacy visitas PRIMERO (fallback),
+          // luego Ficha Cliente PISA con labels de la fuente autoritativa
+          // (ej. "Fidelidad" Ficha pisa la mergeada de visitas que puede
+          // estar desactualizada). Buyer stats al final (ventana 12m).
+          _classifRow(province, localityMap, name),
+          _clasifRow(cmData),
+          _buyerRow(_buyerStats)
         )
       );
     });
@@ -295,6 +348,10 @@ window.exportMasterClientes = async function () {
       const zone = lookupZone(vendor);
       const vdi = VDE_TO_VDI[vendor] || '';
       const loc = a.localidadFinal || a.localidad || '(sin localidad)';
+      // v1482 §82: para altas, buyer stats keyed por cardCodeSap (si existe).
+      const _altaBuyerStats = a.cardCodeSap ? buyerStatsIdx.get(a.cardCodeSap) || null : null;
+      // Clasif row: altas pueden tener cliTipo/fidelidad/etc en el propio
+      // doc client_applications (no exclusive de client_master); si no, "-".
       rows.push(
         Object.assign(
           {
@@ -314,10 +371,12 @@ window.exportMasterClientes = async function () {
             'Localidad declarada': loc,
             'Lat (geocode)': a.lat != null ? a.lat : '',
             'Lng (geocode)': a.lng != null ? a.lng : '',
-            // v1055: mismo campo para altas SAP (client_applications.creditoCheque).
-            'Credito cheque (ARS)': a.creditoCheque != null ? Number(a.creditoCheque) : '',
           },
-          _classifRow(prov, loc, nombre)
+          // v1482 §82: mismo orden que POINTS — legacy visitas primero,
+          // Ficha pisa, Buyer al final.
+          _classifRow(prov, loc, nombre),
+          _clasifRow(a),
+          _buyerRow(_altaBuyerStats)
         )
       );
     });
@@ -371,16 +430,30 @@ window.exportMasterClientes = async function () {
     'Localidad declarada': 24,
     'Lat (geocode)': 14,
     'Lng (geocode)': 14,
-    'Credito cheque (ARS)': 18,
+    // v1482 §82: columnas de la Ficha Cliente (pestaña Clasificación) +
+    // Buyer (pestaña Buyer, ventana 12m). Orden exacto que llega desde
+    // _clasifRow (Object.assign preserva orden de keys).
+    'Tipo de cliente': 36,
+    Fidelidad: 10,
+    'Preferencia de contacto': 20,
+    Tamaño: 10,
+    Especialización: 20,
+    'Tipo de local': 14,
+    'Crédito cheque (ARS)': 18,
+    'Monto total (12m)': 16,
+    'Facturas (12m)': 12,
+    'Promedio por factura (12m)': 20,
+    'Frecuencia (días entre compras)': 20,
+    'Facturas por mes (12m)': 16,
+    'Primera compra': 14,
+    'Última compra': 14,
+    'Días desde última compra': 18,
     'Ultima interaccion': 14,
     'Tipo ultima interaccion': 14,
     'Total visitas': 10,
     'Total contactos': 10,
     'Tipo comercio': 18,
     Local: 16,
-    Tamano: 12,
-    Fidelidad: 14,
-    Especializacion: 20,
     'Canal de compra': 20,
     Relevancia: 10,
     POP: 8,
@@ -396,12 +469,29 @@ window.exportMasterClientes = async function () {
   };
   // Detectar keys 100% vacías.
   const allKeys = Object.keys(COL_WIDTHS);
-  const NUMERIC_ZERO_OK = new Set(['Total visitas', 'Total contactos', 'Credito cheque (ARS)']);
+  const NUMERIC_ZERO_OK = new Set(['Total visitas', 'Total contactos']);
+  // v1482 §82: columnas de la Ficha Cliente NUNCA se omiten aunque TODAS
+  // las filas estén en "-" — Mariano quiere ver el header consistente.
+  const FICHA_PROTECTED = new Set([
+    'Tipo de cliente',
+    'Fidelidad',
+    'Preferencia de contacto',
+    'Tamaño',
+    'Especialización',
+    'Tipo de local',
+    'Crédito cheque (ARS)',
+    'Monto total (12m)',
+    'Facturas (12m)',
+    'Promedio por factura (12m)',
+    'Frecuencia (días entre compras)',
+    'Facturas por mes (12m)',
+    'Primera compra',
+    'Última compra',
+    'Días desde última compra',
+  ]);
   const emptyKeys = new Set(
     allKeys.filter((k) => {
-      // Skip columnas core que SIEMPRE se muestran aunque estén vacías.
-      // (CardCode/Nombre son opcionales técnicamente pero cliente sin nombre
-      // ya no llega hasta acá.)
+      if (FICHA_PROTECTED.has(k)) return false;
       return rows.every((r) => {
         const v = r[k];
         if (v === '' || v === null || v === undefined) return true;
@@ -411,32 +501,59 @@ window.exportMasterClientes = async function () {
     })
   );
   const keptKeys = allKeys.filter((k) => !emptyKeys.has(k));
+  // v1482 §82: regla "ninguna celda vacía" — fillDashInEmpty sobre TODAS
+  // las columnas finales (clasif + buyer + legacy visitas).
   const rowsFiltered = rows.map((r) => {
     const out = {};
     keptKeys.forEach((k) => {
       out[k] = r[k];
     });
-    return out;
+    return _fillDash(out);
   });
   const removedCount = emptyKeys.size;
   if (removedCount > 0) {
     console.log(`[masterfile] removidas ${removedCount} cols vacías:`, [...emptyKeys].join(', '));
   }
   // Hoja resumen por zona
+  // v1482 §82: agregar conteo por Tipo de cliente + Fidelidad (dos nuevas
+  // columnas con detalle por zona). Formato breve "A: N, B: M, -: K" para
+  // caber en una sola celda legible.
   const byZone = {};
   rows.forEach((r) => {
     const z = r['Etiqueta zona'] || 'Sin zona';
-    if (!byZone[z]) byZone[z] = { total: 0, habilitados: 0, cancelados: 0 };
+    if (!byZone[z]) {
+      byZone[z] = {
+        total: 0,
+        habilitados: 0,
+        cancelados: 0,
+        tipos: {},
+        fidelidades: {},
+      };
+    }
     byZone[z].total++;
     if (r.Estado === 'Habilitado') byZone[z].habilitados++;
     else if (r.Estado === 'Cancelado') byZone[z].cancelados++;
+    // Tipo de cliente: tomar primer char del label ("A - ...", "B - ...",
+    // "P (Premium)...", "C - ..."). Si label es "-" → "-".
+    const tipoLbl = r['Tipo de cliente'] || '-';
+    const tipoKey = tipoLbl === '-' ? '-' : String(tipoLbl).trim().charAt(0).toUpperCase();
+    byZone[z].tipos[tipoKey] = (byZone[z].tipos[tipoKey] || 0) + 1;
+    const fid = r.Fidelidad || '-';
+    byZone[z].fidelidades[fid] = (byZone[z].fidelidades[fid] || 0) + 1;
   });
+  function _fmtDist(dist) {
+    const entries = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) return '-';
+    return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
+  }
   const resumenRows = Object.entries(byZone)
     .map(([z, d]) => ({
       'Zona / Vendedor': z,
       'Total tiendas': d.total,
       Habilitadas: d.habilitados,
       Canceladas: d.cancelados,
+      'Por Tipo de cliente': _fmtDist(d.tipos),
+      'Por Fidelidad': _fmtDist(d.fidelidades),
     }))
     .sort((a, b) => b['Total tiendas'] - a['Total tiendas']);
 

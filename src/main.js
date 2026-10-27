@@ -36,6 +36,13 @@ import {
 import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
+import {
+  FICHA_CLASIF_LABELS,
+  fichaClienteBuyerRow,
+  fichaClienteClasifRow,
+  fillDashInEmpty,
+  labelForFichaField,
+} from './pure/ficha-cliente-labels.js';
 import { passesTypeFilter } from './pure/filters.js';
 // v1470 (2026-10-26): sanitizador undefined para writes Firestore. Fix bug
 // Federico Castelanelli "Function WriteBatch.update() called with invalid
@@ -440,6 +447,15 @@ const phase0 = {
       isFirestoreTimestamp,
       pedidoDateForPlanner,
       plannerCutoffIsoForQuery,
+    },
+    // v1482 §82 (2026-10-27) — Ficha Cliente labels fuente única. Reusado por
+    // exportMasterClientes + cartera-vendor columna TIPO + tests.
+    fichaClienteLabels: {
+      FICHA_CLASIF_LABELS,
+      labelForFichaField,
+      fichaClienteClasifRow,
+      fichaClienteBuyerRow,
+      fillDashInEmpty,
     },
     // PR4 (v1477 2026-10-26 §75) — resolve-line-desc.
     resolveLineDesc: {
