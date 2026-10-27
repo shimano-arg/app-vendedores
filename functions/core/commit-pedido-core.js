@@ -68,6 +68,9 @@ import {
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
+// v1491 §89 HOTFIX (2026-10-27): resolver UID server-side cuando el cliente
+// (típicamente VDE) no lo pudo resolver client-side por rules de `roles`.
+import { resolveClientVendorServerSide } from './resolve-client-vendor-core.js';
 // PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
 // Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
 import { resolveLineDesc } from './resolve-line-desc-core.js';
@@ -291,13 +294,65 @@ export async function commitPedidoCore(deps, payload) {
   // Si ambos campos vacíos → cliente NO está en master (prospecto nuevo),
   // permite (admin-only por filtro de rol). Reportado SUSANA ANDRILI 2026-10-26.
   const _hasVendorName = !!(payload.vendorAssigned && String(payload.vendorAssigned).trim());
-  const _hasVendorUid = !!(payload.assignedVendorUid && String(payload.assignedVendorUid).trim());
+  let _hasVendorUid = !!(payload.assignedVendorUid && String(payload.assignedVendorUid).trim());
+
+  // v1491 §89 HOTFIX (2026-10-27): si llegó vendorAssigned pero sin UID,
+  // intentar resolver server-side (admin SDK bypassa rules que bloquean a VDE
+  // la lectura de `roles` cross-user). Antes v1491 el rechazo era inmediato
+  // → 15 rechazos VENDOR_UID_MISSING el 27/10 todos de VDEs (Mauricio,
+  // Santiago, Federico) sobre clientes con vendorAssigned válido. Admin pasa
+  // porque su navegador sí lee `roles` + arma `vdeUsers` + resuelve UID.
+  // Regla §89: dato que un gate del servidor exija lo resuelve el servidor;
+  // el cliente solo lo precarga como optimización.
+  if (_hasVendorName && !_hasVendorUid) {
+    try {
+      const resolved = await resolveClientVendorServerSide({
+        fbDb: deps.fbDb,
+        cardCode: payload.cardCode,
+        clientName: payload.clientName,
+        vendorKeyHint: payload.vendorAssigned,
+      });
+      if (resolved && resolved.vendorUid) {
+        payload.assignedVendorUid = resolved.vendorUid;
+        payload.assignedVendorEmail = resolved.vendorEmail || payload.assignedVendorEmail || '';
+        payload.vendorAssigned = payload.vendorAssigned || resolved.vendorKey;
+        payload.assignedVendorReason = 'ok';
+        /** @type {any} */ (payload)._assignedVendorResolvedServerSide = true;
+        _hasVendorUid = true;
+        try {
+          if (deps.log) {
+            deps.log('[v1491 §89] vendor UID resuelto server-side', {
+              cardCode: payload.cardCode,
+              vendorKey: resolved.vendorKey,
+              vendorUid: resolved.vendorUid,
+              source: /** @type {any} */ (resolved).source || 'pure',
+            });
+          }
+        } catch (_eLog) {
+          /* non-fatal */
+        }
+      }
+    } catch (_eResolve) {
+      // fail-open: si el fetch Firestore falla, caemos al gate original.
+      try {
+        if (deps.log) {
+          deps.log('[v1491 §89] resolve server-side falló', {
+            err: _eResolve && /** @type {any} */ (_eResolve).message,
+          });
+        }
+      } catch (_eLog) {
+        /* ignore */
+      }
+    }
+  }
+
   if (_hasVendorName && !_hasVendorUid) {
     await logCommitRejection(deps, 'VENDOR_UID_MISSING', payload, {
       vendorAssigned: payload.vendorAssigned,
       assignedVendorReason: payload.assignedVendorReason || null,
       clientName: payload.clientName,
       cardCode: payload.cardCode,
+      serverResolveAttempted: true,
     });
     return makeError(
       'VENDOR_UID_MISSING',

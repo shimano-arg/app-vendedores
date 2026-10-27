@@ -314,6 +314,118 @@ export function enrichPayloadWithClientVendor(payload, resolution, cargadoPor) {
  * @param {string} reason
  * @returns {string}
  */
+/**
+ * v1491 §89 HOTFIX (2026-10-27) — resolución SERVER-SIDE del vendedor del cliente.
+ *
+ * Fetchea el master (approvedAltas) + users (roles) desde Firestore con admin
+ * SDK (bypassa rules que bloquean a VDE la lectura de `roles` cross-user) y
+ * delega al pure `resolveClientVendorFromMaster`.
+ *
+ * Usado por `commit-pedido-core.js` ANTES del gate `VENDOR_UID_MISSING` para
+ * resolver UID server-side cuando el cliente no lo pudo pre-resolver (típico
+ * VDE: `roles` rule bloquea → `vdeUsers=[]` client-side → `vendor_sin_uid`).
+ *
+ * Fallback adicional post-pure: si `vendorKeyHint` llega populated y el pure
+ * no encontró match, intenta un lookup directo en `roles.where('role','==','vendedor')`
+ * por `vendorKey` normalizado. Esto cubre el caso donde el cliente sí resolvió
+ * el nombre del vendedor pero no el UID (vendor_sin_uid).
+ *
+ * @param {Object} args
+ * @param {any} args.fbDb - Firestore admin instance.
+ * @param {string} [args.cardCode]
+ * @param {string} [args.clientName]
+ * @param {string} [args.vendorKeyHint] - vendorAssigned del payload (si viene del cliente).
+ * @returns {Promise<ClientVendorResolution>}
+ */
+export async function resolveClientVendorServerSide(args) {
+  if (!args || !args.fbDb) return EMPTY;
+  const { fbDb, cardCode, clientName, vendorKeyHint } = args;
+
+  // 1. roles (role=vendedor) → users union.
+  /** @type {Array<{uid:string, email:string, vendorKey:string}>} */
+  const users = [];
+  try {
+    const rolesSnap = await fbDb.collection('roles').where('role', '==', 'vendedor').get();
+    rolesSnap.forEach((/** @type {any} */ d) => {
+      const data = d.data() || {};
+      if (data.vendor) {
+        users.push({
+          uid: d.id,
+          email: data.email || '',
+          vendorKey: String(data.vendor).trim(),
+        });
+      }
+    });
+  } catch (_e) {
+    /* non-fatal: seguir sin lookup UID; fallback por hint abajo */
+  }
+
+  // 2. approvedAltas → master.
+  /** @type {Array<any>} */
+  const approvedAltas = [];
+  try {
+    const altaSnap = await fbDb
+      .collection('client_applications')
+      .where('status', '==', 'approved')
+      .get();
+    altaSnap.forEach((/** @type {any} */ d) => approvedAltas.push(d.data() || {}));
+  } catch (_e) {
+    /* non-fatal */
+  }
+
+  // 3. Pure: resolver via cadena cliente → zona → vendedor.
+  // Note: POINTS NO está en Firestore (vive inline en index.html + cfg).
+  // En server, approvedAltas cubre el 90%+ de los clientes nuevos. Si el
+  // cliente SOLO está en POINTS inline (no en altas), caerá al fallback.
+  const resolution = resolveClientVendorFromMaster({
+    cardCode,
+    clientName,
+    points: [],
+    approvedAltas,
+    users,
+  });
+
+  if (resolution.resolved && resolution.vendorUid) return resolution;
+
+  // 4. Fallback: si llegó vendorKeyHint del cliente + encontramos user con
+  //    ese vendor en roles, usar directo. Esto cubre el caso típico:
+  //    cliente resolvió vendorAssigned='MAURICIO GIL' pero no el UID porque
+  //    rules bloquean read de roles para VDE. Server (admin SDK) sí puede.
+  if (vendorKeyHint && users.length > 0) {
+    const vk = String(vendorKeyHint).trim();
+    // Normalizar label "Z<N> - Nombre" → "NOMBRE".
+    const labelMatch = vk.match(/^Z\d+\s*[-–—]\s*(.+)$/i);
+    const vkNorm = labelMatch ? labelMatch[1].trim().toUpperCase() : vk.toUpperCase();
+    // Match exacto → case-insensitive → primer nombre.
+    let match = users.find((u) => u.vendorKey.toUpperCase() === vkNorm);
+    if (!match) {
+      const vkFirst = vkNorm.split(/\s+/)[0];
+      if (vkFirst && vkFirst.length >= 3) {
+        match = users.find((u) => {
+          const key = u.vendorKey.toUpperCase();
+          return key === vkFirst || key.startsWith(vkFirst + ' ');
+        });
+      }
+    }
+    if (match) {
+      return /** @type {any} */ ({
+        vendorKey: match.vendorKey,
+        vendorUid: match.uid,
+        vendorEmail: match.email,
+        resolved: true,
+        reason: 'ok',
+        source: 'server_fallback_vendorKey',
+      });
+    }
+  }
+
+  return resolution; // retornar la mejor que tuvimos (puede ser vendor_sin_uid)
+}
+
+/**
+ * @param {string} reason
+ * @returns {string}
+ */
 export function formatAssignedVendorReason(reason) {
   switch (reason) {
     case 'ok':
