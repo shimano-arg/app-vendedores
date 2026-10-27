@@ -105,6 +105,8 @@ import {
   formatFirestoreDate,
   isFirestoreTimestamp,
   parseFirestoreDate,
+  pedidoDateForPlanner,
+  plannerCutoffIsoForQuery,
   toIsoStringFlexible,
 } from './pure/parse-date-flexible.js';
 import { reenrichPedidoLine, splitPedidoLine } from './pure/pedido-split.js';
@@ -426,11 +428,15 @@ const phase0 = {
       formatMensajeConCodigo,
     },
     // PR1 (v1474 2026-10-26 §71) — parse fecha tolerante a múltiples formatos.
+    // v1479 (2026-10-27 §76): pedidoDateForPlanner + plannerCutoffIsoForQuery
+    // unifican los 3 call-sites del Planner que leen fecha de /pedidos.
     parseDateFlexible: {
       parseFirestoreDate,
       toIsoStringFlexible,
       formatFirestoreDate,
       isFirestoreTimestamp,
+      pedidoDateForPlanner,
+      plannerCutoffIsoForQuery,
     },
     // PR4 (v1477 2026-10-26 §75) — resolve-line-desc.
     resolveLineDesc: {

@@ -113,12 +113,22 @@ describe('v1478 §PACHI iter 2 — restricciones heredadas de v1460 se preservan
 });
 
 describe('v1478 — bump de versión', () => {
-  it('APP_VERSION es v1478', () => {
-    expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1478'/);
+  // v1479 2026-10-27: relajadas de "literal v1478" a ">= v1478 + ambas en sync"
+  // porque bumps futuros (ej. v1479 fix Planner) rompían este smoke por diseño.
+  // Lo que importa como invariante es que APP_VERSION y CACHE_VERSION del SW
+  // estén alineadas (regla CLAUDE.md §18/§19 — chunks nuevos requieren SW bump).
+  it('APP_VERSION es v1478 o superior', () => {
+    const m = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
+    expect(m, 'APP_VERSION no encontrada').not.toBeNull();
+    expect(Number(m[1])).toBeGreaterThanOrEqual(1478);
   });
 
-  it('CACHE_VERSION del SW es v1478', () => {
-    const sw = readFileSync('sw.js', 'utf8');
-    expect(sw).toMatch(/const CACHE_VERSION = 'v1478'/);
+  it('CACHE_VERSION del SW en sync con APP_VERSION', () => {
+    const app = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
+    const sw = readFileSync('sw.js', 'utf8').match(/const CACHE_VERSION = 'v(\d+)'/);
+    expect(app, 'APP_VERSION no encontrada').not.toBeNull();
+    expect(sw, 'CACHE_VERSION no encontrada').not.toBeNull();
+    expect(sw[1]).toBe(app[1]);
+    expect(Number(sw[1])).toBeGreaterThanOrEqual(1478);
   });
 });

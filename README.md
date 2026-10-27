@@ -4717,6 +4717,55 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1479 (2026-10-27) — HOTFIX Planner vacío post-backfill AD (§76)
+
+Rama `fix-planner-vacio-v1479` → `main`.
+
+**Síntoma reportado (prod v1478)**: Planner Kanban con "Octubre 2026 (actual)" seleccionado + usuario admin: Lista de espera muestra 9 cards ($13.633.000) pero Oferta, Pendiente de facturar, Facturado y Cobrado todas en 0 y $0. Ayer tenían pedidos.
+
+**Causa raíz**: `_subscribePlannerPedidos` hacía
+```js
+base.where('createdAt', '>=', new Date(Date.now() - 90 * 86400000))
+```
+Firestore promueve el `Date` a Timestamp. Desde el backfill AD v1474 (§71) los 486 pedidos tienen `createdAt` como **string ISO**. Firestore compara por tipo primero y Timestamp nunca matchea strings con `>=` → **0 docs devueltos** → `plannerPedidosCache` vacío → columnas Oferta/Pending/Facturar/Cobrado en 0. Lista de espera carga desde `revision_waitlist` sin `where createdAt` → funciona.
+
+**Evidencia dura** (script read-only `scripts/audit/AH_verif_planner_vacio.cjs`):
+- Total pedidos: **486**.
+- `createdAt string ISO`: **486** (100%, todos post-backfill AD).
+- `createdAt Timestamp`: **0**.
+- Query Planner con `Date`: **0 docs devueltos** ← bug confirmado.
+- Mismo rango con string ISO: **442 docs devueltos** ← lo que debería ver el Planner.
+- Ejemplos reales: ORDEN 544 LA LOMITA (oferta), ORDEN 538 SATO (facturar), ORDEN 537 BAIGORRIA (cobrado), ORDEN 516 BROBRO (facturar), etc.
+
+**Fix v1479**:
+
+1. **`src/pure/parse-date-flexible.js`** — 2 helpers nuevos:
+   - `pedidoDateForPlanner(pedido)` → `Date | null`. Lee `createdAt || updatedAt` + delega en `parseFirestoreDate` (tolerante a Timestamp + ISO + number + Date).
+   - `plannerCutoffIsoForQuery(nowMs, daysBack)` → string ISO. Para pasar al `where` del listener.
+2. **`src/main.js`**: expone ambos en `window.__phase0.pure.parseDateFlexible`.
+3. **`index.html`** — 4 call-sites del Planner migrados:
+   - `_subscribePlannerPedidos`: `base.where('createdAt', '>=', plannerCutoffIsoForQuery(Date.now(), daysBack))` ← string ISO.
+   - `_plannerPedidoInMonth`: delega en `pedidoDateForPlanner`.
+   - `tsOf` del sort: `pedidoDateForPlanner(x)?.getTime() || 0`. Antes el sort devolvía 0 para TODOS los pedidos string → orden indeterminado.
+   - `_plannerFmtDate`: `parseFirestoreDate(ts)`. Antes no soportaba string → fecha vacía en todas las cards post-backfill.
+4. Todos los call-sites tienen fallback inline con soporte string ISO por si el bundle no cargó (SW stale).
+
+**Tests** (`tests/unit/audit/planner-fecha-pedido-fix-v1479.test.js`, **24 tests**):
+- 7 unit `pedidoDateForPlanner` (string/Timestamp/REST shape/updatedAt fallback/null/Invalid).
+- 4 unit `plannerCutoffIsoForQuery` (90d/180d/sin nowMs/lexicográfico).
+- 4 grep contrato index.html (listener + sort + fmt + inMonth usan helpers + anti-regresión `where new Date(`).
+- 1 grep contrato main.js (import + export).
+- 6 fixture real por columna (3 ISO: ORDEN 544/538/537 + 1 Timestamp legacy ORDEN 100) cubriendo T40 parse, T41-T42 cutoff filtra, T43 sort DESC estable, T44 inMonth, T45 cross-tipo.
+- 2 bump versión.
+
+**Suite completa post-v1479**: **2018 PASS, 0 FAIL** (24 nuevos + 2 relajados PACHI v1478 que validaban literal "v1478" ahora validan `>= v1478 + sync APP/SW`). `biome check`: clean. `tsc`: clean.
+
+**Documentación**: CLAUDE.md §76 nuevo + `INFORME_PLANNER_VACIO.md` en Desktop con causa raíz + evidencia + call-sites fuera de scope a revisar.
+
+**Rollback**: `git revert <sha_v1479>` + PR revert + `gh pr merge --squash --admin`. Pages redeploy ~2 min. Vuelve al estado "Planner vacío" pre-fix. Alternativa (si el revert introduce otra regresión): script de reversión del backfill AD leyendo `_backfill.AD_fechas_ts_a_iso_2026-10-26_v1474.previousValues` → 486 writes Timestamp. Solo como último recurso.
+
+**Call-sites fuera de scope (candidatos a revisar aparte)**: sidebar sorts usan `t.toMillis?.()` sin soporte string: `index.html:20118-20119`, `21285-21286`, `22321-22322`, `34515-34516`. Si post-backfill AD están afectados, mismo patrón `pedidoDateForPlanner`.
+
 ### v1478 (2026-10-27) — PACHI iter 2: ocultar 6 botones + modal Exportar depurado + ver campañas cross-zona sin métricas
 
 Rama `feat-v1478-pachi-iter-2` → `main`.

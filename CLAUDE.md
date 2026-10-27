@@ -3293,3 +3293,51 @@ db.collection('operations_log') \
 **Precedente**: Federico Castelanelli 2026-10-26 — error "WriteBatch.update() invalid data undefined" solo visible en el navegador del vendedor, enviado por WhatsApp como foto. Sin este log, un vendedor que no reporta pierde datos silenciosamente.
 
 **Alcance actual**: colecciones `revision_waitlist/*` y `pedidos/*` (vía monkey-patch). Si en el futuro otra colección tiene problemas, extender `isSanitizedPath` para incluirla.
+
+## 76. Planner — una sola función para leer fecha de /pedidos (2026-10-27, v1479)
+
+**Regla fuerte**: todo call-site del Planner Kanban que lea `createdAt`/`updatedAt`/`confirmedAt` de un documento de `/pedidos` DEBE pasar por `window.__phase0.pure.parseDateFlexible.pedidoDateForPlanner(pedido)` (o `parseFirestoreDate(v)` si lee un campo específico). La query Firestore server-side `where('createdAt', '>=', <cutoff>)` DEBE usar `plannerCutoffIsoForQuery(nowMs, daysBack)` que devuelve string ISO, NUNCA un `Date` object.
+
+**Por qué**: Firestore tipa los valores de la query. Un `Date` se promueve a Timestamp internamente. Desde el backfill AD v1474 (§71) los 486 pedidos tienen `createdAt` como string ISO. Firestore ordena por tipo primero (string < timestamp), entonces `where('createdAt', '>=', Date)` nunca matchea strings → **0 docs devueltos**. Reportado 2026-10-27 (v1478): Planner mostraba 9 cards en Lista de espera ($13.633.000) y 0 en Oferta/Pending/Facturar/Cobrado. Lista de espera carga desde `revision_waitlist.orderBy('createdAt','asc').onSnapshot()` SIN `where` → no afectada.
+
+**Pure helpers** (`src/pure/parse-date-flexible.js`):
+
+```js
+// Lee fecha canónica del pedido para el Planner. Prioridad createdAt → updatedAt.
+pedidoDateForPlanner(pedido) → Date | null
+// Devuelve ISO string para el cutoff del where('createdAt', '>=', X) del listener.
+plannerCutoffIsoForQuery(nowMs, daysBack) → "YYYY-MM-DDTHH:mm:ss.sssZ"
+// (reusa parseFirestoreDate como primitiva base para los 4 formatos).
+```
+
+**Call-sites del Planner migrados en v1479** (`index.html`):
+
+1. `_subscribePlannerPedidos` (línea ~35587): `base.where('createdAt', '>=', plannerCutoffIsoForQuery(Date.now(), daysBack))`. **Antes**: `new Date(...)` → 0 docs.
+2. `_plannerPedidoInMonth` (línea ~14744): `pedidoDateForPlanner(pedido)` para extraer `Date`. Antes era tolerante inline a 3 tipos pero duplicaba lógica.
+3. `tsOf` del sort (línea ~35700): `pedidoDateForPlanner(x)?.getTime() || 0`. **Antes**: `typeof t.toMillis === 'function'` → false para string → sort devolvía 0 para TODOS → orden indeterminado post-backfill.
+4. `_plannerFmtDate` (línea ~35985): `parseFirestoreDate(ts)` para parseo. **Antes**: no soportaba string → render vacío en todas las cards.
+
+Todos tienen fallback inline que replica el pure (soportando string ISO) por si el bundle no cargó (SW stale sirviendo HTML viejo con bundle nuevo).
+
+**Prohibido**:
+- Pasar un `Date` object al `where('createdAt', ...)` del listener del Planner. Siempre string ISO via `plannerCutoffIsoForQuery`.
+- Reintroducir `pedido.createdAt || pedido.updatedAt` inline sin pasar por `pedidoDateForPlanner`. Es receta de regresión silenciosa cuando el formato persistido cambia.
+- Hacer `typeof t === 'number'` o `typeof t.toMillis === 'function'` como ÚNICOS checks sin soportar `typeof t === 'string'`. Post-backfill todos son string.
+
+**Prohibido NO documentado pero recomendado**: el patrón vale para OTROS lectores de fecha de /pedidos fuera del Planner. Hoy hay call-sites conocidos que usan `t.toMillis?.()` sin soportar string (ver sidebar sorts: `index.html:20118-20119`, `21285-21286`, `22321-22322`, `34515-34516`). No son estrictamente del Planner pero pueden tener el mismo síntoma post-backfill. **Fix de alcance acotado v1479 solo cubre Planner.** Revisarlos aparte en una iteración futura (candidatos listados en `INFORME_PLANNER_VACIO.md`).
+
+**Tests obligatorios**: `tests/unit/audit/planner-fecha-pedido-fix-v1479.test.js` (24 tests):
+- `pedidoDateForPlanner`: 7 casos (string ISO, Timestamp con toDate, {seconds,nanoseconds} REST, fallback updatedAt, createdAt pisa updatedAt, null/undefined, Invalid Date).
+- `plannerCutoffIsoForQuery`: 4 casos (90d, 180d, sin nowMs, comparación lexicográfica ISO).
+- Contrato index.html: 4 greps (listener + sort + fmt + inMonth usan helpers; anti-regresión Date al where).
+- Exposición main.js: 1 (import + export en __phase0.pure.parseDateFlexible).
+- Fixture real por columna: 6 tests con 3 pedidos ISO (ORDEN 544 Oferta / 538 Facturar / 537 Cobrado) + 1 pedido legacy Timestamp (ORDEN 100). Cubre T40 parse OK, T41-T42 cutoff ISO filtra correcto, T43 sort DESC estable, T44 inMonth=2026-10 incluye los 3 ISO + excluye legacy, T45 ISO y Timestamp devuelven mismo Date.
+- Bump versión: 2.
+
+**Rollback plan** si el fix v1479 falla en prod:
+1. `git revert <sha_v1479>` + PR revert + `gh pr merge --squash --admin`. Pages redeploy ~2 min. Vuelve a estado "Planner vacío".
+2. Alternativa si revert no basta: el backfill AD v1474 guardó `_backfill.AD_fechas_ts_a_iso_2026-10-26_v1474.previousValues.{campo}` con `{type:'Timestamp', seconds}` por doc. Un script de reversión podría re-escribir los 486 pedidos a Timestamp (486 writes admin SDK). Solo si el fix nuevo introduce regresión peor.
+
+**Diagnóstico recurrente**: si en el futuro el Planner vuelve a mostrar 0 cards en Oferta/Pending/Facturar/Cobrado post-cambio al formato de fecha, correr `scripts/audit/AH_verif_planner_vacio.cjs` (read-only) para ver cuántos pedidos tienen `createdAt` string vs Timestamp y verificar si la query devuelve 0.
+
+**Precedente**: `fix-planner-vacio-v1479` 2026-10-27. Query AH verif prod devolvió: 486 pedidos / 486 string ISO / query con Date: 0 / query con ISO: 442.
