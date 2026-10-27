@@ -48,6 +48,12 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'Hay productos del pedido que todavía no están cargados en SAP. Quitalos del pedido o avisale a Mariano para que los agregue antes de confirmar.',
   },
 
+  // PR 3 §74 — cliente en master pero vendor sin UID resolvible.
+  VENDOR_UID_MISSING: {
+    texto:
+      'Este cliente tiene vendedor asignado pero no pudimos encontrar su usuario. Avisale a Mariano con el nombre del cliente antes de volver a intentar.',
+  },
+
   // commitPedidoCF errorCodes.
   STOCK_CHANGED: {
     texto:
