@@ -279,6 +279,33 @@ export async function commitPedidoCore(deps, payload) {
     );
   }
 
+  // 4.5.5 PR 3 §74 (2026-10-26): VENDOR_UID_MISSING gate.
+  // El cliente YA resuelve assignedVendorUid + vendorAssigned client-side via
+  // enrichPayloadWithClientVendor (src/pure/resolve-client-vendor.js §44/§46).
+  // Si llega al CF con vendorAssigned populated (cliente en master) pero
+  // assignedVendorUid vacío → el pedido quedaría invisible en Planner VDE
+  // (filtro autoritativo §59 por UID). Rechazamos pre-tx para forzar reportar.
+  // Si ambos campos vacíos → cliente NO está en master (prospecto nuevo),
+  // permite (admin-only por filtro de rol). Reportado SUSANA ANDRILI 2026-10-26.
+  const _hasVendorName = !!(payload.vendorAssigned && String(payload.vendorAssigned).trim());
+  const _hasVendorUid = !!(payload.assignedVendorUid && String(payload.assignedVendorUid).trim());
+  if (_hasVendorName && !_hasVendorUid) {
+    await logCommitRejection(deps, 'VENDOR_UID_MISSING', payload, {
+      vendorAssigned: payload.vendorAssigned,
+      assignedVendorReason: payload.assignedVendorReason || null,
+      clientName: payload.clientName,
+      cardCode: payload.cardCode,
+    });
+    return makeError(
+      'VENDOR_UID_MISSING',
+      'Este cliente tiene vendedor asignado pero no pudimos encontrar su usuario. Avisale a Mariano con el nombre del cliente antes de volver a intentar.',
+      {
+        vendorAssigned: payload.vendorAssigned,
+        clientName: payload.clientName,
+      }
+    );
+  }
+
   // 4.6 PR 2 §72 (2026-10-26): SKU_NOT_IN_SAP_CATALOG gate.
   //
   // Chequeo pre-tx (fuera del runTransaction): si alguna línea tiene un SKU
