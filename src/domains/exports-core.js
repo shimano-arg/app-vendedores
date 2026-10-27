@@ -1776,10 +1776,13 @@ async function exportStockAsigForMonth(anio, monthIdx) {
 // no los incluia. Version "current status" que itera globalPedidos completo.
 window.exportBackorderAll = async function () {
   showSyncTag('Generando export de Backorder (snapshot actual)...');
-  // v1100 (2026-09-30): delega al módulo puro backorder-sku-map — mismo
-  // FIFO + filtro vencidas + estados (BO+ASIG+confirmed) que el modal. Antes
-  // este export era un dump crudo de líneas state=BO sin cap ni filtro
-  // vencidas, así que divergía del modal. Ahora es paridad total.
+  // v1488 §86 (2026-10-27 BUG FIX): usar la MISMA pure fn que el modal export
+  // (`computeBackorderExportRows`). Antes v1488: panel usaba
+  // `computeBackorderRawLines({})` sin `includeExpired` → ocultaba BOs > 90d.
+  // Modal usaba `computeBackorderSkuMap(..., {includeExpired:true})` → los
+  // incluía. Delta medido en prod: 222 unidades (modal 7696 vs panel 7474).
+  // Fix: pure fn única con default `includeExpired=true` (alineado con §40.1
+  // y getStockBreakdown.backorderApp.total — la cola completa).
   const arr =
     typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
   const totalPedidosOpen = arr.filter((p) => p && !p.closedAt).length;
@@ -1798,80 +1801,31 @@ window.exportBackorderAll = async function () {
     }
   };
   const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
-  const computeFn = w.__phase0 && w.__phase0.pure && w.__phase0.pure.computeBackorderRawLines;
-  const rawLines = computeFn
-    ? computeFn(
-        arr,
-        'urgente',
-        {},
-        {
-          getStockDisponibleVenta:
-            typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
-          canonVendor:
-            typeof w._canonVendor === 'function'
-              ? w._canonVendor
-              : (x) =>
-                  String(x || '')
-                    .trim()
-                    .toUpperCase(),
-          products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
-          resolveVendorFallback: _resolveVendorFallback,
-        }
-      )
-    : [];
-  // Índice pedidoId → pedido para enriquecer con campos que el módulo no expone
-  // (Mes, Cantidad_Pedida original, Origen, Linea_Idx).
-  const pedidoById = {};
-  for (const p of arr) if (p && p._fsId) pedidoById[p._fsId] = p;
-  const rows = [];
-  rawLines.forEach((rl) => {
-    const c = rl.cliente;
-    const p = c.pedidoId ? pedidoById[c.pedidoId] : null;
-    // Cantidad_Pendiente_BO = qtyBackorder post-FIFO.
-    const qo = c.qtyBackorder || 0;
-    let fechaPedido = '';
-    if (c.pedidoCreatedAt) {
-      const dt = c.pedidoCreatedAt;
-      fechaPedido =
-        typeof dt === 'string'
-          ? dt.slice(0, 10)
-          : new Date(dt.toDate ? dt.toDate() : dt).toISOString().slice(0, 10);
-    }
-    // Recuperar la línea original para Cantidad_Pedida + Linea_Idx (si hay pedido).
-    let cantidadPedida = qo;
-    let lineaIdx = -1;
-    if (p && Array.isArray(p.lines)) {
-      const idx = p.lines.findIndex(
-        (l) => l && String(l.code || '').toUpperCase() === rl.sku && l.state === c.state
-      );
-      if (idx >= 0) {
-        cantidadPedida = Number(p.lines[idx].qty) || qo;
-        lineaIdx = idx;
-      }
-    }
-    rows.push({
-      Fecha_Pedido: fechaPedido,
-      Mes: (p && p.month) || '',
-      Cliente: c.nombre || '',
-      CardCode: c.code || (p && p.clientCardCode) || '',
-      Provincia: c.provincia || (p && p.province) || '',
-      Localidad: c.ciudad || (p && p.locName) || '',
-      Vendedor: c.vendorKey || '',
-      SKU: rl.sku || '',
-      Producto: rl.producto || '',
-      Cantidad_Pedida: cantidadPedida,
-      Cantidad_Pendiente_BO: qo,
-      Precio_Unit_ARS: c.precio || 0,
-      Subtotal_BO_ARS: Math.round(qo * (c.precio || 0)),
-      Pedido_ID: c.pedidoId || '',
-      Linea_Idx: lineaIdx,
-      SQ_DocNum: c.sqDocNum || '',
-      Origen: (p && p.migrationSource) || 'app',
-      // v1100: contexto útil para debugging paridad modal↔reporte.
-      Estado: c.state || 'BO',
-      Stock_Disp_SKU: rl.dispSap || 0,
-    });
-  });
+  // v1488 §86: pure fn única `computeBackorderExportRows` (reemplaza el
+  // path histórico `computeBackorderRawLines` que no consolidaba y perdía
+  // BOs > 90d). Panel pasa `{}` → trae toda la cola sin filtros manuales.
+  const _exportFn =
+    w.__phase0 &&
+    w.__phase0.pure &&
+    w.__phase0.pure.backorderExport &&
+    w.__phase0.pure.backorderExport.computeBackorderExportRows;
+  const deps = {
+    getStockDisponibleVenta:
+      typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : () => 0,
+    canonVendor:
+      typeof w._canonVendor === 'function'
+        ? w._canonVendor
+        : (x) =>
+            String(x || '')
+              .trim()
+              .toUpperCase(),
+    products: Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [],
+    resolveVendorFallback: _resolveVendorFallback,
+  };
+  const _exportResult = _exportFn
+    ? _exportFn(arr, {}, deps)
+    : { rows: [], totalUnidades: 0, totalFilas: 0, filtrosAplicados: {} };
+  const rows = _exportResult.rows;
   if (rows.length === 0) {
     alert(
       'Export Backorder vacio. Diagnostico:\n' +
@@ -1939,46 +1893,46 @@ window.exportBackorderAll = async function () {
       else subtotalesPorUrgency.urgente += sub;
     }
   }
-  const totalUnidadesModal = _modalResult.totalUnidades || 0;
+  const totalUnidadesModal = _exportResult.totalUnidades || _modalResult.totalUnidades || 0;
   const totalClientesModal = _modalResult.totalClientes || 0;
   const totalSkusModal = (_modalResult.skus || []).length;
+  // v1488 §86: fila de encabezado "Filtros aplicados" para transparencia.
+  const _fmtFiltros =
+    w.__phase0 &&
+    w.__phase0.pure &&
+    w.__phase0.pure.backorderExport &&
+    w.__phase0.pure.backorderExport.formatBackorderFiltrosHeader;
+  const filtrosLbl = _fmtFiltros ? _fmtFiltros(_exportResult.filtrosAplicados) : 'Filtros: ninguno';
   const resumenRows = [
-    { Metrica: 'TOTAL Backorder ARS (igual al modal)', Valor: Math.round(totalPesosModal) },
+    { Metrica: filtrosLbl, Valor: '' },
+    { Metrica: 'TOTAL Backorder ARS', Valor: Math.round(totalPesosModal) },
     { Metrica: 'SKUs con backorder', Valor: totalSkusModal },
     { Metrica: 'Unidades pendientes', Valor: Math.round(totalUnidadesModal) },
+    { Metrica: 'Pares cliente+SKU (filas en hoja Backorder)', Valor: rows.length },
     { Metrica: 'Clientes afectados', Valor: totalClientesModal },
     { Metrica: '— Subtotal SIN REPOSICION', Valor: Math.round(subtotalesPorUrgency.urgente) },
     { Metrica: '— Subtotal PARCIAL', Valor: Math.round(subtotalesPorUrgency.parcial) },
-    {
-      Metrica:
-        'Lineas crudas en hoja Backorder (hay varias por cliente/SKU si hay multiples pedidos)',
-      Valor: rows.length,
-    },
     { Metrica: 'Snapshot generado', Valor: new Date().toLocaleString('es-AR') },
   ];
-  // Agregar fila TOTAL al final de la hoja Backorder usando la MISMA formula
-  // que _modalResult (consolidada por cliente). Sin esto, sumar la columna
-  // Subtotal_BO_ARS a mano da el valor crudo (puede diverger).
+  // v1488 §86: fila TOTAL alineada con el nuevo shape (sin columnas legacy
+  // Fecha_Pedido / Mes / Cantidad_Pedida / Pedido_ID / Linea_Idx / etc.).
+  // Las nuevas columnas (de computeBackorderExportRows): SKU, Producto,
+  // Cliente, CardCode, Provincia, Localidad, Vendedor, Cantidad_Pendiente_BO,
+  // Precio_Unit_ARS, Subtotal_BO_ARS, Edad_BO_dias, Estado, Pedidos.
   const totalRow = {
-    Fecha_Pedido: '',
-    Mes: '',
-    Cliente: 'TOTAL (igual al modal)',
+    SKU: '',
+    Producto: '',
+    Cliente: 'TOTAL',
     CardCode: '',
     Provincia: '',
     Localidad: '',
     Vendedor: '',
-    SKU: '',
-    Producto: '',
-    Cantidad_Pedida: '',
     Cantidad_Pendiente_BO: Math.round(totalUnidadesModal),
     Precio_Unit_ARS: '',
     Subtotal_BO_ARS: Math.round(totalPesosModal),
-    Pedido_ID: '',
-    Linea_Idx: '',
-    SQ_DocNum: '',
-    Origen: '',
+    Edad_BO_dias: '',
     Estado: '',
-    Stock_Disp_SKU: '',
+    Pedidos: '',
   };
   rows.push(totalRow);
   const today = new Date().toISOString().slice(0, 10);
