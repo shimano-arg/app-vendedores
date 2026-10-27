@@ -41,6 +41,7 @@ import {
   fichaClienteBuyerRow,
   fichaClienteClasifRow,
   fillDashInEmpty,
+  findCmDataByCardCode,
   labelForFichaField,
 } from './pure/ficha-cliente-labels.js';
 import { passesTypeFilter } from './pure/filters.js';
@@ -464,6 +465,10 @@ const phase0 = {
       fichaClienteClasifRow,
       fichaClienteBuyerRow,
       fillDashInEmpty,
+      // v1485 §84 (2026-10-27 bug fix): búsqueda del doc client_master por
+      // cardCode. Fix para MAXERA donde el slug `clientLocId(prov, loc, name)`
+      // no matcheaba el doc real con los campos Ficha.
+      findCmDataByCardCode,
     },
     // PR4 (v1477 2026-10-26 §75) — resolve-line-desc.
     resolveLineDesc: {

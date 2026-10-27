@@ -70,6 +70,26 @@ window.exportMasterClientes = async function () {
         };
   const _fillDash = (row) =>
     _fcLabels && _fcLabels.fillDashInEmpty ? _fcLabels.fillDashInEmpty(row) : row;
+  // v1485 §84 (2026-10-27 BUG FIX): búsqueda por cardCode (fuente autoritativa).
+  // v1482 usaba `clientMasterCache.get(clientLocId(prov, loc, name))` — slug
+  // derivado de POINTS. Para MAXERA, POINTS dice "Palermo (C14)" pero la Ficha
+  // persiste con "COLEGIALES" → docId mismatch → cmData undefined → 5 campos
+  // Ficha salían "-" aunque cargados. findCmDataByCardCode escanea por
+  // sapCardCode OR cardCodeSap (ambos aliases) y retorna el doc correcto.
+  const _findByCard =
+    _fcLabels && _fcLabels.findCmDataByCardCode
+      ? _fcLabels.findCmDataByCardCode
+      : (cardCode, cache) => {
+          if (!cardCode || !cache || typeof cache.forEach !== 'function') return null;
+          let found = null;
+          cache.forEach((d) => {
+            if (found || !d) return;
+            const cc1 = String(d.sapCardCode || '').trim();
+            const cc2 = String(d.cardCodeSap || '').trim();
+            if (cc1 === cardCode || cc2 === cardCode) found = d;
+          });
+          return found;
+        };
   // Scope por vendor (v331): el export respeta el filtro de zona activo en el
   // dropdown. Admin/gerente/viewer con 'Todas' obtienen null -> sin filtro
   // (exporta todo el pais). Vendedor obtiene {assignedVendor}. VDI obtiene
@@ -280,6 +300,11 @@ window.exportMasterClientes = async function () {
       }
       // v1482 §82: Buyer stats indexado por cardCode SAP.
       const _buyerStats = cardCode ? buyerStatsIdx.get(cardCode) || null : null;
+      // v1485 §84 BUG FIX: buscar cmData autoritativo por cardCode. El
+      // clientMasterCache.get(docId) de arriba usa slug clientLocId que puede
+      // apuntar al doc EQUIVOCADO (ver comment arriba). _findByCard scan por
+      // sapCardCode garantiza encontrar el doc con los campos Ficha.
+      const _cmDataForFicha = _findByCard(cardCode, clientMasterCache) || cmData;
       rows.push(
         Object.assign(
           {
@@ -305,7 +330,7 @@ window.exportMasterClientes = async function () {
           // (ej. "Fidelidad" Ficha pisa la mergeada de visitas que puede
           // estar desactualizada). Buyer stats al final (ventana 12m).
           _classifRow(province, localityMap, name),
-          _clasifRow(cmData),
+          _clasifRow(_cmDataForFicha),
           _buyerRow(_buyerStats)
         )
       );
@@ -350,8 +375,11 @@ window.exportMasterClientes = async function () {
       const loc = a.localidadFinal || a.localidad || '(sin localidad)';
       // v1482 §82: para altas, buyer stats keyed por cardCodeSap (si existe).
       const _altaBuyerStats = a.cardCodeSap ? buyerStatsIdx.get(a.cardCodeSap) || null : null;
-      // Clasif row: altas pueden tener cliTipo/fidelidad/etc en el propio
-      // doc client_applications (no exclusive de client_master); si no, "-".
+      // v1485 §84 BUG FIX: para altas con cardCode, el doc autoritativo con
+      // campos Ficha vive en client_master (lo escribe saveClientCategoriaFromModal
+      // via Ficha). _findByCard retorna ese doc. Fallback al propio alta `a`
+      // si el cliente no está en client_master (ej. provisorio sin cardCode).
+      const _altaCmData = a.cardCodeSap ? _findByCard(a.cardCodeSap, clientMasterCache) || a : a;
       rows.push(
         Object.assign(
           {
@@ -375,7 +403,7 @@ window.exportMasterClientes = async function () {
           // v1482 §82: mismo orden que POINTS — legacy visitas primero,
           // Ficha pisa, Buyer al final.
           _classifRow(prov, loc, nombre),
-          _clasifRow(a),
+          _clasifRow(_altaCmData),
           _buyerRow(_altaBuyerStats)
         )
       );
@@ -470,8 +498,30 @@ window.exportMasterClientes = async function () {
   // Detectar keys 100% vacías.
   const allKeys = Object.keys(COL_WIDTHS);
   const NUMERIC_ZERO_OK = new Set(['Total visitas', 'Total contactos']);
-  // v1482 §82: columnas de la Ficha Cliente NUNCA se omiten aunque TODAS
-  // las filas estén en "-" — Mariano quiere ver el header consistente.
+  // v1482 §82 + v1485 §84 mejora: columnas Ficha + estructurales (CardCode,
+  // Zona, Vendedor, Dirección, etc.) NUNCA se omiten. Mariano pidió:
+  // "no ocultar columnas por rol; PACHI recibe las mismas columnas que
+  // admin, solo sus clientes". El export VDE/PACHI respeta este contrato
+  // porque las structurales están protegidas aunque el scope reducido no
+  // tenga datos para alguna de ellas.
+  const STRUCTURAL_PROTECTED = new Set([
+    'CardCode SAP',
+    'Nombre tienda',
+    'Alias (modal)',
+    'Tipo',
+    'Estado',
+    'Provincia',
+    'Localidad (mapa)',
+    'Departamento',
+    'Vendedor externo (VDE)',
+    'Zona',
+    'Etiqueta zona',
+    'Asesor interno (VDI)',
+    'Direccion',
+    'Localidad declarada',
+    'Lat (geocode)',
+    'Lng (geocode)',
+  ]);
   const FICHA_PROTECTED = new Set([
     'Tipo de cliente',
     'Fidelidad',
@@ -491,6 +541,7 @@ window.exportMasterClientes = async function () {
   ]);
   const emptyKeys = new Set(
     allKeys.filter((k) => {
+      if (STRUCTURAL_PROTECTED.has(k)) return false;
       if (FICHA_PROTECTED.has(k)) return false;
       return rows.every((r) => {
         const v = r[k];

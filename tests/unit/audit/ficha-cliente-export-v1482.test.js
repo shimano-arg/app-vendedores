@@ -318,7 +318,10 @@ describe('v1482 §82 — contrato: exports-core.js y cartera-vendor.js reusan el
 
   it('T60 exports-core usa fichaClienteClasifRow + fichaClienteBuyerRow + fillDashInEmpty', () => {
     expect(EXPORTS).toMatch(/fichaClienteLabels/);
-    expect(EXPORTS).toMatch(/_clasifRow\(cmData\)/);
+    // v1485 §84: _clasifRow ahora recibe _cmDataForFicha (POINTS) o
+    // _altaCmData (altas) — docs resueltos por findCmDataByCardCode.
+    expect(EXPORTS).toMatch(/_clasifRow\(_cmDataForFicha\)/);
+    expect(EXPORTS).toMatch(/_clasifRow\(_altaCmData\)/);
     expect(EXPORTS).toMatch(/_buyerRow\(_buyerStats\)/);
     expect(EXPORTS).toMatch(/_buyerRow\(_altaBuyerStats\)/);
     expect(EXPORTS).toMatch(/_fillDash\(out\)/);
