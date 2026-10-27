@@ -7114,7 +7114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1495';
+const APP_VERSION = 'v1496';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -25660,7 +25660,33 @@ function _renderWaitlistCard(){
     _badgeEl.textContent = _preservedText;
     _titleEl.appendChild(_badgeEl);
   }
-  const ts = w.createdAt && w.createdAt.toDate ? w.createdAt.toDate().toLocaleString('es-AR') : 'sin fecha';
+  // v1496 §95 (2026-10-27) PACHI iter 6: formatear createdAt siempre en hora
+  // Argentina (America/Argentina/Buenos_Aires) + 24h explícito. Antes v1496:
+  // `.toLocaleString('es-AR')` dependía del locale del browser → podía
+  // devolver "01:55:15" ambiguo (12h sin AM/PM) para horas de la tarde en
+  // algunos Chrome/OS combos. Reportado PACHI iter 6: ORDEN 601 CHALPAC S.A.
+  // cargado 13:55 ART mostraba "27/10/2026, 01:55:15". Delega a pure fn
+  // `formatFirestoreDate` con timeZone + hour12=false explícitos.
+  const _fmtFn =
+    window.__phase0 &&
+    window.__phase0.pure &&
+    window.__phase0.pure.parseDateFlexible &&
+    window.__phase0.pure.parseDateFlexible.formatFirestoreDate;
+  const ts = _fmtFn
+    ? _fmtFn(w.createdAt, {
+        style: 'datetime',
+        locale: 'es-AR',
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour12: false,
+        fallback: 'sin fecha',
+      })
+    : (w.createdAt && w.createdAt.toDate
+        ? w.createdAt.toDate().toLocaleString('es-AR', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            timeZone: 'America/Argentina/Buenos_Aires', hour12: false,
+          })
+        : 'sin fecha');
   document.getElementById('wcard-subt').textContent = (w.clientLocality || 's/loc') + ' · ' + (w.clientProvince || 's/prov') + ' · Vendor asignado: ' + (w.vendorAssigned || 'sin asignar') + ' · Cargado por ' + (w.ownerDisplayName || w.ownerEmail || '') + ' · ' + ts;
   // v477: render seccion "SAP Asignado - Con Stock" del cliente.
   _renderSapAsignadoConStock(w);
@@ -26305,10 +26331,35 @@ function _renderWaitlistCard(){
   // Excel), entonces si el VDE se equivocaba no podia borrar su propio pedido
   // — tenia que pedir a admin. Rules Firestore v514 ya permiten delete a
   // cualquier isReader(), solo faltaba abrir el gate del frontend.
-  const canDelete = !!(
-    currentUser &&
-    /@shimano\.(com\.ar|uy)$/i.test(currentUser.email || '')
-  );
+  //
+  // v1496 §95 (2026-10-27) PACHI iter 6: delega a la pure fn
+  // `canDeleteOwnWaitlist(w, uid, email)` (fuente única). Antes v1496 el regex
+  // email-only ocultaba el botón para PACHI real (`pachinaba@gmail.com`).
+  // Ahora: PACHI puede borrar sus propios pedidos (ownerUid === uid); VDE
+  // regular + admin pueden cualquiera (preserva v540). Fallback inline SW stale.
+  const _emForDel = ((currentUser && (currentUser.email || '')) || '').toLowerCase();
+  const _uidForDel = (currentUser && currentUser.uid) || null;
+  const _canDelFn =
+    window.__phase0 &&
+    window.__phase0.pure &&
+    window.__phase0.pure.pachiRestrictions &&
+    window.__phase0.pure.pachiRestrictions.canDeleteOwnWaitlist;
+  let canDelete = false;
+  if (_canDelFn) {
+    canDelete = _canDelFn(w, _uidForDel, _emForDel);
+  } else {
+    // Fallback inline (SW stale): hardcode PACHI_UIDS + lógica equivalente.
+    const _PACHI_UIDS_DEL = ['LaBFi1xkSLObzLEdRoP8fonZ06r2', 'tUJHiLDyLHWvbkpWgCQXWJcucfV2'];
+    const _isShimano = /@shimano\.(com\.ar|uy)$/i.test(_emForDel);
+    const _isPachi = _uidForDel && _PACHI_UIDS_DEL.includes(_uidForDel);
+    if (_isShimano || _isPachi) {
+      if (_isPachi) {
+        canDelete = !!(w && w.ownerUid && String(w.ownerUid) === String(_uidForDel));
+      } else {
+        canDelete = true;
+      }
+    }
+  }
   document.getElementById('wcard-delete-btn').style.display = canDelete ? '' : 'none';
   // v500: mismo criterio de permiso para editar orden.
   const editOrdenBtn = document.getElementById('wcard-edit-orden-btn');
