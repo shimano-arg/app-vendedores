@@ -17,6 +17,10 @@ import {
   buildBackfillUpdate,
   computeBoAbsorption,
 } from './pure/absorb-bo-on-confirm.js';
+import {
+  computeBackorderExportRows,
+  formatBackorderFiltrosHeader,
+} from './pure/backorder-export-rows.js';
 import { computeBackorderRawLines, computeBackorderSkuMap } from './pure/backorder-sku-map.js';
 // Tarea L (v1457 2026-10-25): entrada del backorder (filas rojas) + Excel idéntico.
 // Espejo en functions/core/bo_entry_logic.js. Textos en l_bo_entry_texts.js.
@@ -454,6 +458,12 @@ const phase0 = {
       plannerCutoffIsoForQuery,
     },
     // v1484 §83 (2026-10-27) — resolve prov/loc huérfano via client_master.
+    // v1488 §86 (2026-10-27) — fuente única para los 2 exports de backorder
+    // (panel + modal). Consolidación §56 + default includeExpired=true §40.1.
+    backorderExport: {
+      computeBackorderExportRows,
+      formatBackorderFiltrosHeader,
+    },
     resolveOrphanPedidoLocation: {
       resolveOrphanPedidoLocation,
     },

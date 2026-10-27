@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1486';
+const APP_VERSION = 'v1488';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -15812,29 +15812,71 @@ window.exportBackordersToExcel = async function(){
       return '';
     } catch (_e) { return ''; }
   };
+  // v1488 §86 (2026-10-27): usar la MISMA pure fn que el panel export
+  // (`computeBackorderExportRows`) para que modal+panel coincidan. En modo
+  // urgente (backorder), delegamos directo. En modo asignacion (stock asig),
+  // mantenemos el path histórico porque las columnas son distintas.
+  const _bkExportFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.backorderExport
+    && window.__phase0.pure.backorderExport.computeBackorderExportRows);
   const _computeFnBk = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.computeBackorderSkuMap);
-  const _bkResult = _computeFnBk ? _computeFnBk(
-    (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
-    isAsigMode ? 'asignacion' : 'urgente',
-    // v1243 (2026-10-13): paridad con el modal — fifo + urgencyFilter.
-    // v1244 (2026-10-13): includeExpired=true para mostrar BOs > 15d
-    // (VALIÑA/PEREYRA/BENGOCHEA). Motor de stock sigue respetando TTL
-    // via lineReservesStock() — este flag solo afecta visibilidad.
-    {
-      tiendaQuery: tq,
-      vendorKey: vf,
-      mesYYYYMM: mesF,
-      aggregationMode: 'fifo',
-      urgencyFilter: (typeof backordersUrgencyFilter !== 'undefined') ? backordersUrgencyFilter : '',
-      includeExpired: true,
-    },
-    {
-      getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
-      canonVendor: (typeof _canonVendor === 'function') ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
-      products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [],
-      resolveVendorFallback: _resolveVendorFallback,
+  const _bkDeps = {
+    getStockDisponibleVenta: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    canonVendor: (typeof _canonVendor === 'function') ? _canonVendor : (x) => String(x || '').trim().toUpperCase(),
+    products: (typeof PRODUCTS !== 'undefined' && Array.isArray(PRODUCTS)) ? PRODUCTS : [],
+    resolveVendorFallback: _resolveVendorFallback,
+  };
+  const _bkFilters = {
+    tiendaQuery: tq,
+    vendorKey: vf,
+    mesYYYYMM: mesF,
+    urgencyFilter: (typeof backordersUrgencyFilter !== 'undefined') ? backordersUrgencyFilter : '',
+    includeExpired: true,
+  };
+  // Modo urgente: usar pure fn única v1488 (misma que panel export).
+  // Modo asignacion: path histórico (columnas distintas, sinReserva, etc.).
+  let _bkResult = { skus: [], totalUnidades: 0, totalClientes: 0 };
+  if (!isAsigMode && _bkExportFn) {
+    // Pure fn devuelve rows ya consolidadas. Reusar directamente.
+    const _r = _bkExportFn(
+      (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+      _bkFilters,
+      _bkDeps
+    );
+    // Reconstruir shape {skus, totalUnidades, totalClientes} para no romper el
+    // resto del flow abajo (resumen, nombres de archivo).
+    const _bySkuAgg = {};
+    const _clientesSet = new Set();
+    for (const r of _r.rows) {
+      const sku = r.SKU;
+      if (!_bySkuAgg[sku]) _bySkuAgg[sku] = { sku, producto: r.Producto, clientes: [], totalPendiente: 0 };
+      _bySkuAgg[sku].clientes.push({
+        nombre: r.Cliente,
+        code: r.CardCode,
+        ciudad: r.Localidad,
+        provincia: r.Provincia,
+        vendorKey: r.Vendedor,
+        qtyBackorder: r.Cantidad_Pendiente_BO,
+        pendiente: r.Cantidad_Pendiente_BO,
+        precio: r.Precio_Unit_ARS,
+        state: r.Estado,
+      });
+      _bySkuAgg[sku].totalPendiente += r.Cantidad_Pendiente_BO;
+      _clientesSet.add(r.CardCode || r.Cliente);
     }
-  ) : { skus: [], totalUnidades: 0, totalClientes: 0 };
+    _bkResult = {
+      skus: Object.values(_bySkuAgg),
+      totalUnidades: _r.totalUnidades,
+      totalClientes: _clientesSet.size,
+    };
+  } else if (_computeFnBk) {
+    // Fallback modo asignacion (path histórico v1243/v1244).
+    _bkResult = _computeFnBk(
+      (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+      'asignacion',
+      Object.assign({ aggregationMode: 'fifo' }, _bkFilters),
+      _bkDeps
+    );
+  }
   // Aplanar skus[].clientes[] en `filtered` (1 fila por cliente).
   // v1270: en modo asignacion, destildadas (sinReserva=true) tienen qtyAsignada=0
   // pero deben incluirse en el export con su `pendiente` como demanda viva (admin
