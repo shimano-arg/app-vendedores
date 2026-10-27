@@ -7114,7 +7114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1492';
+const APP_VERSION = 'v1493';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -31585,9 +31585,21 @@ function applyRolePermissions(){
   // al set. Runtime guard replicado en openRevisionModal por si alguien
   // bypasea el CSS via devtools.
   // v517 (2026-08-13): can-revision para TODOS los users @shimano.
-  // Antes whitelist de 4 (Mariano/Ioannis/Santi/Pablo). Ahora cualquier
-  // email @shimano.com.ar o @shimano.uy activa la clase.
-  const _canRevision = !!_em && (_em.endsWith('@shimano.com.ar') || _em.endsWith('@shimano.uy'));
+  // v1493 §92 (2026-10-27) iter 4 PACHI: delega a la pure fn
+  // `canRevisionEmailOrUid` como fuente única. Antes v1493 era condicional
+  // inline aquí → PACHI real (`pachinaba@gmail.com`) quedaba fuera y perdía
+  // el botón "Enviar a lista de espera" aunque la regla de negocio dice
+  // que PACHI carga pedidos igual que cualquier VDE.
+  const _uidForCanRev = (currentUser && currentUser.uid) || null;
+  const _canRevFn =
+    window.__phase0 &&
+    window.__phase0.pure &&
+    window.__phase0.pure.pachiRestrictions &&
+    window.__phase0.pure.pachiRestrictions.canRevisionEmailOrUid;
+  // Fallback inline por si el bundle no cargó (SW stale) — misma lógica que la pure fn.
+  const _canRevision = _canRevFn
+    ? _canRevFn(_em, _uidForCanRev)
+    : (!!_em && (_em.endsWith('@shimano.com.ar') || _em.endsWith('@shimano.uy')));
   document.body.classList.toggle('can-revision', _canRevision);
   // v516 (2026-08-13): TODOS los users arrancan el listener + ven el
   // listado inline del sidebar-left. Antes solo el whitelist Revision.
