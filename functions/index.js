@@ -1291,7 +1291,13 @@ export const fetchStockLiveCF = onCall(
     }
     const email = String(auth.token?.email || '').toLowerCase();
     const domain = email.split('@')[1] || '';
-    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+    // v1496 §95 (2026-10-27) PACHI iter 6: incluir PACHI_UIDS en el gate.
+    // Antes v1496: dominio-only. PACHI real `pachinaba@gmail.com` → gmail.com
+    // → permission-denied → badge "Stock del snapshot" aunque flag live_sl=on.
+    const PACHI_UIDS = ['LaBFi1xkSLObzLEdRoP8fonZ06r2', 'tUJHiLDyLHWvbkpWgCQXWJcucfV2'];
+    const _isShimanoDomain = domain === 'shimano.com.ar' || domain === 'shimano.uy';
+    const _isPachi = PACHI_UIDS.includes(auth.uid);
+    if (!_isShimanoDomain && !_isPachi) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
     const data = req.data || {};

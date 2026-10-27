@@ -163,6 +163,38 @@ export function canRevisionEmailOrUid(email, uid, opts) {
 }
 
 /**
+ * v1496 §95 (2026-10-27) iter 6: ¿puede este user borrar la waitlist card
+ * del modal "Pedido en espera"?
+ *
+ * Regla:
+ *   - User con `canRevisionEmailOrUid` falso → NO (otra razón; sin permisos).
+ *   - User PACHI (uid en PACHI_UIDS) → SÍ, pero SOLO si `w.ownerUid === uid`
+ *     (puede borrar los pedidos cargados por él mismo, no los de otros VDE).
+ *   - User VDE regular (shimano domain, no PACHI) → SÍ para cualquier
+ *     pedido (preserva comportamiento v540 2026-08-18).
+ *
+ * Reportado iter 6 Mariano: PACHI no veía el botón "Eliminar" porque el
+ * gate del front chequeaba sólo `email.endsWith('@shimano.*')`. Fix fuente
+ * única acá; call-site index.html delega + fallback inline SW stale.
+ *
+ * @param {{ ownerUid?: string | null } | null | undefined} waitlist
+ * @param {string | null | undefined} uid - UID del user activo.
+ * @param {string | null | undefined} email - email del user activo.
+ * @returns {boolean}
+ */
+export function canDeleteOwnWaitlist(waitlist, uid, email) {
+  if (!canRevisionEmailOrUid(email, uid)) return false;
+  if (uid && PACHI_UIDS.includes(uid)) {
+    // PACHI: solo propios.
+    if (!waitlist || typeof waitlist !== 'object') return false;
+    const ownerUid = waitlist.ownerUid != null ? String(waitlist.ownerUid) : '';
+    return !!ownerUid && ownerUid === String(uid);
+  }
+  // VDE regular (shimano domain) o admin: puede borrar cualquiera.
+  return true;
+}
+
+/**
  * Guard genérico para open*Modal / setTab / handlers que PACHI no puede
  * ejecutar. Devuelve `true` si debe abortarse (= PACHI está loggeado).
  * Si aborta, muestra un alert simple en castellano (opcional vía `opts.silent`).

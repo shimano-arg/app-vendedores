@@ -82,6 +82,7 @@ import {
 } from './pure/open-waitlists.js';
 // Perfil operativo PACHI (2026-10-26): restricciones centralizadas por UID.
 import {
+  canDeleteOwnWaitlist,
   canRevisionEmailOrUid,
   isPachiBodyFlagActive,
   isPachiRestricted,
@@ -514,6 +515,9 @@ const phase0 = {
       isSidebarLeftBtnHiddenForPachi,
       // v1493 §92 (2026-10-27) iter 4: fuente única del gate `can-revision`.
       canRevisionEmailOrUid,
+      // v1496 §95 (2026-10-27) iter 6: ¿puede borrar waitlist card? PACHI
+      // solo propios; VDE regular + admin cualquiera.
+      canDeleteOwnWaitlist,
     },
     // v1495 §94 (2026-10-27): fuente única labels producto (desc/cat/fam/sub)
     // para el picker + audits. Evita "UNDEFINED UNDEFINED UNDEFINED" literal.

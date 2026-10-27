@@ -93,6 +93,8 @@ export function toIsoStringFlexible(v) {
  * @param {string} [opts.locale] default `'es-AR'`.
  * @param {'date'|'datetime'|'time'} [opts.style] default `'date'`.
  * @param {string} [opts.fallback] default `'-'`.
+ * @param {string} [opts.timeZone] IANA timezone, ej. `'America/Argentina/Buenos_Aires'`.
+ * @param {boolean} [opts.hour12] true = 12h con AM/PM; false = 24h; undefined = depende del locale.
  * @returns {string}
  */
 export function formatFirestoreDate(v, opts) {
@@ -101,9 +103,42 @@ export function formatFirestoreDate(v, opts) {
   if (!d) return fallback;
   const locale = (opts && opts.locale) || 'es-AR';
   const style = (opts && opts.style) || 'date';
+  // v1496 §95 (2026-10-27) PACHI iter 6: timeZone + hour12 opcionales. Antes:
+  // `.toLocaleString('es-AR')` dependía del locale del browser → podía devolver
+  // "01:55:15" ambiguo (12h sin AM/PM) para horas de la tarde en algunos
+  // Chrome/OS combos. Fix: pasar `{timeZone:'America/Argentina/Buenos_Aires',
+  // hour12:false}` explícito desde los call-sites del modal "Pedido en espera".
+  const timeZone = opts && typeof opts.timeZone === 'string' ? opts.timeZone : undefined;
+  const hour12 = opts && typeof opts.hour12 === 'boolean' ? opts.hour12 : undefined;
   try {
-    if (style === 'datetime') return d.toLocaleString(locale);
-    if (style === 'time') return d.toLocaleTimeString(locale);
+    if (style === 'datetime') {
+      if (timeZone || hour12 !== undefined) {
+        /** @type {any} */
+        const fmtOpts = {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        };
+        if (timeZone) fmtOpts.timeZone = timeZone;
+        if (hour12 !== undefined) fmtOpts.hour12 = hour12;
+        return d.toLocaleString(locale, fmtOpts);
+      }
+      return d.toLocaleString(locale);
+    }
+    if (style === 'time') {
+      if (timeZone || hour12 !== undefined) {
+        /** @type {any} */
+        const fmtOpts = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+        if (timeZone) fmtOpts.timeZone = timeZone;
+        if (hour12 !== undefined) fmtOpts.hour12 = hour12;
+        return d.toLocaleTimeString(locale, fmtOpts);
+      }
+      return d.toLocaleTimeString(locale);
+    }
+    if (timeZone) return d.toLocaleDateString(locale, { timeZone });
     return d.toLocaleDateString(locale);
   } catch (_e) {
     return d.toISOString();

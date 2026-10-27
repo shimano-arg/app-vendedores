@@ -503,4 +503,77 @@ test.describe('PACHI perfil operativo', () => {
 
     await screen(page, 'v1494_enviar_lista_espera');
   });
+
+  // v1496 §95 (2026-10-27): PACHI iter 6 — botón Eliminar waitlist card.
+  // Verifica canDeleteOwnWaitlist: PACHI puede borrar sus propios, no ajenos.
+  test('escenario 6 — PACHI puede borrar waitlist propia, no ajena', async ({ page }) => {
+    test.skip(!CREDS.email, 'test-pachi-* secrets no configurados');
+    await loginPachi(page);
+
+    const uid = await page.evaluate(() => window.currentUser && window.currentUser.uid);
+    expect(uid).toBeTruthy();
+
+    // 1. canDeleteOwnWaitlist expuesta y correcta.
+    const check = await page.evaluate(() => {
+      const fn =
+        window.__phase0 &&
+        window.__phase0.pure &&
+        window.__phase0.pure.pachiRestrictions &&
+        window.__phase0.pure.pachiRestrictions.canDeleteOwnWaitlist;
+      if (typeof fn !== 'function') return { exposed: false };
+      const uid = window.currentUser.uid;
+      const email = window.currentUser.email;
+      return {
+        exposed: true,
+        own: fn({ ownerUid: uid }, uid, email),
+        ajeno: fn({ ownerUid: 'OTRO_UID' }, uid, email),
+        sinOwner: fn({}, uid, email),
+      };
+    });
+    expect(check.exposed).toBe(true);
+    expect(check.own).toBe(true);
+    expect(check.ajeno).toBe(false);
+    expect(check.sinOwner).toBe(false);
+
+    // 2. Simular render de waitlist propia: setear _wcardCurrent + evaluar
+    //    si el botón quedaría visible. Como el render completo del modal
+    //    requiere data real, usamos el chequeo del gate directamente.
+    const gateCheck = await page.evaluate((targetUid) => {
+      const fn = window.__phase0.pure.pachiRestrictions.canDeleteOwnWaitlist;
+      const email = window.currentUser.email;
+      return {
+        ownWaitlist: fn({ ownerUid: targetUid }, targetUid, email),
+        ajenaWaitlist: fn({ ownerUid: 'XXXX' }, targetUid, email),
+      };
+    }, uid);
+    expect(gateCheck.ownWaitlist).toBe(true);
+    expect(gateCheck.ajenaWaitlist).toBe(false);
+
+    await screen(page, 'v1496_delete_gate_pachi');
+  });
+
+  // v1496 §95 (2026-10-27): timestamp 24h ART en wcard-subt.
+  test('escenario 6b — formatFirestoreDate con timeZone ART + hour12=false', async ({ page }) => {
+    test.skip(!CREDS.email, 'test-pachi-* secrets no configurados');
+    await loginPachi(page);
+
+    const fmtCheck = await page.evaluate(() => {
+      const fn =
+        window.__phase0 &&
+        window.__phase0.pure &&
+        window.__phase0.pure.parseDateFlexible &&
+        window.__phase0.pure.parseDateFlexible.formatFirestoreDate;
+      if (typeof fn !== 'function') return { exposed: false };
+      // 2026-10-27T16:55:15Z = 13:55:15 ART.
+      const result = fn('2026-10-27T16:55:15Z', {
+        style: 'datetime',
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour12: false,
+      });
+      return { exposed: true, result };
+    });
+    expect(fmtCheck.exposed).toBe(true);
+    expect(fmtCheck.result).toMatch(/13:55:15/);
+    expect(fmtCheck.result).not.toMatch(/\bAM\b|\bPM\b/i);
+  });
 });
