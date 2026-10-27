@@ -3491,3 +3491,61 @@ Las otras ocurrencias de `.isoformat()` son valores INTERNOS del script (`now_is
 **Impacto conocido en BQ post-fallo (26/10 00:05 UTC → 27/10 fix)**: tablas Firestore→BQ y BQ→Firestore de los pasos ≥8b del `main()` NO corrieron ~37 horas. Las tablas SAP→BQ (pasos 1-8d: invoices, items, business partners) **sí** se actualizaron cada corrida porque corren ANTES del paso que falla. Una sola corrida exitosa post-fix pone todo al día (`truncate_on_empty=True` en `_load_to_bq_with_schema` + reemplazo completo cada run).
 
 **Precedente**: `fix-v1487-sync-bq-parse-date` 2026-10-27. Dry-run contra prod devolvió 602 rows OK sin AttributeError.
+
+## 89. Datos que un gate del servidor exige los resuelve el servidor (2026-10-27, v1491)
+
+**Regla fuerte**: cualquier campo que un gate server-side de `commitPedidoCF` (o cualquier otra CF) use para rechazar DEBE poder ser resuelto por el servidor mismo. El cliente puede pre-cargarlo como optimización, pero el servidor **nunca** depende de que el cliente lo haya resuelto.
+
+**Antecedente**: §74 (v1476) agregó gate `VENDOR_UID_MISSING` que rechazaba si `vendorAssigned` populated + `assignedVendorUid` vacío. La resolución nombre→UID se hacía SOLO en el cliente (`enrichPayloadWithClientVendor` → `resolveClientVendorFromMaster`), que lee `vdeUsers` cargado desde `roles.where(role=='vendedor')`. Rules `roles/{uid}:85` NO permiten que un VDE lea `roles` de otros users → `vdeUsers=[]` → payload sin UID → gate rechaza. **Admin pasa porque su navegador sí lee `roles`.**
+
+Resultado 2026-10-27: 15 rechazos VENDOR_UID_MISSING en el día, todos de VDEs (Mauricio, Santiago, Federico) sobre clientes con vendor válido (BATTISTONI, ETCHEGOYEN, CAPORIZZO, SFRAMELI, ANDRILI, NOVILLO, RODRIGUEZ). Cero confirmaciones de VDE todo el día. Admin podía confirmar.
+
+**Patrón canónico** (ejemplo v1491 `commit-pedido-core.js:285-370`):
+
+```js
+if (_hasVendorName && !_hasVendorUid) {
+  // Antes de rechazar: intentar resolver server-side (admin SDK bypassa rules).
+  try {
+    const resolved = await resolveClientVendorServerSide({
+      fbDb: deps.fbDb,
+      cardCode: payload.cardCode,
+      clientName: payload.clientName,
+      vendorKeyHint: payload.vendorAssigned,
+    });
+    if (resolved && resolved.vendorUid) {
+      payload.assignedVendorUid = resolved.vendorUid;
+      _hasVendorUid = true;
+    }
+  } catch (_e) { /* fail-open: cae al reject */ }
+}
+
+if (_hasVendorName && !_hasVendorUid) {
+  return makeError('VENDOR_UID_MISSING', ...);
+}
+```
+
+Un helper server-side correspondiente (en el mirror `functions/core/*-core.js`) hace los reads necesarios con admin SDK (bypassa rules).
+
+**Prohibido**:
+- Agregar un gate que rechace sobre un dato que **solo** el cliente puede resolver.
+- Asumir que un VDE puede leer cualquier colección sin verificar rules.
+- Agregar un chequeo nuevo sin incluir el mirror server + test con mock Firestore que verifique el fail-open.
+
+**Precedente**: `hotfix-v1491-vendor-uid-server-resolve` 2026-10-27 — 15 rechazos VDE en el día.
+
+## 90. Checklist VDE pre-deploy de nuevo gate (2026-10-27)
+
+**Regla fuerte**: ningún gate nuevo en una CF que afecte el flow de confirmación/pedido se mergea a `main` sin pasar antes la checklist de confirmación con **un usuario rol vendedor de prueba**, no solo con admin.
+
+**Checklist mínima**:
+1. Test unit con mock Firestore que simule rules fail-closed (role=vendedor sin acceso a colecciones admin-only).
+2. Test Playwright (o manual con pruebas.e2e) que loguea como VDE + reproduce el flow que el gate protege + verifica que NO rebota.
+3. Documentación del gate incluye: qué resuelve el servidor, qué resuelve el cliente, y qué pasa si ambos fallan.
+4. Si el gate depende de datos que vienen del cliente, aplicar §89.
+
+**Precedente**: §74 (v1476) VENDOR_UID_MISSING + §72 (v1475) SKU_NOT_IN_SAP_CATALOG — ambos mergeados con tests pasando como admin pero rotos para VDE en prod. Combinación §77/§78 (fail-open sources) + §89 (server resuelve) + §90 (checklist VDE) cubre defensa en profundidad.
+
+**Prohibido**:
+- Mergear un gate nuevo sin un test VDE (unit con mock role=vendedor, o Playwright).
+- Deployar a prod sin que el commit history incluya el escenario "VDE confirma con éxito un flujo que el gate protege".
+- Confiar en que "testeé como admin" es suficiente — admin y VDE tienen caminos de rules distintos.
