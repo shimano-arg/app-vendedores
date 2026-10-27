@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1483';
+const APP_VERSION = 'v1484';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -28524,11 +28524,30 @@ function renderPendientesList(){
       if (p.stage !== 'pending') return;
       if (p.transferidoSAP && p.transferidoSAP.docNum) return;
       const tipo = p.tipo || 'C';
-      const prov = p.province || '';
-      const locName = p.locName || '';
+      let prov = p.province || '';
+      let locName = p.locName || '';
       const clientName = p.clientName || '';
       const key = tipo + '|' + prov + '|' + locName + '|' + clientName;
-      const isOrphan = !visibleKeys.has(key);
+      let isOrphan = !visibleKeys.has(key);
+      // v1484 §83 (2026-10-27): resolver prov/loc desde client_master si el
+      // pedido quedó huérfano (province/locName vacíos o no matcheados).
+      // Fuente única pure fn (reutilizada en renderConfirmadosList). Caso
+      // real: BENGOCHEA ORDEN 356 Oct 2026 — pedido con prov/loc vacíos,
+      // master tiene "COMODORO RIVADAVIA / Chubut". Badge huérfano queda
+      // sólo si el master tampoco tiene datos.
+      if (isOrphan) {
+        const _resolveFn = (window.__phase0 && window.__phase0.pure
+          && window.__phase0.pure.resolveOrphanPedidoLocation
+          && window.__phase0.pure.resolveOrphanPedidoLocation.resolveOrphanPedidoLocation);
+        if (_resolveFn && typeof clientMasterCache !== 'undefined') {
+          const r = _resolveFn(p, clientMasterCache, typeof POINTS !== 'undefined' ? POINTS : null);
+          if (r && r.resolvedFromMaster) {
+            prov = r.province;
+            locName = r.locName;
+            isOrphan = false;
+          }
+        }
+      }
       items.push({
         key, idx: 0, tipo, prov, locName, clientName,
         conf: p, orphan: isOrphan,
@@ -28817,10 +28836,35 @@ function renderConfirmadosList(){
   // amarillo "sin catalogo" para que el admin los pueda revisar.
   Object.entries(confirmed).forEach(([k, list]) => {
     const parts = k.split('|');
-    const isOrphan = !visibleKeys.has(k);
+    const initialOrphan = !visibleKeys.has(k);
     (list || []).forEach((c, idx) => {
+      let prov = parts[1];
+      let locName = parts[2];
+      let isOrphan = initialOrphan;
+      // v1484 §83 (2026-10-27): resolver prov/loc desde client_master cuando
+      // el pedido quedó huérfano. Pure fn única — misma que
+      // renderPendientesList. Caso real: BENGOCHEA ORDEN 356.
+      if (isOrphan) {
+        const _resolveFn = (window.__phase0 && window.__phase0.pure
+          && window.__phase0.pure.resolveOrphanPedidoLocation
+          && window.__phase0.pure.resolveOrphanPedidoLocation.resolveOrphanPedidoLocation);
+        if (_resolveFn && typeof clientMasterCache !== 'undefined') {
+          // c tiene clientCardCode + province + locName (pedido doc).
+          const r = _resolveFn({
+            province: parts[1],
+            locName: parts[2],
+            clientCardCode: c && c.clientCardCode,
+            clientName: parts[3],
+          }, clientMasterCache, typeof POINTS !== 'undefined' ? POINTS : null);
+          if (r && r.resolvedFromMaster) {
+            prov = r.province;
+            locName = r.locName;
+            isOrphan = false;
+          }
+        }
+      }
       allItems.push({
-        key: k, idx, tipo: parts[0], prov: parts[1], locName: parts[2], clientName: parts[3],
+        key: k, idx, tipo: parts[0], prov, locName, clientName: parts[3],
         conf: c, orphan: isOrphan,
       });
     });
