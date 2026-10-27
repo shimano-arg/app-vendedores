@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1478';
+const APP_VERSION = 'v1479';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -14743,12 +14743,21 @@ function _plannerMatchesFilters(pedido) {
 
 function _plannerPedidoInMonth(pedido, monthKey) {
   if (monthKey === 'all') return true;
-  var ts = pedido && (pedido.createdAt || pedido.updatedAt);
-  if (!ts) return false;
+  // v1479 (2026-10-27 §76): delegar en pedidoDateForPlanner (misma seleccion
+  // de campo + mismo parser que sort y fmt). Pre v1479 era tolerante a los 3
+  // tipos pero duplicaba logica; ahora unificado.
+  var _pedidoDateFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible && window.__phase0.pure.parseDateFlexible.pedidoDateForPlanner);
   var d = null;
-  if (ts && typeof ts.toDate === 'function') d = ts.toDate();
-  else if (typeof ts === 'number') d = new Date(ts);
-  else if (typeof ts === 'string') d = new Date(ts);
+  if (_pedidoDateFn) {
+    d = _pedidoDateFn(pedido);
+  } else {
+    // Fallback inline.
+    var ts = pedido && (pedido.createdAt || pedido.updatedAt);
+    if (!ts) return false;
+    if (ts && typeof ts.toDate === 'function') d = ts.toDate();
+    else if (typeof ts === 'number') d = new Date(ts);
+    else if (typeof ts === 'string') d = new Date(ts);
+  }
   if (!d || isNaN(d.getTime())) return false;
   var key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   return key === monthKey;
@@ -35583,8 +35592,18 @@ function _subscribePlannerPedidos() {
     base = base.where('assignedVendorUid', '==', currentUser.uid);
   }
   // v1191: always query by createdAt range. Toggle controls range depth.
+  // v1479 (2026-10-27 §76): el cutoff va como string ISO, NO Date. Firestore
+  // compara tipos primero y los pedidos post-backfill AD v1474 tienen
+  // createdAt como string ISO — un Date se promueve a Timestamp y nunca
+  // matchea strings con >=. Resultado pre-fix v1478: 0 docs devueltos →
+  // Planner vacío en Oferta/Pending/Facturar/Cobrado. Lista de espera carga
+  // desde revision_waitlist (sin where) por eso seguía funcionando.
   const daysBack = plannerShowClosed ? 180 : 90;
-  const query = base.where('createdAt', '>=', new Date(Date.now() - daysBack * 86400000));
+  const _cutoffIsoFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible && window.__phase0.pure.parseDateFlexible.plannerCutoffIsoForQuery);
+  const cutoffIso = _cutoffIsoFn
+    ? _cutoffIsoFn(Date.now(), daysBack)
+    : new Date(Date.now() - daysBack * 86400000).toISOString();
+  const query = base.where('createdAt', '>=', cutoffIso);
   unsubPlannerPedidos = query.onSnapshot(snap => {
     plannerPedidosCache.clear();
     snap.forEach(d => plannerPedidosCache.set(d.id, { id: d.id, ...d.data() }));
@@ -35697,10 +35716,20 @@ function renderPlannerKanban() {
   // de invoices, edits automaticos) y no coincidia con la fecha visible en
   // la card (_plannerFmtDate usa createdAt || updatedAt). Ahora ambos alineados
   // → cards ordenadas de mas nueva a mas vieja segun la fecha que se ve.
+  // v1479 (2026-10-27 §76): tsOf delega en pedidoDateForPlanner para
+  // soportar string ISO (post-backfill AD v1474). Pre-fix v1478 el sort
+  // devolvia 0 para TODOS los pedidos string → orden indeterminado.
+  const _pedidoDateFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible && window.__phase0.pure.parseDateFlexible.pedidoDateForPlanner);
   const tsOf = x => {
-    const t = x.createdAt || x.updatedAt;
+    if (_pedidoDateFn) {
+      const d = _pedidoDateFn(x);
+      return d ? d.getTime() : 0;
+    }
+    // Fallback inline (bundle no cargo): soportar Timestamp + string + number.
+    const t = x && (x.createdAt || x.updatedAt);
     if (!t) return 0;
     if (typeof t.toMillis === 'function') return t.toMillis();
+    if (typeof t === 'string') { const n = Date.parse(t); return isNaN(n) ? 0 : n; }
     if (typeof t === 'number') return t;
     return 0;
   };
@@ -35984,8 +36013,18 @@ async function togglePlannerWaitlistState(waitlistId, confirmed) {
 
 function _plannerFmtDate(ts) {
   if (!ts) return '';
-  const d = (typeof ts.toDate === 'function') ? ts.toDate()
-          : (typeof ts === 'number' ? new Date(ts) : (ts instanceof Date ? ts : null));
+  // v1479 (2026-10-27 §76): delegar en parseFirestoreDate para soportar
+  // string ISO (post-backfill AD v1474). Pre-fix v1478 esta funcion devolvia
+  // "" para strings → fecha vacia en todas las cards post-backfill.
+  const _parseFn = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.parseDateFlexible && window.__phase0.pure.parseDateFlexible.parseFirestoreDate);
+  let d = _parseFn ? _parseFn(ts) : null;
+  if (!d) {
+    // Fallback inline (bundle no cargo): soporte extendido a string ISO.
+    d = (typeof ts.toDate === 'function') ? ts.toDate()
+      : (typeof ts === 'string' ? new Date(ts)
+        : (typeof ts === 'number' ? new Date(ts)
+          : (ts instanceof Date ? ts : null)));
+  }
   if (!d || isNaN(d.getTime())) return '';
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
 }
