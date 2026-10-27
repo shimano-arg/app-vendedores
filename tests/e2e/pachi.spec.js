@@ -369,4 +369,81 @@ test.describe('PACHI perfil operativo', () => {
 
     await screen(page, 'v1481_guards_bloquean_alt_path');
   });
+
+  // v1493 §92 (2026-10-27): PACHI iter 4 — botonera modal pedido carga.
+  // Verifica: body.can-revision activo + botón "Enviar a lista de espera"
+  // visible + botones de confirmed NO visibles al abrir modal nuevo.
+  test('escenario 4 — modal pedido carga: Enviar a lista de espera visible, sin botones residuales', async ({
+    page,
+  }) => {
+    test.skip(!CREDS.email, 'test-pachi-* secrets no configurados');
+    await loginPachi(page);
+
+    // 1. body.can-revision debe estar activa (fuente única canRevisionEmailOrUid).
+    const hasCanRevision = await page.evaluate(() =>
+      document.body.classList.contains('can-revision')
+    );
+    expect(hasCanRevision, 'v1493 §92: body.can-revision debe estar activa para PACHI').toBe(true);
+
+    // 2. Contrato unit: pure fn expuesta en __phase0.
+    const pureCheck = await page.evaluate(() => {
+      const fn =
+        window.__phase0 &&
+        window.__phase0.pure &&
+        window.__phase0.pure.pachiRestrictions &&
+        window.__phase0.pure.pachiRestrictions.canRevisionEmailOrUid;
+      if (typeof fn !== 'function') return { exposed: false };
+      return {
+        exposed: true,
+        realGmail: fn('pachinaba@gmail.com', 'LaBFi1xkSLObzLEdRoP8fonZ06r2'),
+        testShimano: fn('pruebas.pachi@shimano.com.ar', 'xxx'),
+        random: fn('random@gmail.com', 'xxx'),
+      };
+    });
+    expect(pureCheck.exposed).toBe(true);
+    expect(pureCheck.realGmail).toBe(true);
+    expect(pureCheck.testShimano).toBe(true);
+    expect(pureCheck.random).toBe(false);
+
+    // 3. Simular estado "residual" post-viewPedido confirmed: setear
+    //    pm-actions-confirmed.display='flex' manualmente antes de abrir modal.
+    await page.evaluate(() => {
+      const el = document.getElementById('pm-actions-confirmed');
+      if (el) el.style.display = 'flex';
+    });
+
+    // 4. Abrir modal de carga nuevo via window.openPedidoModal.
+    await page.evaluate(() => {
+      // Cliente dummy: no importa el nombre; validamos la botonera resultante.
+      window.openPedidoModal('CLIENTE TEST', 'C', 'CORDOBA', 'LOC TEST');
+    });
+    await page.waitForTimeout(400);
+
+    // 5. Verificar botonera: edit visible, confirmed oculto, pm-back-to-waitlist visible.
+    const botonera = await page.evaluate(() => {
+      const edit = document.getElementById('pm-actions-edit');
+      const pending = document.getElementById('pm-actions-pending');
+      const confirmed = document.getElementById('pm-actions-confirmed');
+      const back = document.querySelector('#pm-actions-edit .pm-back-to-waitlist');
+      return {
+        editDisplay: edit && window.getComputedStyle(edit).display,
+        pendingDisplay: pending && window.getComputedStyle(pending).display,
+        confirmedDisplay: confirmed && window.getComputedStyle(confirmed).display,
+        backDisplay: back && window.getComputedStyle(back).display,
+      };
+    });
+    expect(botonera.editDisplay).toBe('flex');
+    expect(botonera.pendingDisplay).toBe('none');
+    // v1493 fix: pm-actions-confirmed debe estar oculto post-openPedidoModal.
+    expect(botonera.confirmedDisplay).toBe('none');
+    // v1493 fix: botón "Enviar a lista de espera" visible (pure fn activa can-revision).
+    expect(botonera.backDisplay).not.toBe('none');
+
+    await screen(page, 'v1493_modal_carga_botonera');
+
+    // 6. Cerrar modal.
+    await page.evaluate(() => {
+      if (typeof window.closePedidoModal === 'function') window.closePedidoModal();
+    });
+  });
 });

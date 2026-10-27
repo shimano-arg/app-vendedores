@@ -118,6 +118,51 @@ export function isPachiBodyFlagActive(doc) {
 }
 
 /**
+ * v1493 §92 (2026-10-27) — iter 4: PACHI puede cargar pedidos y enviarlos
+ * a lista de espera igual que cualquier VDE. Las restricciones vigentes son
+ * las documentadas (no asignar stock, no confirmar directo a SAP, no ver
+ * Backorder editable). La botonera del modal de carga de pedido NO está en
+ * el set restringido.
+ *
+ * Esta fn centraliza la decisión "¿el user puede usar `revision_waitlist`
+ * (botón `Enviar a lista de espera` del modal + Revision Excel + sidebar
+ * waitlist)?". Antes v1493 el gate era SOLO email @shimano.*. Resultado:
+ *
+ *  - PACHI real `pachinaba@gmail.com` NO cumplía → botón "Enviar a lista
+ *    de espera" oculto para él aunque la regla de negocio dice que PACHI
+ *    SÍ carga pedidos y los manda a espera.
+ *  - Test user `pruebas.pachi@shimano.com.ar` sí cumplía por email, pero
+ *    si el auth refresh retrasaba `currentUser.email` cuando corría
+ *    `applyRolePermissions`, el toggle quedaba off durante esa sesión.
+ *
+ * Nueva lógica (fuente única):
+ *   `canRevisionEmailOrUid(email, uid)` → true si:
+ *     - email termina en algún sufijo whitelist (@shimano.com.ar | @shimano.uy), O
+ *     - uid está en PACHI_UIDS (cubre ambas cuentas sin tocar email).
+ *
+ * El cliente consume ESTA fn en `applyRolePermissions` + donde haga falta.
+ * Las restricciones negativas (no Backorder editable, no asignar stock) siguen
+ * en `isPachiRestricted` + CSS `is-pachi-restricted`. Son ortogonales.
+ *
+ * @param {string | null | undefined} email
+ * @param {string | null | undefined} uid
+ * @param {{ emailSuffixes?: string[] }} [opts]
+ * @returns {boolean}
+ */
+export function canRevisionEmailOrUid(email, uid, opts) {
+  const em = String(email || '')
+    .trim()
+    .toLowerCase();
+  const suffixes =
+    opts && Array.isArray(opts.emailSuffixes)
+      ? opts.emailSuffixes
+      : ['@shimano.com.ar', '@shimano.uy'];
+  if (em && suffixes.some((s) => em.endsWith(s))) return true;
+  if (uid && PACHI_UIDS.includes(uid)) return true;
+  return false;
+}
+
+/**
  * Guard genérico para open*Modal / setTab / handlers que PACHI no puede
  * ejecutar. Devuelve `true` si debe abortarse (= PACHI está loggeado).
  * Si aborta, muestra un alert simple en castellano (opcional vía `opts.silent`).

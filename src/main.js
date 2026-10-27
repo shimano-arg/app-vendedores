@@ -82,6 +82,7 @@ import {
 } from './pure/open-waitlists.js';
 // Perfil operativo PACHI (2026-10-26): restricciones centralizadas por UID.
 import {
+  canRevisionEmailOrUid,
   isPachiBodyFlagActive,
   isPachiRestricted,
   isSidebarLeftBtnHiddenForPachi,
@@ -506,6 +507,8 @@ const phase0 = {
       PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS,
       PACHI_BLOCKED_OPEN_FNS,
       isSidebarLeftBtnHiddenForPachi,
+      // v1493 §92 (2026-10-27) iter 4: fuente única del gate `can-revision`.
+      canRevisionEmailOrUid,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.

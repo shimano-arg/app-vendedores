@@ -64,6 +64,15 @@ function openPedidoModal(clientName, tipo, province, locName) {
   document.getElementById('pm-saved-tag').textContent = 'Sin cambios';
   document.getElementById('pm-actions-edit').style.display = 'flex';
   document.getElementById('pm-actions-pending').style.display = 'none';
+  // v1493 §92 (2026-10-27) iter 4 PACHI: reset defensivo del div de pedido
+  // CONFIRMADO. Si el user previo abrió un pedido confirmed con permisos
+  // (admin/gerente o via='app_only'), `viewPedido` dejó `pm-actions-confirmed`
+  // en `display:flex`. Al abrir un pedido NUEVO con `openPedidoModal`, antes
+  // de v1493 no se reseteaba → la botonera residual (Volver a Pendientes +
+  // Eliminar) convivía con la del borrador. Reportado por Mariano con PACHI
+  // test user en BUEN PIQUE S.R.L. (iter 4). Reset explícito acá cierra el leak.
+  const _actionsConfirmedEl = document.getElementById('pm-actions-confirmed');
+  if (_actionsConfirmedEl) _actionsConfirmedEl.style.display = 'none';
   document.getElementById('pm-confirm').style.display = '';
   document.getElementById('pm-cancel').style.display = '';
   // Modo Crear: ocultar la columna derecha (Pedido Actual) y dar todo el ancho al picker.
