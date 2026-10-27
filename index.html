@@ -2575,6 +2575,22 @@ body.is-pachi-restricted [data-drawer-action="rutas"]{display:none !important}
 body.is-pachi-restricted #backorders-modal button.bo-btn:not(.bo-btn-cancel):not(.bo-btn-close),
 body.is-pachi-restricted #backorders-modal input[type="checkbox"]:not(.bo-read-only-checkbox),
 body.is-pachi-restricted #btn-crear-pedido-st{pointer-events:none !important;opacity:0.5 !important}
+/* v1478 (2026-10-27): ampliación perfil PACHI — ocultar botones de header que
+   no corresponden a su alcance (asesoría de cobranza, no de ventas tradicional).
+   Backorder pasa de "solo lectura" (v1460) a oculto completo. */
+body.is-pachi-restricted #backorders-btn,
+body.is-pachi-restricted #deposito-home-btn,
+body.is-pachi-restricted #revision-btn,
+body.is-pachi-restricted #forecast-btn,
+body.is-pachi-restricted #rendiciones-top-btn,
+body.is-pachi-restricted .tab-btn[data-tab="rendiciones"],
+body.is-pachi-restricted #seguimiento-btn{display:none !important}
+/* v1478: Reportes Excel — PACHI ve solo "Pedidos del mes" + "Masterfile Clientes". */
+body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]){display:none !important}
+/* v1478: Campañas — PACHI NO ve el botón "Gráficos" (métricas de progreso).
+   El filtro por zona también se saltea para que vea TODAS las activas (ver
+   renderMisCamps + _misCampsGraficosData). */
+body.is-pachi-restricted #mc-graficos-btn{display:none !important}
 /* v988 removido en v1086: "Rutas recomendadas" eliminadas por completo,
    pachi ahora ve el mismo UI que el resto (solo Rutas personalizadas). */
 /* v1005: Planner section gated Mariano-only in dev. Un-gate future via
@@ -7093,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1477';
+const APP_VERSION = 'v1478';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -34593,7 +34609,11 @@ window.setMisCampsTab = function(tab){
 function renderMisCamps(){
   const cont = document.getElementById('mis-camps-content');
   if (!cont) return;
-  const isVend = (userRole === 'vendedor' && assignedVendor);
+  // v1478 (2026-10-27): PACHI ve todas las campañas activas cross-zona (sin
+  // filtro por su zona). Sigue siendo "vendedor" para el rol, pero el UI de
+  // listado de campañas se trata como admin/gerente para él.
+  const _isPachi1478 = (function(){ try { return document.body.classList.contains('is-pachi-restricted'); } catch(_e){ return false; } })();
+  const isVend = (userRole === 'vendedor' && assignedVendor && !_isPachi1478);
   const tab = misCampsTab || 'active';
   // v1284: tab Detalle SKU delega a renderMisCampsDetalle. Si rol no autorizado,
   // caer a 'active' por seguridad (el boton del tab esta oculto por display:none
@@ -34892,7 +34912,11 @@ window.onMisCampsGraficosSkuChange = function(sel){
 
 function _misCampsGraficosData(){
   const today = new Date().toISOString().slice(0, 10);
-  const isVend = (userRole === 'vendedor' && assignedVendor);
+  // v1478 (2026-10-27): PACHI no abre este modal (botón oculto por CSS), pero
+  // dejo el guard por si llega por otra vía — ve todas las campañas sin filtro
+  // por su zona (consistente con renderMisCamps v1478).
+  const _isPachi1478g = (function(){ try { return document.body.classList.contains('is-pachi-restricted'); } catch(_e){ return false; } })();
+  const isVend = (userRole === 'vendedor' && assignedVendor && !_isPachi1478g);
   let camps = (campaignsCache || [])
     .filter(c => !c.archivedManually && c.startDate && c.endDate && c.startDate <= today && c.endDate >= today);
   if (isVend) camps = camps.filter(c => (typeof isCampaignApplicableToVendor === 'function') ? isCampaignApplicableToVendor(c, assignedVendor) : true);

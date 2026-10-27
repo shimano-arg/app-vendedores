@@ -4717,6 +4717,39 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1478 (2026-10-27) — PACHI iter 2: ocultar 6 botones + modal Exportar depurado + ver campañas cross-zona sin métricas
+
+Rama `feat-v1478-pachi-iter-2` → `main`.
+
+**Antes** (v1460-v1477): el perfil operativo PACHI (`body.is-pachi-restricted`) ocultaba 8 cosas (Stock Asignado, SAP, Visita Clásica, Rutas, Notificaciones, Backorder *solo lectura* via pointer-events, botón Reparto por whitelist, Seguimiento por admin-only). PACHI veía:
+- Botón "Backorder" clickeable visualmente aunque los sub-botones no respondían.
+- Botón "Depósito" + "Reparto" + "Forecast" + "Rendiciones" + "Seguimiento" visibles.
+- Modal Reportes Excel con las 10 opciones (igual que admin/VDE).
+- Modal Campañas solo con las de su zona + botón "Gráficos" (métricas de progreso).
+
+**Problema reportado por Mariano**: PACHI es asesora de cobranza/cartera, no VDE de ventas tradicional. No necesita ver inventario, backorder, forecast, reparto ni reportes de operación. Y necesita saber qué campañas corren en cada zona (SKUs + zona) sin acceso a métricas de performance de los otros VDEs.
+
+**Cambio v1478** (`index.html` + `sw.js`, cero cambios en `src/` → no requiere rebuild bundle):
+
+- **CSS nuevos (body.is-pachi-restricted)** post §PACHI v1460:
+  - `#backorders-btn{display:none !important}` — reemplaza pointer-events de v1460.
+  - `#deposito-home-btn{display:none !important}`
+  - `#revision-btn{display:none !important}` (botón "Reparto")
+  - `#forecast-btn{display:none !important}` (defensa; ya oculto por whitelist admin-only)
+  - `#rendiciones-top-btn{display:none !important}` + `.tab-btn[data-tab="rendiciones"]{display:none !important}`
+  - `#seguimiento-btn{display:none !important}` (defensa; ya oculto por whitelist admin/gerente)
+- **Modal Reportes Excel**: `#export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]){display:none !important}` — oculta las 8 opciones restantes y deja solo las 2 autorizadas.
+- **Campañas** (`renderMisCamps` + `_misCampsGraficosData`): el filtro por zona `isCampaignApplicableToVendor(c, assignedVendor)` se desactiva para PACHI (`isVend` ahora incluye `&& !_isPachi1478`). Resultado: PACHI ve TODAS las campañas activas con sus SKUs + zona (texto `describeCampaignScope`) sin filtrado por su zona.
+- **Métricas de progreso**: `#mc-graficos-btn{display:none !important}` oculta el botón "Gráficos" (que abría modal con unidades vendidas por SKU / tienda). Si llegara por otra vía, `_misCampsGraficosData` también excluye el filtro vendor para PACHI (defensa).
+
+**Qué sigue viendo PACHI** (sin cambios): tab Visitas (solo Rápida), Lista de Espera, Rutas Personalizadas, Pane Clientes, Pane Pedidos (lectura de los suyos), Campañas Activas + Históricas (TODAS, read-only), Exportar Pedidos del mes + Masterfile Clientes.
+
+**Por qué**: `body.is-pachi-restricted` es el mecanismo canónico desde v1460 (`src/pure/pachi-restrictions.js` con `PACHI_UIDS` frozen: UID real + test user). Agregar reglas CSS es idempotente, no toca a otros usuarios. El filtro JS en campañas usa `document.body.classList.contains('is-pachi-restricted')` directo (equivalente a `isPachiBodyFlagActive`) para no agregar dependencia al pure dentro de inline.
+
+**Verificación**: `tests/unit/audit/pachi-v1478-restricciones.test.js` (16 tests grep de contrato): CSS de los 6 botones nuevos + modal Exportar + botón Gráficos + guard en `renderMisCamps` + `_misCampsGraficosData` + restricciones heredadas v1460 preservadas + bump de versión. Suite completa `npm run test:unit`: **1994 PASS**. `npx biome check`: clean. `npm run typecheck`: clean.
+
+**Rollback**: revertir el bloque CSS v1478 + los 2 helpers `_isPachi1478`/`_isPachi1478g` en `renderMisCamps`/`_misCampsGraficosData` + bump de versión. Sin cambios en src/, functions/, rules, bundle.
+
 ### v1456 (2026-10-25) — §60 UPDATE Cierre F (cron GHA off + SNAPSHOT_MAX_AGE_MS 30 min + badge umbrales + email failure)
 
 Rama `feat-v1454-cron-gha-off-snapshot-30min` → `main`.
