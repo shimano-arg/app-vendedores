@@ -1976,6 +1976,170 @@ window.exportBackorderAll = async function () {
   );
 };
 
+// v1492 §91 (2026-10-27): export del módulo "Reparto de ingresos". Botón en
+// el header del modal. Fuente: `window._repartoIngresos` (array inline poblado
+// por `_repartoSubscribe` desde `ingresos_reparto.where(status in [pending,
+// in_progress])`). Dos hojas: Resumen (una fila por ingreso) y Detalle (una
+// fila por cliente dentro de cada ingreso). Columnas alineadas con el modal.
+window.exportRepartoToExcel = async function () {
+  const w = /** @type {any} */ (window);
+  const ingresos = Array.isArray(w._repartoIngresos) ? w._repartoIngresos : [];
+  if (!ingresos.length) {
+    alert('No hay ingresos de reparto para exportar. Abrí el modal "Reparto de ingresos" primero.');
+    return;
+  }
+  showSyncTag('Generando export Reparto…');
+
+  const _getStock =
+    typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : null;
+  /** @param {any} ing */
+  const _stockFisico = (ing) => {
+    if (!ing || !ing.sku) return 0;
+    if (!_getStock) return Number(ing.qtyIngresada) || 0;
+    try {
+      return Number(_getStock(ing.sku)) || 0;
+    } catch (_e) {
+      return 0;
+    }
+  };
+  const _products = Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [];
+  /** @param {string} code */
+  const _producto = (code) => {
+    const u = String(code || '')
+      .toUpperCase()
+      .trim();
+    const p = _products.find(
+      (x) =>
+        String(x.code || '')
+          .toUpperCase()
+          .trim() === u
+    );
+    return p ? String(p.desc || p.name || '') : '';
+  };
+  /** @param {any} ts */
+  const _fmtTs = (ts) => {
+    try {
+      if (!ts) return '';
+      if (typeof ts === 'string') return ts.slice(0, 19).replace('T', ' ');
+      if (ts.toDate) return ts.toDate().toISOString().slice(0, 19).replace('T', ' ');
+      if (typeof ts.seconds === 'number')
+        return new Date(ts.seconds * 1000).toISOString().slice(0, 19).replace('T', ' ');
+      if (ts instanceof Date) return ts.toISOString().slice(0, 19).replace('T', ' ');
+      return '';
+    } catch (_e) {
+      return '';
+    }
+  };
+
+  /** @type {Array<any>} */
+  const resumenRows = [];
+  /** @type {Array<any>} */
+  const detalleRows = [];
+  let totalIngresadas = 0;
+  let totalBO = 0;
+  let totalClientes = 0;
+
+  // Sort por SKU + qtyIngresada asc (mismo orden que el modal con fallback).
+  const sorted = ingresos.slice().sort((a, b) => {
+    const qa = Number(a.qtyIngresada) || 0;
+    const qb = Number(b.qtyIngresada) || 0;
+    if (qa !== qb) return qa - qb;
+    return String(a.sku || '').localeCompare(String(b.sku || ''));
+  });
+
+  for (const ing of sorted) {
+    const sku = String(ing.sku || '');
+    const producto = _producto(sku);
+    const stockFis = _stockFisico(ing);
+    const qtyIng = Number(ing.qtyIngresada) || 0;
+    const clientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
+    const sumaBO = clientes.reduce(
+      (/** @type {number} */ s, /** @type {any} */ c) => s + (Number(c.qtyBO) || 0),
+      0
+    );
+    const status = String(ing.status || '');
+    const detectedAt = _fmtTs(ing.detectedAt);
+
+    resumenRows.push({
+      SKU: sku,
+      Producto: producto,
+      Stock_fisico_dep11: stockFis,
+      Qty_ingresada: qtyIng,
+      N_clientes_BO: clientes.length,
+      Suma_BO_solicitada: sumaBO,
+      Status: status,
+      Ingreso_detectado: detectedAt,
+    });
+    totalIngresadas += qtyIng;
+    totalBO += sumaBO;
+    totalClientes += clientes.length;
+
+    for (const c of clientes) {
+      detalleRows.push({
+        SKU: sku,
+        Producto: producto,
+        Stock_fisico_dep11: stockFis,
+        Cliente: String(c.clientName || ''),
+        CardCode: String(c.cardCode || ''),
+        Vendedor: String(c.vendorKey || c.vendor || ''),
+        Qty_BO_solicitada: Number(c.qtyBO) || 0,
+        Status: status,
+        Ingreso_detectado: detectedAt,
+      });
+    }
+  }
+
+  // Fila TOTAL al final de cada hoja (patrón existente downloadXlsx).
+  resumenRows.push({
+    SKU: 'TOTAL',
+    Producto: '',
+    Stock_fisico_dep11: '',
+    Qty_ingresada: totalIngresadas,
+    N_clientes_BO: totalClientes,
+    Suma_BO_solicitada: totalBO,
+    Status: '',
+    Ingreso_detectado: '',
+  });
+  detalleRows.push({
+    SKU: 'TOTAL',
+    Producto: '',
+    Stock_fisico_dep11: '',
+    Cliente: '',
+    CardCode: '',
+    Vendedor: '',
+    Qty_BO_solicitada: totalBO,
+    Status: '',
+    Ingreso_detectado: '',
+  });
+
+  const now = new Date();
+  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
+  const fname =
+    'Reparto_' +
+    now.getFullYear() +
+    '-' +
+    pad(now.getMonth() + 1) +
+    '-' +
+    pad(now.getDate()) +
+    '_' +
+    pad(now.getHours()) +
+    pad(now.getMinutes()) +
+    '.xlsx';
+
+  await downloadXlsx(fname, [
+    { name: 'Resumen', rows: resumenRows },
+    { name: 'Detalle', rows: detalleRows },
+  ]);
+  showSyncTag(
+    'Export Reparto listo (' +
+      sorted.length +
+      ' ingresos · ' +
+      detalleRows.length +
+      ' filas detalle)',
+    2800
+  );
+};
+
 // v737: SNAPSHOT ACTUAL de todo el Stock Asignado (sin filtro de mes). Mismo
 // motivo que exportBackorderAll.
 window.exportStockAsigAll = async function () {
