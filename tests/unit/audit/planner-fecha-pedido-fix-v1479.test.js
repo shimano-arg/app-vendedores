@@ -298,12 +298,20 @@ describe('v1479 §76 — regresión fixture real por columna (ISO vs Timestamp)'
 });
 
 describe('v1479 — bump de versión', () => {
-  it('T50 APP_VERSION es v1479', () => {
-    expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1479'/);
+  // v1480 2026-10-27: relajadas a ">= v1479 + ambas en sync" para que bumps
+  // futuros no rompan por diseño (mismo patrón que v1478 PACHI).
+  it('T50 APP_VERSION es v1479 o superior', () => {
+    const m = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
+    expect(m, 'APP_VERSION no encontrada').not.toBeNull();
+    expect(Number(m[1])).toBeGreaterThanOrEqual(1479);
   });
 
-  it('T51 CACHE_VERSION del SW es v1479', () => {
-    const sw = readFileSync('sw.js', 'utf8');
-    expect(sw).toMatch(/const CACHE_VERSION = 'v1479'/);
+  it('T51 CACHE_VERSION del SW en sync con APP_VERSION', () => {
+    const app = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
+    const sw = readFileSync('sw.js', 'utf8').match(/const CACHE_VERSION = 'v(\d+)'/);
+    expect(app, 'APP_VERSION no encontrada').not.toBeNull();
+    expect(sw, 'CACHE_VERSION no encontrada').not.toBeNull();
+    expect(sw[1]).toBe(app[1]);
+    expect(Number(sw[1])).toBeGreaterThanOrEqual(1479);
   });
 });

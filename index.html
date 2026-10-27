@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1479';
+const APP_VERSION = 'v1480';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -37686,7 +37686,12 @@ window.doConfirmPedido = async function(){
       } else if (code === 'VALIDATION_ERROR' || code === 'PERMISSION_DENIED' || code === 'SAP_UNAVAILABLE' || code === 'INTERNAL') {
         alert(_fmt(code));
       } else {
-        alert(_fmt('UNKNOWN'));
+        // v1480 §78 (2026-10-27): data-driven default. Si el pure tiene mensaje
+        // para `code`, usar ese; sino, UNKNOWN. Antes caían a UNKNOWN códigos
+        // que SÍ tenían mensaje: SKU_NOT_IN_SAP_CATALOG + VENDOR_UID_MISSING
+        // (reportado prod 2026-10-26 "No pudimos confirmar... Código: UNKNOWN").
+        const _hasMsg = !!(_mv && _mv.MENSAJES_VENDEDOR && _mv.MENSAJES_VENDEDOR[code]);
+        alert(_fmt(_hasMsg ? code : 'UNKNOWN'));
       }
       return;
     }

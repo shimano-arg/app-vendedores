@@ -18,23 +18,29 @@ import { describe, expect, it } from 'vitest';
 import { checkSkusInSapCatalog } from '../../../functions/core/sku-catalog-check-core.js';
 
 /**
- * Mock Firestore que simula una colección sap_products con `existingSkus`.
- * Soporta `.limit(1).get()` → `{empty: existingSkus.length === 0, size: ...}`.
- * Si `probeThrows=true`, `.limit().get()` tira (simular permission-denied).
+ * Mock Firestore v1480 §79: fuente única `app_config/stock_snapshot.quantities`.
+ * Si `opts.docThrows=true`, el `.get()` tira (simular permission-denied).
+ * Si `existingSkus=[]`, snapshot NO existe → fail-open §77.
  */
 function mockDbWithProbe(existingSkus, opts = {}) {
   const existing = new Set((existingSkus || []).map((s) => String(s).toUpperCase()));
+  const quantities = {};
+  for (const s of existing) quantities[s] = 1;
+  const snapshotExists = existing.size > 0;
   return {
-    collection: (_name) => ({
-      doc: (sku) => ({
-        get: () => Promise.resolve({ exists: existing.has(String(sku).toUpperCase()) }),
-      }),
-      limit: (_n) => ({
-        get: () => {
-          if (opts.probeThrows) return Promise.reject(new Error('permission-denied simulated'));
-          return Promise.resolve({ empty: existing.size === 0, size: existing.size });
-        },
-      }),
+    doc: (path) => ({
+      get: () => {
+        if (opts.docThrows) return Promise.reject(new Error('permission-denied simulated'));
+        if (path === 'app_config/stock_snapshot') {
+          return Promise.resolve({
+            exists: snapshotExists,
+            data: () => ({
+              quantities: snapshotExists ? JSON.stringify(quantities) : '',
+            }),
+          });
+        }
+        return Promise.resolve({ exists: false });
+      },
     }),
   };
 }
@@ -77,9 +83,9 @@ describe('v1480 §77 — HOTFIX fail-open sap_products vacío', () => {
     expect(r.missing).toEqual([]);
   });
 
-  it('T5 probe .limit(1) tira (permission/timeout) → fail-open defensivo', async () => {
+  it('T5 lectura stock_snapshot tira (permission/timeout) → fail-open defensivo', async () => {
     const r = await checkSkusInSapCatalog(['TRX401B'], {
-      fbDb: mockDbWithProbe([], { probeThrows: true }),
+      fbDb: mockDbWithProbe([], { docThrows: true }),
     });
     // Mejor dejar pasar que bloquear 100% producción. Precedente §77.
     expect(r.ok).toBe(true);
