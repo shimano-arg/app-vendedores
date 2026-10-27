@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1489';
+const APP_VERSION = 'v1490';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -37137,11 +37137,20 @@ function attachFirebaseListeners(){
   // reporto que al pasar de Lista de Espera a Pendientes la card no se movia
   // sin refresh manual. Con el helper, si el listener no fires en 15s se
   // hace .get({source:'server'}) fallback y se aplica igual.
+  // v1490 §88 (2026-10-27): VDE filtra por assignedVendorUid (§44 §46 §59),
+  // alineado con _subscribePlannerPedidos (que ya usa assignedVendorUid desde
+  // v1406). Antes v1490 este listener filtraba por ownerUid, por lo que una
+  // orden CPST cargada por admin para un cliente del VDE no era visible en
+  // Confirmados ni Pendientes (precedente ORDEN 516 BROBRO SA 2026-10-23,
+  // Gonzalo no la veía aunque assignedVendorUid=Gonzalo). Pedidos legacy
+  // (ownerUid=VDE sin assignedVendorUid por ser pre-§44) requieren backfill
+  // §80; script AP cubre /pedidos. Rules firestore.rules:121-122 permiten
+  // OR ownerUid/assignedVendorUid pero la query filtra por el campo nuevo.
   ensureListenerWithFallback(
     'pedidos_own',
     () => (userRole === 'admin' || userRole === 'gerente' || userRole === 'viewer' || userRole === 'interno')
       ? fbDb.collection('pedidos')
-      : fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid),
+      : fbDb.collection('pedidos').where('assignedVendorUid', '==', currentUser.uid),
     (qs, _source) => {
     const newPending = {};
     const newConfirmed = {};
@@ -37218,12 +37227,12 @@ function attachFirebaseListeners(){
   // .collection('pedidos').onSnapshot() sin where clause -> listener falla
   // silencioso, globalPedidos = [] para siempre.
   //
-  // Fix: si es vendedor, filtrar por ownerUid=uid (rules lo permiten via ownsDoc).
+  // Fix: si es vendedor, filtrar por assignedVendorUid=uid (§44 §88 v1490).
   // Admin/gerente/interno siguen sin filtro (ven todo).
   ensureListenerWithFallback(
     'pedidos_all',
     () => (userRole === 'vendedor')
-      ? fbDb.collection('pedidos').where('ownerUid', '==', currentUser.uid)
+      ? fbDb.collection('pedidos').where('assignedVendorUid', '==', currentUser.uid)
       : fbDb.collection('pedidos'),
     (qs, _source) => {
     // v786 (2026-09-04): flag para distinguir "no cargado aun" vs "cargado
