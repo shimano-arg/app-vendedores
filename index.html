@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1480';
+const APP_VERSION = 'v1481';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -31589,15 +31589,26 @@ function applyRolePermissions(){
       _taBtn.style.display = (_taIsAdminLike || _taIsVDI) ? '' : 'none';
     }
     // v984 (2026-09-17) + v1086: botones Dashboard y Depósito ocultos para
-    // role='vendedor'. Contexto: Pachi Naba (VDE proxy) no necesita ver KPIs
-    // ni el estado del depósito — son features para admin/gerente/VDI. Se
-    // mantienen visibles para el resto de roles. v1086: quitado
-    // preliminar-home-btn del array porque la feature Preliminar fue eliminada.
+    // role='vendedor'. v1481 §81 (2026-10-27): PACHI (vendedor) ahora SÍ ve
+    // Dashboard por decisión Mariano iter 3 (su rol es cobranza/cartera y
+    // necesita los KPIs). Resto de vendedores sigue sin dashboard. Depósito
+    // sigue oculto para todos los vendedores (PACHI incluido por §81).
+    const _pachiMod984 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.pachiRestrictions) || null;
+    const _isPachi984 = !!(_pachiMod984 && _pachiMod984.isPachiRestricted && currentUser
+      && _pachiMod984.isPachiRestricted(currentUser.uid));
     const _isVendor984 = (userRole === 'vendedor');
-    ['dashboard-btn', 'deposito-home-btn'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = _isVendor984 ? 'none' : '';
-    });
+    // dashboard-btn: oculto para vendedor PERO visible para PACHI (excepción §81).
+    (() => {
+      const el = document.getElementById('dashboard-btn');
+      if (!el) return;
+      el.style.display = (_isVendor984 && !_isPachi984) ? 'none' : '';
+    })();
+    // deposito-home-btn: oculto para todos los vendedores (PACHI incluido).
+    (() => {
+      const el = document.getElementById('deposito-home-btn');
+      if (!el) return;
+      el.style.display = _isVendor984 ? 'none' : '';
+    })();
     // v986 (2026-09-18): pachi (VDE proxy) solo puede exportar 3 categorias
     // desde el modal Reportes Excel: Visitas, Pedidos del mes, Precio+Stock.
     // Ocultamos el resto (RENDICIONES/ALTAS/MASTER/BACKORDER/STOCK_ASIG).
@@ -31624,6 +31635,26 @@ function applyRolePermissions(){
       const _uid = (currentUser && currentUser.uid) || null;
       const _isPachiByUid = !!(_pachiMod && _pachiMod.isPachiRestricted && _pachiMod.isPachiRestricted(_uid));
       document.body.classList.toggle('is-pachi-restricted', _isPachiByUid);
+      // v1481 §81 (2026-10-27): defense-in-depth. Si PACHI está logueado,
+      // instalar wrappers sobre las open*Modal functions para que cualquier
+      // camino alternativo (consola, bookmarklet admin, atajo teclado) tire
+      // el guard antes de abrir el modal. Lista única en PACHI_BLOCKED_OPEN_FNS.
+      if (_isPachiByUid && _pachiMod && Array.isArray(_pachiMod.PACHI_BLOCKED_OPEN_FNS)) {
+        for (const _fnName of _pachiMod.PACHI_BLOCKED_OPEN_FNS) {
+          const _origFn = window[_fnName];
+          if (typeof _origFn !== 'function') continue;
+          if (_origFn.__pachiWrapped1481) continue;
+          const _featureLabel = _fnName.replace(/^open/, '').replace(/Modal$/, '').replace(/([A-Z])/g, ' $1').trim();
+          const _wrapped = function (/* ...args */) {
+            try {
+              if (_pachiMod.pachiGuard(_uid, { feature: _featureLabel })) return undefined;
+            } catch (_eGuard) { /* ignore */ }
+            return _origFn.apply(this, arguments);
+          };
+          _wrapped.__pachiWrapped1481 = true;
+          window[_fnName] = _wrapped;
+        }
+      }
     } catch (_ePachi) { /* non-fatal */ }
     // Si es Mariano, mostrar el role-badge (ex-v400 lo ocultaba a todos).
     // Para el resto queda oculto en cualquier caso porque el contenedor
@@ -31830,8 +31861,22 @@ function _moveButtonsToSidebarLeft(){
     // en el DOM (la lista "PEDIDOS EN ESPERA" del sidebar sigue funcionando).
     { id: 'waitlist-btn', label: 'Depósito', overrideClick: () => window.openDepositoModal && window.openDepositoModal() },
   ];
+  // v1481 §81 (2026-10-27): PACHI iter 3 — perfil PACHI oculta 6 botones del
+  // panel izquierdo del mapa. v1478 ocultó los ORIGINALES con CSS gates, pero
+  // los proxies de este panel seguían visibles porque el `syncVisibility`
+  // mira `orig.style.display` (inline) y los gates CSS no setean inline. Fix:
+  // consultar `PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS` del pure al crear el proxy;
+  // si PACHI + id en la lista → no crear el proxy. Fuente única.
+  const _pachiMod1481 = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.pachiRestrictions) || null;
+  const _isPachi1481 = !!(_pachiMod1481 && _pachiMod1481.isPachiRestricted && currentUser
+    && _pachiMod1481.isPachiRestricted(currentUser.uid));
+  const _pachiHiddenBtnIds1481 = (_pachiMod1481 && _pachiMod1481.PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS) || [];
   orden.forEach(({ id, label, overrideClick }) => {
     if (!id) return;
+    // v1481 §81: skip proxy creation si PACHI está en la lista oculta.
+    if (_isPachi1481 && _pachiHiddenBtnIds1481.indexOf(id) >= 0) {
+      return;
+    }
     const orig = document.getElementById(id);
     if (!orig) return;
     // Ocultar el original en desktop.

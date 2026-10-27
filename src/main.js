@@ -72,7 +72,10 @@ import {
 import {
   isPachiBodyFlagActive,
   isPachiRestricted,
+  isSidebarLeftBtnHiddenForPachi,
+  PACHI_BLOCKED_OPEN_FNS,
   PACHI_EMAIL,
+  PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS,
   PACHI_UID,
   PACHI_UIDS,
   PACHI_VENDOR_KEY,
@@ -459,6 +462,11 @@ const phase0 = {
       isPachiRestricted,
       isPachiBodyFlagActive,
       pachiGuard,
+      // v1481 §81 (2026-10-27): lista única de botones del sidebar-left ocultos
+      // + wrappers de open*Modal() bloqueados por otro camino.
+      PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS,
+      PACHI_BLOCKED_OPEN_FNS,
+      isSidebarLeftBtnHiddenForPachi,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.
