@@ -7,18 +7,31 @@ import { describe, expect, it, vi } from 'vitest';
 import { checkSkusInSapCatalog } from '../../../functions/core/sku-catalog-check-core.js';
 
 function mockDb(existingSkus) {
+  // v1480 §79: nueva fuente `app_config/stock_snapshot.quantities` (JSON string
+  // `{sku: qty}`). El mock expone esa estructura. Si existingSkus=[], el doc
+  // tiene `quantities` como string vacío → fail-open §77.
   const existing = new Set((existingSkus || []).map((s) => String(s).toUpperCase()));
+  const quantities = {};
+  for (const s of existing) quantities[s] = 1;
+  const snapshotExists = existing.size > 0;
   return {
-    collection: (_name) => ({
-      doc: (sku) => ({
-        get: () => Promise.resolve({ exists: existing.has(String(sku).toUpperCase()) }),
-      }),
-      // v1480 §77: soporte .limit(1).get() para que el fail-open check NO
-      // dispare en los tests clásicos del §72 (colección "no vacía" en todos
-      // los casos que querían documentar el bloqueo).
-      limit: (_n) => ({
-        get: () => Promise.resolve({ empty: existing.size === 0, size: existing.size }),
-      }),
+    doc: (path) => ({
+      get: () => {
+        if (path === 'app_config/stock_snapshot') {
+          return Promise.resolve({
+            exists: snapshotExists,
+            data: () => ({
+              quantities: snapshotExists ? JSON.stringify(quantities) : '',
+            }),
+          });
+        }
+        return Promise.resolve({ exists: false });
+      },
+    }),
+    // Mantiene .collection() por compat con tests pre-§79 (ya no se usa).
+    collection: () => ({
+      doc: () => ({ get: () => Promise.resolve({ exists: false }) }),
+      limit: () => ({ get: () => Promise.resolve({ empty: true, size: 0 }) }),
     }),
   };
 }

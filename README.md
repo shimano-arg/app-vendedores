@@ -4717,6 +4717,47 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1480 (2026-10-27) — HOTFIX commitPedidoCF: SKU_NOT_IN_SAP_CATALOG fail-open + fuente única stock_snapshot + front UNKNOWN mapping (§77, §78, §79, §80)
+
+**2 PRs**: PR 1 (hotfix urgente, server-only) + PR 2 (fuente única + front + backfill AI + CLAUDE.md). PR 1 ya en prod. PR 2 esta entry.
+
+**Síntoma reportado**: desde 2026-10-26 21:00 (deploy v1475), 0 pedidos confirmados en producción. HUGO GIARDINO ORDEN 592 (TRX401B, STOCK ASIG) → "No pudimos confirmar el pedido. Código técnico: UNKNOWN".
+
+**Causa raíz** (verificada contra prod con firebase-admin):
+- `sap_products` collection: **0 docs** (vacía).
+- `stock_snapshot.quantities`: 776 SKUs. TRX401B existe con qty=4.
+- Gate 4.6 `checkSkusInSapCatalog` (PR 2 §72 v1475) hace `.get()` sobre `sap_products/{sku}` → 100% missing → `SKU_NOT_IN_SAP_CATALOG` en 100% confirmaciones.
+- §72 asumió que `syncSapCatalogStockCF` poblaba `sap_products` pero esa CF solo escribe `app_config/stock_snapshot`.
+
+**PR 1 (hotfix urgente, mergeado + deploy ~09:15 UTC)**: `functions/core/sku-catalog-check-core.js` detecta catálogo vacío con probe `.limit(1).get()` lazy → devuelve `catalogEmpty=true`. Core loguea `operations_log` type=`commit_pedido_warning` warningCode=`catalog_check_skipped` y continúa. Solo CF, cero cambios frontend. **Restauración de servicio ~15 h después del inicio del outage.**
+
+**PR 2 (esta entry)**:
+
+1. **Fuente única §79**: `checkSkusInSapCatalog` refactor interno — ahora lee `app_config/stock_snapshot.quantities` (JSON string `{sku: qty}` que el sync ya mantiene cada 5 min). 1 doc read vs N reads previos. Fuente siempre poblada. Fail-open §77 preservado para doc inexistente / lectura fallida.
+
+2. **Front UNKNOWN §78**: `doConfirmPedido` else-chain ahora data-driven. `_hasMsg = !!(_mv.MENSAJES_VENDEDOR[code])` → si el pure tiene mensaje, usa `code`; sino `UNKNOWN`. Cubre `SKU_NOT_IN_SAP_CATALOG`, `VENDOR_UID_MISSING` y cualquier futuro sin hardcode.
+
+3. **Backfill AI §80**: `scripts/audit/AI_backfill_waitlist_assigned_vendor_uid.cjs` cubre `revision_waitlist` (AF v1476 solo cubrió `/pedidos`). Dry-run OK: 4 waitlists resolvibles (BATTISTONI 546, ETCHEGOYEN 593, TESI 534 → GONZALO, RODRIGUEZ 594). **No se corrió `--apply` sin OK Mariano.**
+
+4. **CLAUDE.md**: §77 (gates nuevos fallan abierto cuando su fuente está vacía + log operations_log), §78 (Playwright/pedido-test obligatorio pre-deploy de gate nuevo), §79 (fuente única SAP catalog = `stock_snapshot.quantities`), §80 (backfill `assignedVendorUid` cubre ambas colecciones).
+
+**Tests**:
+- `sku-catalog-fail-open-v1480.test.js` (10): fail-open escenarios + mock stock_snapshot.
+- `sku-catalog-check-pr2.test.js` (actualizado): mock refactor al nuevo shape.
+- `commit-pedido-front-unknown-mapping-v1480.test.js` (7): mapping data-driven + MENSAJES_VENDEDOR cubre todos los errorCodes del CF.
+
+**Suite completa post-fix: 2035 PASS, 0 FAIL.** tsc clean.
+
+**Deploy**: PR 1 deploy manual CF (hecho). PR 2 incluye bump APP_VERSION/CACHE_VERSION v1480 → Pages auto-deploy. **Rebuild bundle NO necesario** (no se tocaron src/pure ni src/main). CF: `firebase deploy --only functions:commitPedidoCF` por el cambio de fuente única §79.
+
+**Verificación prod post-deploy**:
+- [ ] Mariano reintenta HUGO GIARDINO ORDEN 592 → confirma OK sin "UNKNOWN".
+- [ ] `operations_log` type=`commit_pedido_warning` con warningCode=`catalog_check_skipped` desaparece gradualmente a medida que `syncSapCatalogStockCF` sigue corriendo (sin cambios en el sync; `stock_snapshot` ya está poblado).
+- [ ] 4 waitlists sin UID siguen bloqueadas por VENDOR_UID_MISSING hasta correr `AI --apply` con OK Mariano.
+
+**Rollback plan**:
+- PR 2: `git revert <sha_v1480>` + redeploy CF + redeploy Pages. Vuelve al estado post-PR 1 (hotfix fail-open intacto, front muestra UNKNOWN).
+
 ### v1479 (2026-10-27) — HOTFIX Planner vacío post-backfill AD (§76)
 
 Rama `fix-planner-vacio-v1479` → `main`.

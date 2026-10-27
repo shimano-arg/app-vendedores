@@ -3294,6 +3294,110 @@ db.collection('operations_log') \
 
 **Alcance actual**: colecciones `revision_waitlist/*` y `pedidos/*` (vía monkey-patch). Si en el futuro otra colección tiene problemas, extender `isSanitizedPath` para incluirla.
 
+## 77. Gates nuevos en commitPedidoCF fallan abierto cuando su fuente de datos está vacía (2026-10-27, v1480 HOTFIX)
+
+**Regla fuerte**: todo gate nuevo que agregue el core `commitPedidoCore` validando contra una colección/doc externo DEBE implementar **fail-open** si la fuente de datos está vacía, no existe o la lectura falla por permission/timeout. El gate loguea el escenario como warning en `operations_log` (type=`commit_pedido_warning`, warningCode descriptivo) y deja pasar el pedido. **Nunca bloquear 100% de confirmaciones** por una fuente mal poblada.
+
+**Precedente**: 2026-10-26 21:00 → PR 2 §72 (v1475) introdujo el gate 4.6 `SKU_NOT_IN_SAP_CATALOG` que validaba contra `sap_products/{sku}`. §72 asumió que `syncSapCatalogStockCF` poblaba esa colección pero **sólo escribe `app_config/stock_snapshot`**. Resultado: 100% de confirmaciones rechazadas durante ~15 horas (desde deploy v1475 hasta hotfix v1480 2026-10-27 ~09:15 UTC). Reportado por Mariano con HUGO GIARDINO ORDEN 592 TRX401B.
+
+**Patrón canónico** (`sku-catalog-check-core.js` v1480):
+
+```js
+async function checkSkus(skus, deps) {
+  // Lee la fuente única.
+  let sourceData = null;
+  try {
+    const snap = await deps.fbDb.doc('app_config/stock_snapshot').get();
+    if (snap.exists) sourceData = parseFuente(snap.data());
+  } catch (_e) {
+    sourceData = null;
+  }
+  // FAIL-OPEN: fuente vacía/inexistente/ilegible → pasar + log.
+  if (!sourceData || sourceData.size === 0) {
+    return { ok: true, missing: [], checked: N, catalogEmpty: true };
+  }
+  // Chequeo normal.
+  const missing = skus.filter(s => !sourceData.has(s));
+  return { ok: missing.length === 0, missing, checked: N };
+}
+```
+
+El core:
+```js
+if (check.catalogEmpty) {
+  await deps.fbDb.collection('operations_log').add({
+    type: 'commit_pedido_warning',
+    warningCode: 'catalog_check_skipped',
+    reason: 'source_empty_or_unreadable',
+    // ... contexto
+  });
+  // continuar como si el gate hubiera pasado
+} else if (!check.ok) {
+  return makeError('ERRORCODE', ...);
+}
+```
+
+**Red de seguridad real**: siempre tiene que existir una CAPA (c) final que degrada o rechaza con otra lógica (ej. `auto-send-sap-core` degrada SKU individuales con `sap_item_not_found` al enviar al SL). Sin esa capa, el fail-open puede terminar enviando basura a SAP.
+
+**Prohibido**:
+- Agregar un gate que bloquee pedidos sin fail-open path.
+- Agregar un gate sin test que simule "fuente vacía" y verifique que pasa.
+- Agregar un gate sin verificar en prod (post-deploy) que la fuente efectivamente se puebla.
+
+## 78. Gates nuevos requieren Playwright E2E contra prod antes del deploy (2026-10-27)
+
+**Regla fuerte**: ningún gate nuevo en `commitPedidoCF` (ni cambio al mapeo de `errorCode` en el front) se mergea sin correr una Playwright E2E contra el deployed-dev o un test manual con un pedido real que confirme que el flow legítimo pasa.
+
+**Checklist pre-deploy**:
+
+1. **Test unit**: fixture simulando la fuente de datos esperada en prod → gate pasa pedido legítimo.
+2. **Test fail-open**: fixture simulando fuente vacía → gate pasa con `catalogEmpty=true` + log.
+3. **Test anti-regresión del flow legítimo**: si cambié el else-chain del front, hay test grep que verifica que los errorCodes del `MENSAJES_VENDEDOR` llegan al alert correctamente.
+4. **Verificación prod post-deploy**: pruebas.e2e (o Mariano) confirma un pedido real; se verifica en `operations_log` que no quedó rechazo inesperado.
+
+**Precedente**: PR 2 §72 (v1475) tuvo tests unit del happy path (SKUs existen en `sap_products`) pero NO test "fuente vacía". Mergeado + deployado → 15h de outage. El test faltante hubiera atrapado el bug inmediato.
+
+**Prohibido**:
+- Mergear un gate sin test `catalogEmpty / sourceMissing / fail-open`.
+- Deployar un gate a prod sin un pedido test que lo pase.
+- Agregar un errorCode al front sin que esté en `MENSAJES_VENDEDOR` (regla §68) + sin test que lo verifique en el else-chain.
+
+## 79. Fuente única SAP catalog = `app_config/stock_snapshot.quantities` (2026-10-27, v1480)
+
+**Regla fuerte**: cuando necesites validar que un SKU existe en el catálogo SAP, usar `app_config/stock_snapshot.quantities` (JSON string `{sku: qty}` que escribe `syncSapCatalogStockCF` cada 5 min). **No crear colecciones paralelas** (`sap_products`, `sap_items`, `sap_catalog`) que requieran su propio sync.
+
+**Antes** (v1475 §72): `functions/core/sku-catalog-check-core.js` leía `sap_products/{sku}.exists`. Nadie poblaba `sap_products` → gate bloqueaba todo.
+
+**Ahora** (v1480 §79): el gate lee 1 doc (`app_config/stock_snapshot`), parsea `quantities` y verifica que el SKU esté en las keys. 1 doc read vs N reads. Fuente siempre poblada (ya la mantiene el sync).
+
+**Si en el futuro necesitas un atributo del SKU que `stock_snapshot.quantities` no tiene** (ej. descripción, categoría):
+1. **Primera opción**: extenderlo en el output del sync (ej. `quantitiesExtended` con shape `{sku: {qty, desc, cat}}`).
+2. **Segunda opción**: separar en otra fuente dedicada (ej. `app_config/sap_catalog_metadata`) **pero el sync la escribe en la MISMA corrida**.
+3. **NUNCA**: colección separada que depende de otro sync paralelo que puede fallar silencioso.
+
+**Prohibido**:
+- Reintroducir `sap_products/*` como fuente de validación de SKUs. Si aparece de nuevo, es señal de regresión.
+- Validar SKUs contra el catálogo cliente-side (`PRODUCTS` inline en index.html): no refleja cambios SAP hasta el próximo deploy del bundle.
+
+## 80. Backfill `assignedVendorUid` cubre AMBAS colecciones (/pedidos + revision_waitlist) (2026-10-27)
+
+**Regla fuerte**: todo script de backfill que resuelva `assignedVendorUid` desde el cliente master DEBE procesar **AMBAS** colecciones: `/pedidos` **y** `/revision_waitlist`. El VENDOR_UID_MISSING gate del `commitPedidoCore` se evalúa al confirmar un pedido — las waitlists con `assignedVendorUid=''` entran al CF por este camino y bloquean la confirmación.
+
+**Precedente**: `scripts/audit/AF_backfill_assigned_vendor_uid.cjs` (v1476 §74) sólo tocó `pedidos`. 4 waitlists quedaron sin UID: ORDEN 546 BATTISTONI (MAURICIO), 593 ETCHEGOYEN (MAURICIO), 534 TESI (sin vendor → resolvible a GONZALO), 594 RODRIGUEZ (MAURICIO). Cuando Mariano intentó confirmar BATTISTONI 2026-10-27, el CF rechazó con VENDOR_UID_MISSING.
+
+**Nuevo script `scripts/audit/AI_backfill_waitlist_assigned_vendor_uid.cjs`** (v1480):
+- Dry-run por default. `--apply` ejecuta.
+- Lee POINTS + approvedAltas + roles exactamente como AF.
+- Resuelve via `resolveClientVendorFromMaster` (pure fn §46).
+- Guarda snapshot `_backfill` §55 para reversibilidad.
+- Mismo shape de output que AF.
+
+**Flujo de prevención**: cualquier script de backfill de vendor-uid que se cree a futuro debe tener casos de test que incluyan AMBAS colecciones + verificación post-apply con query de los documentos sin UID.
+
+**Prohibido**:
+- Script de backfill de vendor-uid que toque una sola colección sin documentar explícitamente que la otra ya está cubierta.
+- Agregar un gate nuevo al CF que lea un campo que un backfill histórico sólo pobló en 1 de 2 colecciones.
+
 ## 76. Planner — una sola función para leer fecha de /pedidos (2026-10-27, v1479)
 
 **Regla fuerte**: todo call-site del Planner Kanban que lea `createdAt`/`updatedAt`/`confirmedAt` de un documento de `/pedidos` DEBE pasar por `window.__phase0.pure.parseDateFlexible.pedidoDateForPlanner(pedido)` (o `parseFirestoreDate(v)` si lee un campo específico). La query Firestore server-side `where('createdAt', '>=', <cutoff>)` DEBE usar `plannerCutoffIsoForQuery(nowMs, daysBack)` que devuelve string ISO, NUNCA un `Date` object.
