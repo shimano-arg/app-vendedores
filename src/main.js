@@ -144,6 +144,14 @@ import {
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { suggestForSku } from './pure/product-suggestions.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
+// v1498 §97 (2026-10-27): consolidar clientesBO por cliente+SKU en Reparto.
+// Fuente única para evitar filas duplicadas (ej. URQUIOLA + CUDC201XG con
+// 2 pedidos distintos aparecía 2 veces; ahora 1 fila con la suma).
+import {
+  consolidateClientesBO,
+  distributeQtyFifo,
+  groupKeyForClienteBO,
+} from './pure/reparto-consolidate.js';
 // v1497 §96 (2026-10-27): pure fn para armar filas del export Reparto.
 // Fuente única + robusta a campos faltantes (cliente sin nombre/localidad, etc).
 import {
@@ -545,6 +553,13 @@ const phase0 = {
       safeStr,
       safeNum,
       safeTs,
+    },
+    // v1498 §97 (2026-10-27): consolidar clientesBO por cliente+SKU en
+    // Reparto. Fuente única (fix bug URQUIOLA + CUDC201XG 2 filas → 1 fila 17 un).
+    repartoConsolidate: {
+      consolidateClientesBO,
+      distributeQtyFifo,
+      groupKeyForClienteBO,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.

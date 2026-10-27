@@ -7114,7 +7114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1497';
+const APP_VERSION = 'v1498';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -21839,7 +21839,19 @@ function _repartoBuildCard(ing){
   // Para cada uno, marcar visualmente si todavia esta vigente o si ya resolvio
   // (pedido en SAP, cerrado, linea no mas BO). Pedido Mariano: "quiero verlo
   // igual y decidir uno por uno todos los casos".
-  const _clientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
+  //
+  // v1498 §97 (2026-10-27): consolidar entries por cliente+SKU (bug URQUIOLA
+  // + CUDC201XG aparecía 2 filas con 15 + 2; ahora 1 fila con 17). Pure fn
+  // `consolidateClientesBO` suma qty + preserva pedidoIds[] FIFO para
+  // distribución al aplicar.
+  const _rawClientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
+  const _consolidateFn = (window.__phase0 && window.__phase0.pure
+    && window.__phase0.pure.repartoConsolidate
+    && window.__phase0.pure.repartoConsolidate.consolidateClientesBO);
+  const _clientes = _consolidateFn ? _consolidateFn(_rawClientes) : _rawClientes;
+  // Guardar el map consolidado para que _repartoApply distribuya FIFO.
+  if (!window._repartoGroupData) window._repartoGroupData = Object.create(null);
+  window._repartoGroupData[ing._id] = { groups: _clientes };
   if (_clientes.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
@@ -21852,12 +21864,22 @@ function _repartoBuildCard(ing){
   _clientes.forEach((c) => {
     const _maxBo = Number(c.qtyBackorder) || 0;
     const _esc = _escAttr(ing._id);
-    const _pid = _escAttr(c.pedidoId);
-    const _lidx = Number(c.lineIndex);
-    // v1328 (2026-10-15): Mariano quiere resolver uno por uno, SIN badge
-    // "YA RESUELTO" ni gris ni disabled. Todos los clientes se ven iguales,
-    // el user decide. Si asigna a un cliente ya en SAP, backend lo rechaza
-    // y aparece el error en pantalla.
+    // v1498 §97 (2026-10-27): fila consolidada por cliente+SKU. `groupKey`
+    // identifica el grupo (cardCode preferido); _repartoApply distribuye
+    // FIFO entre pedidoIds[] del grupo via distributeQtyFifo (pure fn).
+    const _gkey = _escAttr(c.groupKey || c.clientCardCode || c.clientName);
+    // Compat retro: si `c` no está consolidado (edge case bundle no cargado),
+    // caer al legacy con pedido-id/line-index del primer elemento.
+    const _pid = _escAttr(
+      c.pedidoId
+      || (c.pedidoIds && c.pedidoIds[0] && c.pedidoIds[0].pedidoId)
+      || ''
+    );
+    const _lidx = Number(
+      c.lineIndex != null
+        ? c.lineIndex
+        : (c.pedidoIds && c.pedidoIds[0] ? c.pedidoIds[0].lineIndex : 0)
+    );
     const tr = document.createElement('tr');
     tr.innerHTML = ''
       + '<td style="text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#1d1d1f">' + _escHtml(ing.sku || '') + '</td>'
@@ -21870,6 +21892,7 @@ function _repartoBuildCard(ing){
       + '<input type="number" min="0" max="' + Math.max(_maxBo, stockFisico) + '" step="1" value="0" '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="asig" '
+      + 'data-group-key="' + _gkey + '" '
       + 'data-pedido-id="' + _pid + '" '
       + 'data-line-index="' + _lidx + '" '
       + 'data-max-bo="' + _maxBo + '" '
@@ -21878,12 +21901,13 @@ function _repartoBuildCard(ing){
       + '</td>'
       // Vuelve a backorder (display calculated = qtyBackorder - asig - elim)
       + '<td style="text-align:center;font-weight:700;color:#1e40af" '
-      + 'data-reparto-bo-display="' + _esc + '|' + _pid + '|' + _lidx + '">' + _repartoFmtQty(_maxBo) + '</td>'
+      + 'data-reparto-bo-display="' + _esc + '|' + _gkey + '">' + _repartoFmtQty(_maxBo) + '</td>'
       // Eliminar (input)
       + '<td style="text-align:center">'
       + '<input type="number" min="0" max="' + Math.max(_maxBo, stockFisico) + '" step="1" value="0" '
       + 'data-reparto-ing="' + _esc + '" '
       + 'data-reparto-field="elim" '
+      + 'data-group-key="' + _gkey + '" '
       + 'data-pedido-id="' + _pid + '" '
       + 'data-line-index="' + _lidx + '" '
       + 'data-max-bo="' + _maxBo + '" '
@@ -22068,6 +22092,9 @@ function _escAttr(s){
 //   - El default (no toco nada) deja al cliente con backorder entero (safe).
 window._repartoRecalc = function(input){
   const ingresoId = input.getAttribute('data-reparto-ing');
+  // v1498 §97: siblings matcheadas por `data-group-key` (fila consolidada).
+  // Compat retro: si no existe, caer a `data-pedido-id + data-line-index`.
+  const groupKey = input.getAttribute('data-group-key') || '';
   const pedidoId = input.getAttribute('data-pedido-id');
   const lineIdx = Number(input.getAttribute('data-line-index')) || 0;
   const maxBO = Number(input.getAttribute('data-max-bo')) || 0;
@@ -22082,9 +22109,11 @@ window._repartoRecalc = function(input){
   if (Number(input.value) !== val) input.value = val;
 
   // 2. Leer sibling input del MISMO cliente (asig vs elim) para calcular BO display.
-  const siblingSelector = 'input[data-reparto-ing="' + ingresoId + '"]'
-    + '[data-pedido-id="' + pedidoId + '"]'
-    + '[data-line-index="' + lineIdx + '"]';
+  const siblingSelector = groupKey
+    ? 'input[data-reparto-ing="' + ingresoId + '"][data-group-key="' + groupKey + '"]'
+    : 'input[data-reparto-ing="' + ingresoId + '"]'
+        + '[data-pedido-id="' + pedidoId + '"]'
+        + '[data-line-index="' + lineIdx + '"]';
   const siblings = document.querySelectorAll(siblingSelector);
   let asigVal = 0, elimVal = 0;
   siblings.forEach((inp) => {
@@ -22099,9 +22128,11 @@ window._repartoRecalc = function(input){
   // 4. "Vuelve a backorder" display = maxBO - asig - elim (puede ser negativo
   // si hubo sobre-asignacion; mostramos 0 en ese caso).
   const bo = Math.max(0, maxBO - asigVal - elimVal);
-  const boCell = document.querySelector(
-    'td[data-reparto-bo-display="' + ingresoId + '|' + pedidoId + '|' + lineIdx + '"]'
-  );
+  const boCell = groupKey
+    ? document.querySelector('td[data-reparto-bo-display="' + ingresoId + '|' + groupKey + '"]')
+    : document.querySelector(
+        'td[data-reparto-bo-display="' + ingresoId + '|' + pedidoId + '|' + lineIdx + '"]'
+      );
   if (boCell) {
     boCell.textContent = _repartoFmtQty(bo);
     boCell.style.color = bo === 0 && asigVal === 0 && elimVal === 0 ? '#86868b' : '#1e40af';
@@ -22151,26 +22182,50 @@ window._repartoApply = async function(ingresoId){
   const asigInputs = document.querySelectorAll(
     'input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="asig"]'
   );
+  // v1498 §97 (2026-10-27): cada input ahora representa 1 cliente consolidado
+  // (fila por cliente+SKU). Si el grupo tiene multiples pedidoIds, se
+  // distribuyen FIFO con la pure fn `distributeQtyFifo`. Compat retro: si
+  // bundle no cargó o el input no tiene group-key, cae al pattern legacy.
+  const _groupDataAll = (typeof window._repartoGroupData !== 'undefined'
+    && window._repartoGroupData) || {};
+  const _groupMap = _groupDataAll[ingresoId]
+    ? _groupDataAll[ingresoId].groups : null;
+  const _distFn = (window.__phase0 && window.__phase0.pure
+    && window.__phase0.pure.repartoConsolidate
+    && window.__phase0.pure.repartoConsolidate.distributeQtyFifo);
   asigInputs.forEach((inp) => {
     // v1328: Mariano decide uno por uno — enviar TODO lo que escribio. Si
     // el pedido ya esta en SAP, backend rechaza y aparece el error.
+    const groupKey = inp.getAttribute('data-group-key') || '';
     const pedidoId = inp.getAttribute('data-pedido-id');
     const lineIndex = Number(inp.getAttribute('data-line-index')) || 0;
     const maxBO = Number(inp.getAttribute('data-max-bo')) || 0;
     const asig = Number(inp.value) || 0;
     const elimInp = document.querySelector(
       'input[data-reparto-ing="' + ingresoId + '"][data-reparto-field="elim"]'
-        + '[data-pedido-id="' + pedidoId + '"]'
-        + '[data-line-index="' + lineIndex + '"]'
+        + '[data-group-key="' + groupKey + '"]'
     );
     const elimManual = elimInp ? (Number(elimInp.value) || 0) : 0;
     if (asig === 0 && elimManual === 0) return;
     const diffImplicita = Math.max(0, maxBO - asig - elimManual);
     const elimTotal = elimManual + diffImplicita;
-    if (asig > 0) {
+    // Encontrar grupo consolidado para distribuir FIFO entre múltiples pedidos.
+    const group = _groupMap
+      ? _groupMap.find((g) => (g.groupKey || g.clientCardCode || g.clientName) === groupKey)
+      : null;
+    const pedidoIds = (group && Array.isArray(group.pedidoIds) && group.pedidoIds.length > 0)
+      ? group.pedidoIds
+      : [{ pedidoId, lineIndex, qty: maxBO }];
+    if (asig > 0 && _distFn) {
+      const dist = _distFn(pedidoIds, asig);
+      for (const d of dist) assignments.push({ pedidoId: d.pedidoId, lineIndex: d.lineIndex, qtyAsignada: d.qtyAsignada });
+    } else if (asig > 0) {
       assignments.push({ pedidoId, lineIndex, qtyAsignada: asig });
     }
-    if (elimTotal > 0) {
+    if (elimTotal > 0 && _distFn) {
+      const distE = _distFn(pedidoIds, elimTotal);
+      for (const d of distE) eliminations.push({ pedidoId: d.pedidoId, lineIndex: d.lineIndex, qtyEliminar: d.qtyAsignada });
+    } else if (elimTotal > 0) {
       eliminations.push({ pedidoId, lineIndex, qtyEliminar: elimTotal });
     }
   });
