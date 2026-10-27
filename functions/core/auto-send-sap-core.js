@@ -65,6 +65,7 @@ import { buildSkipSetForCpstLines, filterLinesByLiveStock } from './sap-stock-re
  * @property {number|null} [appSeriesId] v1004: DocSeries "APP" configurada en app_config/sap_integration.appSeriesId (103 PROD / 104 TEST). Si viene, se setea como payload.Series para clasificar el SQ en la BU correcta. Sin esto, SAP aplica DocSeries default del user SL -> cross-BU (bug 2026-09-22).
  * @property {number} [lockTtlMs]              default 300000 (5 min)
  * @property {number} [dueDateDays]            default 30
+ * @property {(args: {to: string, subject: string, text: string}) => Promise<void>} [sendAlertEmail] PR2 v1475 §72: email alerta cuando se degrada línea por sap_item_not_found (CAPA c). Fire-and-forget. Si no se pasa, no se envía email (solo log).
  */
 
 /**
@@ -661,7 +662,22 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     }
     /** @type {Array<{itemCode: string, requested: number, available: number, reason: string}>} */
     const degradedForAudit = stockCheck.degradedLines || [];
-    if (stockCheck.checkSucceeded && degradedForAudit.length > 0) {
+    // PR 2 §72 (v1475 2026-10-26): separar degraded por reason.
+    // - sap_item_not_found: SKU no existe en SAP catalog. CAPA (c) de la
+    //   defensa en profundidad. Si TODAS las degraded son por este motivo
+    //   → enviamos las keptLines a SAP + marcamos las degraded como app_only
+    //   + logeamos + email a Mariano. El pedido no se bloquea entero por 1
+    //   SKU que SAP no tiene. Reportado ORDEN 530 SUSANA ANDRILI.
+    // - insufficient_whs11_stock: stock real insuficiente. Mantenemos v1179
+    //   needsManualIntervention porque requiere decisión del admin (reducir
+    //   qty, cancelar, esperar reposición).
+    const sapNotFoundDegraded = degradedForAudit.filter((d) => d.reason === 'sap_item_not_found');
+    const insufficientStockDegraded = degradedForAudit.filter(
+      (d) => d.reason !== 'sap_item_not_found'
+    );
+    const onlySapNotFound =
+      sapNotFoundDegraded.length > 0 && insufficientStockDegraded.length === 0;
+    if (stockCheck.checkSucceeded && degradedForAudit.length > 0 && !onlySapNotFound) {
       // v1179 (incident 2026-10-07, pedido RICARDO BLANCO GOITIA SQ 2000316):
       // Antes v1179: si recheck degradaba lineas parcialmente, el CF modificaba
       // `built.payload.DocumentLines = stockCheck.keptLines` y enviaba la SQ
@@ -671,10 +687,10 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       // Mismo pattern LAMORA pero por el camino server-side (SRE C3 v1172
       // cubrio solo el flow client-side listener).
       //
-      // Ahora: cualquier degradacion (>=1 linea) → SKIP envio + liberar lock +
-      // marcar needsManualIntervention con lista completa de degraded. Admin
-      // interviene manual: puede cancelar el pedido, forzar envio con qtys
-      // reducidas via batch admin, o esperar reposicion stock.
+      // Ahora: cualquier degradacion por insufficient_stock → SKIP envio +
+      // liberar lock + marcar needsManualIntervention. Admin decide.
+      // (sap_item_not_found tiene fallback propio arriba — degrada línea
+      //  individual y manda el resto, con email a Mariano.)
       log('[auto-send] live stock recheck DEGRADED → SKIP (needs manual)', {
         pedidoId,
         degradedCount: degradedForAudit.length,
@@ -736,6 +752,86 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
         reason: allDegraded ? 'all_lines_degraded' : 'partial_lines_degraded',
         degradedCount: degradedForAudit.length,
       };
+    }
+    // PR 2 §72 (v1475 2026-10-26): CAPA (c) — degradación individual de
+    // líneas con `sap_item_not_found` en vez de bloquear pedido entero.
+    // Mandamos las keptLines a SAP. Las degraded quedan en el pedido como
+    // app_only con motivo visible. Email alerta a Mariano para que pida a
+    // BI agregar el SKU al catalog. Reportado ORDEN 530 SUSANA ANDRILI.
+    if (onlySapNotFound && stockCheck.keptLines.length > 0) {
+      log('[auto-send] sap_item_not_found degraded individually (NOT blocking)', {
+        pedidoId,
+        degradedCount: sapNotFoundDegraded.length,
+        keptCount: stockCheck.keptLines.length,
+        missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
+      });
+      // Reemplazar DocumentLines por las keptLines (sin las inexistentes).
+      built.payload.DocumentLines = stockCheck.keptLines;
+      // Email alerta a Mariano + operations_log.
+      try {
+        if (deps.fbDb && typeof deps.fbDb.collection === 'function') {
+          await deps.fbDb.collection('operations_log').add({
+            type: 'sap_item_not_found_degraded',
+            pedidoId,
+            cardCode: (afterData && afterData.clientCardCode) || null,
+            clientName: (afterData && afterData.clientName) || null,
+            missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
+            degradedCount: sapNotFoundDegraded.length,
+            keptCount: stockCheck.keptLines.length,
+            timestamp: new Date(now),
+          });
+        }
+      } catch (_logErr) {
+        log('[auto-send] operations_log sap_item_not_found write failed', {
+          pedidoId,
+          err: _logErr && _logErr.message,
+        });
+      }
+      // Email alerta a Mariano (fire-and-forget via deps.sendAlertEmail si existe).
+      if (typeof deps.sendAlertEmail === 'function') {
+        try {
+          deps
+            .sendAlertEmail({
+              to: 'erbinomariano@gmail.com',
+              subject: `[app-vendedores] SKU no está en SAP catalog: ${sapNotFoundDegraded.map((d) => d.itemCode).join(', ')}`,
+              text:
+                `Pedido ${pedidoId} (cliente ${(afterData && afterData.clientName) || '?'}): ` +
+                `${sapNotFoundDegraded.length} SKU(s) no existen en sap_products:\n` +
+                sapNotFoundDegraded
+                  .map((d) => `  - ${d.itemCode} (req ${d.requested})`)
+                  .join('\n') +
+                `\n\nSe envió el resto (${stockCheck.keptLines.length} líneas) a SAP. ` +
+                `Pedí a BI que agregue estos SKUs al catalog.`,
+            })
+            .catch((/** @type {any} */ _e) => {
+              log('[auto-send] sendAlertEmail failed', { pedidoId, err: _e && _e.message });
+            });
+        } catch (_e) {
+          /* no bloquear */
+        }
+      }
+      // Marcar las líneas degradadas en el pedido como `_degradedReason` para
+      // auditoría. El resto del flow continúa con sapPost normal.
+      try {
+        const degradedSkusSet = new Set(sapNotFoundDegraded.map((d) => d.itemCode));
+        const updatedLines = (afterData.lines || []).map((/** @type {any} */ l) => {
+          const code = String((l && l.code) || '').toUpperCase();
+          if (degradedSkusSet.has(code)) {
+            return {
+              ...l,
+              _degradedReason: 'sap_item_not_found_app_only',
+              _degradedAt: new Date(now).toISOString(),
+            };
+          }
+          return l;
+        });
+        await docRef.update({ lines: updatedLines });
+      } catch (_markErr) {
+        log('[auto-send] mark degraded lines failed (non-blocking)', {
+          pedidoId,
+          err: _markErr && _markErr.message,
+        });
+      }
     }
     /** @type {{status: number, body: any, headers: any} | null} */
     let resp = null;
