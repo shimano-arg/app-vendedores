@@ -32,29 +32,51 @@ describe('v1492 §91 — exportRepartoToExcel handler', () => {
     expect(slice).toMatch(/{\s*name:\s*['"]Detalle['"]/);
   });
 
-  it('T4 cada hoja agrega fila TOTAL al final', () => {
-    const idx = EXPORTS.indexOf('window.exportRepartoToExcel');
-    const slice = EXPORTS.slice(idx, idx + 6000);
-    const totalCount = (slice.match(/SKU:\s*['"]TOTAL['"]/g) || []).length;
-    expect(totalCount).toBeGreaterThanOrEqual(2);
+  it('T4 fila TOTAL agregada por pure fn (v1497 §96 refactor)', async () => {
+    // v1497 §96: la fila TOTAL ahora vive en la pure fn `computeRepartoExportRows`,
+    // no en el handler inline. Verifica el shape de output de la pure fn.
+    const { computeRepartoExportRows } = await import('../../../src/pure/reparto-export-rows.js');
+    const r = computeRepartoExportRows(
+      [{ sku: 'X', qtyIngresada: 1, clientesBO: [{ clientName: 'A', qtyBO: 1 }] }],
+      { hideNoStock: false },
+      { getStockFisico: () => 10 }
+    );
+    expect(r.resumenRows[r.resumenRows.length - 1].SKU).toBe('TOTAL');
+    expect(r.detalleRows[r.detalleRows.length - 1].SKU).toBe('TOTAL');
   });
 
-  it('T5 columnas Resumen: SKU, Producto, Stock_fisico_dep11, Qty_ingresada, N_clientes_BO, Suma_BO_solicitada, Status, Ingreso_detectado', () => {
-    const idx = EXPORTS.indexOf('window.exportRepartoToExcel');
-    const slice = EXPORTS.slice(idx, idx + 6000);
-    expect(slice).toMatch(/N_clientes_BO:/);
-    expect(slice).toMatch(/Suma_BO_solicitada:/);
-    expect(slice).toMatch(/Stock_fisico_dep11:/);
-    expect(slice).toMatch(/Qty_ingresada:/);
+  it('T5 columnas Resumen: SKU, Producto, Stock_fisico_dep11, Qty_ingresada, N_clientes_BO, Suma_BO_solicitada, Qty_asignada, Vuelve_a_BO, Status, Ingreso_detectado', async () => {
+    const { computeRepartoExportRows } = await import('../../../src/pure/reparto-export-rows.js');
+    const r = computeRepartoExportRows(
+      [{ sku: 'X', qtyIngresada: 1, clientesBO: [{ clientName: 'A', qtyBO: 1 }] }],
+      { hideNoStock: false },
+      { getStockFisico: () => 10 }
+    );
+    const cols = Object.keys(r.resumenRows[0]);
+    expect(cols).toContain('N_clientes_BO');
+    expect(cols).toContain('Suma_BO_solicitada');
+    expect(cols).toContain('Stock_fisico_dep11');
+    expect(cols).toContain('Qty_ingresada');
+    // v1497 §96: columnas nuevas pedidas por Mariano.
+    expect(cols).toContain('Qty_asignada');
+    expect(cols).toContain('Vuelve_a_BO');
   });
 
-  it('T6 columnas Detalle: SKU, Producto, Cliente, CardCode, Vendedor, Qty_BO_solicitada, Status', () => {
-    const idx = EXPORTS.indexOf('window.exportRepartoToExcel');
-    const slice = EXPORTS.slice(idx, idx + 6000);
-    expect(slice).toMatch(/Cliente:/);
-    expect(slice).toMatch(/CardCode:/);
-    expect(slice).toMatch(/Vendedor:/);
-    expect(slice).toMatch(/Qty_BO_solicitada:/);
+  it('T6 columnas Detalle: SKU, Producto, Cliente, CardCode, Localidad, Provincia, Vendedor, Qty_BO_solicitada, Status', async () => {
+    const { computeRepartoExportRows } = await import('../../../src/pure/reparto-export-rows.js');
+    const r = computeRepartoExportRows(
+      [{ sku: 'X', qtyIngresada: 1, clientesBO: [{ clientName: 'A', qtyBO: 1 }] }],
+      { hideNoStock: false },
+      { getStockFisico: () => 10 }
+    );
+    const cols = Object.keys(r.detalleRows[0]);
+    expect(cols).toContain('Cliente');
+    expect(cols).toContain('CardCode');
+    expect(cols).toContain('Vendedor');
+    expect(cols).toContain('Qty_BO_solicitada');
+    // v1497 §96: Localidad y Provincia agregadas (robust a "cliente sin localidad").
+    expect(cols).toContain('Localidad');
+    expect(cols).toContain('Provincia');
   });
 
   it('T7 usa downloadXlsx (patrón existente con estilos consistentes)', () => {

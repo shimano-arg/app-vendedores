@@ -1976,11 +1976,29 @@ window.exportBackorderAll = async function () {
   );
 };
 
-// v1492 §91 (2026-10-27): export del módulo "Reparto de ingresos". Botón en
-// el header del modal. Fuente: `window._repartoIngresos` (array inline poblado
-// por `_repartoSubscribe` desde `ingresos_reparto.where(status in [pending,
-// in_progress])`). Dos hojas: Resumen (una fila por ingreso) y Detalle (una
-// fila por cliente dentro de cada ingreso). Columnas alineadas con el modal.
+// v1492 §91 (2026-10-27): export del módulo "Reparto de ingresos". Fuente:
+// `window._repartoIngresos`.
+// v1497 §96 HOTFIX (2026-10-27): refactor completo tras bug reportado por
+// Mariano "no descarga nada".
+//
+// Dos causas identificadas:
+//   1. `installChunkStubs('exports-core', [...])` NO incluía
+//      `exportRepartoToExcel` → si el user abría modal Reparto SIN pasar
+//      antes por "Exportar" del header, el chunk no se cargaba y el
+//      click al botón corto-circuitaba silencioso (`window.X && ...`).
+//      Fix: agregado al stubs array en src/main.js.
+//   2. Campos faltantes (clientName null, localidad undefined, etc.)
+//      podían propagar `undefined` a ExcelJS → el `writeBuffer()` falla
+//      silencioso o rompe el blob. Fix: fuente única `computeRepartoExportRows`
+//      en src/pure/reparto-export-rows.js — todo campo faltante → "-".
+//
+// Pipeline:
+//   1. Guard "no hay ingresos" + alert temprano.
+//   2. Try/catch global: cualquier excepción → alert §68 humano + log
+//      a operations_log con type='export_failed'.
+//   3. Pure fn arma filas con filtros aplicados (search + hideNoStock).
+//   4. 3 hojas: Filtros (encabezado) + Resumen (1 fila por ingreso) +
+//      Detalle (1 fila por cliente).
 window.exportRepartoToExcel = async function () {
   const w = /** @type {any} */ (window);
   const ingresos = Array.isArray(w._repartoIngresos) ? w._repartoIngresos : [];
@@ -1988,156 +2006,148 @@ window.exportRepartoToExcel = async function () {
     alert('No hay ingresos de reparto para exportar. Abrí el modal "Reparto de ingresos" primero.');
     return;
   }
+
+  // Leer el estado actual del modal (filtros aplicados).
+  const _searchEl =
+    typeof document !== 'undefined' ? document.getElementById('reparto-search') : null;
+  const _hideEl =
+    typeof document !== 'undefined' ? document.getElementById('reparto-hide-nostock') : null;
+  const filtros = {
+    search: _searchEl ? String(/** @type {any} */ (_searchEl).value || '').trim() : '',
+    hideNoStock: _hideEl ? !!(/** @type {any} */ (_hideEl).checked) : true,
+  };
+
+  // Botón en estado "Generando…". textContent (no innerHTML — anti-XSS hook).
+  const _btn =
+    typeof document !== 'undefined'
+      ? document.querySelector('#reparto-modal button[onclick*="exportRepartoToExcel"]')
+      : null;
+  const _origBtnText = _btn ? _btn.textContent : '';
+  if (_btn) {
+    /** @type {any} */ (_btn).disabled = true;
+    _btn.textContent = '⏳ Generando…';
+  }
   showSyncTag('Generando export Reparto…');
 
-  const _getStock =
-    typeof w.getStockDisponibleVenta === 'function' ? w.getStockDisponibleVenta : null;
-  /** @param {any} ing */
-  const _stockFisico = (ing) => {
-    if (!ing || !ing.sku) return 0;
-    if (!_getStock) return Number(ing.qtyIngresada) || 0;
-    try {
-      return Number(_getStock(ing.sku)) || 0;
-    } catch (_e) {
-      return 0;
+  try {
+    // Pure fn fuente única.
+    const _pureMod = w.__phase0 && w.__phase0.pure && w.__phase0.pure.repartoExport;
+    if (!_pureMod || typeof _pureMod.computeRepartoExportRows !== 'function') {
+      throw new Error(
+        'exports-core.repartoExport pure fn no disponible (chunk no cargado completo)'
+      );
     }
-  };
-  const _products = Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [];
-  /** @param {string} code */
-  const _producto = (code) => {
-    const u = String(code || '')
-      .toUpperCase()
-      .trim();
-    const p = _products.find(
-      (x) =>
-        String(x.code || '')
+    const _products = Array.isArray(w.PRODUCTS) ? w.PRODUCTS : [];
+    const _getStockFisico =
+      typeof w.getStockDisponibleVenta === 'function'
+        ? (/** @type {string} */ sku) => {
+            try {
+              return Number(w.getStockDisponibleVenta(sku)) || 0;
+            } catch (_e) {
+              return 0;
+            }
+          }
+        : (/** @type {string} */ _sku) => 0;
+    const _getProductDesc = (/** @type {string} */ sku) => {
+      try {
+        const u = String(sku || '')
           .toUpperCase()
-          .trim() === u
-    );
-    return p ? String(p.desc || p.name || '') : '';
-  };
-  /** @param {any} ts */
-  const _fmtTs = (ts) => {
-    try {
-      if (!ts) return '';
-      if (typeof ts === 'string') return ts.slice(0, 19).replace('T', ' ');
-      if (ts.toDate) return ts.toDate().toISOString().slice(0, 19).replace('T', ' ');
-      if (typeof ts.seconds === 'number')
-        return new Date(ts.seconds * 1000).toISOString().slice(0, 19).replace('T', ' ');
-      if (ts instanceof Date) return ts.toISOString().slice(0, 19).replace('T', ' ');
-      return '';
-    } catch (_e) {
-      return '';
-    }
-  };
-
-  /** @type {Array<any>} */
-  const resumenRows = [];
-  /** @type {Array<any>} */
-  const detalleRows = [];
-  let totalIngresadas = 0;
-  let totalBO = 0;
-  let totalClientes = 0;
-
-  // Sort por SKU + qtyIngresada asc (mismo orden que el modal con fallback).
-  const sorted = ingresos.slice().sort((a, b) => {
-    const qa = Number(a.qtyIngresada) || 0;
-    const qb = Number(b.qtyIngresada) || 0;
-    if (qa !== qb) return qa - qb;
-    return String(a.sku || '').localeCompare(String(b.sku || ''));
-  });
-
-  for (const ing of sorted) {
-    const sku = String(ing.sku || '');
-    const producto = _producto(sku);
-    const stockFis = _stockFisico(ing);
-    const qtyIng = Number(ing.qtyIngresada) || 0;
-    const clientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
-    const sumaBO = clientes.reduce(
-      (/** @type {number} */ s, /** @type {any} */ c) => s + (Number(c.qtyBO) || 0),
-      0
-    );
-    const status = String(ing.status || '');
-    const detectedAt = _fmtTs(ing.detectedAt);
-
-    resumenRows.push({
-      SKU: sku,
-      Producto: producto,
-      Stock_fisico_dep11: stockFis,
-      Qty_ingresada: qtyIng,
-      N_clientes_BO: clientes.length,
-      Suma_BO_solicitada: sumaBO,
-      Status: status,
-      Ingreso_detectado: detectedAt,
+          .trim();
+        const p = _products.find(
+          (x) =>
+            String((x && x.code) || '')
+              .toUpperCase()
+              .trim() === u
+        );
+        return p ? String(p.desc || p.name || '').trim() : '';
+      } catch (_e) {
+        return '';
+      }
+    };
+    const result = _pureMod.computeRepartoExportRows(ingresos, filtros, {
+      getStockFisico: _getStockFisico,
+      getProductDesc: _getProductDesc,
     });
-    totalIngresadas += qtyIng;
-    totalBO += sumaBO;
-    totalClientes += clientes.length;
+    const filtrosLbl = _pureMod.formatRepartoFiltrosHeader
+      ? _pureMod.formatRepartoFiltrosHeader(filtros)
+      : 'Filtros: (no reportados)';
+    const filtrosRows = [
+      { Metrica: filtrosLbl, Valor: '' },
+      { Metrica: 'Total ingresos', Valor: ingresos.length },
+      {
+        Metrica: 'Ingresos filtrados',
+        Valor: result.totalFilas > 0 ? result.resumenRows.length - 1 : 0,
+      },
+      { Metrica: 'Total unidades ingresadas', Valor: result.totalIngresadas },
+      { Metrica: 'Total unidades BO solicitadas', Valor: result.totalBO },
+      { Metrica: 'Total clientes esperando', Valor: result.totalClientes },
+      {
+        Metrica: 'Exportado en',
+        Valor: new Date().toISOString().slice(0, 19).replace('T', ' ') + ' UTC',
+      },
+    ];
 
-    for (const c of clientes) {
-      detalleRows.push({
-        SKU: sku,
-        Producto: producto,
-        Stock_fisico_dep11: stockFis,
-        Cliente: String(c.clientName || ''),
-        CardCode: String(c.cardCode || ''),
-        Vendedor: String(c.vendorKey || c.vendor || ''),
-        Qty_BO_solicitada: Number(c.qtyBO) || 0,
-        Status: status,
-        Ingreso_detectado: detectedAt,
-      });
+    const now = new Date();
+    const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
+    const fname =
+      'Reparto_' +
+      now.getFullYear() +
+      '-' +
+      pad(now.getMonth() + 1) +
+      '-' +
+      pad(now.getDate()) +
+      '_' +
+      pad(now.getHours()) +
+      pad(now.getMinutes()) +
+      '.xlsx';
+
+    await downloadXlsx(fname, [
+      { name: 'Filtros', rows: filtrosRows },
+      { name: 'Resumen', rows: result.resumenRows },
+      { name: 'Detalle', rows: result.detalleRows },
+    ]);
+    showSyncTag(
+      'Export Reparto listo (' +
+        (result.resumenRows.length - 1) +
+        ' ingresos · ' +
+        (result.detalleRows.length - 1) +
+        ' filas detalle)',
+      2800
+    );
+  } catch (e) {
+    const msg = (e && /** @type {any} */ (e).message) || String(e);
+    console.error('[v1497 §96] exportRepartoToExcel falló:', e);
+    alert(
+      'No pudimos generar el Excel del Reparto. Volvé a intentar; si sigue, avisale a Mariano.'
+    );
+    // Log fire-and-forget a operations_log (si fbDb disponible).
+    try {
+      if (typeof w.fbDb !== 'undefined' && w.fbDb && typeof w.fbDb.collection === 'function') {
+        /** @type {any} */ (w.fbDb)
+          .collection('operations_log')
+          .add({
+            type: 'export_failed',
+            exportKind: 'reparto',
+            error: msg.slice(0, 500),
+            userUid: (w.currentUser && w.currentUser.uid) || null,
+            userEmail: (w.currentUser && w.currentUser.email) || null,
+            totalIngresos: ingresos.length,
+            filtros,
+            timestamp: new Date(),
+          })
+          .catch(() => {
+            /* ignore */
+          });
+      }
+    } catch (_eLog) {
+      /* ignore */
+    }
+  } finally {
+    if (_btn) {
+      /** @type {any} */ (_btn).disabled = false;
+      _btn.textContent = _origBtnText;
     }
   }
-
-  // Fila TOTAL al final de cada hoja (patrón existente downloadXlsx).
-  resumenRows.push({
-    SKU: 'TOTAL',
-    Producto: '',
-    Stock_fisico_dep11: '',
-    Qty_ingresada: totalIngresadas,
-    N_clientes_BO: totalClientes,
-    Suma_BO_solicitada: totalBO,
-    Status: '',
-    Ingreso_detectado: '',
-  });
-  detalleRows.push({
-    SKU: 'TOTAL',
-    Producto: '',
-    Stock_fisico_dep11: '',
-    Cliente: '',
-    CardCode: '',
-    Vendedor: '',
-    Qty_BO_solicitada: totalBO,
-    Status: '',
-    Ingreso_detectado: '',
-  });
-
-  const now = new Date();
-  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
-  const fname =
-    'Reparto_' +
-    now.getFullYear() +
-    '-' +
-    pad(now.getMonth() + 1) +
-    '-' +
-    pad(now.getDate()) +
-    '_' +
-    pad(now.getHours()) +
-    pad(now.getMinutes()) +
-    '.xlsx';
-
-  await downloadXlsx(fname, [
-    { name: 'Resumen', rows: resumenRows },
-    { name: 'Detalle', rows: detalleRows },
-  ]);
-  showSyncTag(
-    'Export Reparto listo (' +
-      sorted.length +
-      ' ingresos · ' +
-      detalleRows.length +
-      ' filas detalle)',
-    2800
-  );
 };
 
 // v737: SNAPSHOT ACTUAL de todo el Stock Asignado (sin filtro de mes). Mismo
