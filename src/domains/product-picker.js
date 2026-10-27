@@ -334,15 +334,30 @@ function renderProductPicker() {
       ? '<span title="' + escapeAttr(skuTitle) + '">' + escapeHtml(p.code) + '</span>'
       : escapeHtml(p.code);
     html += '<div class="code">' + stockDot + skuHtml + campBadge + asigBadge + boBadge + '</div>';
-    html += '<div><div class="pdesc">' + escapeHtml(p.desc) + '</div>';
-    html +=
-      '<div class="pcat"><span>' +
-      escapeHtml(p.cat) +
-      '</span><span>' +
-      escapeHtml(p.fam) +
-      '</span><span>' +
-      escapeHtml(p.sub) +
-      '</span></div></div>';
+    // v1495 §94 (2026-10-27): fuente única de labels via `product-labels.js`.
+    // Antes v1495: `escapeHtml(p.cat/.fam/.sub)` imprimía "undefined" literal
+    // cuando el SKU no tenía clasificación. Ahora: desc fallback al SKU; cat/
+    // fam/sub se omiten si están vacíos (sin "-", sin "undefined").
+    const _plFns =
+      (typeof window !== 'undefined' &&
+        window.__phase0 &&
+        window.__phase0.pure &&
+        window.__phase0.pure.productLabels) ||
+      null;
+    const _descLabel = _plFns ? _plFns.formatProductDesc(p) : String(p.desc || p.code || '').trim();
+    const _catParts = _plFns
+      ? _plFns.formatProductCatLineParts(p)
+      : ['cat', 'fam', 'sub']
+          .map((k) => (p[k] == null ? '' : String(p[k]).trim()))
+          .filter((s) => s !== '');
+    html += '<div><div class="pdesc">' + escapeHtml(_descLabel) + '</div>';
+    if (_catParts.length > 0) {
+      html +=
+        '<div class="pcat">' +
+        _catParts.map((x) => '<span>' + escapeHtml(x) + '</span>').join('') +
+        '</div>';
+    }
+    html += '</div>';
     html += ctrlHtml + '</div>';
   });
   if (!filt.length) html = '<div class="no-data">Sin productos para estos filtros.</div>';

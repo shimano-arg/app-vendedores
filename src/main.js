@@ -135,6 +135,11 @@ import {
   columnStats,
   formatAge,
 } from './pure/planner-column-age.js';
+import {
+  formatProductCatLineParts,
+  formatProductDesc,
+  hasFullClassification,
+} from './pure/product-labels.js';
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { suggestForSku } from './pure/product-suggestions.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
@@ -509,6 +514,13 @@ const phase0 = {
       isSidebarLeftBtnHiddenForPachi,
       // v1493 §92 (2026-10-27) iter 4: fuente única del gate `can-revision`.
       canRevisionEmailOrUid,
+    },
+    // v1495 §94 (2026-10-27): fuente única labels producto (desc/cat/fam/sub)
+    // para el picker + audits. Evita "UNDEFINED UNDEFINED UNDEFINED" literal.
+    productLabels: {
+      formatProductCatLineParts,
+      formatProductDesc,
+      hasFullClassification,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.
