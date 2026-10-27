@@ -42,6 +42,12 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto: 'No pudimos guardar los cambios. Volvé a intentar; si sigue pasando, avisale a Mariano.',
   },
 
+  // PR 2 §72 — SKU que no existe en SAP catalog.
+  SKU_NOT_IN_SAP_CATALOG: {
+    texto:
+      'Hay productos del pedido que todavía no están cargados en SAP. Quitalos del pedido o avisale a Mariano para que los agregue antes de confirmar.',
+  },
+
   // commitPedidoCF errorCodes.
   STOCK_CHANGED: {
     texto:

@@ -68,6 +68,10 @@ import {
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
+// PR 2 §72 (v1475 2026-10-26) — chequea que cada SKU exista en sap_products
+// catalog ANTES del tx. Rechaza con SKU_NOT_IN_SAP_CATALOG preservando
+// waitlist origen (no la consume). CAPA (b) de la defensa en profundidad.
+import { checkSkusInSapCatalog } from './sku-catalog-check-core.js';
 
 // Threshold de staleness del snapshot stock server-side.
 // v1456 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
@@ -272,6 +276,35 @@ export async function commitPedidoCore(deps, payload) {
       'UNRESOLVED_BO_ENTRY_ROWS',
       'Tenés productos marcados en rojo sin revisar. Elegí para cada uno si son las mismas unidades o son más.',
       { rows: unresolvedBoRows }
+    );
+  }
+
+  // 4.6 PR 2 §72 (2026-10-26): SKU_NOT_IN_SAP_CATALOG gate.
+  //
+  // Chequeo pre-tx (fuera del runTransaction): si alguna línea tiene un SKU
+  // que no existe en `sap_products/{sku}`, SAP no lo va a aceptar. Rechazamos
+  // ANTES del write para que la waitlist origen NO se marque consumed → el
+  // VDE puede abrir de nuevo la orden, quitar/corregir el SKU problemático y
+  // reintentar sin perder el pedido. CAPA (b) de la defensa en profundidad
+  // (CAPA a = UI de carga bloquea; CAPA c = envío a SAP degrada por race).
+  // Reportado ORDEN 530 SUSANA ANDRILI (EXGTVC66M4AR).
+  const skusForCheck = (payload.lines || [])
+    .map((/** @type {any} */ l) =>
+      String((l && l.sku) || '')
+        .toUpperCase()
+        .trim()
+    )
+    .filter(Boolean);
+  const catalogCheck = await checkSkusInSapCatalog(skusForCheck, deps);
+  if (!catalogCheck.ok) {
+    await logCommitRejection(deps, 'SKU_NOT_IN_SAP_CATALOG', payload, {
+      missingSkus: catalogCheck.missing,
+      checkedCount: catalogCheck.checked,
+    });
+    return makeError(
+      'SKU_NOT_IN_SAP_CATALOG',
+      'Hay productos del pedido que todavía no están cargados en SAP. Quitalos del pedido o avisale a Mariano para que los agregue antes de confirmar.',
+      { missingSkus: catalogCheck.missing }
     );
   }
 

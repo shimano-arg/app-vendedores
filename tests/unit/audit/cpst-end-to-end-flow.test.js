@@ -151,6 +151,15 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
+        // v1475 PR2 §72: sap_products catalog gate — todos los SKUs del test
+        // deben existir en sap_products o commitPedidoCore rechaza con
+        // SKU_NOT_IN_SAP_CATALOG. Fixture incluye los SKUs usados.
+        sap_products: {
+          'SKU-A': { itemCode: 'SKU-A' },
+          'SKU-A2': { itemCode: 'SKU-A2' },
+          'SKU-X': { itemCode: 'SKU-X' },
+          'SKU-M': { itemCode: 'SKU-M' },
+        },
         // §57 (2026-10-23): waitlist origen presente para que CPST pase el
         // validation gate `waitlistOrigenId` requerido.
         revision_waitlist: {
@@ -228,6 +237,15 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
+        // v1475 PR2 §72: sap_products catalog gate — todos los SKUs del test
+        // deben existir en sap_products o commitPedidoCore rechaza con
+        // SKU_NOT_IN_SAP_CATALOG. Fixture incluye los SKUs usados.
+        sap_products: {
+          'SKU-A': { itemCode: 'SKU-A' },
+          'SKU-A2': { itemCode: 'SKU-A2' },
+          'SKU-X': { itemCode: 'SKU-X' },
+          'SKU-M': { itemCode: 'SKU-M' },
+        },
         // §57 (2026-10-23): waitlist origen requerida para CPST.
         revision_waitlist: {
           wl_cpst_multi: {
@@ -297,6 +315,16 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
+        // v1475 PR2 §72: sap_products catalog gate — todos los SKUs del test
+        // deben existir en sap_products o commitPedidoCore rechaza con
+        // SKU_NOT_IN_SAP_CATALOG. Fixture incluye los SKUs usados.
+        sap_products: {
+          'SKU-A': { itemCode: 'SKU-A' },
+          'SKU-A2': { itemCode: 'SKU-A2' },
+          'SKU-X': { itemCode: 'SKU-X' },
+          'SKU-M': { itemCode: 'SKU-M' },
+          'SKU-Y': { itemCode: 'SKU-Y' },
+        },
         revision_waitlist: {},
       };
       const { fbDb, _written } = makeMinimalDb(state);
