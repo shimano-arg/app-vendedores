@@ -144,6 +144,16 @@ import {
 import { matchSkuFromTitle } from './pure/product-match.js';
 import { suggestForSku } from './pure/product-suggestions.js';
 import { renderSkeletonRowsPure } from './pure/render-skeleton.js';
+// v1497 §96 (2026-10-27): pure fn para armar filas del export Reparto.
+// Fuente única + robusta a campos faltantes (cliente sin nombre/localidad, etc).
+import {
+  computeRepartoExportRows,
+  filterIngresosForExport,
+  formatRepartoFiltrosHeader,
+  safeNum,
+  safeStr,
+  safeTs,
+} from './pure/reparto-export-rows.js';
 import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import {
@@ -265,6 +275,7 @@ installChunkStubs('exports-core', [
   'confirmMonthPicker',
   'exportMasterClientes',
   'exportPreciosStock',
+  'exportRepartoToExcel',
   'exportTargetsZonas',
   'exportToExcel',
   'openExportAnalisis',
@@ -525,6 +536,15 @@ const phase0 = {
       formatProductCatLineParts,
       formatProductDesc,
       hasFullClassification,
+    },
+    // v1497 §96 (2026-10-27): pure fn export Reparto robusta a campos faltantes.
+    repartoExport: {
+      computeRepartoExportRows,
+      filterIngresosForExport,
+      formatRepartoFiltrosHeader,
+      safeStr,
+      safeNum,
+      safeTs,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.
