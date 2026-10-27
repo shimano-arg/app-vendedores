@@ -91,11 +91,10 @@ describe('v1476 §74 — espejo functions/core/resolve-client-vendor-core.js exi
     const serverCore = readFileSync('functions/core/resolve-client-vendor-core.js', 'utf8');
     // Mismo export principal.
     expect(serverCore).toMatch(/export function resolveClientVendorFromMaster/);
-    // Shape idéntico (los primeros 500 chars deberían coincidir módulo header).
-    const pureLen = srcPure.length;
-    const serverLen = serverCore.length;
-    // Difieren menos del 5% en tamaño (margen por headers).
-    const diff = Math.abs(pureLen - serverLen);
-    expect(diff / pureLen).toBeLessThan(0.05);
+    // v1491 §89 (2026-10-27): el server mirror puede tener funciones ADICIONALES
+    // que el pure no tiene (ej. `resolveClientVendorServerSide` que lee Firestore
+    // con admin SDK). Lo relevante: el server mirror NUNCA es más chico que el
+    // pure (verificaría que no se perdió funcionalidad base).
+    expect(serverCore.length).toBeGreaterThanOrEqual(srcPure.length * 0.95);
   });
 });
