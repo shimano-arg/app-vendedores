@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1482';
+const APP_VERSION = 'v1483';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10370,23 +10370,19 @@ function openSapAltaInfoModal(fsId){
             '</div>' +
           '</div>'
           : '') +
-        // v1262 (2026-10-14): boton Ficha Cliente dentro del modal SAP alta
-        // info. Antes el boton solo existia en el modal cliente POINT (que
-        // solo abre con doble click en cards sin cardCodeSap). Las cards de
-        // alta SAP (con badge "SAP CXXXX") abren ESTE modal y no tenian
-        // acceso al perfilado comercial.
-        '<div style="border-top:1px dashed var(--border-default);margin:8px -2px 10px;padding-top:10px;display:flex;justify-content:center">' +
-          '<button type="button" onclick="openFichaClienteFromSapModal(\'' + safeFsId + '\')" title="Perfil comercial para segmentar: fidelidad, tamano, especializacion, etc."' +
-            ' style="padding:9px 18px;font-size:13px;font-weight:600;background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(0,122,255,0.22);letter-spacing:-.005em;font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'Segoe UI\',system-ui,sans-serif;transition:background-color .18s cubic-bezier(.32,.72,0,1),transform .18s cubic-bezier(.32,.72,0,1)">' +
-            'Ficha Cliente' +
-          '</button>' +
-        '</div>' +
-        // v1423 §57 (2026-10-22): fila centrada (antes flex-end). Mariano pidio
-        // los 3 botones centrados horizontalmente con mismo espaciado.
-        '<div class="sap-alta-footer-row" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">' +
+        // v1483 (2026-10-27): los 4 botones (Guardar, Editar direccion, Ficha
+        // Cliente, Cerrar) van en una SOLA fila con mismo alto y espaciado.
+        // Antes (v1262 2026-10-14) Ficha Cliente vivia en un div separado
+        // arriba con border-top dashed. Mariano v1483: fila unica centrada;
+        // mobile wrap natural a 2x2 si el ancho no alcanza.
+        '<div class="sap-alta-footer-row" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px">' +
           // v342+: boton Guardar visible a todos (antes admin/gerente only).
           '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' +
           '<button onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\');openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:var(--bg-elevated);color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Editar direccion</button>' +
+          // v1483: Ficha Cliente alineado con los otros 3. Mismo padding/
+          // border-radius/font-size que Editar direccion y Guardar para que
+          // "mismo alto". Logica del onclick preservada (v1262).
+          '<button type="button" onclick="openFichaClienteFromSapModal(\'' + safeFsId + '\')" title="Perfil comercial para segmentar: fidelidad, tamano, especializacion, etc." style="padding:9px 14px;border:1.5px solid #007aff;border-radius:6px;background:#007aff;color:#fff;font-size:12px;font-weight:700;cursor:pointer">Ficha Cliente</button>' +
           '<button class="btn-cancel" onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\')">Cerrar</button>' +
         '</div>' +
       '</div>' +

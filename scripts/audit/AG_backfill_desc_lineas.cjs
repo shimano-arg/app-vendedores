@@ -23,15 +23,39 @@ function hasDesc(line) {
 }
 
 async function loadCatalog(db) {
-  console.log('[1/4] Cargando sap_products...');
-  const snap = await db.collection('sap_products').get();
+  console.log('[1/4] Cargando catálogo (PRODUCTS inline en index.html + sap_products Firestore)...');
   const map = {};
+  // 1. PRODUCTS inline en index.html (JSON array literal con double quotes).
+  try {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const html = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+    const m = html.match(/const PRODUCTS = (\[[\s\S]+?\]);/);
+    if (m && m[1]) {
+      const products = JSON.parse(m[1]);
+      for (const p of products) {
+        const code = String(p.code || '').toUpperCase().trim();
+        const desc = String(p.desc || '').trim();
+        if (code && desc && !map[code]) map[code] = desc;
+      }
+      console.log(`  PRODUCTS inline: ${products.length} items, ${Object.keys(map).length} con desc`);
+    }
+  } catch (e) {
+    console.warn('  WARN extracting PRODUCTS:', e.message);
+  }
+  // 2. sap_products Firestore (merge, no sobrescribe).
+  const snap = await db.collection('sap_products').get();
+  let added = 0;
   snap.forEach((d) => {
     const data = d.data() || {};
     const code = d.id.toUpperCase();
-    map[code] = String(data.descripcion || data.desc || data.name || '').trim();
+    const desc = String(data.descripcion || data.desc || data.name || '').trim();
+    if (code && desc && !map[code]) {
+      map[code] = desc;
+      added++;
+    }
   });
-  console.log(`  sap_products: ${snap.size} SKUs`);
+  console.log(`  sap_products: ${snap.size} SKUs (+${added} nuevos). Total: ${Object.keys(map).length}`);
   return map;
 }
 
