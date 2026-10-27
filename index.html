@@ -7109,7 +7109,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1485';
+const APP_VERSION = 'v1486';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -10379,10 +10379,13 @@ function openSapAltaInfoModal(fsId){
           // v342+: boton Guardar visible a todos (antes admin/gerente only).
           '<button class="btn-confirm" onclick="saveSapAltaFantasiaFromModal(\'' + safeFsId + '\')" style="background:#16a34a">Guardar</button>' +
           '<button onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\');openSapAltaAddressModal(\'' + safeFsId + '\')" style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:var(--bg-elevated);color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Editar direccion</button>' +
-          // v1483: Ficha Cliente alineado con los otros 3. Mismo padding/
-          // border-radius/font-size que Editar direccion y Guardar para que
-          // "mismo alto". Logica del onclick preservada (v1262).
-          '<button type="button" onclick="openFichaClienteFromSapModal(\'' + safeFsId + '\')" title="Perfil comercial para segmentar: fidelidad, tamano, especializacion, etc." style="padding:9px 14px;border:1.5px solid #007aff;border-radius:6px;background:#007aff;color:#fff;font-size:12px;font-weight:700;cursor:pointer">Ficha Cliente</button>' +
+          // v1483: Ficha Cliente alineado con los otros 3.
+          // v1486 (2026-10-27): mismo estilo pill-azul que "Editar direccion"
+          // (fondo blanco + borde azul + texto azul) para que los 4 botones
+          // queden visualmente consistentes. Antes (v1483 inicial): fondo azul
+          // sólido rompía el patrón pill del modal. Reusa el MISMO inline que
+          // "Editar direccion" verbatim — cero estilos nuevos.
+          '<button type="button" onclick="openFichaClienteFromSapModal(\'' + safeFsId + '\')" title="Perfil comercial para segmentar: fidelidad, tamano, especializacion, etc." style="padding:9px 14px;border:1.5px solid #1d4ed8;border-radius:6px;background:var(--bg-elevated);color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer">Ficha Cliente</button>' +
           '<button class="btn-cancel" onclick="document.getElementById(\'sap-alta-info-modal\').classList.remove(\'open\')">Cerrar</button>' +
         '</div>' +
       '</div>' +
