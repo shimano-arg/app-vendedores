@@ -326,7 +326,37 @@ export async function commitPedidoCore(deps, payload) {
     )
     .filter(Boolean);
   const catalogCheck = await checkSkusInSapCatalog(skusForCheck, deps);
-  if (!catalogCheck.ok) {
+  // v1480 §77 HOTFIX (2026-10-27): fail-open si el catálogo `sap_products` está
+  // vacío. Precedente 2026-10-26 21:00: colección sin docs bloqueaba 100% de
+  // confirmaciones. Dejamos pasar + log para auditoría; CAPA (c) en
+  // auto-send-sap-core sigue como red de seguridad.
+  if (catalogCheck.catalogEmpty) {
+    try {
+      await deps.fbDb.collection('operations_log').add({
+        type: 'commit_pedido_warning',
+        warningCode: 'catalog_check_skipped',
+        reason: 'sap_products_empty_or_unreadable',
+        checkedCount: catalogCheck.checked,
+        skus: skusForCheck.slice(0, 50),
+        userId: payload.userId || null,
+        userEmail: payload.userEmail || null,
+        cardCode: payload.cardCode || null,
+        draftId: payload.draftId || null,
+        origen: payload.origen || null,
+        clientVersion: payload.clientVersion || null,
+        timestamp: new Date(now),
+      });
+    } catch (_e) {
+      // Non-fatal: no bloquear por fallo de logging.
+      (deps.log || (() => {}))('catalog_check_skipped log failed (non-blocking)', {
+        err: _e && _e.message,
+      });
+    }
+    log('commitPedidoCore catalog_check_skipped (sap_products empty, fail-open)', {
+      draftId: payload.draftId,
+      skusChecked: catalogCheck.checked,
+    });
+  } else if (!catalogCheck.ok) {
     await logCommitRejection(deps, 'SKU_NOT_IN_SAP_CATALOG', payload, {
       missingSkus: catalogCheck.missing,
       checkedCount: catalogCheck.checked,

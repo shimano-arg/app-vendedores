@@ -9,9 +9,15 @@ import { checkSkusInSapCatalog } from '../../../functions/core/sku-catalog-check
 function mockDb(existingSkus) {
   const existing = new Set((existingSkus || []).map((s) => String(s).toUpperCase()));
   return {
-    collection: (name) => ({
+    collection: (_name) => ({
       doc: (sku) => ({
         get: () => Promise.resolve({ exists: existing.has(String(sku).toUpperCase()) }),
+      }),
+      // v1480 §77: soporte .limit(1).get() para que el fail-open check NO
+      // dispare en los tests clásicos del §72 (colección "no vacía" en todos
+      // los casos que querían documentar el bloqueo).
+      limit: (_n) => ({
+        get: () => Promise.resolve({ empty: existing.size === 0, size: existing.size }),
       }),
     }),
   };
@@ -36,9 +42,12 @@ describe('v1475 §72 — checkSkusInSapCatalog', () => {
     expect(r.checked).toBe(3);
   });
 
-  it('T3 todos faltan → ok=false, missing=[all]', async () => {
-    const r = await checkSkusInSapCatalog(['A', 'B'], { fbDb: mockDb([]) });
+  it('T3 todos faltan + colección tiene otros docs → ok=false, missing=[all]', async () => {
+    // v1480 §77: ahora requiere colección NO vacía para preservar el bloqueo
+    // original del §72 (si TODOS faltan Y colección vacía → fail-open §77).
+    const r = await checkSkusInSapCatalog(['A', 'B'], { fbDb: mockDb(['OTRO_SKU_X']) });
     expect(r.ok).toBe(false);
+    expect(r.catalogEmpty).toBeUndefined();
     expect(r.missing).toEqual(['A', 'B']);
   });
 
