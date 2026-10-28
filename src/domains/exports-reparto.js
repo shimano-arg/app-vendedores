@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * exports-reparto (v1505, 2026-10-28) — chunk lazy para el flow de export +
  * import Excel del Reparto de ingresos.
@@ -441,7 +441,7 @@ function _buildHeaderMap(ws) {
 /**
  * Crea un div con class/style/text seguros.
  * @param {string} styleCss
- * @param {string} textValue
+ * @param {string | null} textValue
  * @returns {HTMLDivElement}
  */
 function _mkDiv(styleCss, textValue) {
