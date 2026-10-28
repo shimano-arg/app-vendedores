@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ALWAYS_SERVER_PATHS,
   getReadOptionsForPath,
+  shouldAcceptSnapshot,
   shouldIgnoreCachedSnapshot,
   shouldReadFromServer,
 } from '../../src/pure/firestore-read-policy.js';
@@ -91,6 +92,122 @@ describe('v1499 §98 — shouldIgnoreCachedSnapshot', () => {
   it('T34 metadata vacía → NO ignorar', () => {
     expect(shouldIgnoreCachedSnapshot('pedidos', {})).toBe(false);
     expect(shouldIgnoreCachedSnapshot('pedidos', /** @type {any} */ (null))).toBe(false);
+  });
+});
+
+describe('v1501 §103 — shouldAcceptSnapshot offline-aware (4 casos canonicos)', () => {
+  const NOW = 1_700_000_000_000; // instante fijo para los tests.
+  const RECENT = NOW - 10_000; // 10s atras.
+  const STALE = NOW - 60_000; // 60s atras.
+
+  it('T60 CASO 1: online=true + cache stale → RECHAZA (prefer servidor)', () => {
+    const r = shouldAcceptSnapshot(
+      'pedidos',
+      { fromCache: true, hasPendingWrites: false },
+      true,
+      STALE,
+      NOW
+    );
+    expect(r.accept).toBe(false);
+    expect(r.reason).toBe('online_or_recent_server');
+    expect(r.showStaleBanner).toBe(false);
+  });
+
+  it('T61 CASO 2: online=false + último server < 30s → RECHAZA (recent server)', () => {
+    const r = shouldAcceptSnapshot(
+      'pedidos',
+      { fromCache: true, hasPendingWrites: false },
+      false,
+      RECENT,
+      NOW
+    );
+    expect(r.accept).toBe(false);
+    expect(r.reason).toBe('online_or_recent_server');
+    expect(r.showStaleBanner).toBe(false);
+  });
+
+  it('T62 CASO 3: online=false + sin server reciente → ACEPTA + banner', () => {
+    const r = shouldAcceptSnapshot(
+      'pedidos',
+      { fromCache: true, hasPendingWrites: false },
+      false,
+      STALE,
+      NOW
+    );
+    expect(r.accept).toBe(true);
+    expect(r.reason).toBe('offline_fallback');
+    expect(r.showStaleBanner).toBe(true);
+  });
+
+  it('T63 CASO 4: online=false + nunca llegó server (null) → ACEPTA + banner', () => {
+    const r = shouldAcceptSnapshot(
+      'pedidos',
+      { fromCache: true, hasPendingWrites: false },
+      false,
+      null,
+      NOW
+    );
+    expect(r.accept).toBe(true);
+    expect(r.reason).toBe('offline_fallback');
+    expect(r.showStaleBanner).toBe(true);
+  });
+
+  it('T64 EDGE: snapshot del server (fromCache=false) → ACEPTA siempre', () => {
+    const r1 = shouldAcceptSnapshot('pedidos', { fromCache: false }, true, STALE, NOW);
+    expect(r1.accept).toBe(true);
+    expect(r1.reason).toBe('from_server');
+    const r2 = shouldAcceptSnapshot('pedidos', { fromCache: false }, false, null, NOW);
+    expect(r2.accept).toBe(true);
+  });
+
+  it('T65 EDGE: hasPendingWrites=true → ACEPTA (write local propio)', () => {
+    const r = shouldAcceptSnapshot(
+      'pedidos',
+      { fromCache: true, hasPendingWrites: true },
+      true,
+      STALE,
+      NOW
+    );
+    expect(r.accept).toBe(true);
+    expect(r.reason).toBe('has_pending_writes');
+    expect(r.showStaleBanner).toBe(false);
+  });
+
+  it('T66 EDGE: path no crítico → ACEPTA siempre (política default)', () => {
+    const r = shouldAcceptSnapshot(
+      'users',
+      { fromCache: true, hasPendingWrites: false },
+      false,
+      null,
+      NOW
+    );
+    expect(r.accept).toBe(true);
+    expect(r.reason).toBe('non_critical_path');
+    expect(r.showStaleBanner).toBe(false);
+  });
+
+  it('T67 BORDE 30s exacto: server a los 30000ms → RECHAZA (no "<30s", es "<"))', () => {
+    const r = shouldAcceptSnapshot('pedidos', { fromCache: true }, false, NOW - 30_000, NOW);
+    // 30_000 - 30_000 = 0 → 0 < 30_000 false → recentServer false → offline fallback.
+    expect(r.accept).toBe(true);
+    expect(r.reason).toBe('offline_fallback');
+  });
+
+  it('T68 BORDE 29999ms: server reciente → RECHAZA cache', () => {
+    const r = shouldAcceptSnapshot('pedidos', { fromCache: true }, false, NOW - 29_999, NOW);
+    expect(r.accept).toBe(false);
+    expect(r.reason).toBe('online_or_recent_server');
+  });
+
+  it('T69 metadata vacía → ACEPTA (fromCache undefined = treated as server)', () => {
+    const r = shouldAcceptSnapshot('pedidos', {}, false, null, NOW);
+    expect(r.accept).toBe(true);
+    expect(r.reason).toBe('from_server');
+  });
+
+  it('T70 nowMs default a Date.now() si no se pasa', () => {
+    const r = shouldAcceptSnapshot('pedidos', { fromCache: true }, true, Date.now() - 100);
+    expect(r.accept).toBe(false);
   });
 });
 

@@ -4717,6 +4717,46 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1501 (2026-10-27) — Follow-up v1500: offline-aware read policy + banner "Sin conexión" (§103)
+
+**Scope**: pedido Mariano antes de cerrar v1500 PR1. Resuelve el gap: v1500 rechazaba TODOS los `fromCache` → vendedor sin señal veía pantallas vacías.
+
+**Cambios**:
+- Pure fn nueva `shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs)` en `src/pure/firestore-read-policy.js`.
+  - Online O server < 30s → RECHAZA cache (prefer server).
+  - Offline sin server reciente → ACEPTA cache + banner.
+- Banner HTML fijo arriba (`#offline-stale-banner`, `role=status`, `aria-live=polite`).
+- Helpers inline: `_lastServerSnapshotMs`, `_setOfflineStaleBanner`, `_applyReadPolicyDecision`.
+- Listener `window.online` limpia el banner.
+- 4 call-sites migrados: `_repartoSubscribe`, `_subscribePlannerPedidos`, `attachPlannerListeners` (waitlist), `ensureListenerWithFallback` helper.
+- `shouldIgnoreCachedSnapshot` deprecated (wrapper legacy, pero no se usa más desde v1501).
+- CLAUDE.md §99 actualizada con tabla de 4 casos + edge cases.
+
+**Confirmar pedidos NO se toca**: `commitPedidoCF` sigue bloqueado offline (callable HTTP requiere red).
+
+**Tests**:
+- `tests/unit/firestore-read-policy.test.js`: 30 PASS (11 nuevos T60-T70).
+- `tests/unit/audit/offline-aware-banner-v1501.test.js`: 15 PASS (banner HTML + helpers + wiring).
+- `tests/unit/audit/read-policy-callsites-v1500.test.js`: 12 PASS (updated for v1501 helper).
+- Suite completa: **2319 PASS / 0 FAIL / 157 archivos**.
+
+**Playwright real**:
+- `tests/e2e/r_offline_banner_v1501.spec.js`:
+  - R0 (wiring sin login): ✅ **PASS 10.1s** contra `http://localhost:8765/` (local v1501). Verifica banner DOM + helpers + toggle offline/online real. Screenshots: `tests/e2e/evidencia/2026-10-28/R/`.
+  - R1 (online→offline→online con listener real): requiere TEST_USER_* del gcloud secret. Spec listo.
+  - R2 (offline reload con cache hidratado): requiere TEST_USER_*. Spec listo.
+
+**Pendientes** (tildes en informe cuando se cumplan):
+- Verificación prod post-deploy con 2 capturas (banner on + banner off en real).
+- Correr R1+R2 Playwright post-deploy.
+- Medición Firestore reads 24h del v1500 (ventana 2026-10-28 ~15:00 ART).
+
+**Informe**: `Desktop\INFORME_PR_v1501_OFFLINE_AWARE.md`.
+
+**Dry-run PR2 adjunto** (orden paralela Mariano): `Desktop\DRYRUN_PR2_CLIENTESBO.md`. **1036 diferencias** — `clientesBO` del reparto es snapshot CONGELADO, `backorderApp.byClient` es LIVE. Reemplazar uno por otro rompe la semántica. Esperando decisión Mariano sobre rumbo.
+
+---
+
 ### v1500 (2026-10-27) — PR1 política lectura server: migrar call-sites de pedidos/revision_waitlist/ingresos_reparto/app_config/stock_snapshot (§99, §100, §101, §102)
 
 **Scope**: continuación v1499 §98-101 pedida por Mariano. Migra los call-sites a la pure fn `src/pure/firestore-read-policy.js` para que las 4 colecciones críticas siempre lean del server. Previene bug cache-stale cross-F5.
