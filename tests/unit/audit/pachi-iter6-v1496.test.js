@@ -92,7 +92,10 @@ describe('v1496 §95 — main.js expone canDeleteOwnWaitlist', () => {
 
   it('T11 export en __phase0.pure.pachiRestrictions', () => {
     const idx = MAIN_JS.indexOf('pachiRestrictions: {');
-    const slice = MAIN_JS.slice(idx, idx + 900);
+    // v1507 iter 8: slice ampliado de 900 → 1500 bytes para absorber los
+    // nuevos exports PACHI_HIDDEN_HEADER_BTN_IDS + isHeaderBtnHiddenForPachi
+    // que se agregaron entre PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS y canDeleteOwnWaitlist.
+    const slice = MAIN_JS.slice(idx, idx + 1500);
     expect(slice).toMatch(/canDeleteOwnWaitlist/);
   });
 });
