@@ -207,10 +207,7 @@ describe('reconcileRepartosFaltantes v1519 §64.3 auto-close', () => {
         },
       ],
     });
-    const r = await reconcileRepartosFaltantes(
-      deps(fbDb),
-      _snap({ '21100400100E': { 11: 4 } })
-    );
+    const r = await reconcileRepartosFaltantes(deps(fbDb), _snap({ '21100400100E': { 11: 4 } }));
     expect(r.autoCerrados).toEqual(['ir_sato_stale']);
     expect(fbDb._updates).toHaveLength(1);
     const upd = fbDb._updates[0];

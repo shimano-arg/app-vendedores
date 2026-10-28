@@ -20,7 +20,9 @@ import { describe, expect, it } from 'vitest';
  * @returns {{marcar:boolean, reason:string, perCliente:Array<{clientCardCode:string, boVigenteReal:number}>}}
  */
 function evaluarIngreso(ingreso, pedidosByCard) {
-  const sku = String(ingreso.sku || '').toUpperCase().trim();
+  const sku = String(ingreso.sku || '')
+    .toUpperCase()
+    .trim();
   if (!sku) return { marcar: false, reason: 'ingreso sin sku', perCliente: [] };
   const cBO = Array.isArray(ingreso.clientesBO) ? ingreso.clientesBO : [];
   if (cBO.length === 0) return { marcar: false, reason: 'sin clientesBO', perCliente: [] };
@@ -31,7 +33,9 @@ function evaluarIngreso(ingreso, pedidosByCard) {
     for (const p of peds) {
       const lines = Array.isArray(p.data.lines) ? p.data.lines : [];
       for (const l of lines) {
-        const code = String((l && l.code) || '').toUpperCase().trim();
+        const code = String((l && l.code) || '')
+          .toUpperCase()
+          .trim();
         if (code !== sku) continue;
         if (l && l.state === 'BO' && Number(l.qtyOpen || 0) > 0) {
           boVigente += Number(l.qtyOpen);
@@ -92,9 +96,7 @@ describe('Y_cerrar — dry-run plan logic', () => {
   it('ingreso con BO vigente (qtyOpen>0) → NO marcar', () => {
     const ing = {
       sku: 'STRADIC',
-      clientesBO: [
-        { clientCardCode: 'CA', clientName: 'ANDRILI', qtyBackorder: 5 },
-      ],
+      clientesBO: [{ clientCardCode: 'CA', clientName: 'ANDRILI', qtyBackorder: 5 }],
     };
     const peds = new Map();
     peds.set('CA', [
@@ -124,9 +126,7 @@ describe('Y_cerrar — dry-run plan logic', () => {
         id: 'ir_sin_bo_sato',
         data: {
           sku: '21100400100E',
-          clientesBO: [
-            { clientCardCode: 'C-SATO', clientName: 'EDUARDO SATO', qtyBackorder: 4 },
-          ],
+          clientesBO: [{ clientCardCode: 'C-SATO', clientName: 'EDUARDO SATO', qtyBackorder: 4 }],
         },
       },
     ];
