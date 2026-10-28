@@ -67,6 +67,29 @@ export const PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS = Object.freeze([
 ]);
 
 /**
+ * IDs de botones del HEADER-TOP (barra superior del mapa) que PACHI no debe
+ * ver. Fuente única paralela a `PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS`.
+ *
+ * v1507 iter 8 (2026-10-28): PACHI tiene su propia "Pedidos en espera" en
+ * el panel izquierdo (sidebar-left-waitlist, filtrada por su UID). El botón
+ * global "PEDIDOS EN ESPERA" del header-top muestra un contador CROSS-VENDOR
+ * (todas las ordenes abiertas), lo que no corresponde al scope de PACHI.
+ *
+ * El inline del index.html agrega la clase `body.is-pachi-restricted` y los
+ * gates CSS matchean estos IDs con `display:none !important`.
+ */
+export const PACHI_HIDDEN_HEADER_BTN_IDS = Object.freeze(['waitlist-btn']);
+
+/**
+ * @param {string} btnId
+ * @returns {boolean} true si el botón del header-top debe ocultarse para PACHI.
+ */
+export function isHeaderBtnHiddenForPachi(btnId) {
+  if (!btnId) return false;
+  return PACHI_HIDDEN_HEADER_BTN_IDS.includes(String(btnId).trim());
+}
+
+/**
  * Features (globales de `window`) que PACHI NO puede abrir por ningún camino
  * (atajo teclado, URL hash, menú contextual, `window.X()` desde consola).
  * El wrapper correspondiente en `index.html` consulta esta lista + llama a
