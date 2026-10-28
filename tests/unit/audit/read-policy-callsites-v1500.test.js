@@ -83,13 +83,16 @@ describe('v1500 §102 — call-sites migrados a política lectura server', () =>
     );
   });
 
-  it('APP_VERSION bumpeado a v1500', () => {
-    expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1500'/);
+  it('APP_VERSION bumpeado a v1500 o posterior (actualizado por v1501 fix PACHI Ficha)', () => {
+    // Match v1500 o cualquier bump posterior (ej. v1501, v1502, ...). El audit
+    // original v1500 §102 verificó la migración; bumps siguientes NO revierten
+    // los call-sites migrados — pueden subir el número sin invalidar el audit.
+    expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1[5-9]\d\d'/);
   });
 
-  it('CACHE_VERSION bumpeado a v1500', () => {
+  it('CACHE_VERSION bumpeado a v1500 o posterior (actualizado por v1501 fix PACHI Ficha)', () => {
     const SW_JS = readFileSync('sw.js', 'utf8');
-    expect(SW_JS).toMatch(/CACHE_VERSION = 'v1500'/);
+    expect(SW_JS).toMatch(/CACHE_VERSION = 'v1[5-9]\d\d'/);
   });
 });
 
