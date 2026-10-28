@@ -1076,6 +1076,9 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
       reconcileCreated: r2.created.length,
       reconcileSkipped: r2.skipped.length,
       reconcileErrors: r2.errors.length,
+      // v1519 §64.3: auto-close de ingresos con `clientesBO` stale (SKU
+      // con reparto activo pero sin BO vigente). Precedente SATO 2026-10-23.
+      reconcileAutoCerrados: (r2.autoCerrados && r2.autoCerrados.length) || 0,
       sobreAsignadasRevertidas: r3.revertidas.length,
       sobreAsignadasErrors: r3.errors.length,
     });
