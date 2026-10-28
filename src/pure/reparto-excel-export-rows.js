@@ -110,16 +110,20 @@ export function filterIngresosForExcelExport(ingresos, filtros, getStockFisico) 
 }
 
 /**
+ * v1512: `Backorder`/`StockDisponible`/`Asignado`/`Eliminar` pueden ser null
+ * en las filas aviso de SKU multi-reparto (`_notice=true`, `Codigo=''`).
+ *
  * @typedef {Object} RepartoExcelRow
  * @property {string} Codigo
  * @property {string} Cliente
- * @property {number} Backorder
- * @property {number} StockDisponible
- * @property {number} Asignado
+ * @property {number|null} Backorder
+ * @property {number|null} StockDisponible
+ * @property {number|null} Asignado
  * @property {string} VueleABackorder - fórmula Excel ej. "=C2-E2-G2"
- * @property {number} Eliminar
+ * @property {number|null} Eliminar
  * @property {string} RepartoId
  * @property {string} CardCode
+ * @property {boolean} [_notice] - v1512: true si es fila aviso SKU multi-reparto
  */
 
 /**
