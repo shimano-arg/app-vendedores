@@ -6966,8 +6966,15 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       </div>
       <!-- v1492 §91 (2026-10-27): botón export Excel. Estilo pill apple inline
            para evitar propagación lenta vía SW cache del CSS (§21). -->
-      <button type="button" onclick="window.exportRepartoToExcel && window.exportRepartoToExcel()" aria-label="Exportar a Excel" title="Exportar todos los ingresos pendientes a Excel" style="border:0.5px solid rgba(0,0,0,.1);background:#fff;color:#1d1d1f;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:500;letter-spacing:-0.1px;font-family:inherit;display:inline-flex;align-items:center;gap:6px;transition:transform .12s ease-out,background .15s ease;flex-shrink:0">
+      <button type="button" onclick="window.exportRepartoToExcel && window.exportRepartoToExcel()" aria-label="Exportar reporte Excel" title="Exportar todos los ingresos pendientes a Excel (reporte read-only)" style="border:0.5px solid rgba(0,0,0,.1);background:#fff;color:#1d1d1f;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:500;letter-spacing:-0.1px;font-family:inherit;display:inline-flex;align-items:center;gap:6px;transition:transform .12s ease-out,background .15s ease;flex-shrink:0">
+        <span style="font-size:14px">↓</span> Exportar reporte
+      </button>
+      <!-- v1505 (2026-10-28): template editable Reparto. Pablo trabaja offline + re-sube. -->
+      <button type="button" onclick="window.exportRepartoManualExcel && window.exportRepartoManualExcel()" aria-label="Exportar Excel editable" title="Descargar template Excel editable (Asignado + Eliminar) para trabajar offline" style="border:0.5px solid rgba(0,0,0,.1);background:#fff;color:#1d1d1f;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:500;letter-spacing:-0.1px;font-family:inherit;display:inline-flex;align-items:center;gap:6px;transition:transform .12s ease-out,background .15s ease;flex-shrink:0">
         <span style="font-size:14px">↓</span> Exportar Excel
+      </button>
+      <button type="button" onclick="window.openRepartoImportDialog && window.openRepartoImportDialog()" aria-label="Importar Excel" title="Subir el Excel editado offline para aplicar el reparto" style="border:0.5px solid rgba(0,0,0,.1);background:#248a3d;color:#fff;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:500;letter-spacing:-0.1px;font-family:inherit;display:inline-flex;align-items:center;gap:6px;transition:transform .12s ease-out,background .15s ease;flex-shrink:0">
+        <span style="font-size:14px">↑</span> Importar Excel
       </button>
       <button class="reparto-apple-close" onclick="closeRepartoModal()" aria-label="Cerrar" style="border:none;background:rgba(120,120,128,.12);width:30px;height:30px;border-radius:50%;cursor:pointer;color:#86868b;font-size:16px;display:flex;align-items:center;justify-content:center;transition:transform .12s ease-out,background .15s ease">&times;</button>
     </div>
@@ -7119,7 +7126,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1507';
+const APP_VERSION = 'v1508';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

@@ -4717,6 +4717,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1508 (2026-10-28) — Reparto de ingresos: Export + Import Excel editable (feat v1505 rebased sobre v1507 iter 8)
+
+**Cambio**: nuevo botón "Exportar Excel" (↓) en el modal Reparto genera XLSX editable con 9 columnas (Código, Cliente, Backorder, Stock disponible, Asignado, Vuelve a backorder, Eliminar, Reparto ID gris, CardCode gris) y fórmula Excel `=C{row}-E{row}-G{row}` que recalcula "Vuelve a backorder" live mientras Pablo edita. Nuevo botón "Importar Excel" (↑ verde, admin/gerente) valida 6 casos de error, muestra preview inmediato con nº fila Excel para cada error, y aplica vía `applyRepartoManualCF` con `origen='import'` + log en `reparto_log`. Reusa `consolidateClientesBO` (§97 v1498): 1 fila por cliente+SKU aunque haya múltiples pedidos origen. Nuevo chunk lazy `exports-reparto` (94 KB) sincronizado en `build.js` + `src/main.js` + `sw.js` (§18). CSV write-side via CF (patrón §63), 2 pure functions nuevas en `src/pure/reparto-excel-export-rows.js` + `src/pure/reparto-excel-import-validator.js`.
+
+**Verificación**: suite completa 2351 unit + 25 smoke PASS, biome clean, typecheck clean, CI 7/7 green (CodeQL × 4, test, Vercel × 2). Verificación prod end-to-end pendiente (requiere Mariano con pedido test).
+
+**Informe**: `Desktop\INFORME_REPARTO_EXCEL_v1505.md`.
+
+**Rollback**: `git revert <sha_merge_v1508>` + Pages redeploy ~2 min. Vuelve a v1507.
+
+---
+
 ### v1500 (2026-10-27) — PR1 política lectura server: migrar call-sites de pedidos/revision_waitlist/ingresos_reparto/app_config/stock_snapshot (§99, §100, §101, §102)
 
 **Scope**: continuación v1499 §98-101 pedida por Mariano. Migra los call-sites a la pure fn `src/pure/firestore-read-policy.js` para que las 4 colecciones críticas siempre lean del server. Previene bug cache-stale cross-F5.

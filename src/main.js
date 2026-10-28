@@ -162,6 +162,21 @@ import {
   distributeQtyFifo,
   groupKeyForClienteBO,
 } from './pure/reparto-consolidate.js';
+// v1505 (2026-10-28): pure fns del nuevo Reparto EXPORT MANUAL + IMPORT.
+// Diferente a v1497 §96: aquel es reporte resumen; este arma el template
+// editable con 9 columnas (7 visibles + 2 técnicas) y valida el reimport
+// contra el estado actual.
+import {
+  buildRepartoExcelFileName,
+  computeRepartoExcelExportRows,
+  filterIngresosForExcelExport,
+  safeNum as safeNumExcel,
+  safeStr as safeStrExcel,
+} from './pure/reparto-excel-export-rows.js';
+import {
+  groupImportMatchesByReparto,
+  validateRepartoExcelImport,
+} from './pure/reparto-excel-import-validator.js';
 // v1497 §96 (2026-10-27): pure fn para armar filas del export Reparto.
 // Fuente única + robusta a campos faltantes (cliente sin nombre/localidad, etc).
 import {
@@ -313,6 +328,15 @@ installChunkStubs('exports-advanced', [
   'exportDatasetZip',
   // v1413 §51 (2026-10-22): Mariano-only, Reportes Excel > Infracciones MELI.
   'exportInfraccionesMeli',
+]);
+// v1505 (2026-10-28): Reparto export + import Excel. Chunk disparado por
+// botones del modal Reparto ("Excel editable" + "Importar Excel").
+installChunkStubs('exports-reparto', [
+  'exportRepartoManualExcel',
+  'openRepartoImportDialog',
+  'closeRepartoImportDialog',
+  'handleRepartoImportFileChange',
+  'confirmRepartoImportApply',
 ]);
 installChunkStubs('admin-users', [
   'addAllowedEmail',
@@ -574,6 +598,20 @@ const phase0 = {
       consolidateClientesBO,
       distributeQtyFifo,
       groupKeyForClienteBO,
+    },
+    // v1505 (2026-10-28): template editable Reparto + import validator.
+    // 9 columnas (7 editables + 2 técnicas grises) + fórmula Excel.
+    // Validación re-usa el shape de clientesBO y chequea 6 casos de error.
+    repartoExcelExport: {
+      computeRepartoExcelExportRows,
+      filterIngresosForExcelExport,
+      buildRepartoExcelFileName,
+      safeNumExcel,
+      safeStrExcel,
+    },
+    repartoExcelImport: {
+      validateRepartoExcelImport,
+      groupImportMatchesByReparto,
     },
     // v1499 §98 (2026-10-27): política lectura Firestore server vs cache.
     // Fuente única: lista colecciones críticas (stock_snapshot, pedidos,
