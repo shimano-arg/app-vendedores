@@ -121,35 +121,51 @@ describe('v1501 §93 — matriz de permisos conceptual', () => {
   };
 
   it('PACHI real (role=vendedor) puede update Ficha', () => {
-    expect(canUpdateFichaFields({ uid: PACHI_REAL_UID, role: 'vendedor', fichaEditorFlag: false })).toBe(true);
+    expect(
+      canUpdateFichaFields({ uid: PACHI_REAL_UID, role: 'vendedor', fichaEditorFlag: false })
+    ).toBe(true);
   });
 
   it('PACHI test user Playwright (role=vendedor) puede update Ficha', () => {
-    expect(canUpdateFichaFields({ uid: PACHI_TEST_UID, role: 'vendedor', fichaEditorFlag: false })).toBe(true);
+    expect(
+      canUpdateFichaFields({ uid: PACHI_TEST_UID, role: 'vendedor', fichaEditorFlag: false })
+    ).toBe(true);
   });
 
   it('OTRO VDE (role=vendedor, no en PACHI_UIDS) NO puede update Ficha', () => {
-    expect(canUpdateFichaFields({ uid: OTRO_VDE_UID, role: 'vendedor', fichaEditorFlag: false })).toBe(false);
+    expect(
+      canUpdateFichaFields({ uid: OTRO_VDE_UID, role: 'vendedor', fichaEditorFlag: false })
+    ).toBe(false);
   });
 
   it('admin sin flag puede update Ficha (vía isAdminOrGerente)', () => {
-    expect(canUpdateFichaFields({ uid: 'uid-admin', role: 'admin', fichaEditorFlag: false })).toBe(true);
+    expect(canUpdateFichaFields({ uid: 'uid-admin', role: 'admin', fichaEditorFlag: false })).toBe(
+      true
+    );
   });
 
   it('gerente sin flag puede update Ficha (vía isAdminOrGerente)', () => {
-    expect(canUpdateFichaFields({ uid: 'uid-gerente', role: 'gerente', fichaEditorFlag: false })).toBe(true);
+    expect(
+      canUpdateFichaFields({ uid: 'uid-gerente', role: 'gerente', fichaEditorFlag: false })
+    ).toBe(true);
   });
 
   it('interno con fichaClienteEditorFull=true (Ioannis + Santiago) puede update Ficha', () => {
-    expect(canUpdateFichaFields({ uid: 'uid-ioannis', role: 'interno', fichaEditorFlag: true })).toBe(true);
+    expect(
+      canUpdateFichaFields({ uid: 'uid-ioannis', role: 'interno', fichaEditorFlag: true })
+    ).toBe(true);
   });
 
   it('interno sin flag NO puede update Ficha', () => {
-    expect(canUpdateFichaFields({ uid: 'uid-interno-random', role: 'interno', fichaEditorFlag: false })).toBe(false);
+    expect(
+      canUpdateFichaFields({ uid: 'uid-interno-random', role: 'interno', fichaEditorFlag: false })
+    ).toBe(false);
   });
 
   it('viewer sin flag NO puede update Ficha', () => {
-    expect(canUpdateFichaFields({ uid: 'uid-viewer', role: 'viewer', fichaEditorFlag: false })).toBe(false);
+    expect(
+      canUpdateFichaFields({ uid: 'uid-viewer', role: 'viewer', fichaEditorFlag: false })
+    ).toBe(false);
   });
 });
 
