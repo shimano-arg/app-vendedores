@@ -4717,6 +4717,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1500 (2026-10-27) — PR1 política lectura server: migrar call-sites de pedidos/revision_waitlist/ingresos_reparto/app_config/stock_snapshot (§99, §100, §101, §102)
+
+**Scope**: continuación v1499 §98-101 pedida por Mariano. Migra los call-sites a la pure fn `src/pure/firestore-read-policy.js` para que las 4 colecciones críticas siempre lean del server. Previene bug cache-stale cross-F5.
+
+**Cambios**:
+- 4 listeners `ensureListenerWithFallback` migrados a `{ path: 'X' }` (revision_waitlist, app_config/stock_snapshot, pedidos own, pedidos all).
+- 3 listeners directos migrados a `{ includeMetadataChanges: true }` + filter `shouldIgnoreCachedSnapshot(path, metadata)`: `_repartoSubscribe`, `_subscribePlannerPedidos`, `attachPlannerListeners` (revision_waitlist).
+- 6+ call-sites de `.get()` migrados a `getReadOptionsForPath(path)` sobre `pedidos` + `revision_waitlist`.
+- `APP_VERSION` + `CACHE_VERSION` bump v1499 → v1500 (§100: cambio de versión limpia IndexedDB).
+
+**Tests**:
+- `tests/unit/audit/read-policy-callsites-v1500.test.js` — 12 tests, 12 PASS.
+- `tests/e2e/q_cache_local_v1500.spec.js` — Q1 (reparto URQUIOLA 1 fila consolidada) + Q2 (Recargar limpio preserva borradores + theme).
+- Suite completa: 2293 PASS / 0 FAIL / 156 archivos.
+
+**Informe**: `Desktop\INFORME_PR1_CACHE_LOCAL_v1500.md` (medición Firestore reads 24h post-deploy pendiente).
+
+**Impacto esperado**: F5 ya no muestra datos stale. +15-25% Firestore reads (estimación). Costo marginal ~+5-10 USD/mes.
+
+**PR2 pendiente** (dry-run previo requerido): eliminar `clientesBO` como fuente paralela; Reparto lee `backorderApp.byClient` directo del snapshot (§39).
+
+---
+
 ### v1480 (2026-10-27) — HOTFIX commitPedidoCF: SKU_NOT_IN_SAP_CATALOG fail-open + fuente única stock_snapshot + front UNKNOWN mapping (§77, §78, §79, §80)
 
 **2 PRs**: PR 1 (hotfix urgente, server-only) + PR 2 (fuente única + front + backfill AI + CLAUDE.md). PR 1 ya en prod. PR 2 esta entry.

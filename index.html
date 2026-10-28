@@ -7114,7 +7114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1499';
+const APP_VERSION = 'v1500';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17135,7 +17135,11 @@ window.deleteBackorderAppLine = async function(pedidoId, sku, clienteNombre, qty
     }
     if (!p || !Array.isArray(p.lines)) {
       // Fallback: fetch directo si no esta en cache.
-      const snap = await fbDb.collection('pedidos').doc(pedidoId).get();
+      // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
+      const _frpOpts1 = (window.__phase0 && window.__phase0.pure
+        && window.__phase0.pure.firestoreReadPolicy
+        && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
+      const snap = await fbDb.collection('pedidos').doc(pedidoId).get(_frpOpts1);
       if (!snap.exists) { alert('No se encontro el pedido en Firestore.'); return; }
       p = snap.data() || {};
       if (!Array.isArray(p.lines)) { alert('Pedido sin lineas.'); return; }
@@ -18351,9 +18355,13 @@ window._tryCommitPedidoCF = async function(docData){
       if (isNetwork) {
         // v1432: ANTES de fallback, consultar si existe pedido con _draftId.
         try {
+          // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
+          const _frpOptsDraft = (window.__phase0 && window.__phase0.pure
+            && window.__phase0.pure.firestoreReadPolicy
+            && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
           const q = await fbDb.collection('pedidos')
             .where('_draftId', '==', draftId)
-            .limit(1).get();
+            .limit(1).get(_frpOptsDraft);
           if (!q.empty) {
             const doc = q.docs[0];
             console.warn('[_tryCommitPedidoCF] post-hoc idempotency hit — pedido ya existía con _draftId=' + draftId);
@@ -18495,9 +18503,13 @@ window._createOrUnifyWaitlistPayload = async function(payload, sourceLabel, opts
   if (findOpen && cardCode) {
     let freshDocs = /** @type {Array<any>} */ ([]);
     try {
+      // v1500 §102 (2026-10-27): política lectura server para `revision_waitlist` (§99).
+      const _frpOptsWl = (window.__phase0 && window.__phase0.pure
+        && window.__phase0.pure.firestoreReadPolicy
+        && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('revision_waitlist')) || undefined;
       const qs = await fbDb.collection('revision_waitlist')
         .where('clientCardCode', '==', cardCode)
-        .get();
+        .get(_frpOptsWl);
       qs.forEach((d) => freshDocs.push(Object.assign({ _id: d.id }, d.data() || {})));
     } catch (_eFresh) {
       console.warn('[§42.1] fresh query falló, usando cache local:', _eFresh && _eFresh.message);
@@ -18737,7 +18749,11 @@ window._cpstConfirmar = async function(){
           }
           if (!p || !Array.isArray(p.lines)) {
             try {
-              const snap = await fbDb.collection('pedidos').doc(pid).get();
+              // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
+              const _frpOpts2 = (window.__phase0 && window.__phase0.pure
+                && window.__phase0.pure.firestoreReadPolicy
+                && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
+              const snap = await fbDb.collection('pedidos').doc(pid).get(_frpOpts2);
               if (!snap.exists) {
                 errors.push(sk.sku + ' (pedido ' + pid + '): pedido no encontrado');
                 continue;
@@ -21284,6 +21300,7 @@ var _pendingWaitlistUpdate = null;
 
 function ensureRevisionWaitlistListener(){
   // v1077 (2026-09-25): refactor a ensureListenerWithFallback.
+  // v1500 §102 (2026-10-27): path 'revision_waitlist' activa política server.
   ensureListenerWithFallback(
     'revision_waitlist',
     () => fbDb.collection('revision_waitlist').orderBy('createdAt', 'asc'),
@@ -21318,7 +21335,8 @@ function ensureRevisionWaitlistListener(){
         if (updated) { _wcardCurrent = updated; _renderWaitlistCard(); }
         else closeWaitlistCardModal(); // fue borrado por otro user
       }
-    }
+    },
+    { path: 'revision_waitlist' }
   );
 }
 function _updateWaitlistBadge(){
@@ -21649,21 +21667,34 @@ function _repartoSubscribe(){
   if (typeof _unsubReparto === 'function') return; // ya suscripto
   const sum = document.getElementById('reparto-summary');
   if (sum) sum.textContent = 'Cargando ingresos pending…';
-  _unsubReparto = fbDb.collection('ingresos_reparto')
+  // v1500 §102 (2026-10-27): política lectura server para ingresos_reparto.
+  // includeMetadataChanges + filter fromCache. Antes v1500 el cache local
+  // servía ingresos stale (bug URQUIOLA 2026-10-27).
+  const _policyModRep = (window.__phase0 && window.__phase0.pure
+    && window.__phase0.pure.firestoreReadPolicy) || null;
+  const _refRep = fbDb.collection('ingresos_reparto')
     .where('status', 'in', ['pending', 'in_progress'])
-    .orderBy('detectedAt', 'desc')
-    .onSnapshot((qs) => {
-      _repartoIngresos = [];
-      qs.forEach((d) => {
-        const data = d.data() || {};
-        _repartoIngresos.push(Object.assign({ _id: d.id }, data));
-      });
-      _repartoRender();
-    }, (err) => {
-      console.error('[reparto] listener err', err);
-      const _sum = document.getElementById('reparto-summary');
-      if (_sum) _sum.textContent = 'Error cargando ingresos: ' + (err.message || err);
+    .orderBy('detectedAt', 'desc');
+  const _handlerRep = (qs) => {
+    if (_policyModRep && qs && qs.metadata
+      && _policyModRep.shouldIgnoreCachedSnapshot('ingresos_reparto', qs.metadata)) {
+      return; // skip cache-stale
+    }
+    _repartoIngresos = [];
+    qs.forEach((d) => {
+      const data = d.data() || {};
+      _repartoIngresos.push(Object.assign({ _id: d.id }, data));
     });
+    _repartoRender();
+  };
+  const _errHandlerRep = (err) => {
+    console.error('[reparto] listener err', err);
+    const _sum = document.getElementById('reparto-summary');
+    if (_sum) _sum.textContent = 'Error cargando ingresos: ' + (err.message || err);
+  };
+  _unsubReparto = _policyModRep
+    ? _refRep.onSnapshot({ includeMetadataChanges: true }, _handlerRep, _errHandlerRep)
+    : _refRep.onSnapshot(_handlerRep, _errHandlerRep);
 }
 
 function _repartoFmtQty(n){
@@ -24568,10 +24599,14 @@ async function _e4bHandleAsigAction(w, it, action){
   }
   try {
     // Fetch pedidos del cliente con lineas ASIG del sku. FIFO por createdAt.
+    // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
+    const _frpOptsE4B = (window.__phase0 && window.__phase0.pure
+      && window.__phase0.pure.firestoreReadPolicy
+      && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
     const snap = await fbDb.collection('pedidos')
       .where('clientCardCode', '==', w.clientCardCode)
       .where('closedAt', '==', null)
-      .get();
+      .get(_frpOptsE4B);
     /** @type {{pedidoId: string, lineIndex: number, qtyOpen: number, createdAtMs: number}[]} */
     const targets = [];
     const skuUp = String(it.sku).toUpperCase();
@@ -33366,13 +33401,15 @@ function _applyStockSnapshotDoc(d, source) {
 // v1077 (2026-09-25): refactor a ensureListenerWithFallback (helper generico).
 // Antes v1070 duplicaba el pattern zombie inline aca; ahora se centraliza.
 function ensureStockSnapshotListener(){
+  // v1500 §102 (2026-10-27): path activa política server + filtro fromCache.
   ensureListenerWithFallback(
     'stock_snapshot',
     () => fbDb.collection('app_config').doc('stock_snapshot'),
     (snap, source) => {
       if (!snap || !snap.exists) return;
       _applyStockSnapshotDoc(snap.data() || {}, source);
-    }
+    },
+    { path: 'app_config/stock_snapshot' }
   );
 }
 
@@ -35976,11 +36013,24 @@ function _subscribePlannerPedidos() {
     ? _cutoffIsoFn(Date.now(), daysBack)
     : new Date(Date.now() - daysBack * 86400000).toISOString();
   const query = base.where('createdAt', '>=', cutoffIso);
-  unsubPlannerPedidos = query.onSnapshot(snap => {
+  // v1500 §102 (2026-10-27): política lectura server para `pedidos`.
+  // includeMetadataChanges + filter fromCache; sin cambio para listeners
+  // auxiliares que ya tienen su propia política.
+  const _policyPl = (window.__phase0 && window.__phase0.pure
+    && window.__phase0.pure.firestoreReadPolicy) || null;
+  const _plHandler = (snap) => {
+    if (_policyPl && snap && snap.metadata
+      && _policyPl.shouldIgnoreCachedSnapshot('pedidos', snap.metadata)) {
+      return;
+    }
     plannerPedidosCache.clear();
     snap.forEach(d => plannerPedidosCache.set(d.id, { id: d.id, ...d.data() }));
     renderPlannerKanban();
-  }, err => console.warn('pedidos listener:', err?.message));
+  };
+  const _plErr = (err) => console.warn('pedidos listener:', err?.message);
+  unsubPlannerPedidos = _policyPl
+    ? query.onSnapshot({ includeMetadataChanges: true }, _plHandler, _plErr)
+    : query.onSnapshot(_plHandler, _plErr);
 }
 
 // v1084: llamada desde el checkbox del Config modal. Persiste + resuscribe.
@@ -36013,35 +36063,46 @@ function attachPlannerListeners() {
   // propias entradas. Filtro client-side por ownerUid=uid. Los otros roles
   // (admin/gerente/interno) siguen viendo todo.
   const _isVDEForWaitlist = (userRole === 'vendedor' && currentUser && currentUser.uid);
-  unsubPlannerWaitlist = db.collection('revision_waitlist')
-    .orderBy('createdAt', 'asc')
-    .onSnapshot(snap => {
-      plannerWaitlistCache.clear();
-      const _wlFilter = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.shouldIncludeWaitlistDoc);
-      snap.forEach(d => {
-        const data = d.data() || {};
-        // v1406 §44: scope VDE — assignedVendorUid del cliente master, con
-        // fallback a ownerUid para docs legacy (pre-§44 sin el campo). Rule
-        // revision_waitlist.read sigue abierto a isReader() → sin cambio de rules.
-        if (_isVDEForWaitlist) {
-          const _assigned = String(data.assignedVendorUid || '').trim();
-          const _owner = String(data.ownerUid || '').trim();
-          if (_assigned) {
-            if (_assigned !== currentUser.uid) return;
-          } else if (_owner !== currentUser.uid) {
-            // Legacy sin assignedVendorUid: cae a ownerUid.
-            return;
-          }
+  // v1500 §102 (2026-10-27): política lectura server para `revision_waitlist`.
+  // includeMetadataChanges + filter fromCache (§99).
+  const _policyPlWl = (window.__phase0 && window.__phase0.pure
+    && window.__phase0.pure.firestoreReadPolicy) || null;
+  const _plWlQuery = db.collection('revision_waitlist').orderBy('createdAt', 'asc');
+  const _plWlHandler = (snap) => {
+    if (_policyPlWl && snap && snap.metadata
+      && _policyPlWl.shouldIgnoreCachedSnapshot('revision_waitlist', snap.metadata)) {
+      return;
+    }
+    plannerWaitlistCache.clear();
+    const _wlFilter = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.shouldIncludeWaitlistDoc);
+    snap.forEach(d => {
+      const data = d.data() || {};
+      // v1406 §44: scope VDE — assignedVendorUid del cliente master, con
+      // fallback a ownerUid para docs legacy (pre-§44 sin el campo). Rule
+      // revision_waitlist.read sigue abierto a isReader() → sin cambio de rules.
+      if (_isVDEForWaitlist) {
+        const _assigned = String(data.assignedVendorUid || '').trim();
+        const _owner = String(data.ownerUid || '').trim();
+        if (_assigned) {
+          if (_assigned !== currentUser.uid) return;
+        } else if (_owner !== currentUser.uid) {
+          // Legacy sin assignedVendorUid: cae a ownerUid.
+          return;
         }
-        if (_wlFilter) {
-          if (!_wlFilter(data)) return;
-        } else {
-          if (data.stage === 'consumed') return;
-        }
-        plannerWaitlistCache.set(d.id, { id: d.id, ...data });
-      });
-      renderPlannerKanban();
-    }, err => console.warn('revision_waitlist listener:', err?.message));
+      }
+      if (_wlFilter) {
+        if (!_wlFilter(data)) return;
+      } else {
+        if (data.stage === 'consumed') return;
+      }
+      plannerWaitlistCache.set(d.id, { id: d.id, ...data });
+    });
+    renderPlannerKanban();
+  };
+  const _plWlErr = (err) => console.warn('revision_waitlist listener:', err?.message);
+  unsubPlannerWaitlist = _policyPlWl
+    ? _plWlQuery.onSnapshot({ includeMetadataChanges: true }, _plWlHandler, _plWlErr)
+    : _plWlQuery.onSnapshot(_plWlHandler, _plWlErr);
 }
 
 function renderPlannerKanban() {
@@ -37049,7 +37110,11 @@ async function resendPlannerNotif(column) {
     const res = await callable({ pedidoId: _plannerModalPedidoId, column });
     alert('Notificación reenviada: ' + ((res && res.data && res.data.result && res.data.result.sent && res.data.result.sent.to) || 'OK'));
     // Refresh cache — onSnapshot will also fire.
-    const fresh = await fbDb.collection('pedidos').doc(_plannerModalPedidoId).get();
+    // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
+    const _frpOptsPl = (window.__phase0 && window.__phase0.pure
+      && window.__phase0.pure.firestoreReadPolicy
+      && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
+    const fresh = await fbDb.collection('pedidos').doc(_plannerModalPedidoId).get(_frpOptsPl);
     plannerPedidosCache.set(_plannerModalPedidoId, { id: _plannerModalPedidoId, ...fresh.data() });
     renderPlannerModal();
   } catch (err) {
@@ -37119,24 +37184,43 @@ function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
   state.attachedAt = now;
   state.firedAt = null;
   console.log('[' + name + '] listener attach');
-  state.unsub = ref.onSnapshot(
-    (snap) => {
-      const wasZombie = !state.firedAt;
-      state.firedAt = Date.now();
-      // v1078: si el listener revivio despues de haber estado zombie, cancelar el polling.
-      if (wasZombie && state.pollInterval) {
-        clearInterval(state.pollInterval);
-        state.pollInterval = null;
-        console.log('[' + name + '] listener revivio — polling detenido');
-      }
-      try { applyFn(snap, 'listener'); }
-      catch (e) { console.error('[' + name + '] applyFn error:', e); }
-    },
-    (err) => {
-      console.error('[' + name + '] listener error:', err && err.code, err && err.message);
-      state.attachedAt = null; // permitir re-attach en proxima llamada
+  // v1500 §102 (2026-10-27): política de lectura server para colecciones
+  // críticas. Si `options.path` está en ALWAYS_SERVER_PATHS, attachamos
+  // con {includeMetadataChanges:true} para recibir fromCache + fromServer
+  // separados; filtramos los cache-stale en el callback via la pure fn.
+  // Sin path explícito, comportamiento legacy (acepta cache).
+  const _policyPath = options.path || null;
+  const _policyMod = (typeof window !== 'undefined' && window.__phase0 && window.__phase0.pure
+    && window.__phase0.pure.firestoreReadPolicy) || null;
+  const _isCriticalPath = _policyPath && _policyMod
+    && _policyMod.shouldReadFromServer(_policyPath);
+  const _onSnapshotOpts = _isCriticalPath ? { includeMetadataChanges: true } : undefined;
+  const _snapHandler = (snap) => {
+    const wasZombie = !state.firedAt;
+    // v1500 §102: en modo includeMetadataChanges, descartar snapshots
+    // que vengan del cache local (fromCache=true) para colecciones
+    // críticas. Si tiene pendingWrites, dejamos pasar (write local propio).
+    if (_isCriticalPath && snap && snap.metadata && _policyMod
+      && _policyMod.shouldIgnoreCachedSnapshot(_policyPath, snap.metadata)) {
+      // No actualizar firedAt — el server aún no respondió.
+      return;
     }
-  );
+    state.firedAt = Date.now();
+    if (wasZombie && state.pollInterval) {
+      clearInterval(state.pollInterval);
+      state.pollInterval = null;
+      console.log('[' + name + '] listener revivio — polling detenido');
+    }
+    try { applyFn(snap, 'listener'); }
+    catch (e) { console.error('[' + name + '] applyFn error:', e); }
+  };
+  const _errHandler = (err) => {
+    console.error('[' + name + '] listener error:', err && err.code, err && err.message);
+    state.attachedAt = null; // permitir re-attach en proxima llamada
+  };
+  state.unsub = _onSnapshotOpts
+    ? ref.onSnapshot(_onSnapshotOpts, _snapHandler, _errHandler)
+    : ref.onSnapshot(_snapHandler, _errHandler);
   // Safety net: si en timeoutMs no fired, hacer .get({source:'server'}) explicito.
   // Al fallar, iniciar polling continuo para captar updates futuros aunque el
   // listener siga zombie (bug del user reportado 2026-09-25 — Mariano).
@@ -37452,7 +37536,9 @@ function attachFirebaseListeners(){
     if (typeof drawMarkers === 'function') drawMarkers();
     // v481: refrescar cards del sidebar-left (facturacion diaria + cumplimiento).
     try { if (typeof _updateSidebarLeftCards === 'function') _updateSidebarLeftCards(); } catch(e){}
-    }
+    },
+    // v1500 §102: path 'pedidos' activa política server + filtro fromCache.
+    { path: 'pedidos' }
   );
 
   // v821 (2026-09-07): CRITICAL — attachar unsubPedidosAll ANTES de las
@@ -37550,7 +37636,9 @@ function attachFirebaseListeners(){
       const bm = document.getElementById('backorders-modal');
       if (bm && bm.classList.contains('open') && typeof renderBackordersTab === 'function') renderBackordersTab();
     } catch(e) { console.warn('refresh waitlist post pedidos snapshot', e); }
-    }
+    },
+    // v1500 §102: path 'pedidos' activa política server + filtro fromCache.
+    { path: 'pedidos' }
   );
 
   // v821: helpers de listeners auxiliares — cada uno envuelto en try/catch
@@ -38301,7 +38389,11 @@ window.doConfirmPedido = async function(){
               }
               if (!p || !Array.isArray(p.lines)) {
                 try {
-                  const _snap = await fbDb.collection('pedidos').doc(pid).get();
+                  // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
+                  const _frpOptsRec = (window.__phase0 && window.__phase0.pure
+                    && window.__phase0.pure.firestoreReadPolicy
+                    && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
+                  const _snap = await fbDb.collection('pedidos').doc(pid).get(_frpOptsRec);
                   if (!_snap.exists) {
                     _cancelErrors.push('pedido ' + pid + ': no encontrado');
                     continue;
