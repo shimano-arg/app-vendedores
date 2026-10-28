@@ -4716,6 +4716,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 ---
 
 ## 41) Changelog v300 → v1210
+
+### v1511 (2026-10-28) — Reparto: quitar "Exportar reporte" + fix listener "Cargando ingresos pending…" eterno
+
+**Cambios Parte 1 (de 4) del PR Import Reparto Pablo**:
+
+1. **Botón "Exportar reporte" removido** del header del modal Reparto de ingresos. Quedan solo "Exportar Excel" (template editable v1505) + "Importar Excel" (import v1505). Removido:
+   - Markup en `index.html:6975-6977`.
+   - Handler `window.exportRepartoToExcel` en `src/domains/exports-core.js` (165 líneas).
+   - Stub `'exportRepartoToExcel'` en `src/main.js` installChunkStubs.
+   - Suite `tests/unit/audit/reparto-export-v1492.test.js` (15 tests).
+   - Pure fn `src/pure/reparto-export-rows.js` PRESERVADA (shape de rows aún usado por otros exports como `exportStockAsigAll`).
+   - El reporte generado era un xlsx read-only de 3 hojas (Filtros + Resumen + Detalle) sobre `_repartoIngresos`. No tenía consumidor externo documentado (lo descargaba quien abría el modal); el nuevo "Exportar Excel" editable cubre mejor el use case.
+
+2. **Fix bug "Cargando ingresos pending…" eterno** (regresión v1501 §103). El handler `_handlerRep` en `_repartoSubscribe` (`index.html:21683+`) rechazaba TODOS los snapshots `fromCache=true` cuando online, sin disparar `_repartoRender()`. Si el primer snapshot servido por Firestore era cache (típico tras persistence local + policy que rechaza), el modal quedaba trabado. Fix: siempre renderear el PRIMER snapshot (sea cache o server) para quitar el loader; a partir del 2do aplicar la política offline-aware §103 normal. El timestamp del snapshot server se sigue trackeando aunque sea el primero para que próximos cache sean descartados correctamente.
+
+**Pendientes del PR original** (quedan en PR follow-up `feat-v1512-import-reparto-pablo-fase2` por tamaño):
+- Rework UI vista previa import (3 números + 5 columnas + regla consistencia).
+- Crear user `pruebas.gerente@shimano.com.ar` + Playwright 5 puntos Pablo.
+- Verificación Excel desktop ciclo completo.
+- Verificación prod post-deploy + informe `INFORME_IMPORT_REPARTO_PABLO.md`.
+
+Plan detallado: `docs/superpowers/plans/2026-10-28-import-reparto-pablo.md`.
+
+**Tests**: suite completa post-remove — bajan 15 tests pero suite sigue verde.
+
+**Rollback**: `git revert <sha_merge_v1511>` + Pages redeploy. Vuelve a v1510 con "Exportar reporte" presente.
+
+---
+
 ### v1510 (2026-10-28) — Rebase v1504 line.desc catalog sobre v1509 (bump versión)
 
 Rebase mecánico de v1504 (desc línea de pedido resuelve del catálogo, PR #1269) sobre v1509 (offline-aware). Sin cambio funcional del fix — solo bump de APP_VERSION/CACHE_VERSION 1504→1510 para destrabar merge-conflict.
