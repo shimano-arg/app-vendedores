@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1517';
+const APP_VERSION = 'v1518';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -33024,6 +33024,11 @@ window.renderProductMaster = function(){
   // Limitar a primeros 200 resultados para no saturar el DOM.
   const shown = list.slice(0, 200);
   let html = '';
+  // v1518 §TBD: si PRICE_LIST_MAP aun no cargo (post-F5 + clearPersistence §100),
+  // mostrar "Cargando precios..." en vez de "(sin precio)" para no asustar al
+  // user. El listener ensurePriceListListener dispara re-render al llegar.
+  const _pricesLoading = Object.keys(PRICE_LIST_MAP || {}).length === 0
+    && Object.keys(TEMPORAL_PRICE_LIST_MAP || {}).length === 0;
   shown.forEach(p => {
     const stockRaw = (typeof hasStock === 'function') ? hasStock(p.code) : null;
     // Precio: primero SAP, despues temporal, despues null.
@@ -33036,6 +33041,9 @@ window.renderProductMaster = function(){
       precioTxt = '$' + Number(pinfo.price).toLocaleString('es-AR');
       precioColor = '#b45309';
       precioBadge = '<span title="Precio temporal cargado por admin/gerente. Cuando administracion cargue el precio en SAP, este se reemplaza automatico." style="background:var(--color-warning-bg);color:var(--color-warning);padding:2px 7px;border-radius:10px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;margin-left:6px">Temporal</span>';
+    } else if (_pricesLoading) {
+      precioTxt = 'Cargando precios…';
+      precioColor = '#2563eb';
     } else {
       precioTxt = '(sin precio)';
       precioColor = '#94a3b8';
@@ -34009,6 +34017,17 @@ function ensurePriceListListener(){
       const mm = document.getElementById('product-master-modal');
       if (mm && mm.classList.contains('open') && typeof renderProductMaster === 'function') renderProductMaster();
     } catch(e) {}
+    // v1518 §TBD: post-F5 el cache IndexedDB se limpia (§100) → primer render
+    // de UI dependiente de precios muestra "$0" / "(sin precio)" hasta que
+    // llegue el snapshot server (segundos a minutos). Al popular PRICE_LIST_MAP,
+    // disparar re-render de modales abiertos que dependen de getDefaultPrice.
+    try {
+      const cm = document.getElementById('waitlist-card-modal');
+      if (cm && cm.classList.contains('open') && _wcardCurrent &&
+          typeof _renderWaitlistCard === 'function') {
+        _renderWaitlistCard();
+      }
+    } catch(_eWc) {}
   }, err => console.warn('price list listener', err));
 }
 
