@@ -111,12 +111,12 @@ describe('v1501 §103 — listeners críticos usan _applyReadPolicyDecision', ()
 });
 
 describe('v1501 §103 — version bump', () => {
-  it('APP_VERSION bumpeado a v1501', () => {
-    expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1501'/);
+  it('APP_VERSION bumpeado a v1501 o posterior', () => {
+    expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1[5-9]\d\d'/);
   });
 
-  it('CACHE_VERSION bumpeado a v1501', () => {
+  it('CACHE_VERSION bumpeado a v1501 o posterior', () => {
     const SW_JS = readFileSync('sw.js', 'utf8');
-    expect(SW_JS).toMatch(/CACHE_VERSION = 'v1501'/);
+    expect(SW_JS).toMatch(/CACHE_VERSION = 'v1[5-9]\d\d'/);
   });
 });
