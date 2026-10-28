@@ -49,6 +49,14 @@ import {
   labelForFichaField,
 } from './pure/ficha-cliente-labels.js';
 import { passesTypeFilter } from './pure/filters.js';
+// v1499 §98 (2026-10-27): política de lectura Firestore server vs cache.
+// Fuente única de qué colecciones críticas siempre van a server.
+import {
+  ALWAYS_SERVER_PATHS,
+  getReadOptionsForPath,
+  shouldIgnoreCachedSnapshot,
+  shouldReadFromServer,
+} from './pure/firestore-read-policy.js';
 // v1470 (2026-10-26): sanitizador undefined para writes Firestore. Fix bug
 // Federico Castelanelli "Function WriteBatch.update() called with invalid
 // data. Unsupported field value: undefined (found in document
@@ -560,6 +568,15 @@ const phase0 = {
       consolidateClientesBO,
       distributeQtyFifo,
       groupKeyForClienteBO,
+    },
+    // v1499 §98 (2026-10-27): política lectura Firestore server vs cache.
+    // Fuente única: lista colecciones críticas (stock_snapshot, pedidos,
+    // revision_waitlist, ingresos_reparto) que SIEMPRE van a server.
+    firestoreReadPolicy: {
+      ALWAYS_SERVER_PATHS,
+      shouldReadFromServer,
+      getReadOptionsForPath,
+      shouldIgnoreCachedSnapshot,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.

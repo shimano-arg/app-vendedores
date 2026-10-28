@@ -7114,7 +7114,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1498';
+const APP_VERSION = 'v1499';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -8142,38 +8142,116 @@ function _escapeHtmlLocal(s) {
 window._checkMinVersionAndMaybeBlock = _checkMinVersionAndMaybeBlock;
 window._renderVersionMinimaBlockingModal = _renderVersionMinimaBlockingModal;
 
+// v1499 §98 (2026-10-27): claves localStorage que preservan borradores
+// no-enviados del vendedor. Nunca se borran en "Recargar limpio".
+// `shimano_zonas_pending_v1` tiene pedidos pending en memoria pre-confirm.
+// `shimano_theme` es preferencia UI; se preserva para no romper dark mode.
+const CLEAN_RELOAD_PRESERVE_KEYS = Object.freeze([
+  'shimano_zonas_pending_v1',  // borradores pedidos no enviados
+  'shimano_theme',              // preferencia dark/light
+]);
+window.CLEAN_RELOAD_PRESERVE_KEYS = CLEAN_RELOAD_PRESERVE_KEYS;
+
 async function forceUpdateApp(){
-  if (!confirm('Forzar actualizacion?\n\nSe limpia el cache y se recarga la app con la ultima version.')) return;
+  // v1499 §98 (2026-10-27): refactor "Recargar limpio". Antes v1499 solo
+  // desregistraba SW + caches HTTP + outlines. No limpiaba IndexedDB
+  // Firestore ni terminaba la instancia → cache stale persistía. Caso
+  // Mariano URQUIOLA + CUDC201XG. Ahora:
+  //   1. Confirmación con detalle de qué se borra y qué se preserva.
+  //   2. Aviso visual "Limpiando datos locales y recargando".
+  //   3. Firestore terminate() + clearPersistence().
+  //   4. localStorage: borra todo EXCEPTO claves preservadas (borradores).
+  //   5. sessionStorage: borra todo.
+  //   6. Service Worker unregister + caches.delete.
+  //   7. Reload con cache busting.
+  //
+  // Si quedan borradores no-enviados, confirmación explícita antes.
+  const w = /** @type {any} */ (window);
+  let hasDrafts = false;
+  try {
+    const drafts = localStorage.getItem('shimano_zonas_pending_v1');
+    if (drafts) {
+      const parsed = JSON.parse(drafts);
+      hasDrafts = parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0;
+    }
+  } catch (_e) { /* ignore */ }
+
+  const confirmMsg = hasDrafts
+    ? 'Recargar limpio?\n\nBorra la cache local y trae todo del servidor.\n' +
+      'Tus borradores de pedido NO enviados se preservan.\n\n' +
+      '¿Continuar?'
+    : 'Recargar limpio?\n\nBorra la cache local y trae todo del servidor.';
+  if (!confirm(confirmMsg)) return;
+
+  // Aviso visual overlay.
+  try {
+    const existing = document.getElementById('clean-reload-overlay');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'clean-reload-overlay';
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(255,255,255,.92);z-index:999999;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+      'font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",sans-serif;' +
+      'color:#1d1d1f;gap:16px;';
+    const spinner = document.createElement('div');
+    spinner.style.cssText =
+      'width:40px;height:40px;border:3px solid rgba(29,29,31,.1);' +
+      'border-top-color:#0071e3;border-radius:50%;animation:cleanReloadSpin 0.8s linear infinite;';
+    const msg = document.createElement('div');
+    msg.textContent = 'Limpiando datos locales y recargando';
+    msg.style.cssText = 'font-size:16px;font-weight:500;letter-spacing:-0.3px;';
+    const style = document.createElement('style');
+    style.textContent = '@keyframes cleanReloadSpin{to{transform:rotate(360deg)}}';
+    overlay.appendChild(style);
+    overlay.appendChild(spinner);
+    overlay.appendChild(msg);
+    document.body.appendChild(overlay);
+  } catch (_e) { /* overlay best-effort */ }
+
+  // 1. Terminate Firestore (libera listeners + conexión IndexedDB).
+  try {
+    if (w.fbDb && typeof w.fbDb.terminate === 'function') {
+      await w.fbDb.terminate();
+    }
+  } catch (e) { console.warn('[v1499] firestore.terminate falló:', e && e.message); }
+
+  // 2. Clear IndexedDB persistence.
+  try {
+    if (w.firebase && w.firebase.firestore && typeof w.firebase.firestore().clearPersistence === 'function') {
+      await w.firebase.firestore().clearPersistence();
+    }
+  } catch (e) { console.warn('[v1499] clearPersistence falló:', e && e.message); }
+
+  // 3. localStorage: borra TODO excepto claves preservadas.
+  try {
+    const preserve = new Set(CLEAN_RELOAD_PRESERVE_KEYS);
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && !preserve.has(key)) toRemove.push(key);
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
+  } catch (e) { console.warn('[v1499] localStorage clear falló:', e && e.message); }
+
+  // 4. sessionStorage: borra todo.
+  try { sessionStorage.clear(); } catch (_e) { /* ignore */ }
+
+  // 5. Service Worker: unregister + caches.delete.
   try {
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
+      await Promise.all(regs.map((r) => r.unregister()));
     }
-  } catch(e){ console.warn('SW unregister', e); }
+  } catch (e) { console.warn('[v1499] SW unregister falló:', e && e.message); }
   try {
-    if (window.caches && caches.keys) {
+    if (w.caches && caches.keys) {
       const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
+      await Promise.all(keys.map((k) => caches.delete(k)));
     }
-  } catch(e){ console.warn('caches clear', e); }
-  // Invalidar tambien el cache de outlines (vive en localStorage) por si
-  // los cambios traen depts reasignados.
-  try {
-    localStorage.removeItem('shimano_vendor_outlines_v4');
-    localStorage.removeItem('shimano_vendor_outlines_v5');
-    localStorage.removeItem('shimano_vendor_outlines_v6');
-    localStorage.removeItem('shimano_vendor_outlines_v7');
-    localStorage.removeItem('shimano_vendor_outlines_v8');
-    localStorage.removeItem('shimano_vendor_outlines_v9');
-    localStorage.removeItem('shimano_vendor_outlines_v10');
-    localStorage.removeItem('shimano_vendor_outlines_v11');
-    localStorage.removeItem('shimano_vendor_outlines_v12');
-    localStorage.removeItem('shimano_vendor_outlines_v13');
-    localStorage.removeItem('shimano_vendor_outlines_v14');
-    localStorage.removeItem('shimano_vendor_outlines_v15');
-    localStorage.removeItem('shimano_vendor_outlines_v16');
-  } catch(e){}
-  // Reload con cache-bust en query string.
+  } catch (e) { console.warn('[v1499] caches clear falló:', e && e.message); }
+
+  // 6. Reload con cache busting.
   const base = window.location.pathname.replace(/[?#].*$/, '');
   window.location.replace(base + '?_t=' + Date.now());
 }
@@ -8185,9 +8263,9 @@ const RefreshAppControl = L.Control.extend({
     const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control refresh-app-bar');
     const btn = L.DomUtil.create('a', '', container);
     btn.href = '#';
-    btn.title = 'Forzar actualizacion de la app';
+    btn.title = 'Recargar limpio: borra la cache local y trae todo del servidor';
     btn.setAttribute('role', 'button');
-    btn.setAttribute('aria-label', 'Forzar actualizacion de la app');
+    btn.setAttribute('aria-label', 'Recargar limpio: borra la cache local y trae todo del servidor');
     btn.innerHTML = '&#8635;'; // simbolo refresh
     btn.style.cssText = 'font-size:20px;font-weight:800;color:var(--text-primary);text-align:center;line-height:30px;cursor:pointer;display:block;width:30px;height:30px';
     L.DomEvent.on(btn, 'click', L.DomEvent.stop);
@@ -30124,6 +30202,29 @@ const fbDb = firebase.firestore();
 // silenciosamente devolvia vacio y export Backorders col G quedaba en 0.
 // Reportado por Mariano 2026-09-16.
 window.fbDb = fbDb;
+// v1499 §98 (2026-10-27): detectar cambio de versión antes de habilitar
+// persistencia. Si APP_VERSION del HTML != la guardada en localStorage,
+// limpiar IndexedDB Firestore para prevenir que la cache stale persista
+// cross-deploys. Reportado por Mariano v1498: en Chrome normal mostraba
+// URQUIOLA + CUDC201XG en 2 filas (cache stale v1497); en incognito 1 fila
+// (sin cache). F5 no limpia IndexedDB — solo el browser cache HTTP.
+try {
+  const _lastVer = localStorage.getItem('shimano_app_version_last');
+  if (_lastVer && _lastVer !== APP_VERSION) {
+    console.log('[v1499 §98] version change ' + _lastVer + ' → ' + APP_VERSION + '; clearing IndexedDB');
+    // clearIndexedDbPersistence requiere Firestore sin listeners activos.
+    // En SDK v8 compat, API es firebase.firestore().clearPersistence().
+    try {
+      fbDb.clearPersistence().then(() => {
+        console.log('[v1499 §98] IndexedDB cache cleared post version bump');
+      }).catch((e) => {
+        // Fail-open: si no se puede limpiar (listener ya activo), seguimos.
+        console.warn('[v1499 §98] clearPersistence falló (ignorado):', e && e.message);
+      });
+    } catch (_e) { /* no-op */ }
+  }
+  localStorage.setItem('shimano_app_version_last', APP_VERSION);
+} catch (_e) { /* localStorage puede fallar en private mode */ }
 try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
 
 // v1470 (2026-10-26) hotfix bug Federico Castelanelli:
