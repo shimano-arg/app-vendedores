@@ -3550,9 +3550,64 @@ Un helper server-side correspondiente (en el mirror `functions/core/*-core.js`) 
 - Deployar a prod sin que el commit history incluya el escenario "VDE confirma con éxito un flujo que el gate protege".
 - Confiar en que "testeé como admin" es suficiente — admin y VDE tienen caminos de rules distintos.
 
-## 99. Colecciones Firestore que SIEMPRE se leen del server (2026-10-27, v1499)
+## 99. Colecciones Firestore que SIEMPRE se leen del server (2026-10-27, v1499 — UPDATE v1501 §103 offline-aware)
 
-**Regla fuerte**: las colecciones críticas listadas en `src/pure/firestore-read-policy.js:ALWAYS_SERVER_PATHS` se leen SIEMPRE con `{source: 'server'}` (Firebase v8 compat) o `getDocFromServer`/`getDocsFromServer` (v9+ modular). Listeners `onSnapshot` sobre estas colecciones usan `{includeMetadataChanges: true}` + descartan snapshots con `fromCache=true` via `shouldIgnoreCachedSnapshot`.
+### v1501 §103 UPDATE (2026-10-27) — Decisión offline-aware
+
+**Problema con v1499/v1500**: la política original descartaba TODOS los snapshots `fromCache` sobre colecciones críticas. Un vendedor sin señal nunca recibía ningún snapshot → pantallas vacías.
+
+**Fix v1501**: nueva pure fn `shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs, nowMs)` en `src/pure/firestore-read-policy.js`. Reemplaza `shouldIgnoreCachedSnapshot` (quedó como wrapper legacy):
+
+| Caso | Comportamiento |
+|---|---|
+| Path no crítico | Accept siempre (política default) |
+| Snapshot del server (`fromCache=false`) | Accept siempre + registra timestamp |
+| `hasPendingWrites=true` (write local propio) | Accept (se muestra al user que escribió) |
+| **Online** OR último server < 30s | Reject cache (preferir servidor) |
+| **Offline** sin server reciente | Accept cache + marcar `showStaleBanner=true` |
+
+**Ventana 30s**: cuando `navigator.onLine` acaba de flapear a `false` pero tenemos server snapshot muy reciente, seguimos considerando "efectivamente online" para no caer prematuro a cache.
+
+**Banner**: `<div id="offline-stale-banner">` fijo arriba con texto "Sin conexión: los datos pueden estar desactualizados." Se muestra via `window._setOfflineStaleBanner(path, true)`. Se oculta cuando TODOS los paths críticos que lo prendieron reciben un server snapshot (set `window._offlineStaleBannerPaths` vacío). También se oculta en el event `window.online`.
+
+**Helpers wiring** (`index.html`):
+
+```js
+window._lastServerSnapshotMs    // { [path]: ms } — tracker por path
+window._offlineStaleBannerPaths // Set<path>
+window._setOfflineStaleBanner(path, visible)
+window._applyReadPolicyDecision(path, metadata) → bool  // delega a pure fn
+```
+
+Los listeners críticos llaman al helper:
+
+```js
+if (!window._applyReadPolicyDecision('ingresos_reparto', qs.metadata)) return;
+```
+
+El helper:
+1. Resuelve `navigator.onLine` + último server snapshot.
+2. Delega a `shouldAcceptSnapshot`.
+3. Si `fromCache=false` → trackea timestamp + limpia banner para este path.
+4. Si `fromCache=true` + `showStaleBanner=true` → prende banner para este path.
+5. Devuelve el bool `accept`.
+
+**Confirmar pedidos NO se toca**: `commitPedidoCF` sigue bloqueado offline (callable HTTP requiere red). Esta política es sólo para lecturas de datos.
+
+**Test 4 casos canónicos**: `tests/unit/firestore-read-policy.test.js` cubre T60-T70:
+- T60: online=true + cache stale → RECHAZA.
+- T61: online=false + server<30s → RECHAZA (recent server).
+- T62: online=false + server stale → ACEPTA + banner.
+- T63: online=false + server nunca → ACEPTA + banner.
+- + T64-T70 edge cases (server, pending writes, non-critical, borde 30s exacto, metadata vacía).
+
+**Audit test**: `tests/unit/audit/offline-aware-banner-v1501.test.js` chequea banner HTML + helpers + que los 3 listeners inline + `ensureListenerWithFallback` ya no usan `shouldIgnoreCachedSnapshot` directo.
+
+---
+
+### v1500 §102 (texto original, mantenido como referencia)
+
+**Regla fuerte**: las colecciones críticas listadas en `src/pure/firestore-read-policy.js:ALWAYS_SERVER_PATHS` se leen SIEMPRE con `{source: 'server'}` (Firebase v8 compat) o `getDocFromServer`/`getDocsFromServer` (v9+ modular). Listeners `onSnapshot` sobre estas colecciones usan `{includeMetadataChanges: true}` + descartan snapshots con `fromCache=true` **respetando la política offline-aware §103** (si estamos offline sin server reciente, aceptan cache + muestran banner).
 
 **Lista actual (frozen)**:
 
@@ -3625,3 +3680,33 @@ shimano_theme             → preferencia dark/light
 - Agregar logic de borrado selectivo que dependa del user o del contexto. La regla es "todo o nada" (excepto borradores).
 - Preservar más claves sin justificación clara en el commit.
 - Tocar `forceUpdateApp` sin agregar/actualizar test de contrato.
+
+## 102. Zona y vendedor del master DEBEN coincidir (2026-10-28, v1506)
+
+**Regla fuerte**: para todo cliente SAP (identificado por `cardCode`), el vendedor que persiste en los pedidos (`vendorAssigned` + `assignedVendorUid`) tiene que coincidir con el vendedor que resuelve la cadena del master:
+
+```
+OCRD base → vendor_overrides (SHOP > LOC > PROV) → client_applications.assignedVendor (altas SAP)
+```
+
+Si divergen: **el master está mal, no la pantalla**. Backfillear master siempre, no parchear UI.
+
+**Causa típica**: alta manual por un VDE/apoyo de un cliente que estaba asignado por zona a otro vendedor en el master pre-existente, sin que el alta corrigiera `vendorAssigned`. Agravante conocido: múltiples usuarios con el mismo `roles.vendor` canónico (ej. 3 usuarios con `vendor=PACHI`: `pachinaba@gmail.com`, `pachi.ventasespeciales@shimano.com.ar`, `pruebas.pachi@shimano.com.ar`) hace que `resolveClientVendorFromMaster` resuelva al UID "equivocado" según cuál haya ganado el map `vendorKey → user` del cliente al momento de crear el pedido.
+
+**Precedente** (2026-10-28, v1506): BUEN PIQUE S.R.L. (`C30704537375`, approvedAlta `assignedVendor=PACHI`, Barrio Centro Norte, Córdoba) aparecía en el modal "Clientes - Z4 Pachi" de PACHI real (`pachinaba@gmail.com`, `LaBFi1xkSLObzLEdRoP8fonZ06r2`) pero NO en su tab "Pedidos > Confirmados". Causa: el único pedido del cliente (ORDEN 400, cerrado 2026-10-16, SAP docNum=2000380) tenía `assignedVendorUid=tUJHiLDy...` (usuario `pruebas.pachi@shimano.com.ar`), NO el UID real.
+
+Audit `scripts/audit/A_pachi_zona_z4_master_desalineado.cjs` detectó **63 clientes resueltos a PACHI por master, 16 con pedidos desalineados** (24 abiertos + 49 confirmados-cerrados afectados). En prod 2026-10-28 solo 2 pedidos abiertos efectivamente requerían backfill de UID (los otros estaban ya alineados mezclado); el resto son históricos facturados.
+
+**Chequeo diario watchdog**: workflow `.github/workflows/audit-zona-vendor-master.yml` (cron diario) corre `scripts/audit/A_pachi_zona_z4_master_desalineado.cjs --all-zones` y escribe informe. Si count > 0 nuevo, alerta a Mariano. **NO deployar sin OK Mariano**.
+
+**Dónde aplicar la regla**:
+- Scripts de alta de clientes: al crear/aprobar en `client_applications` + al escribir `client_master`, siempre inicializar `assignedVendorUid` con el UID resuelto del master.
+- Trigger de `onPedidoConfirmedSendToSap` y `commitPedidoCF`: ya resuelven server-side (§89) pero cuando hay múltiples users con el mismo `vendor` canónico, el map pierde determinismo. Considerar seedear con un UID "preferente" (ej. el user real humano, no test).
+- Nunca parchear la UI/listener para "ocultar" clientes desalineados — el filtro Planner VDE (§59) hace lo correcto; lo que falla es el dato persistido.
+
+**Prohibido**:
+- "Arreglar" la UI mostrando los pedidos de clientes de la zona aunque `assignedVendorUid` apunte a otro user. Rompe §44/§46/§59.
+- Setear `assignedVendorUid` desde el cliente sin re-resolver contra el master actual (receta de drift cada vez que cambia `vendor_overrides` o `assignedVendor` del alta).
+- Tener 3+ users con el mismo `roles.vendor` canónico sin plan de deduplicación. Si Mariano quiere mantener 3 PACHI (humano + apoyo + E2E tester), el pipeline server-side debe seedear al preferente.
+
+**Rollback de backfills**: el script B escribe `_backfill.<slug>.previousValues` en cada doc modificado (CLAUDE.md §55). Para revertir: iterar los docs con ese slug + restaurar los `previousValues` + borrar el slug. Siempre reversible mientras no se corra un segundo backfill con el mismo slug.

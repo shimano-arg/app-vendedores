@@ -121,7 +121,9 @@ describe('v1492 §91 — botón en el modal #reparto-modal', () => {
 
   it('T22 botón export está colocado antes del botón cerrar (visualmente a la izquierda)', () => {
     const idx = INDEX_HTML.indexOf('id="reparto-modal"');
-    const slice = INDEX_HTML.slice(idx, idx + 3000);
+    // v1505: slice ampliado por los 2 botones nuevos (Exportar Excel editable + Importar Excel)
+    // que agregó espacio en el head del modal.
+    const slice = INDEX_HTML.slice(idx, idx + 6000);
     const exportIdx = slice.indexOf('exportRepartoToExcel');
     const closeBtnIdx = slice.indexOf('reparto-apple-close');
     expect(exportIdx).toBeGreaterThan(0);

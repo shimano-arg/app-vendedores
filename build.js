@@ -65,6 +65,18 @@ const LAZY_CHUNKS = {
     // v1413 §51 (2026-10-22): Mariano-only, INFRACCIONES MELI desde Firestore.
     'exportInfraccionesMeli',
   ],
+  // v1505 (2026-10-28): export + import Excel del Reparto de ingresos.
+  // Chunk aparte porque el flow completo (template editable con fórmulas +
+  // import con preview + validación por fila + callable applyRepartoManualCF)
+  // + ExcelJS lazy = ~15 KB. Admin/gerente only para el import; export
+  // visible en el modal Reparto. Pure fns en src/pure/reparto-excel-*.js.
+  'exports-reparto': [
+    'exportRepartoManualExcel',
+    'openRepartoImportDialog',
+    'closeRepartoImportDialog',
+    'handleRepartoImportFileChange',
+    'confirmRepartoImportApply',
+  ],
   'admin-users': [
     'addAllowedEmail',
     'bulkAssignApprover',

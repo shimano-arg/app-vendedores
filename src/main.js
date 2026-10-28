@@ -54,6 +54,7 @@ import { passesTypeFilter } from './pure/filters.js';
 import {
   ALWAYS_SERVER_PATHS,
   getReadOptionsForPath,
+  shouldAcceptSnapshot,
   shouldIgnoreCachedSnapshot,
   shouldReadFromServer,
 } from './pure/firestore-read-policy.js';
@@ -92,11 +93,13 @@ import {
 import {
   canDeleteOwnWaitlist,
   canRevisionEmailOrUid,
+  isHeaderBtnHiddenForPachi,
   isPachiBodyFlagActive,
   isPachiRestricted,
   isSidebarLeftBtnHiddenForPachi,
   PACHI_BLOCKED_OPEN_FNS,
   PACHI_EMAIL,
+  PACHI_HIDDEN_HEADER_BTN_IDS,
   PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS,
   PACHI_UID,
   PACHI_UIDS,
@@ -160,6 +163,21 @@ import {
   distributeQtyFifo,
   groupKeyForClienteBO,
 } from './pure/reparto-consolidate.js';
+// v1505 (2026-10-28): pure fns del nuevo Reparto EXPORT MANUAL + IMPORT.
+// Diferente a v1497 §96: aquel es reporte resumen; este arma el template
+// editable con 9 columnas (7 visibles + 2 técnicas) y valida el reimport
+// contra el estado actual.
+import {
+  buildRepartoExcelFileName,
+  computeRepartoExcelExportRows,
+  filterIngresosForExcelExport,
+  safeNum as safeNumExcel,
+  safeStr as safeStrExcel,
+} from './pure/reparto-excel-export-rows.js';
+import {
+  groupImportMatchesByReparto,
+  validateRepartoExcelImport,
+} from './pure/reparto-excel-import-validator.js';
 // v1497 §96 (2026-10-27): pure fn para armar filas del export Reparto.
 // Fuente única + robusta a campos faltantes (cliente sin nombre/localidad, etc).
 import {
@@ -316,6 +334,15 @@ installChunkStubs('exports-advanced', [
   'exportDatasetZip',
   // v1413 §51 (2026-10-22): Mariano-only, Reportes Excel > Infracciones MELI.
   'exportInfraccionesMeli',
+]);
+// v1505 (2026-10-28): Reparto export + import Excel. Chunk disparado por
+// botones del modal Reparto ("Excel editable" + "Importar Excel").
+installChunkStubs('exports-reparto', [
+  'exportRepartoManualExcel',
+  'openRepartoImportDialog',
+  'closeRepartoImportDialog',
+  'handleRepartoImportFileChange',
+  'confirmRepartoImportApply',
 ]);
 installChunkStubs('admin-users', [
   'addAllowedEmail',
@@ -548,6 +575,10 @@ const phase0 = {
       PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS,
       PACHI_BLOCKED_OPEN_FNS,
       isSidebarLeftBtnHiddenForPachi,
+      // v1507 iter 8 (2026-10-28): botones del header-top ocultos para PACHI.
+      // Fuente única paralela a PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.
+      PACHI_HIDDEN_HEADER_BTN_IDS,
+      isHeaderBtnHiddenForPachi,
       // v1493 §92 (2026-10-27) iter 4: fuente única del gate `can-revision`.
       canRevisionEmailOrUid,
       // v1496 §95 (2026-10-27) iter 6: ¿puede borrar waitlist card? PACHI
@@ -577,6 +608,20 @@ const phase0 = {
       distributeQtyFifo,
       groupKeyForClienteBO,
     },
+    // v1505 (2026-10-28): template editable Reparto + import validator.
+    // 9 columnas (7 editables + 2 técnicas grises) + fórmula Excel.
+    // Validación re-usa el shape de clientesBO y chequea 6 casos de error.
+    repartoExcelExport: {
+      computeRepartoExcelExportRows,
+      filterIngresosForExcelExport,
+      buildRepartoExcelFileName,
+      safeNumExcel,
+      safeStrExcel,
+    },
+    repartoExcelImport: {
+      validateRepartoExcelImport,
+      groupImportMatchesByReparto,
+    },
     // v1499 §98 (2026-10-27): política lectura Firestore server vs cache.
     // Fuente única: lista colecciones críticas (stock_snapshot, pedidos,
     // revision_waitlist, ingresos_reparto) que SIEMPRE van a server.
@@ -585,6 +630,7 @@ const phase0 = {
       shouldReadFromServer,
       getReadOptionsForPath,
       shouldIgnoreCachedSnapshot,
+      shouldAcceptSnapshot,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.

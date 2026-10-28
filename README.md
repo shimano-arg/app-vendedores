@@ -4717,6 +4717,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1509 (2026-10-28) — Rebase v1501 offline-aware sobre v1508 (bump versión)
+
+Rebase mecánico de v1501 (offline-aware read policy + banner) sobre v1508 (Reparto Excel). Sin cambio funcional: solo bump de APP_VERSION/CACHE_VERSION 1501→1509 para destrabar merge-conflict.
+
+---
+
+### v1508 (2026-10-28) — Reparto de ingresos: Export + Import Excel editable (feat v1505 rebased sobre v1507 iter 8)
+
+**Cambio**: nuevo botón "Exportar Excel" (↓) + "Importar Excel" (↑ verde) en el modal Reparto, usa applyRepartoManualCF con origen=import.
+
+**Informe**: DesktopINFORME_REPARTO_EXCEL_v1505.md.
+
+---
+
+### v1501 (2026-10-27) — Follow-up v1500: offline-aware read policy + banner "Sin conexión" (§103)
+
+Pure fn nueva shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs) en src/pure/firestore-read-policy.js. Online o server < 30s → RECHAZA cache. Offline sin server reciente → ACEPTA cache + banner (role=status aria-live=polite). 4 call-sites migrados.
+
+commitPedidoCF sigue bloqueado offline (callable HTTP requiere red).
+
+Tests: 30 PASS firestore-read-policy + 15 PASS banner-audit + suite 2319 PASS.
+
+**Informe**: DesktopINFORME_PR_v1501_OFFLINE_AWARE.md.
+
+---
+
 ### v1500 (2026-10-27) — PR1 política lectura server: migrar call-sites de pedidos/revision_waitlist/ingresos_reparto/app_config/stock_snapshot (§99, §100, §101, §102)
 
 **Scope**: continuación v1499 §98-101 pedida por Mariano. Migra los call-sites a la pure fn `src/pure/firestore-read-policy.js` para que las 4 colecciones críticas siempre lean del server. Previene bug cache-stale cross-F5.
