@@ -212,11 +212,7 @@ export function validateRepartoExcelImport(filas, repartosActivos) {
         rowIndex: rowIdx,
         type: 'duplicate',
         msg:
-          'Fila ' +
-          rowIdx +
-          ': fila duplicada (misma Reparto ID + CardCode + Código ' +
-          sku +
-          ')',
+          'Fila ' + rowIdx + ': fila duplicada (misma Reparto ID + CardCode + Código ' + sku + ')',
         sku,
         cliente: clienteLbl,
       });

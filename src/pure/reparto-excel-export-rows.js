@@ -160,9 +160,11 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
     // v1498 §97: consolidar cliente+SKU usando pure fn si está disponible.
     const clientes = consolidateFn ? consolidateFn(rawClis) : rawClis;
     // Sort by cliente name para consistencia.
-    const sorted = clientes.slice().sort((/** @type {any} */ a, /** @type {any} */ b) =>
-      String(a.clientName || '').localeCompare(String(b.clientName || ''))
-    );
+    const sorted = clientes
+      .slice()
+      .sort((/** @type {any} */ a, /** @type {any} */ b) =>
+        String(a.clientName || '').localeCompare(String(b.clientName || ''))
+      );
     for (const c of sorted) {
       const cardCode = safeStr(c && (c.clientCardCode || c.cardCode));
       const clientName = safeStr(c && c.clientName);

@@ -1,8 +1,8 @@
 // @ts-check
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  validateRepartoExcelImport,
   groupImportMatchesByReparto,
+  validateRepartoExcelImport,
 } from '../../src/pure/reparto-excel-import-validator.js';
 
 /**
@@ -79,10 +79,7 @@ describe('T2: Asignado + Eliminar > Backorder → error asignado_elim_gt_bo', ()
 
 describe('T3: Asignado negativo → error invalid_number', () => {
   it('rechaza negativos', () => {
-    const res = validateRepartoExcelImport(
-      [row({ asignado: -5 })],
-      [reparto()]
-    );
+    const res = validateRepartoExcelImport([row({ asignado: -5 })], [reparto()]);
     expect(res.errores.length).toBe(1);
     expect(res.errores[0].type).toBe('invalid_number');
   });
@@ -90,18 +87,12 @@ describe('T3: Asignado negativo → error invalid_number', () => {
 
 describe('T4: Asignado no numérico → error invalid_number', () => {
   it('rechaza string "abc"', () => {
-    const res = validateRepartoExcelImport(
-      [row({ asignado: 'abc' })],
-      [reparto()]
-    );
+    const res = validateRepartoExcelImport([row({ asignado: 'abc' })], [reparto()]);
     expect(res.errores.length).toBe(1);
     expect(res.errores[0].type).toBe('invalid_number');
   });
   it('acepta "0" string vacío (celda vacía)', () => {
-    const res = validateRepartoExcelImport(
-      [row({ asignado: '', eliminar: '' })],
-      [reparto()]
-    );
+    const res = validateRepartoExcelImport([row({ asignado: '', eliminar: '' })], [reparto()]);
     expect(res.errores.length).toBe(0);
     expect(res.reconocidas.length).toBe(1);
     expect(res.reconocidas[0].tieneCambios).toBe(false);
@@ -111,10 +102,7 @@ describe('T4: Asignado no numérico → error invalid_number', () => {
 describe('T5: Filas duplicadas (mismo RepartoId+CardCode+Codigo 2+ veces) → error duplicate', () => {
   it('rechaza con el error correcto', () => {
     const res = validateRepartoExcelImport(
-      [
-        row({ rowIndex: 2, asignado: 1 }),
-        row({ rowIndex: 3, asignado: 2 }),
-      ],
+      [row({ rowIndex: 2, asignado: 1 }), row({ rowIndex: 3, asignado: 2 })],
       [reparto({ qtyBackorder: 10, stockDisponible: 10 })]
     );
     const dupErrs = res.errores.filter((e) => e.type === 'duplicate');
@@ -124,10 +112,7 @@ describe('T5: Filas duplicadas (mismo RepartoId+CardCode+Codigo 2+ veces) → er
 
 describe('T6: RepartoId que ya no existe (reparto cerrado) → error reparto_cerrado', () => {
   it('rechaza por status done', () => {
-    const res = validateRepartoExcelImport(
-      [row()],
-      [reparto({ status: 'done' })]
-    );
+    const res = validateRepartoExcelImport([row()], [reparto({ status: 'done' })]);
     expect(res.errores.length).toBe(1);
     expect(res.errores[0].type).toBe('reparto_cerrado');
   });
@@ -135,10 +120,7 @@ describe('T6: RepartoId que ya no existe (reparto cerrado) → error reparto_cer
 
 describe('T6b: RepartoId que no existe (no coincide con ningún reparto activo) → error not_found', () => {
   it('rechaza con el error correcto', () => {
-    const res = validateRepartoExcelImport(
-      [row({ repartoId: 'ING-INEXISTENTE' })],
-      [reparto()]
-    );
+    const res = validateRepartoExcelImport([row({ repartoId: 'ING-INEXISTENTE' })], [reparto()]);
     expect(res.errores.length).toBe(1);
     expect(res.errores[0].type).toBe('not_found');
   });
@@ -165,10 +147,7 @@ describe('T7: fila bien formada con cambios → clasifica como "con cambios", si
 
 describe('T8: fila sin cambios (asig=0, elim=0) → reconocida pero NO conCambios', () => {
   it('se clasifica correctamente', () => {
-    const res = validateRepartoExcelImport(
-      [row({ asignado: 0, eliminar: 0 })],
-      [reparto()]
-    );
+    const res = validateRepartoExcelImport([row({ asignado: 0, eliminar: 0 })], [reparto()]);
     expect(res.errores.length).toBe(0);
     expect(res.reconocidas.length).toBe(1);
     expect(res.conCambios.length).toBe(0);
@@ -179,8 +158,20 @@ describe('T8: fila sin cambios (asig=0, elim=0) → reconocida pero NO conCambio
 describe('Match por (RepartoId + CardCode + Codigo)', () => {
   it('mismo SKU en 2 repartos distintos: cada fila matchea su reparto correcto', () => {
     const repartos = [
-      reparto({ id: 'ING-A', sku: 'CLC66HAR', cardCode: 'C001', qtyBackorder: 3, stockDisponible: 5 }),
-      reparto({ id: 'ING-B', sku: 'CLC66HAR', cardCode: 'C001', qtyBackorder: 2, stockDisponible: 5 }),
+      reparto({
+        id: 'ING-A',
+        sku: 'CLC66HAR',
+        cardCode: 'C001',
+        qtyBackorder: 3,
+        stockDisponible: 5,
+      }),
+      reparto({
+        id: 'ING-B',
+        sku: 'CLC66HAR',
+        cardCode: 'C001',
+        qtyBackorder: 2,
+        stockDisponible: 5,
+      }),
     ];
     const filas = [
       row({ repartoId: 'ING-A', cardCode: 'C001', codigo: 'CLC66HAR', asignado: 3 }),

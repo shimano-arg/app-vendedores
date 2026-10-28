@@ -62,8 +62,7 @@ function _getStockFisico(sku) {
  * @returns {{search: string, hideNoStock: boolean}}
  */
 function _readFiltrosModalReparto() {
-  const sEl =
-    typeof document !== 'undefined' ? document.getElementById('reparto-search') : null;
+  const sEl = typeof document !== 'undefined' ? document.getElementById('reparto-search') : null;
   const hEl =
     typeof document !== 'undefined' ? document.getElementById('reparto-hide-nostock') : null;
   return {
@@ -126,7 +125,9 @@ window.exportRepartoManualExcel = async function () {
       consolidateFn: typeof consolidateFn === 'function' ? consolidateFn : undefined,
     });
     if (!result.rows.length) {
-      alert('No hay filas para exportar con los filtros actuales. Limpiá búsqueda o destildá "Ocultar sin stock".');
+      alert(
+        'No hay filas para exportar con los filtros actuales. Limpiá búsqueda o destildá "Ocultar sin stock".'
+      );
       return;
     }
 
@@ -160,8 +161,16 @@ window.exportRepartoManualExcel = async function () {
       };
     });
     headerRow.height = 28;
-    headerRow.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF888888' } };
-    headerRow.getCell(9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF888888' } };
+    headerRow.getCell(8).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF888888' },
+    };
+    headerRow.getCell(9).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF888888' },
+    };
 
     for (let i = 0; i < result.rows.length; i++) {
       const r = result.rows[i];
@@ -402,22 +411,30 @@ function _buildHeaderMap(ws) {
   /** @type {Object<number,string>} */
   const out = {};
   const headerRow = ws.getRow(1);
-  headerRow.eachCell({ includeEmpty: false }, (/** @type {any} */ cell, /** @type {number} */ col) => {
-    let v = cell.value;
-    if (v && typeof v === 'object' && 'text' in v) v = v.text;
-    if (v && typeof v === 'object' && 'result' in v) v = v.result;
-    const label = String(v || '').trim().toLowerCase();
-    if (!label) return;
-    if (label === 'codigo' || label === 'código') out[col] = 'Codigo';
-    else if (label === 'cliente') out[col] = 'Cliente';
-    else if (label === 'backorder') out[col] = 'Backorder';
-    else if (label === 'stock disponible' || label === 'stock_disponible') out[col] = 'StockDisponible';
-    else if (label === 'asignado') out[col] = 'Asignado';
-    else if (label === 'vuelve a backorder') out[col] = 'VueleABackorder';
-    else if (label === 'eliminar') out[col] = 'Eliminar';
-    else if (label === 'reparto id' || label === 'repartoid' || label === 'reparto_id') out[col] = 'RepartoId';
-    else if (label === 'cardcode' || label === 'card code' || label === 'card_code') out[col] = 'CardCode';
-  });
+  headerRow.eachCell(
+    { includeEmpty: false },
+    (/** @type {any} */ cell, /** @type {number} */ col) => {
+      let v = cell.value;
+      if (v && typeof v === 'object' && 'text' in v) v = v.text;
+      if (v && typeof v === 'object' && 'result' in v) v = v.result;
+      const label = String(v || '')
+        .trim()
+        .toLowerCase();
+      if (!label) return;
+      if (label === 'codigo' || label === 'código') out[col] = 'Codigo';
+      else if (label === 'cliente') out[col] = 'Cliente';
+      else if (label === 'backorder') out[col] = 'Backorder';
+      else if (label === 'stock disponible' || label === 'stock_disponible')
+        out[col] = 'StockDisponible';
+      else if (label === 'asignado') out[col] = 'Asignado';
+      else if (label === 'vuelve a backorder') out[col] = 'VueleABackorder';
+      else if (label === 'eliminar') out[col] = 'Eliminar';
+      else if (label === 'reparto id' || label === 'repartoid' || label === 'reparto_id')
+        out[col] = 'RepartoId';
+      else if (label === 'cardcode' || label === 'card code' || label === 'card_code')
+        out[col] = 'CardCode';
+    }
+  );
   return out;
 }
 
@@ -450,14 +467,20 @@ function _renderImportPreview() {
   chipRec.appendChild(
     _mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Reconocidas')
   );
-  chipRec.appendChild(_mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.reconocidas.length)));
+  chipRec.appendChild(
+    _mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.reconocidas.length))
+  );
   chipsRow.appendChild(chipRec);
   const chipCamb = _mkDiv(
     'flex:1;min-width:140px;padding:10px 14px;background:rgba(0,122,255,.14);border-radius:8px;color:#0040dd',
     null
   );
-  chipCamb.appendChild(_mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Con cambios'));
-  chipCamb.appendChild(_mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.conCambios.length)));
+  chipCamb.appendChild(
+    _mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Con cambios')
+  );
+  chipCamb.appendChild(
+    _mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.conCambios.length))
+  );
   chipsRow.appendChild(chipCamb);
   const chipErr = _mkDiv(
     'flex:1;min-width:140px;padding:10px 14px;background:' +
@@ -466,8 +489,12 @@ function _renderImportPreview() {
       (s.errores.length ? '#c7372f' : '#6e6e73'),
     null
   );
-  chipErr.appendChild(_mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Errores'));
-  chipErr.appendChild(_mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.errores.length)));
+  chipErr.appendChild(
+    _mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Errores')
+  );
+  chipErr.appendChild(
+    _mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.errores.length))
+  );
   chipsRow.appendChild(chipErr);
   previewEl.appendChild(chipsRow);
 
@@ -479,7 +506,9 @@ function _renderImportPreview() {
     errBox.appendChild(
       _mkDiv(
         'font-weight:700;color:#c7372f;margin-bottom:6px',
-        'Hay ' + s.errores.length + ' error(es). Corregilos y volvé a subir el Excel. No se aplica nada.'
+        'Hay ' +
+          s.errores.length +
+          ' error(es). Corregilos y volvé a subir el Excel. No se aplica nada.'
       )
     );
     const ul = document.createElement('ul');
@@ -523,7 +552,8 @@ function _renderImportPreview() {
     trh.style.cssText = 'background:#f5f5f7';
     for (const h of ['SKU', 'Cliente', 'BO', 'Asig.', 'Elim.']) {
       const th = document.createElement('th');
-      th.style.cssText = 'padding:6px;text-align:' + (h === 'SKU' || h === 'Cliente' ? 'left' : 'right');
+      th.style.cssText =
+        'padding:6px;text-align:' + (h === 'SKU' || h === 'Cliente' ? 'left' : 'right');
       th.textContent = h;
       trh.appendChild(th);
     }
@@ -557,7 +587,10 @@ function _renderImportPreview() {
     previewEl.appendChild(table);
     if (s.conCambios.length > 30) {
       previewEl.appendChild(
-        _mkDiv('color:#86868b;font-size:11px;margin-top:4px', '...y ' + (s.conCambios.length - 30) + ' más')
+        _mkDiv(
+          'color:#86868b;font-size:11px;margin-top:4px',
+          '...y ' + (s.conCambios.length - 30) + ' más'
+        )
       );
     }
   }
@@ -624,11 +657,14 @@ window.confirmRepartoImportApply = async function () {
       for (const a of g.assignments) {
         const c = clientes.find(
           (/** @type {any} */ x) =>
-            String((x.clientCardCode || x.cardCode || '')).toUpperCase().trim() ===
-            String(a.cardCode).toUpperCase().trim()
+            String(x.clientCardCode || x.cardCode || '')
+              .toUpperCase()
+              .trim() === String(a.cardCode).toUpperCase().trim()
         );
         if (!c) {
-          failures.push('Reparto ' + g.repartoId + ' / CardCode ' + a.cardCode + ' ya no está en BO');
+          failures.push(
+            'Reparto ' + g.repartoId + ' / CardCode ' + a.cardCode + ' ya no está en BO'
+          );
           continue;
         }
         assignments.push({
@@ -640,11 +676,14 @@ window.confirmRepartoImportApply = async function () {
       for (const e of g.eliminations) {
         const c = clientes.find(
           (/** @type {any} */ x) =>
-            String((x.clientCardCode || x.cardCode || '')).toUpperCase().trim() ===
-            String(e.cardCode).toUpperCase().trim()
+            String(x.clientCardCode || x.cardCode || '')
+              .toUpperCase()
+              .trim() === String(e.cardCode).toUpperCase().trim()
         );
         if (!c) {
-          failures.push('Reparto ' + g.repartoId + ' / CardCode ' + e.cardCode + ' ya no está en BO');
+          failures.push(
+            'Reparto ' + g.repartoId + ' / CardCode ' + e.cardCode + ' ya no está en BO'
+          );
           continue;
         }
         eliminations.push({
@@ -668,7 +707,11 @@ window.confirmRepartoImportApply = async function () {
         } else {
           failCount++;
           failures.push(
-            g.repartoId + ' (' + g.sku + '): ' + ((r.errors || []).join('; ') || 'error desconocido')
+            g.repartoId +
+              ' (' +
+              g.sku +
+              '): ' +
+              ((r.errors || []).join('; ') || 'error desconocido')
           );
         }
       } catch (callErr) {

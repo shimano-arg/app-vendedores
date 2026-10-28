@@ -16,9 +16,9 @@
  *
  * Si alguna igualdad falla, test falla + reporta qué.
  */
-import { describe, it, expect } from 'vitest';
-import { validateRepartoExcelImport } from '../../../src/pure/reparto-excel-import-validator.js';
+import { describe, expect, it } from 'vitest';
 import { computeRepartoExcelExportRows } from '../../../src/pure/reparto-excel-export-rows.js';
+import { validateRepartoExcelImport } from '../../../src/pure/reparto-excel-import-validator.js';
 import { getStockBreakdown } from '../../../src/pure/stock-breakdown.js';
 
 describe('v1505 Reparto Excel — consistencia POST-import (fixture C001/SKU-A 5→2)', () => {
@@ -52,9 +52,7 @@ describe('v1505 Reparto Excel — consistencia POST-import (fixture C001/SKU-A 5
       pedidos: [pedidoBO],
     });
     expect(breakdownPre.backorderApp.total).toBe(5);
-    const preBoCliente = breakdownPre.backorderApp.porCliente.find(
-      (c) => c.cardCode === cardCode
-    );
+    const preBoCliente = breakdownPre.backorderApp.porCliente.find((c) => c.cardCode === cardCode);
     expect(preBoCliente && preBoCliente.qty).toBe(5);
     expect(breakdownPre.asignadas.total).toBe(0);
 
@@ -76,9 +74,13 @@ describe('v1505 Reparto Excel — consistencia POST-import (fixture C001/SKU-A 5
     };
 
     // 4. Export Excel → fila que Pablo vería.
-    const exportRes = computeRepartoExcelExportRows([ingreso], {}, {
-      getStockFisico: () => fisico,
-    });
+    const exportRes = computeRepartoExcelExportRows(
+      [ingreso],
+      {},
+      {
+        getStockFisico: () => fisico,
+      }
+    );
     expect(exportRes.rows.length).toBe(1);
     const excelRow = exportRes.rows[0];
     expect(excelRow.Backorder).toBe(5);

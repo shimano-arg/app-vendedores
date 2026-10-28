@@ -1,11 +1,11 @@
 // @ts-check
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  buildRepartoExcelFileName,
   computeRepartoExcelExportRows,
   filterIngresosForExcelExport,
-  buildRepartoExcelFileName,
-  safeStr,
   safeNum,
+  safeStr,
 } from '../../src/pure/reparto-excel-export-rows.js';
 
 function ing(overrides = {}) {
@@ -37,9 +37,13 @@ describe('safeStr / safeNum', () => {
 
 describe('computeRepartoExcelExportRows — 1 reparto 1 cliente', () => {
   it('devuelve 1 fila con las 9 columnas correctas', () => {
-    const res = computeRepartoExcelExportRows([ing()], {}, {
-      getStockFisico: () => 7,
-    });
+    const res = computeRepartoExcelExportRows(
+      [ing()],
+      {},
+      {
+        getStockFisico: () => 7,
+      }
+    );
     expect(res.rows.length).toBe(1);
     const r = res.rows[0];
     expect(r.Codigo).toBe('SKU-A');
@@ -94,8 +98,16 @@ describe('computeRepartoExcelExportRows — mismo SKU en 3 repartos distintos', 
 describe('computeRepartoExcelExportRows — filtro search', () => {
   it('filtra por SKU', () => {
     const ings = [
-      ing({ _id: 'ING-A', sku: 'ABC', clientesBO: [{ clientCardCode: 'C001', clientName: 'ACME', qtyBackorder: 1 }] }),
-      ing({ _id: 'ING-B', sku: 'XYZ', clientesBO: [{ clientCardCode: 'C002', clientName: 'OTHER', qtyBackorder: 1 }] }),
+      ing({
+        _id: 'ING-A',
+        sku: 'ABC',
+        clientesBO: [{ clientCardCode: 'C001', clientName: 'ACME', qtyBackorder: 1 }],
+      }),
+      ing({
+        _id: 'ING-B',
+        sku: 'XYZ',
+        clientesBO: [{ clientCardCode: 'C002', clientName: 'OTHER', qtyBackorder: 1 }],
+      }),
     ];
     const res = computeRepartoExcelExportRows(ings, { search: 'ABC' }, { getStockFisico: () => 5 });
     expect(res.rows.length).toBe(1);
@@ -111,7 +123,11 @@ describe('computeRepartoExcelExportRows — filtro search', () => {
         ],
       }),
     ];
-    const res = computeRepartoExcelExportRows(ings, { search: 'acme' }, { getStockFisico: () => 5 });
+    const res = computeRepartoExcelExportRows(
+      ings,
+      { search: 'acme' },
+      { getStockFisico: () => 5 }
+    );
     // Nota: filtro es a nivel ingreso (match_any). El ingreso entra si algún cliente matchea,
     // pero todas las filas del ingreso quedan en el export (como la UI del modal).
     expect(res.rows.length).toBe(2);
@@ -120,10 +136,7 @@ describe('computeRepartoExcelExportRows — filtro search', () => {
 
 describe('computeRepartoExcelExportRows — filtro hideNoStock', () => {
   it('oculta SKUs sin stock físico cuando hideNoStock=true', () => {
-    const ings = [
-      ing({ _id: 'ING-A', sku: 'HAS-STOCK' }),
-      ing({ _id: 'ING-B', sku: 'NO-STOCK' }),
-    ];
+    const ings = [ing({ _id: 'ING-A', sku: 'HAS-STOCK' }), ing({ _id: 'ING-B', sku: 'NO-STOCK' })];
     const stockMap = { 'HAS-STOCK': 10, 'NO-STOCK': 0 };
     const res = computeRepartoExcelExportRows(
       ings,
@@ -134,10 +147,7 @@ describe('computeRepartoExcelExportRows — filtro hideNoStock', () => {
     expect(res.rows[0].Codigo).toBe('HAS-STOCK');
   });
   it('incluye todos cuando hideNoStock=false', () => {
-    const ings = [
-      ing({ _id: 'ING-A', sku: 'HAS-STOCK' }),
-      ing({ _id: 'ING-B', sku: 'NO-STOCK' }),
-    ];
+    const ings = [ing({ _id: 'ING-A', sku: 'HAS-STOCK' }), ing({ _id: 'ING-B', sku: 'NO-STOCK' })];
     const stockMap = { 'HAS-STOCK': 10, 'NO-STOCK': 0 };
     const res = computeRepartoExcelExportRows(
       ings,
@@ -176,10 +186,7 @@ describe('computeRepartoExcelExportRows — fórmula Excel string', () => {
 
 describe('filterIngresosForExcelExport', () => {
   it('descarta ingresos sin clientesBO', () => {
-    const ings = [
-      ing({ _id: 'A', clientesBO: [] }),
-      ing({ _id: 'B' }),
-    ];
+    const ings = [ing({ _id: 'A', clientesBO: [] }), ing({ _id: 'B' })];
     const out = filterIngresosForExcelExport(ings, { hideNoStock: false });
     expect(out.length).toBe(1);
     expect(out[0]._id).toBe('B');
