@@ -1,0 +1,82 @@
+name: Audit Zona vs Vendor Master (CLAUDE.md §102)
+
+# v1506 §102 (2026-10-28): audit diario que verifica que los pedidos de cada
+# cliente tengan `assignedVendorUid` consistente con el vendedor que resuelve
+# del master (OCRD + vendor_overrides + client_applications).
+#
+# Precedente: BUEN PIQUE S.R.L. (C30704537375) aparecía en "Clientes - Z4
+# Pachi" de PACHI real pero NO en su tab "Pedidos > Confirmados" porque el
+# único pedido tenía assignedVendorUid del usuario pruebas.pachi@shimano,
+# no del PACHI humano. Audit detectó 16 clientes con pedidos desalineados.
+#
+# Modo: --all-zones (lista TODAS las zonas, no solo PACHI).
+#
+# Si count > 0 nuevo, el step de email alerta a Mariano.
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT   JSON del service account con roles/datastore.user.
+#   GMAIL_APP_PASSWORD         (opcional) app-password para notificación por mail.
+#
+# NO DEPLOYAR SIN OK MARIANO — este workflow queda commiteado pero sin
+# habilitarse hasta que Mariano lo apruebe explícitamente.
+
+on:
+  schedule:
+    - cron: '0 8 * * *'          # 05:00 ART (08:00 UTC) diario
+  workflow_dispatch:              # "Run workflow" manual para testear
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-zona-vendor-master
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      PACHI_UID_HINT: 'LaBFi1xkSLObzLEdRoP8fonZ06r2'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install functions deps (firebase-admin)
+        working-directory: functions
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Setup ADC from service account secret
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          mkdir -p "$HOME/.config/gcloud"
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$HOME/.config/gcloud/application_default_credentials.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/.config/gcloud/application_default_credentials.json" >> "$GITHUB_ENV"
+
+      - name: Run A_pachi_zona_z4_master_desalineado --all-zones
+        run: node scripts/audit/A_pachi_zona_z4_master_desalineado.cjs --all-zones
+
+      - name: Upload informe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw_todas_zonas_inconsistencias
+          path: |
+            ~/Desktop/RAW_TODAS_ZONAS_INCONSISTENCIAS.md
+            RAW_TODAS_ZONAS_INCONSISTENCIAS.md
+          if-no-files-found: ignore
+
+      # Email alert si hay desalineados > 0 — se parsea del stdout; disabled por
+      # default (requiere OK Mariano para activar). Para activar: setear el
+      # secret GMAIL_APP_PASSWORD + descomentar el step.
+      #
+      # - name: Alert email a Mariano
+      #   if: failure()
+      #   env:
+      #     GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      #   run: python scripts/notify_zona_vendor_desalineado.py

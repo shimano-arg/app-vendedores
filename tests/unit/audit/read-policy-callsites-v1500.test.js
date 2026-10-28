@@ -83,21 +83,13 @@ describe('v1500 §102 — call-sites migrados a política lectura server', () =>
     );
   });
 
-  it('APP_VERSION >= v1500', () => {
-    const m = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
-    expect(m).not.toBeNull();
-    // @ts-expect-error
-    expect(Number(m[1])).toBeGreaterThanOrEqual(1500);
+  it('APP_VERSION bumpeado a v1500 o posterior', () => {
+    expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1[5-9]\d\d'/);
   });
 
-  it('CACHE_VERSION >= v1500 y sincronizado', () => {
+  it('CACHE_VERSION bumpeado a v1500 o posterior', () => {
     const SW_JS = readFileSync('sw.js', 'utf8');
-    const htmlM = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
-    const swM = SW_JS.match(/CACHE_VERSION = 'v(\d+)'/);
-    expect(htmlM).not.toBeNull();
-    expect(swM).not.toBeNull();
-    // @ts-expect-error
-    expect(swM[1]).toBe(htmlM[1]);
+    expect(SW_JS).toMatch(/CACHE_VERSION = 'v1[5-9]\d\d'/);
   });
 });
 

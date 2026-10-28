@@ -3680,3 +3680,33 @@ shimano_theme             → preferencia dark/light
 - Agregar logic de borrado selectivo que dependa del user o del contexto. La regla es "todo o nada" (excepto borradores).
 - Preservar más claves sin justificación clara en el commit.
 - Tocar `forceUpdateApp` sin agregar/actualizar test de contrato.
+
+## 102. Zona y vendedor del master DEBEN coincidir (2026-10-28, v1506)
+
+**Regla fuerte**: para todo cliente SAP (identificado por `cardCode`), el vendedor que persiste en los pedidos (`vendorAssigned` + `assignedVendorUid`) tiene que coincidir con el vendedor que resuelve la cadena del master:
+
+```
+OCRD base → vendor_overrides (SHOP > LOC > PROV) → client_applications.assignedVendor (altas SAP)
+```
+
+Si divergen: **el master está mal, no la pantalla**. Backfillear master siempre, no parchear UI.
+
+**Causa típica**: alta manual por un VDE/apoyo de un cliente que estaba asignado por zona a otro vendedor en el master pre-existente, sin que el alta corrigiera `vendorAssigned`. Agravante conocido: múltiples usuarios con el mismo `roles.vendor` canónico (ej. 3 usuarios con `vendor=PACHI`: `pachinaba@gmail.com`, `pachi.ventasespeciales@shimano.com.ar`, `pruebas.pachi@shimano.com.ar`) hace que `resolveClientVendorFromMaster` resuelva al UID "equivocado" según cuál haya ganado el map `vendorKey → user` del cliente al momento de crear el pedido.
+
+**Precedente** (2026-10-28, v1506): BUEN PIQUE S.R.L. (`C30704537375`, approvedAlta `assignedVendor=PACHI`, Barrio Centro Norte, Córdoba) aparecía en el modal "Clientes - Z4 Pachi" de PACHI real (`pachinaba@gmail.com`, `LaBFi1xkSLObzLEdRoP8fonZ06r2`) pero NO en su tab "Pedidos > Confirmados". Causa: el único pedido del cliente (ORDEN 400, cerrado 2026-10-16, SAP docNum=2000380) tenía `assignedVendorUid=tUJHiLDy...` (usuario `pruebas.pachi@shimano.com.ar`), NO el UID real.
+
+Audit `scripts/audit/A_pachi_zona_z4_master_desalineado.cjs` detectó **63 clientes resueltos a PACHI por master, 16 con pedidos desalineados** (24 abiertos + 49 confirmados-cerrados afectados). En prod 2026-10-28 solo 2 pedidos abiertos efectivamente requerían backfill de UID (los otros estaban ya alineados mezclado); el resto son históricos facturados.
+
+**Chequeo diario watchdog**: workflow `.github/workflows/audit-zona-vendor-master.yml` (cron diario) corre `scripts/audit/A_pachi_zona_z4_master_desalineado.cjs --all-zones` y escribe informe. Si count > 0 nuevo, alerta a Mariano. **NO deployar sin OK Mariano**.
+
+**Dónde aplicar la regla**:
+- Scripts de alta de clientes: al crear/aprobar en `client_applications` + al escribir `client_master`, siempre inicializar `assignedVendorUid` con el UID resuelto del master.
+- Trigger de `onPedidoConfirmedSendToSap` y `commitPedidoCF`: ya resuelven server-side (§89) pero cuando hay múltiples users con el mismo `vendor` canónico, el map pierde determinismo. Considerar seedear con un UID "preferente" (ej. el user real humano, no test).
+- Nunca parchear la UI/listener para "ocultar" clientes desalineados — el filtro Planner VDE (§59) hace lo correcto; lo que falla es el dato persistido.
+
+**Prohibido**:
+- "Arreglar" la UI mostrando los pedidos de clientes de la zona aunque `assignedVendorUid` apunte a otro user. Rompe §44/§46/§59.
+- Setear `assignedVendorUid` desde el cliente sin re-resolver contra el master actual (receta de drift cada vez que cambia `vendor_overrides` o `assignedVendor` del alta).
+- Tener 3+ users con el mismo `roles.vendor` canónico sin plan de deduplicación. Si Mariano quiere mantener 3 PACHI (humano + apoyo + E2E tester), el pipeline server-side debe seedear al preferente.
+
+**Rollback de backfills**: el script B escribe `_backfill.<slug>.previousValues` en cada doc modificado (CLAUDE.md §55). Para revertir: iterar los docs con ese slug + restaurar los `previousValues` + borrar el slug. Siempre reversible mientras no se corra un segundo backfill con el mismo slug.

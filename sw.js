@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v1501';
+const CACHE_VERSION = 'v1509';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -45,6 +45,8 @@ const STATIC_ASSETS = [
   // para exports + admin panel después de la primera apertura online.
   './chunks/exports-core.js',
   './chunks/exports-advanced.js',
+  // v1505 (2026-10-28): Reparto Excel export + import (admin/gerente).
+  './chunks/exports-reparto.js',
   './chunks/admin-users.js',
   './chunks/meli.js',
   // v422+ (2026-08-06): modal FORECAST admin-only (Mariano). Snapshot BQ

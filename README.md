@@ -4717,43 +4717,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1509 (2026-10-28) — Rebase v1501 offline-aware sobre v1508 (bump versión)
+
+Rebase mecánico de v1501 (offline-aware read policy + banner) sobre v1508 (Reparto Excel). Sin cambio funcional: solo bump de APP_VERSION/CACHE_VERSION 1501→1509 para destrabar merge-conflict.
+
+---
+
+### v1508 (2026-10-28) — Reparto de ingresos: Export + Import Excel editable (feat v1505 rebased sobre v1507 iter 8)
+
+**Cambio**: nuevo botón "Exportar Excel" (↓) + "Importar Excel" (↑ verde) en el modal Reparto, usa applyRepartoManualCF con origen=import.
+
+**Informe**: DesktopINFORME_REPARTO_EXCEL_v1505.md.
+
+---
+
 ### v1501 (2026-10-27) — Follow-up v1500: offline-aware read policy + banner "Sin conexión" (§103)
 
-**Scope**: pedido Mariano antes de cerrar v1500 PR1. Resuelve el gap: v1500 rechazaba TODOS los `fromCache` → vendedor sin señal veía pantallas vacías.
+Pure fn nueva shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs) en src/pure/firestore-read-policy.js. Online o server < 30s → RECHAZA cache. Offline sin server reciente → ACEPTA cache + banner (role=status aria-live=polite). 4 call-sites migrados.
 
-**Cambios**:
-- Pure fn nueva `shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs)` en `src/pure/firestore-read-policy.js`.
-  - Online O server < 30s → RECHAZA cache (prefer server).
-  - Offline sin server reciente → ACEPTA cache + banner.
-- Banner HTML fijo arriba (`#offline-stale-banner`, `role=status`, `aria-live=polite`).
-- Helpers inline: `_lastServerSnapshotMs`, `_setOfflineStaleBanner`, `_applyReadPolicyDecision`.
-- Listener `window.online` limpia el banner.
-- 4 call-sites migrados: `_repartoSubscribe`, `_subscribePlannerPedidos`, `attachPlannerListeners` (waitlist), `ensureListenerWithFallback` helper.
-- `shouldIgnoreCachedSnapshot` deprecated (wrapper legacy, pero no se usa más desde v1501).
-- CLAUDE.md §99 actualizada con tabla de 4 casos + edge cases.
+commitPedidoCF sigue bloqueado offline (callable HTTP requiere red).
 
-**Confirmar pedidos NO se toca**: `commitPedidoCF` sigue bloqueado offline (callable HTTP requiere red).
+Tests: 30 PASS firestore-read-policy + 15 PASS banner-audit + suite 2319 PASS.
 
-**Tests**:
-- `tests/unit/firestore-read-policy.test.js`: 30 PASS (11 nuevos T60-T70).
-- `tests/unit/audit/offline-aware-banner-v1501.test.js`: 15 PASS (banner HTML + helpers + wiring).
-- `tests/unit/audit/read-policy-callsites-v1500.test.js`: 12 PASS (updated for v1501 helper).
-- Suite completa: **2319 PASS / 0 FAIL / 157 archivos**.
-
-**Playwright real**:
-- `tests/e2e/r_offline_banner_v1501.spec.js`:
-  - R0 (wiring sin login): ✅ **PASS 10.1s** contra `http://localhost:8765/` (local v1501). Verifica banner DOM + helpers + toggle offline/online real. Screenshots: `tests/e2e/evidencia/2026-10-28/R/`.
-  - R1 (online→offline→online con listener real): requiere TEST_USER_* del gcloud secret. Spec listo.
-  - R2 (offline reload con cache hidratado): requiere TEST_USER_*. Spec listo.
-
-**Pendientes** (tildes en informe cuando se cumplan):
-- Verificación prod post-deploy con 2 capturas (banner on + banner off en real).
-- Correr R1+R2 Playwright post-deploy.
-- Medición Firestore reads 24h del v1500 (ventana 2026-10-28 ~15:00 ART).
-
-**Informe**: `Desktop\INFORME_PR_v1501_OFFLINE_AWARE.md`.
-
-**Dry-run PR2 adjunto** (orden paralela Mariano): `Desktop\DRYRUN_PR2_CLIENTESBO.md`. **1036 diferencias** — `clientesBO` del reparto es snapshot CONGELADO, `backorderApp.byClient` es LIVE. Reemplazar uno por otro rompe la semántica. Esperando decisión Mariano sobre rumbo.
+**Informe**: DesktopINFORME_PR_v1501_OFFLINE_AWARE.md.
 
 ---
 
