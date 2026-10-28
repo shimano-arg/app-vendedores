@@ -59,10 +59,35 @@ service cloud.firestore {
     // tipoLocal, cliTipo, creditoCheque) para CUALQUIER cliente, no solo los
     // de su zona. Habilitado para Ioannis Palkoudakis + Santiago Esteban
     // (role=interno). Admin/gerente ya tienen el permiso por isAdminOrGerente().
+    //
+    // v1501 §93 (2026-10-28): PACHI (role=vendedor) también editor opt-in de
+    // Ficha Cliente. Reporte prod Mariano: PACHI no podía guardar los selects
+    // (status "Error guardando: Missing or insufficient permissions") porque
+    // `client_master.update` para isReader() exigía hasOnly(['defaultDelivery'])
+    // y el autosave del modal escribe cliTipo/fidelidad/prefContacto/etc.
+    // Fuente única de UIDs: src/pure/pachi-restrictions.js (PACHI_UIDS).
+    // Los 2 UIDs son hardcoded acá porque las rules no pueden importar JS.
+    // Si en el futuro cambia PACHI_UIDS, actualizar ambos lados.
+    // - PACHI real: pachinaba@gmail.com, uid LaBFi1xkSLObzLEdRoP8fonZ06r2.
+    // - Test user Playwright: pruebas.pachi@shimano.com.ar,
+    //   uid tUJHiLDyLHWvbkpWgCQXWJcucfV2.
+    // Esta regla es ortogonal a §93 (restricciones negativas PACHI): Ficha
+    // Cliente NO está en PACHI_BLOCKED_OPEN_FNS ni en el set de botones ocultos
+    // del sidebar — el perfilado comercial es una tarea legítima para PACHI.
+    function isPachiUid() {
+      return request.auth != null
+        && (request.auth.uid == 'LaBFi1xkSLObzLEdRoP8fonZ06r2'
+            || request.auth.uid == 'tUJHiLDyLHWvbkpWgCQXWJcucfV2');
+    }
     function isFichaClienteEditor() {
       return request.auth != null
-        && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
-        && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.fichaClienteEditorFull == true;
+        && (
+          isPachiUid()
+          || (
+            exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+            && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.fichaClienteEditorFull == true
+          )
+        );
     }
 
     // v1414 §51.1 (2026-10-22): whitelist especifica para el reporte
