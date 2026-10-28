@@ -497,6 +497,7 @@ export const syncSapCatalogStockCF = onSchedule(
       sapConfig,
       log: (msg, extra) => console.log(msg, extra || {}),
       source: 'cf-scheduled',
+      FieldValue, // v1502 §60: para serverTimestamp en sync-bp-pesca-core.
     });
     console.log('syncSapCatalogStockCF summary', {
       ok: result.ok,
