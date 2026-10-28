@@ -4717,6 +4717,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1517 (2026-10-28) — Reparto: no pisar inputs mientras Pablo edita (re-apply post v1516)
+
+**Antes de v1515 (hoy a la mañana)**: el listener `onSnapshot('ingresos_reparto')` en `_repartoSubscribe` disparaba un re-render completo (`_repartoRender`) cada vez que llegaba un snapshot (otro user tocando algo, metadata update de Firestore, policy §103 reconnect). Cada re-render re-buildeaba las cards vía `_repartoBuildCard` → los `<input type="number">` de Asignado/Eliminar se reemplazaban con nuevos (value=0). Si Pablo había tipeado `2` en el SKU-A asig y entre medio llegaba snapshot, el `2` desaparecía.
+
+**v1515 (PR #1277)**: fix shipped a la rama `fix-v1515-reparto-no-pisar-inputs`, mergeada pero perdida en el merge de v1516 porque el PR v1516 (`fix-v1516-reparto-consolidar-y-destrabar`) partió desde `main` ANTES de que v1515 estuviera mergeado. v1515 quedó sobreescrita cuando v1516 pasó por main.
+
+**Problema detectado**: v1516 restauró `index.html` a estado pre-v1515 → el "temporizador" volvió. Reportado por verificación post-merge.
+
+**Cambio en v1517**: re-aplica el fix de v1515 verbatim sobre main actual (post v1516):
+- `_repartoRender` chequea antes de re-buildear: ¿algún `.reparto-apple-input` focused en `#reparto-list`? → diferir. ¿Alguno con `value > 0`? → diferir.
+- Si cualquier dispara → `window._repartoRenderPending = true`; return (NO re-build).
+- Próximo render limpio ocurre al aplicar reparto, al cerrar+reabrir modal, o cuando inputs vuelven a 0 sin focus.
+
+**Lección aprendida**: cuando se abren 2 PRs sobre el mismo archivo en el mismo día, el segundo DEBE rebase sobre el primero (o esperar al merge). Añadido como regla operativa para evitar que un fix futuro pise otro.
+
+**Archivos**: `index.html` (`_repartoRender` + APP_VERSION v1516 → v1517), `sw.js` (CACHE_VERSION v1516 → v1517).
+
+**Rollback**: `git revert <sha_v1517>` + Pages redeploy. Vuelve al comportamiento v1516 (re-render destructivo + consolidación OK).
+
+---
+
 ### v1516 (2026-10-28) — Reparto: consolidar duplicados + destrabar in_progress eterno
 
 **Antes (v1514)**: `functions/core/reparto-core.js:createIngresosRepartoFromDelta` dedupeaba por `dedupeKey = sku + '|' + afterDep11`. Si el stock físico cambiaba entre triggers (venta + nuevo ingreso), creaba 2 docs del mismo SKU. Mariano reportó: FXS70MHC2 x2 cards, SLX151XGA x2, SUC60MH2APY x2 (una con 3 clientes/9u, otra con 6 clientes/17u — snapshots capturados en momentos distintos). Separadamente, `applyRepartoManualCore` setea `status='in_progress'` + `lockedAt` ANTES del loop de aplicación; si el CF timeout o crashea mid-loop, el lock queda y el guard `status !== 'pending'` del validator bloquea reintentos (reportado BALTICA20MD stuck indefinido).
