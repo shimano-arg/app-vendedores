@@ -31,6 +31,11 @@ import {
   flattenBackorderDetailToTotals,
 } from './collect-backorder-from-sqs.js';
 import { acquireSession, releaseSession } from './sap-sl-session.js';
+// v1502 (2026-10-28) §60 fix durable: port del sync BPs pesca de Python a Node.
+// Se hookea aquí tras el stock-snapshot write. Feature flag
+// `app_config/sap_integration.bpSyncByCF`: default false → dryRun (Python manual
+// sigue como fuente de verdad). Mariano flips a true cuando confirma paridad.
+import { syncBpPesca } from './sync-bp-pesca-core.js';
 
 const NON_SALES_WHS = new Set(['05', '06']);
 const PESCA_PRICE_LIST_NUM = 12;
@@ -53,6 +58,8 @@ const SAFETY_MAX_ITEMS = 50000;
  * @property {(msg: string, extra?: any) => void} [log]
  * @property {() => number} [now] default Date.now
  * @property {string} [source] 'cf-scheduled' default.
+ * @property {any} [FieldValue] admin.firestore.FieldValue (para serverTimestamp
+ *   en el sync BPs pesca v1502). Si falta, el BP sync usa `new Date()` fallback.
  */
 
 /**
@@ -453,6 +460,29 @@ export async function syncSapCatalogStockCore(deps) {
       },
       { merge: true }
     );
+    // v1502 (2026-10-28) §60 fix durable: sync BPs pesca al final.
+    // Reusa la session SL + fbDb. Feature flag `app_config/sap_integration.bpSyncByCF`:
+    // default false → dryRun. El workflow Python manual sigue como fuente de verdad
+    // hasta que Mariano confirme paridad y flip the flag.
+    /** @type {{ok: boolean, stats?: any, error?: string, slRequests: number, bpSyncByCFFlag: boolean, dryRun: boolean}} */
+    let bpSyncResult = { ok: false, slRequests: 0, bpSyncByCFFlag: false, dryRun: true };
+    try {
+      bpSyncResult = await syncBpPesca({
+        fbDb: deps.fbDb,
+        FieldValue: deps.FieldValue,
+        sapConfig: deps.sapConfig,
+        cookie: sess.cookie,
+        log,
+      });
+      slRequests += bpSyncResult.slRequests;
+      if (!bpSyncResult.ok && bpSyncResult.error) {
+        errors.push('bp-sync: ' + bpSyncResult.error);
+      }
+    } catch (e) {
+      const bpErr = (e && /** @type {any} */ (e).message) || String(e);
+      errors.push('bp-sync-wrapper: ' + bpErr);
+      log('[sync] BP sync wrapper error (no bloqueante): ' + bpErr);
+    }
     // operations_log entry
     try {
       await deps.fbDb.collection('operations_log').add({
@@ -471,6 +501,14 @@ export async function syncSapCatalogStockCore(deps) {
         backorderComputedByCF,
         backorderSkuCount: Object.keys(backorderBySkuMap).length,
         backorderSlRequests,
+        bpSync: {
+          ok: bpSyncResult.ok,
+          bpSyncByCFFlag: bpSyncResult.bpSyncByCFFlag,
+          dryRun: bpSyncResult.dryRun,
+          stats: bpSyncResult.stats || null,
+          slRequests: bpSyncResult.slRequests,
+          error: bpSyncResult.error || null,
+        },
         errors: errors.slice(),
         ok: true,
         timestamp: new Date(),
