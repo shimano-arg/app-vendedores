@@ -4717,6 +4717,60 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1516 (2026-10-28) — Reparto: consolidar duplicados + destrabar in_progress eterno
+
+**Antes (v1514)**: `functions/core/reparto-core.js:createIngresosRepartoFromDelta` dedupeaba por `dedupeKey = sku + '|' + afterDep11`. Si el stock físico cambiaba entre triggers (venta + nuevo ingreso), creaba 2 docs del mismo SKU. Mariano reportó: FXS70MHC2 x2 cards, SLX151XGA x2, SUC60MH2APY x2 (una con 3 clientes/9u, otra con 6 clientes/17u — snapshots capturados en momentos distintos). Separadamente, `applyRepartoManualCore` setea `status='in_progress'` + `lockedAt` ANTES del loop de aplicación; si el CF timeout o crashea mid-loop, el lock queda y el guard `status !== 'pending'` del validator bloquea reintentos (reportado BALTICA20MD stuck indefinido).
+
+**Problema**: dos bugs independientes del flow de Reparto afectando producción. (a) duplicados de ingresos_reparto por mismo SKU rompen la UI (filas repetidas) + confunden a Pablo. (b) in_progress eterno impide avanzar el reparto hasta intervención manual directa en Firestore.
+
+**Cambio**:
+
+1. **Prevención consolidación en CF** (`functions/core/reparto-core.js:createIngresosRepartoFromDelta`):
+   - ANTES del dedupe secundario por `dedupeKey + afterDep11`, nuevo check "existe cualquier pending/in_progress del mismo SKU".
+   - Si existe: suma `qtyIngresada` al doc existente + refresca `clientesBO` desde el BO vigente actual + agrega entry al audit `mergedFromDeltas[]` + setea `_lastConsolidatedAt`.
+   - Si no existe: continúa con el flow original (dedupe + create). El dedupeKey queda como safety-net secundario para edge cases.
+
+2. **Script `scripts/audit/W_consolidar_ingresos_duplicados.cjs`** (dry-run por default, `--apply` para persistir):
+   - Group by `sku` sobre `ingresos_reparto` status pending/in_progress.
+   - Target = doc más viejo (menor `detectedAt`). Otros docs se marcan `status='merged_into'` + `mergedInto` + audit `mergedBy`.
+   - clientesBO del target: recomputado desde pedidos vigentes via `extractClientesBOForSku`.
+   - Snapshot `_backfill.W_consolidar_ingresos_duplicados_<fecha>_v1516` según §55 (reversible).
+   - Output: tabla ASCII + `docs/auditoria/W_consolidar_ingresos_duplicados.md`.
+   - **No ejecutado con --apply** — Mariano decide cuándo correrlo.
+
+3. **Script `scripts/audit/X_destrabar_in_progress_eterno.cjs`** (dry-run por default, `--apply` para ejecutar, `--threshold-hours=N` configurable):
+   - Load `ingresos_reparto` status='in_progress' con `lockedAt` superior al threshold (default 1h).
+   - Para cada ingreso trabado: snapshot `_backfill.X_destrabar_<fecha>_v1516.previousValues` con status, lockedAt, lockedBy + update a `status='pending'` + `lockedAt=null` + `lockedBy=null` + `_unlockedAt/By/Reason` audit.
+   - Output: tabla + `docs/auditoria/X_destrabar_in_progress.md`.
+   - **No ejecutado con --apply** — Mariano decide cuándo correrlo.
+
+4. **Tests**:
+   - `tests/functions/reparto-core-consolidate.test.js` (6): T1a-T1d del fix + preserva campos + maneja error de update.
+   - `tests/unit/audit/W_consolidar-dry-run.test.js` (5): mock Firestore con 3 SKUs duplicados verifica group by + target selection + sum qty + case-insensitive + determinismo con detectedAt vacío.
+   - `tests/unit/audit/X_destrabar-dry-run.test.js` (6): mix stuck + reciente con threshold 1h + 24h + edge cases (sin lockedAt, Date, Timestamp).
+
+**Por qué**:
+- Consolidación en vez de dedupe simple previene duplicados en el 100% de los escenarios de "mismo SKU, físico cambiante entre triggers". El dedupe original matcheaba solo cuando el afterDep11 era idéntico.
+- Script W permite limpiar los duplicados históricos de HOY sin esperar al próximo delta del SKU. Script X destraba locks pre-existentes sin tener que editar Firestore a mano.
+- Ambos scripts usan snapshot `_backfill` (§55) para reversibilidad.
+
+**Verificación**:
+- `npm run test:unit`: 2436 PASS (166 files, +0 nuevas failures).
+- Reparto suite: 52/52 PASS (incluye 6 nuevos tests de consolidate).
+- `npx biome check --write`: fixed 3 files (formato).
+- `npm run typecheck`: clean.
+
+**Rollback**:
+- Revertir commit v1516 completo. El fix en reparto-core.js vuelve al comportamiento dedupe. Los scripts W/X quedan pero sin uso.
+- Si se ejecutaron W/X --apply: iterar docs con `_backfill.<slug>` y restaurar `previousValues`.
+
+**Deploy post-merge**:
+- Pages auto-deploy via Pages workflow.
+- Functions deploy: `firebase deploy --only functions:onDep11IncreaseCreateReparto,functions:reconcileRepartosFaltantesCF` (si existen con esos nombres).
+- Scripts W + X NO ejecutar automáticamente. Mariano los corre manualmente post-deploy si quiere limpiar HOY:
+  - `node scripts/audit/W_consolidar_ingresos_duplicados.cjs` (dry-run) → review tabla → `node scripts/audit/W_consolidar_ingresos_duplicados.cjs --apply`.
+  - `node scripts/audit/X_destrabar_in_progress_eterno.cjs` (dry-run) → review → `node scripts/audit/X_destrabar_in_progress_eterno.cjs --apply` o con `--threshold-hours=N` para threshold distinto.
+
 ### v1514 (2026-10-28) — Import Reparto Pablo Fase B: rework UI modal + consistency rule + Playwright 5 puntos
 
 **Antes (v1512 / v1511)**: el modal `#reparto-import-modal` tenía un `<input type=file>` visible en el body + un div `#reparto-import-preview` que iba mutando contenido (chips "Reconocidas/Con cambios/Errores" + tabla 5 cols pequeña). No había drag/drop. No había consistency rule explícita. El preview no reflejaba el shape de las 3 columnas que Pablo necesita (Asignadas / Vuelve a BO / Eliminadas).
