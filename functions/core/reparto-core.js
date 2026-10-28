@@ -262,7 +262,68 @@ export async function createIngresosRepartoFromDelta(deps, beforeSnap, afterSnap
       const qtyBackorderTotal = clientesBO.reduce((s, c) => s + (Number(c.qtyBackorder) || 0), 0);
       const afterDep11 = Number((after[sku] || {})['11']) || 0;
       const dedupeKey = sku + '|' + afterDep11;
-      // Dedupe: si hay un pending con mismo dedupeKey, skip.
+      // v1516 §TBD: consolidar en vez de duplicar.
+      // Si ya existe un doc pending/in_progress del mismo SKU, sumar
+      // qtyIngresada al existente + refrescar clientesBO desde el BO vigente
+      // actual. Marcar mergedFromDeltas[] con audit.
+      // Precedente: pre-v1516 el dedupe solo matcheaba por `sku|afterDep11`.
+      // Si el fisico cambia entre triggers (venta + nuevo ingreso), creaba
+      // 2 docs del mismo SKU — bug "FXS70MHC2 x2 cards" reportado 2026-10-28.
+      let existingSameSku = null;
+      try {
+        const existingQ = await deps.fbDb
+          .collection(INGRESOS_REPARTO_COLLECTION)
+          .where('sku', '==', sku)
+          .where('status', 'in', ['pending', 'in_progress'])
+          .limit(1)
+          .get();
+        if (!existingQ.empty) existingSameSku = existingQ.docs[0];
+      } catch (_e) {
+        log('reparto consolidate query failed', { sku, err: String(_e) });
+      }
+      if (existingSameSku) {
+        const prev = existingSameSku.data() || {};
+        const prevQty = Number(prev.qtyIngresada) || 0;
+        const newQty = prevQty + delta;
+        // Refrescar clientesBO: recalcular desde pedidos actuales
+        // (clientesBO ya está computado arriba como `clientesBO`).
+        const prevMerged = Array.isArray(prev.mergedFromDeltas) ? prev.mergedFromDeltas : [];
+        const auditEntry = {
+          at: nowIso,
+          delta,
+          afterDep11,
+          source: 'createIngresosRepartoFromDelta',
+          reason: 'consolidate_pending_sku',
+        };
+        try {
+          await deps.fbDb
+            .collection(INGRESOS_REPARTO_COLLECTION)
+            .doc(existingSameSku.id)
+            .update({
+              qtyIngresada: newQty,
+              clientesBO,
+              qtyBackorderTotal,
+              clientesCount: clientesBO.length,
+              mergedFromDeltas: prevMerged.concat([auditEntry]),
+              _lastConsolidatedAt: nowIso,
+            });
+          skipped.push({
+            sku,
+            reason: 'consolidated_into:' + existingSameSku.id + ' (new qty ' + newQty + ')',
+          });
+          continue;
+        } catch (updErr) {
+          errors.push(
+            sku +
+              ' consolidation failed: ' +
+              (updErr && updErr.message ? updErr.message : String(updErr))
+          );
+          continue;
+        }
+      }
+      // Dedupe secondary (safety-net): si hay un pending con mismo dedupeKey, skip.
+      // v1516: cubierto por consolidate check de arriba en 99% de los casos,
+      // pero se preserva por si llega un retry con fisico idéntico (edge case).
       try {
         const existing = await deps.fbDb
           .collection(INGRESOS_REPARTO_COLLECTION)
