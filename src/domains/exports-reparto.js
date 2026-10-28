@@ -1,7 +1,15 @@
 // @ts-nocheck
 /**
- * exports-reparto (v1505, 2026-10-28) — chunk lazy para el flow de export +
+ * exports-reparto (v1514, 2026-10-28) — chunk lazy para el flow de export +
  * import Excel del Reparto de ingresos.
+ *
+ * v1514 §T3: UI rework modal + preview Fase B. 4 estados mutuamente
+ * exclusivos (idle/validating/preview-ok/errors) + dropzone drag+drop +
+ * resumen de 3 cards (Asignadas/VueleBO/Eliminadas) + tabla 5 columnas
+ * (SKU/Cliente/Asignado/VueleBO/Eliminado) + consistency rule
+ * (Asignado + VueleABackorder + Eliminar == backorderActual).
+ *
+ * v1505 (base): export + import Excel del Reparto de ingresos.
  *
  * Dos handlers principales expuestos a window:
  *   - window.exportRepartoManualExcel()  — template editable con 9 columnas
@@ -315,6 +323,32 @@ function _isAdminLikeForImport() {
   return false;
 }
 
+/**
+ * v1514 §T3: alterna el estado visible del modal.
+ * @param {('idle'|'validating'|'preview-ok'|'errors')} state
+ */
+function _setImportModalState(state) {
+  const modal = document.getElementById('reparto-import-modal');
+  if (!modal) return;
+  /** @type {any} */ (modal).setAttribute('data-state', state);
+  const ids = {
+    idle: 'reparto-import-dropzone',
+    validating: 'reparto-import-validating',
+    'preview-ok': 'reparto-import-preview-ok',
+    errors: 'reparto-import-errors',
+  };
+  for (const [st, id] of Object.entries(ids)) {
+    const el = modal.querySelector('#' + id);
+    if (!el) continue;
+    /** @type {any} */ (el).style.display = st === state ? 'flex' : 'none';
+  }
+  // Apply btn visible solo en preview-ok.
+  const applyBtn = modal.querySelector('#reparto-import-apply-btn');
+  if (applyBtn) {
+    /** @type {any} */ (applyBtn).style.display = state === 'preview-ok' ? 'inline-block' : 'none';
+  }
+}
+
 window.openRepartoImportDialog = async function () {
   if (!_isAdminLikeForImport()) {
     alert('Solo admin o gerente puede importar reparto.');
@@ -332,9 +366,14 @@ window.openRepartoImportDialog = async function () {
     document.body.appendChild(modal);
   }
   _importState = null;
-  const previewEl = modal.querySelector('#reparto-import-preview');
-  if (previewEl) {
-    while (previewEl.firstChild) previewEl.removeChild(previewEl.firstChild);
+  // Reset previews.
+  const okEl = modal.querySelector('#reparto-import-preview-ok');
+  if (okEl) {
+    while (okEl.firstChild) okEl.removeChild(okEl.firstChild);
+  }
+  const errEl = modal.querySelector('#reparto-import-errors');
+  if (errEl) {
+    while (errEl.firstChild) errEl.removeChild(errEl.firstChild);
   }
   const applyBtn = modal.querySelector('#reparto-import-apply-btn');
   if (applyBtn) {
@@ -343,6 +382,7 @@ window.openRepartoImportDialog = async function () {
   }
   const fileInput = modal.querySelector('#reparto-import-file');
   if (fileInput) /** @type {any} */ (fileInput).value = '';
+  _setImportModalState('idle');
   /** @type {any} */ (modal).style.display = 'flex';
 };
 
@@ -360,16 +400,13 @@ window.handleRepartoImportFileChange = async function (ev) {
   const tgt = /** @type {HTMLInputElement} */ (ev.target);
   const file = tgt && tgt.files && tgt.files[0];
   if (!file) return;
-  const previewEl = document.getElementById('reparto-import-preview');
   const applyBtn = document.getElementById('reparto-import-apply-btn');
-  if (previewEl) {
-    while (previewEl.firstChild) previewEl.removeChild(previewEl.firstChild);
-    previewEl.textContent = 'Leyendo Excel…';
-  }
   if (applyBtn) {
     /** @type {any} */ (applyBtn).disabled = true;
     /** @type {any} */ (applyBtn).style.opacity = '0.4';
   }
+  // v1514 §T3: estado validating con spinner.
+  _setImportModalState('validating');
   try {
     await _ensureExcelJS();
     const buf = await file.arrayBuffer();
@@ -424,14 +461,24 @@ window.handleRepartoImportFileChange = async function (ev) {
   } catch (e) {
     const msg = (e && /** @type {any} */ (e).message) || String(e);
     console.error('[v1505 §Reparto] handleRepartoImportFileChange error:', e);
-    if (previewEl) {
-      while (previewEl.firstChild) previewEl.removeChild(previewEl.firstChild);
+    // v1514 §T3: mostrar error de lectura en el estado "errors".
+    const errBoxEl = document.getElementById('reparto-import-errors');
+    if (errBoxEl) {
+      while (errBoxEl.firstChild) errBoxEl.removeChild(errBoxEl.firstChild);
       const errDiv = document.createElement('div');
       errDiv.style.cssText =
-        'color:#c7372f;padding:12px;background:rgba(255,59,48,.08);border-radius:8px';
-      errDiv.textContent = 'Error leyendo Excel: ' + msg;
-      previewEl.appendChild(errDiv);
+        'color:var(--text-primary,#c7372f);padding:14px;background:var(--color-danger-bg,rgba(255,59,48,.08));border-left:3px solid var(--color-danger,#c7372f);border-radius:8px;width:100%';
+      const t = document.createElement('div');
+      t.style.cssText = 'font-weight:700;margin-bottom:6px';
+      t.textContent = 'No se pudo leer el Excel';
+      const d = document.createElement('div');
+      d.style.cssText = 'font-size:12.5px;line-height:1.5';
+      d.textContent = msg;
+      errDiv.appendChild(t);
+      errDiv.appendChild(d);
+      errBoxEl.appendChild(errDiv);
     }
+    _setImportModalState('errors');
     _logExportError('import_read', msg);
   }
 };
@@ -484,164 +531,278 @@ function _mkDiv(styleCss, textValue) {
   return d;
 }
 
+/**
+ * v1514 §T3: aplica la consistency rule por fila.
+ * `Asignado + VueleABackorder + Eliminar == backorderActual` (backorder que
+ * viene del Excel, equivale a `backorderActual` del match).
+ * @param {Array<any>} reconocidas
+ * @returns {Array<{rowIndex:number, sku:string, cliente:string, msg:string}>}
+ */
+function _computeConsistencyErrors(reconocidas) {
+  /** @type {Array<any>} */
+  const out = [];
+  for (const r of reconocidas || []) {
+    if (!r) continue;
+    const asig = Number(r.asignadoNuevo) || 0;
+    const elim = Number(r.eliminarNuevo) || 0;
+    const bo = Number(r.backorderActual) || 0;
+    const vuelve = bo - asig - elim;
+    if (vuelve < 0) {
+      out.push({
+        rowIndex: r.rowIndex || 0,
+        sku: r.sku || '',
+        cliente: r.clientName || '',
+        msg:
+          'Fila ' +
+          (r.rowIndex || 0) +
+          ' · ' +
+          (r.sku || '?') +
+          ' / ' +
+          (r.clientName || '?') +
+          ': Asignado(' +
+          asig +
+          ') + Eliminar(' +
+          elim +
+          ') supera Backorder(' +
+          bo +
+          '). Revisá las unidades.',
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * v1514 §T3: render con 3 cards grandes + tabla 5 cols + estado único.
+ * Reusa `_importState`. Agrega consistency rule a los errores del validator.
+ */
 function _renderImportPreview() {
-  const previewEl = document.getElementById('reparto-import-preview');
   const applyBtn = document.getElementById('reparto-import-apply-btn');
-  if (!previewEl || !_importState) return;
+  if (!_importState) return;
   const s = _importState;
-  while (previewEl.firstChild) previewEl.removeChild(previewEl.firstChild);
 
-  // Chips de resumen.
-  const chipsRow = _mkDiv('display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px', null);
-  const chipRec = _mkDiv(
-    'flex:1;min-width:140px;padding:10px 14px;background:rgba(52,199,89,.14);border-radius:8px;color:#248a3d',
-    null
-  );
-  chipRec.appendChild(
-    _mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Reconocidas')
-  );
-  chipRec.appendChild(
-    _mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.reconocidas.length))
-  );
-  chipsRow.appendChild(chipRec);
-  const chipCamb = _mkDiv(
-    'flex:1;min-width:140px;padding:10px 14px;background:rgba(0,122,255,.14);border-radius:8px;color:#0040dd',
-    null
-  );
-  chipCamb.appendChild(
-    _mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Con cambios')
-  );
-  chipCamb.appendChild(
-    _mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.conCambios.length))
-  );
-  chipsRow.appendChild(chipCamb);
-  const chipErr = _mkDiv(
-    'flex:1;min-width:140px;padding:10px 14px;background:' +
-      (s.errores.length ? 'rgba(255,59,48,.14)' : 'rgba(120,120,128,.08)') +
-      ';border-radius:8px;color:' +
-      (s.errores.length ? '#c7372f' : '#6e6e73'),
-    null
-  );
-  chipErr.appendChild(
-    _mkDiv('font-size:11px;letter-spacing:.5px;text-transform:uppercase', 'Errores')
-  );
-  chipErr.appendChild(
-    _mkDiv('font-size:22px;font-weight:700;margin-top:2px', String(s.errores.length))
-  );
-  chipsRow.appendChild(chipErr);
-  previewEl.appendChild(chipsRow);
-
-  if (s.errores.length) {
-    const errBox = _mkDiv(
-      'padding:12px 14px;background:rgba(255,59,48,.08);border-left:3px solid #c7372f;border-radius:6px;margin-bottom:12px',
-      null
-    );
-    errBox.appendChild(
-      _mkDiv(
-        'font-weight:700;color:#c7372f;margin-bottom:6px',
-        'Hay ' +
-          s.errores.length +
-          ' error(es). Corregilos y volvé a subir el Excel. No se aplica nada.'
-      )
-    );
-    const ul = document.createElement('ul');
-    ul.style.cssText = 'margin:0;padding-left:18px;color:#1d1d1f;font-size:12.5px;line-height:1.5';
-    const slice = s.errores.slice(0, 50);
-    for (const e of slice) {
-      const li = document.createElement('li');
-      li.textContent = e.msg;
-      ul.appendChild(li);
-    }
-    errBox.appendChild(ul);
-    if (s.errores.length > 50) {
-      errBox.appendChild(
-        _mkDiv(
-          'color:#86868b;font-size:11px;margin-top:4px',
-          '...y ' + (s.errores.length - 50) + ' más (ver consola)'
-        )
-      );
-    }
-    previewEl.appendChild(errBox);
+  // Totales del resumen de 3 cards:
+  //   Asignadas  = sum asignadoNuevo (ya en s.totalAsignado).
+  //   Eliminadas = sum eliminarNuevo (ya en s.totalEliminar).
+  //   VueleBO    = sum max(0, backorderActual - asignado - eliminar) sobre reconocidas con cambios.
+  let totalVueleBO = 0;
+  for (const r of s.conCambios || []) {
+    const bo = Number(r.backorderActual) || 0;
+    const asig = Number(r.asignadoNuevo) || 0;
+    const elim = Number(r.eliminarNuevo) || 0;
+    const diff = bo - asig - elim;
+    if (diff > 0) totalVueleBO += diff;
   }
 
-  if (!s.errores.length && s.conCambios.length) {
-    previewEl.appendChild(
-      _mkDiv(
-        'padding:10px 12px;background:rgba(52,199,89,.08);border-radius:6px;margin-bottom:12px;font-size:13px',
-        'Resumen a aplicar: ' +
-          s.conCambios.length +
-          ' cambio(s) · ' +
-          s.totalAsignado +
-          ' u asignadas · ' +
-          s.totalEliminar +
-          ' u eliminadas'
-      )
-    );
-    // Tabla preview.
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px';
-    const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
-    trh.style.cssText = 'background:#f5f5f7';
-    for (const h of ['SKU', 'Cliente', 'BO', 'Asig.', 'Elim.']) {
-      const th = document.createElement('th');
-      th.style.cssText =
-        'padding:6px;text-align:' + (h === 'SKU' || h === 'Cliente' ? 'left' : 'right');
-      th.textContent = h;
-      trh.appendChild(th);
+  // Consistency rule (post-validator). Si una fila tiene diff<0, se suma como error.
+  const consistencyErrors = _computeConsistencyErrors(s.reconocidas);
+  const allErrors = (s.errores || []).concat(
+    consistencyErrors.map((c) => ({
+      rowIndex: c.rowIndex,
+      type: 'consistency_rule',
+      msg: c.msg,
+      sku: c.sku,
+      cliente: c.cliente,
+    }))
+  );
+
+  // Si hay errores → estado 'errors'. Si no → estado 'preview-ok'.
+  if (allErrors.length) {
+    _renderErrorsState(allErrors);
+    _setImportModalState('errors');
+    if (applyBtn) {
+      /** @type {any} */ (applyBtn).disabled = true;
+      /** @type {any} */ (applyBtn).style.opacity = '0.4';
     }
-    thead.appendChild(trh);
-    table.appendChild(thead);
-    const tbody = document.createElement('tbody');
-    const previewRows = s.conCambios.slice(0, 30);
-    for (const r of previewRows) {
-      const tr = document.createElement('tr');
-      tr.style.cssText = 'border-bottom:1px solid #eee';
-      const addTd = (/** @type {string} */ txt, /** @type {string} */ css) => {
-        const td = document.createElement('td');
-        td.style.cssText = css;
-        td.textContent = txt;
-        tr.appendChild(td);
-      };
-      addTd(r.sku, 'padding:4px 6px;font-family:monospace');
-      addTd(r.clientName, 'padding:4px 6px');
-      addTd(String(r.backorderActual), 'padding:4px 6px;text-align:right');
-      addTd(
-        r.asignadoNuevo ? String(r.asignadoNuevo) : '',
-        'padding:4px 6px;text-align:right;color:#248a3d;font-weight:600'
-      );
-      addTd(
-        r.eliminarNuevo ? String(r.eliminarNuevo) : '',
-        'padding:4px 6px;text-align:right;color:#c7372f;font-weight:600'
-      );
-      tbody.appendChild(tr);
-    }
-    table.appendChild(tbody);
-    previewEl.appendChild(table);
-    if (s.conCambios.length > 30) {
-      previewEl.appendChild(
-        _mkDiv(
-          'color:#86868b;font-size:11px;margin-top:4px',
-          '...y ' + (s.conCambios.length - 30) + ' más'
-        )
-      );
-    }
+    return;
   }
 
-  if (!s.errores.length && !s.conCambios.length) {
-    previewEl.appendChild(
-      _mkDiv(
-        'padding:12px 14px;background:rgba(255,204,0,.14);border-radius:6px;color:#8a6d00',
-        'El Excel no tiene cambios (Asignado=0 y Eliminar=0 en todas las filas). Nada que aplicar.'
-      )
-    );
-  }
+  _renderPreviewOkState({
+    totalAsignadas: s.totalAsignado || 0,
+    totalVueleBO,
+    totalEliminadas: s.totalEliminar || 0,
+    reconocidas: s.reconocidas || [],
+  });
+  _setImportModalState('preview-ok');
 
   if (applyBtn) {
-    const canApply = s.errores.length === 0 && s.conCambios.length > 0;
+    const canApply = s.conCambios.length > 0;
     /** @type {any} */ (applyBtn).disabled = !canApply;
     /** @type {any} */ (applyBtn).style.opacity = canApply ? '1' : '0.4';
   }
+}
+
+/**
+ * Render estado "preview-ok": 3 cards grandes + tabla 5 columnas.
+ * @param {{totalAsignadas:number,totalVueleBO:number,totalEliminadas:number,reconocidas:Array<any>}} data
+ */
+function _renderPreviewOkState(data) {
+  const okEl = document.getElementById('reparto-import-preview-ok');
+  if (!okEl) return;
+  while (okEl.firstChild) okEl.removeChild(okEl.firstChild);
+
+  // Cards de resumen (3 grandes centradas).
+  const cards = document.createElement('div');
+  cards.style.cssText =
+    'display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-bottom:18px;width:100%';
+
+  /** @param {string} label @param {number} n @param {string} bg @param {string} fg */
+  const mkCard = (label, n, bg, fg) => {
+    const c = document.createElement('div');
+    c.style.cssText =
+      'flex:1 1 160px;min-width:160px;max-width:220px;padding:18px 14px;' +
+      'background:' +
+      bg +
+      ';border-radius:12px;color:' +
+      fg +
+      ';text-align:center';
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:12px;letter-spacing:.5px;text-transform:uppercase;opacity:.85';
+    lbl.textContent = label;
+    const num = document.createElement('div');
+    num.style.cssText = 'font-size:38px;font-weight:800;margin-top:6px;line-height:1';
+    num.textContent = String(n);
+    c.appendChild(lbl);
+    c.appendChild(num);
+    return c;
+  };
+
+  cards.appendChild(
+    mkCard(
+      'Asignadas',
+      data.totalAsignadas,
+      'var(--color-success-bg,rgba(52,199,89,.14))',
+      'var(--color-success,#248a3d)'
+    )
+  );
+  cards.appendChild(
+    mkCard(
+      'Vuelve a BO',
+      data.totalVueleBO,
+      'var(--color-warning-bg,rgba(255,204,0,.14))',
+      'var(--color-warning,#8a6d00)'
+    )
+  );
+  cards.appendChild(
+    mkCard(
+      'Eliminadas',
+      data.totalEliminadas,
+      'var(--color-danger-bg,rgba(255,59,48,.14))',
+      'var(--color-danger,#c7372f)'
+    )
+  );
+  okEl.appendChild(cards);
+
+  // Tabla 5 columnas: SKU · Cliente · Asignado · VueleBO · Eliminado.
+  const tableWrap = document.createElement('div');
+  tableWrap.style.cssText =
+    'width:100%;max-height:360px;overflow-y:auto;overscroll-behavior:contain';
+  const table = document.createElement('table');
+  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+  const thead = document.createElement('thead');
+  const trh = document.createElement('tr');
+  trh.style.cssText = 'background:var(--bg-secondary,#f5f5f7);position:sticky;top:0;z-index:1';
+  for (const h of ['SKU', 'Cliente', 'Asignado', 'Vuelve a BO', 'Eliminado']) {
+    const th = document.createElement('th');
+    th.style.cssText =
+      'padding:8px;text-align:' +
+      (h === 'SKU' || h === 'Cliente' ? 'left' : 'right') +
+      ';color:var(--text-primary,#1d1d1f);font-weight:600';
+    th.textContent = h;
+    trh.appendChild(th);
+  }
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  // Mostrar TODAS las reconocidas (con y sin cambios) para que el preview sea
+  // fiel al Excel. VueleBO per-fila = max(0, bo - asig - elim).
+  const rowsToShow = (data.reconocidas || []).slice(0, 200);
+  for (const r of rowsToShow) {
+    const tr = document.createElement('tr');
+    tr.style.cssText = 'border-bottom:1px solid var(--border-color,#eee)';
+    const bo = Number(r.backorderActual) || 0;
+    const asig = Number(r.asignadoNuevo) || 0;
+    const elim = Number(r.eliminarNuevo) || 0;
+    const vuelve = Math.max(0, bo - asig - elim);
+    const addTd = (/** @type {string} */ txt, /** @type {string} */ css) => {
+      const td = document.createElement('td');
+      td.style.cssText = css;
+      td.textContent = txt;
+      tr.appendChild(td);
+    };
+    addTd(r.sku || '', 'padding:6px 8px;font-family:monospace;color:var(--text-primary)');
+    addTd(r.clientName || '', 'padding:6px 8px;color:var(--text-primary)');
+    addTd(
+      asig ? String(asig) : '-',
+      'padding:6px 8px;text-align:right;' +
+        (asig
+          ? 'color:var(--color-success,#248a3d);font-weight:700'
+          : 'color:var(--text-secondary,#86868b)')
+    );
+    addTd(
+      vuelve ? String(vuelve) : '-',
+      'padding:6px 8px;text-align:right;' +
+        (vuelve
+          ? 'color:var(--color-warning,#8a6d00);font-weight:700'
+          : 'color:var(--text-secondary,#86868b)')
+    );
+    addTd(
+      elim ? String(elim) : '-',
+      'padding:6px 8px;text-align:right;' +
+        (elim
+          ? 'color:var(--color-danger,#c7372f);font-weight:700'
+          : 'color:var(--text-secondary,#86868b)')
+    );
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+  okEl.appendChild(tableWrap);
+
+  if ((data.reconocidas || []).length > 200) {
+    okEl.appendChild(
+      _mkDiv(
+        'color:var(--text-secondary,#86868b);font-size:11px;margin-top:6px;text-align:center',
+        '...y ' + ((data.reconocidas || []).length - 200) + ' filas más'
+      )
+    );
+  }
+}
+
+/**
+ * Render estado "errors": lista roja de filas con error.
+ * @param {Array<any>} errors
+ */
+function _renderErrorsState(errors) {
+  const errEl = document.getElementById('reparto-import-errors');
+  if (!errEl) return;
+  while (errEl.firstChild) errEl.removeChild(errEl.firstChild);
+  const container = document.createElement('div');
+  container.style.cssText = 'width:100%;max-height:420px;overflow-y:auto';
+  const header = _mkDiv(
+    'padding:12px 14px;background:var(--color-danger-bg,rgba(255,59,48,.08));border-left:3px solid var(--color-danger,#c7372f);border-radius:6px;margin-bottom:12px;color:var(--color-danger,#c7372f);font-weight:700',
+    'Hay ' + errors.length + ' error(es). Corregí el Excel y volvé a subirlo. No se aplica nada.'
+  );
+  container.appendChild(header);
+  const list = document.createElement('ul');
+  list.style.cssText =
+    'margin:0;padding-left:20px;color:var(--text-primary,#1d1d1f);font-size:13px;line-height:1.6';
+  const slice = errors.slice(0, 100);
+  for (const e of slice) {
+    const li = document.createElement('li');
+    li.textContent = e.msg;
+    list.appendChild(li);
+  }
+  container.appendChild(list);
+  if (errors.length > 100) {
+    container.appendChild(
+      _mkDiv(
+        'color:var(--text-secondary,#86868b);font-size:11px;margin-top:6px',
+        '...y ' + (errors.length - 100) + ' más (ver consola).'
+      )
+    );
+  }
+  errEl.appendChild(container);
 }
 
 window.confirmRepartoImportApply = async function () {
@@ -805,14 +966,19 @@ window.confirmRepartoImportApply = async function () {
 };
 
 /**
- * Construye el modal DOM via helpers seguros (sin innerHTML con contenido
- * dinámico — el DOM es estático). Primera apertura cachea.
+ * v1514 §T3: construye el modal DOM con 4 estados mutuamente exclusivos:
+ *   - #reparto-import-dropzone (idle): dashed border + ícono + hint.
+ *   - #reparto-import-validating: spinner + "Validando filas...".
+ *   - #reparto-import-preview-ok: 3 cards resumen + tabla 5 cols.
+ *   - #reparto-import-errors: lista roja de errores.
+ * Dropzone soporta click + drag/drop. Dark-mode via CSS vars.
  * @returns {HTMLElement}
  */
 function _buildImportModalDom() {
   const modal = document.createElement('div');
   modal.id = 'reparto-import-modal';
   modal.className = 'modal-overlay';
+  modal.setAttribute('data-state', 'idle');
   modal.style.cssText = 'display:none;align-items:center;justify-content:center';
   modal.addEventListener('click', (ev) => {
     if (ev.target === modal) {
@@ -823,60 +989,172 @@ function _buildImportModalDom() {
   const box = document.createElement('div');
   box.className = 'modal-box';
   box.style.cssText =
-    'width:min(760px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#fff;border-radius:14px;overflow:hidden';
-  // Header.
+    'width:min(820px,96vw);max-height:90vh;display:flex;flex-direction:column;' +
+    'background:var(--bg-primary,#fff);color:var(--text-primary,#1d1d1f);' +
+    'border-radius:14px;overflow:hidden;' +
+    'box-shadow:0 20px 50px rgba(0,0,0,.25)';
+
+  // === Header ===
   const head = document.createElement('div');
   head.style.cssText =
-    'padding:18px 22px;border-bottom:0.5px solid rgba(0,0,0,.08);display:flex;align-items:center;gap:12px';
+    'padding:18px 22px;border-bottom:0.5px solid var(--border-color,rgba(0,0,0,.08));' +
+    'display:flex;align-items:center;gap:12px;flex-shrink:0';
   const headTitleWrap = document.createElement('div');
   headTitleWrap.style.cssText = 'flex:1';
   const h2 = document.createElement('h2');
-  h2.style.cssText = 'margin:0 0 2px;font-size:18px;font-weight:700;letter-spacing:-0.4px';
+  h2.style.cssText =
+    'margin:0 0 2px;font-size:18px;font-weight:700;letter-spacing:-0.4px;' +
+    'color:var(--text-primary,#1d1d1f)';
   h2.textContent = 'Importar reparto desde Excel';
   headTitleWrap.appendChild(h2);
   const subt = document.createElement('div');
-  subt.style.cssText = 'font-size:12.5px;color:#86868b';
+  subt.style.cssText = 'font-size:12.5px;color:var(--text-secondary,#86868b)';
   subt.textContent = 'Subí el Excel editado offline. Se valida fila por fila antes de aplicar.';
   headTitleWrap.appendChild(subt);
   head.appendChild(headTitleWrap);
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.textContent = '×';
+  closeBtn.setAttribute('aria-label', 'Cerrar');
   closeBtn.style.cssText =
-    'border:none;background:rgba(120,120,128,.12);width:30px;height:30px;border-radius:50%;cursor:pointer;color:#6e6e73;font-size:16px';
+    'border:none;background:var(--bg-secondary,rgba(120,120,128,.12));' +
+    'width:32px;height:32px;border-radius:50%;cursor:pointer;' +
+    'color:var(--text-secondary,#6e6e73);font-size:18px;line-height:1';
   closeBtn.addEventListener('click', () => {
     const w = /** @type {any} */ (window);
     if (typeof w.closeRepartoImportDialog === 'function') w.closeRepartoImportDialog();
   });
   head.appendChild(closeBtn);
   box.appendChild(head);
-  // Body.
+
+  // === Body ===
   const body = document.createElement('div');
-  body.style.cssText = 'padding:16px 22px;flex:1;overflow-y:auto;min-height:0';
+  body.style.cssText =
+    'padding:20px 22px;flex:1 1 auto;overflow-y:auto;min-height:0;' +
+    'display:flex;flex-direction:column';
+
+  // Input file nativo oculto.
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.id = 'reparto-import-file';
   fileInput.accept = '.xlsx';
-  fileInput.style.cssText = 'margin-bottom:14px';
+  fileInput.style.cssText = 'display:none';
   fileInput.addEventListener('change', (ev) => {
     const w = /** @type {any} */ (window);
     if (typeof w.handleRepartoImportFileChange === 'function') w.handleRepartoImportFileChange(ev);
   });
   body.appendChild(fileInput);
-  const previewDiv = document.createElement('div');
-  previewDiv.id = 'reparto-import-preview';
-  previewDiv.style.cssText = 'min-height:40px';
-  body.appendChild(previewDiv);
+
+  // Estado 1: dropzone (idle).
+  const dropzone = document.createElement('div');
+  dropzone.id = 'reparto-import-dropzone';
+  dropzone.style.cssText =
+    'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+    'border:2px dashed var(--border-color,#c7c7cc);' +
+    'border-radius:12px;padding:48px 24px;cursor:pointer;' +
+    'background:var(--bg-secondary,#fafafa);' +
+    'color:var(--text-primary,#1d1d1f);' +
+    'transition:background .15s ease,border-color .15s ease;min-height:220px';
+  const dzIcon = document.createElement('div');
+  dzIcon.style.cssText = 'font-size:48px;line-height:1;margin-bottom:12px';
+  dzIcon.textContent = '📂';
+  dropzone.appendChild(dzIcon);
+  const dzTxt1 = document.createElement('div');
+  dzTxt1.style.cssText =
+    'font-size:15px;font-weight:600;color:var(--text-primary,#1d1d1f);margin-bottom:4px;text-align:center';
+  dzTxt1.textContent = 'Arrastrá el Excel acá o hacé clic para elegirlo';
+  dropzone.appendChild(dzTxt1);
+  const dzTxt2 = document.createElement('div');
+  dzTxt2.style.cssText = 'font-size:12px;color:var(--text-secondary,#86868b);text-align:center';
+  dzTxt2.textContent = '(.xlsx exportado del reparto)';
+  dropzone.appendChild(dzTxt2);
+  dropzone.addEventListener('click', () => {
+    fileInput.click();
+  });
+  dropzone.addEventListener('dragover', (ev) => {
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+    dropzone.classList.add('is-dragover');
+    dropzone.style.borderColor = 'var(--color-success,#248a3d)';
+    dropzone.style.background = 'var(--color-success-bg,rgba(52,199,89,.08))';
+  });
+  dropzone.addEventListener('dragleave', (ev) => {
+    ev.preventDefault();
+    dropzone.classList.remove('is-dragover');
+    dropzone.style.borderColor = 'var(--border-color,#c7c7cc)';
+    dropzone.style.background = 'var(--bg-secondary,#fafafa)';
+  });
+  dropzone.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    dropzone.classList.remove('is-dragover');
+    dropzone.style.borderColor = 'var(--border-color,#c7c7cc)';
+    dropzone.style.background = 'var(--bg-secondary,#fafafa)';
+    const dt = /** @type {any} */ (ev).dataTransfer;
+    if (dt && dt.files && dt.files[0]) {
+      const w = /** @type {any} */ (window);
+      if (typeof w.handleRepartoImportFileChange === 'function') {
+        w.handleRepartoImportFileChange({ target: { files: [dt.files[0]] } });
+      }
+    }
+  });
+  body.appendChild(dropzone);
+
+  // Estado 2: validating (spinner + mensaje).
+  const validating = document.createElement('div');
+  validating.id = 'reparto-import-validating';
+  validating.style.cssText =
+    'display:none;flex-direction:column;align-items:center;justify-content:center;' +
+    'padding:48px 24px;min-height:220px;gap:14px';
+  const spinner = document.createElement('div');
+  spinner.setAttribute('role', 'status');
+  spinner.setAttribute('aria-label', 'Validando');
+  spinner.style.cssText =
+    'width:40px;height:40px;border:3px solid var(--border-color,#e5e5ea);' +
+    'border-top-color:var(--color-success,#248a3d);border-radius:50%;' +
+    'animation:reparto-import-spin 0.8s linear infinite';
+  validating.appendChild(spinner);
+  const vTxt = document.createElement('div');
+  vTxt.style.cssText = 'font-size:14px;color:var(--text-secondary,#86868b);font-weight:500';
+  vTxt.textContent = 'Validando filas...';
+  validating.appendChild(vTxt);
+  // Inyecta keyframes una sola vez.
+  if (!document.getElementById('reparto-import-spin-kf')) {
+    const style = document.createElement('style');
+    style.id = 'reparto-import-spin-kf';
+    style.textContent = '@keyframes reparto-import-spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+  }
+  body.appendChild(validating);
+
+  // Estado 3: preview-ok (cards + tabla).
+  const previewOk = document.createElement('div');
+  previewOk.id = 'reparto-import-preview-ok';
+  previewOk.style.cssText =
+    'display:none;flex-direction:column;align-items:stretch;gap:4px;flex:1;min-height:0;width:100%';
+  body.appendChild(previewOk);
+
+  // Estado 4: errors.
+  const errBox = document.createElement('div');
+  errBox.id = 'reparto-import-errors';
+  errBox.style.cssText =
+    'display:none;flex-direction:column;align-items:stretch;gap:4px;flex:1;min-height:0;width:100%';
+  body.appendChild(errBox);
+
   box.appendChild(body);
-  // Footer.
+
+  // === Footer ===
   const foot = document.createElement('div');
   foot.style.cssText =
-    'padding:14px 22px;border-top:0.5px solid rgba(0,0,0,.08);display:flex;gap:10px;justify-content:flex-end';
+    'padding:14px 22px;border-top:0.5px solid var(--border-color,rgba(0,0,0,.08));' +
+    'display:flex;gap:10px;justify-content:flex-end;flex-shrink:0;' +
+    'background:var(--bg-primary,#fff)';
   const cancelBtn = document.createElement('button');
   cancelBtn.type = 'button';
   cancelBtn.textContent = 'Cancelar';
   cancelBtn.style.cssText =
-    'padding:9px 18px;border:0.5px solid rgba(0,0,0,.12);background:#fff;border-radius:999px;cursor:pointer;font-size:13px';
+    'padding:10px 20px;border:0.5px solid var(--border-color,rgba(0,0,0,.12));' +
+    'background:var(--bg-primary,#fff);color:var(--text-primary,#1d1d1f);' +
+    'border-radius:999px;cursor:pointer;font-size:13px;font-weight:500';
   cancelBtn.addEventListener('click', () => {
     const w = /** @type {any} */ (window);
     if (typeof w.closeRepartoImportDialog === 'function') w.closeRepartoImportDialog();
@@ -886,9 +1164,11 @@ function _buildImportModalDom() {
   applyBtn.type = 'button';
   applyBtn.id = 'reparto-import-apply-btn';
   applyBtn.disabled = true;
-  applyBtn.textContent = 'Aplicar reparto importado';
+  applyBtn.textContent = 'Aplicar reparto';
   applyBtn.style.cssText =
-    'padding:9px 18px;border:none;background:#248a3d;color:#fff;border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;opacity:0.4';
+    'display:none;padding:10px 20px;border:none;' +
+    'background:var(--color-success,#248a3d);color:#fff;' +
+    'border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;opacity:0.4';
   applyBtn.addEventListener('click', () => {
     const w = /** @type {any} */ (window);
     if (typeof w.confirmRepartoImportApply === 'function') w.confirmRepartoImportApply();
