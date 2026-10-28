@@ -32,6 +32,25 @@
 // renderOrderLines (bundle), addToOrder (bundle), setOrderQty (bundle),
 // removeFromOrder (bundle), setOrderPrice (bundle), matchSkuFromTitle (bundle).
 // === Modal de pedido: filtros + picker + lineas ===
+
+// v1504 PR2 (§76 §39) — helper local: desc vigente del catalog para readers UI.
+// Fallback a l.desc si el bundle de __phase0 no cargó (SW stale). SAP payload NO
+// usa esto; sigue viajando `l.desc` original (snapshot al confirmar).
+function _resolveDescLiveLocal(line) {
+  if (!line) return '';
+  try {
+    const liveFn =
+      window.__phase0 &&
+      window.__phase0.pure &&
+      window.__phase0.pure.resolveLineDesc &&
+      window.__phase0.pure.resolveLineDesc.resolveLineDescLive;
+    const catalog =
+      typeof window._getCatalogDescMap === 'function' ? window._getCatalogDescMap() : {};
+    if (typeof liveFn === 'function') return liveFn(line, catalog);
+  } catch (_e) {}
+  return String(line.desc || line.descripcion || line.code || '');
+}
+
 if (typeof window.currentOrderKey === 'undefined') window.currentOrderKey = null;
 if (typeof window.currentOrderClient === 'undefined') window.currentOrderClient = null;
 
@@ -356,7 +375,8 @@ window.openSinStockDetail = function () {
       ' u faltan</div>' +
       '</div>' +
       '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">' +
-      escapeHtml(l.desc || '') +
+      // v1504 PR2: desc vigente del catalog (fallback a l.desc).
+      escapeHtml(_resolveDescLiveLocal(l)) +
       '</div>' +
       '<div style="display:flex;gap:10px;font-size:10px;color:var(--text-muted);flex-wrap:wrap">' +
       '<span>Pedido: <b style="color:var(--text-primary)">' +
@@ -1286,7 +1306,8 @@ function renderReviewLines() {
         : '';
     html +=
       '<div class="rl-name">' +
-      escapeHtml(l.desc) +
+      // v1504 PR2: desc vigente del catalog (fallback a l.desc).
+      escapeHtml(_resolveDescLiveLocal(l)) +
       badgeState +
       badgeReview +
       badgeNoStock +

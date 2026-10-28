@@ -730,7 +730,20 @@ function renderOrderLines() {
         /* silent — no romper render del pedido */
       }
     }
-    html += '<div class="pname">' + escapeHtml(l.desc) + boWarning + '</div>';
+    // v1504 PR2: desc vigente del catalog (fallback a l.desc).
+    const _liveFnPP =
+      window.__phase0 &&
+      window.__phase0.pure &&
+      window.__phase0.pure.resolveLineDesc &&
+      window.__phase0.pure.resolveLineDesc.resolveLineDescLive;
+    const _descPP =
+      typeof _liveFnPP === 'function'
+        ? _liveFnPP(
+            l,
+            typeof window._getCatalogDescMap === 'function' ? window._getCatalogDescMap() : {}
+          )
+        : l.desc || l.code || '';
+    html += '<div class="pname">' + escapeHtml(_descPP) + boWarning + '</div>';
     html +=
       '<input type="number" class="qty" min="0" step="any" value="' +
       pr +

@@ -198,7 +198,12 @@ import {
 // PR4 (v1477 2026-10-26 §75): fix "undefined" en Pedidos > Confirmados
 // (ORDEN 502 OSVALDO MASERA et al). Pure fn que resuelve desc de línea con
 // fallback a catálogo. Usado por UI render + commit-pedido-core server-side.
-import { hasDesc, resolveLineDesc } from './pure/resolve-line-desc.js';
+import {
+  buildCatalogDescMapFromProducts,
+  hasDesc,
+  resolveLineDesc,
+  resolveLineDescLive,
+} from './pure/resolve-line-desc.js';
 // v1484 (2026-10-27): resolver prov/loc de pedidos huérfanos desde
 // client_master por cardCode. Usada por renderPendientesList +
 // renderConfirmadosList en index.html.
@@ -542,8 +547,11 @@ const phase0 = {
       findCmDataByCardCode,
     },
     // PR4 (v1477 2026-10-26 §75) — resolve-line-desc.
+    // PR2 (v1504 2026-10-28) — + resolveLineDescLive (catalog gana) + builder.
     resolveLineDesc: {
       resolveLineDesc,
+      resolveLineDescLive,
+      buildCatalogDescMapFromProducts,
       hasDesc,
     },
     // §J (v1455 2026-10-25) — BO absorb al confirmar. Pure + espejo.

@@ -97,3 +97,47 @@ export function resolveLineDesc(line, catalog) {
 export function hasDesc(line) {
   return !!(line && typeof line.desc === 'string' && line.desc.trim());
 }
+
+/**
+ * PR 2 (v1504, 2026-10-28) — mirror espejo de `src/pure/resolve-line-desc.js`
+ * para scripts server-side (backfill, audit) que necesitan la lógica LIVE.
+ *
+ * CF `commit-pedido-core.js` NO usa esta función — sigue usando
+ * `resolveLineDesc` (write-side).
+ *
+ * @param {{code?: string, desc?: string, descripcion?: string} | null | undefined} line
+ * @param {Catalog | null | undefined} [catalog]
+ * @returns {string}
+ */
+export function resolveLineDescLive(line, catalog) {
+  if (!line) return '';
+  const code = _normCode(line.code);
+  if (code) {
+    const fromCatalog = _catalogLookup(catalog, code);
+    if (fromCatalog) return fromCatalog;
+  }
+  const lineDesc = String(line.desc || line.descripcion || '').trim();
+  if (lineDesc) return lineDesc;
+  return code;
+}
+
+/**
+ * Mirror de `buildCatalogDescMapFromProducts`.
+ *
+ * @param {Array<{code?: string, desc?: string, descripcion?: string, name?: string}> | null | undefined} products
+ * @returns {Record<string, CatalogEntry>}
+ */
+export function buildCatalogDescMapFromProducts(products) {
+  /** @type {Record<string, CatalogEntry>} */
+  const map = {};
+  if (!Array.isArray(products)) return map;
+  for (const p of products) {
+    if (!p || !p.code) continue;
+    const key = _normCode(p.code);
+    if (!key) continue;
+    map[key] = {
+      descripcion: String(p.descripcion || p.desc || p.name || '').trim(),
+    };
+  }
+  return map;
+}

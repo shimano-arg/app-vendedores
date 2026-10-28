@@ -1529,11 +1529,24 @@ function renderPedidoCard(p, status) {
     const matTag = matSap
       ? '<span class="sap-code-tag mapped">' + escapeHtml(matSap) + '</span>'
       : '<span class="sap-code-tag missing">SIN MAPEAR</span>';
+    // v1504 PR2: desc vigente del catalog (fallback a l.desc).
+    const _liveFnSap =
+      window.__phase0 &&
+      window.__phase0.pure &&
+      window.__phase0.pure.resolveLineDesc &&
+      window.__phase0.pure.resolveLineDesc.resolveLineDescLive;
+    const _descSap =
+      typeof _liveFnSap === 'function'
+        ? _liveFnSap(
+            l,
+            typeof window._getCatalogDescMap === 'function' ? window._getCatalogDescMap() : {}
+          )
+        : l.desc || '';
     html +=
       '<div class="sap-card-line"><span><b>' +
       escapeHtml(l.code || '') +
       '</b> &middot; ' +
-      escapeHtml(l.desc || '') +
+      escapeHtml(_descSap) +
       ' &middot; ' +
       (parseFloat(l.qty) || 0) +
       ' x $' +
