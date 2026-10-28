@@ -4717,6 +4717,69 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1514 (2026-10-28) — Import Reparto Pablo Fase B: rework UI modal + consistency rule + Playwright 5 puntos
+
+**Antes (v1512 / v1511)**: el modal `#reparto-import-modal` tenía un `<input type=file>` visible en el body + un div `#reparto-import-preview` que iba mutando contenido (chips "Reconocidas/Con cambios/Errores" + tabla 5 cols pequeña). No había drag/drop. No había consistency rule explícita. El preview no reflejaba el shape de las 3 columnas que Pablo necesita (Asignadas / Vuelve a BO / Eliminadas).
+
+**Problema**: Pablo pidió un flow más visual estilo Apple con dropzone + 4 estados mutuamente exclusivos + 3 cards grandes + tabla con 5 columnas en el preview. Además pidió que la consistency rule (`Asignado + VueleABackorder + Eliminar ≤ backorderActual` por fila) sea un gate explícito que bloquee Aplicar con un error visible. Y 5 escenarios de Playwright con un user de pruebas dedicado.
+
+**Cambio**:
+
+1. **Modal rework** (`src/domains/exports-reparto.js`):
+   - `_buildImportModalDom()`: 4 estados `data-state` (idle/validating/preview-ok/errors) + dropzone con border dashed + ícono 📂 + hint + click/dragover/dragleave/drop listeners + input file nativo oculto + spinner con `@keyframes` inyectados + CSS vars dark-mode (`--bg-primary`, `--text-primary`, `--border-color`, `--color-success-bg`, `--color-warning-bg`, `--color-danger-bg`).
+   - Nuevo helper `_setImportModalState(state)` alterna el display de los 4 contenedores + visibilidad del botón Aplicar (visible solo en preview-ok).
+   - `openRepartoImportDialog` resetea a estado idle; `handleRepartoImportFileChange` setea validating y en error setea errors; `_renderImportPreview` setea preview-ok o errors según resultado.
+
+2. **Preview Fase B** (`_renderPreviewOkState`):
+   - 3 cards grandes centradas (Asignadas verde / Vuelve a BO amarillo / Eliminadas rojo). Totales calculados: Asignadas = `sum asignadoNuevo`, Eliminadas = `sum eliminarNuevo`, Vuelve a BO = `sum max(0, backorderActual - asignado - eliminar)` sobre reconocidas con cambios.
+   - Tabla 5 columnas con TODAS las reconocidas (hasta 200 filas visibles con `overflow-y:auto`): SKU · Cliente · Asignado · Vuelve a BO · Eliminado. Por fila `vuelve = max(0, bo - asig - elim)`.
+
+3. **Consistency rule** (`_computeConsistencyErrors`):
+   - Por cada reconocida, verifica `backorderActual - asignadoNuevo - eliminarNuevo >= 0`. Si no, agrega error `consistency_rule` que se mezcla con los `errores` del validator y bloquea Aplicar.
+   - Mensaje humano: "Fila N · SKU / Cliente: Asignado(X) + Eliminar(Y) supera Backorder(Z). Revisá las unidades."
+
+4. **Error state** (`_renderErrorsState`): lista con `padding + border-left rojo` + hasta 100 filas visibles + resumen "Hay N error(es). Corregí el Excel y volvé a subirlo. No se aplica nada."
+
+5. **Script user pruebas** (`scripts/create-pruebas-gerente-user.cjs`):
+   - Idempotente: crea / actualiza user `pruebas.gerente@shimano.com.ar` con password `Shimano2025`, role=`gerente`, doc `roles/{uid}` + entry en `allowed_emails`.
+   - **NO EJECUTADO** — Mariano lo corre manualmente con el service account del admin SDK.
+
+6. **Playwright** (`tests/e2e/pablo-import-reparto.spec.ts`): 5 escenarios:
+   - **P4 Drag + drop**: verifica dropzone + que `dispatchEvent('dragover')` agrega clase `is-dragover`.
+   - **P2 Consistency**: sube Excel con fila que viola la regla + verifica estado `errors` + Aplicar hidden.
+   - **P5 Dark mode**: setea `data-theme=dark` + verifica que `background-color` del `.modal-box` != blanco puro.
+   - **P1 Preview**: toma un reparto activo real + sube Excel + verifica que las 3 cards tienen los números esperados.
+   - **P3 Aplicar**: `test.skip` por default (requiere `E2E_RUN_P3=1` para mutar prod).
+
+**Por qué** (precedente):
+
+- Pedido explícito Mariano "feat-v1514-import-modal-ui": v1512 cerró Fase A del PR Pablo (fix autofilter + fila aviso SKU multi-reparto en EXPORT); Fase B es el rework del modal + consistency rule.
+- El bloqueo `Aplicar` solo sobre errores (sin consistency rule explícita) era insuficiente — Pablo podría cargar un Excel donde se asigna más de lo que el cliente pidió sin ver un error claro (hoy solo salta si `asignado > stock`, no si `asig+elim > bo`).
+
+**Verificación**:
+- `npm run test:unit` → **2425/2425 PASS** (26 tests nuevos en `tests/unit/reparto-import-modal-ui.test.js`: estructura DOM, estados toggle, consistency rule con 7 casos, dark mode).
+- `npx biome check` → clean en archivos tocados (fixes aplicados automáticamente).
+- `npm run typecheck` → sin errores nuevos en `src/domains/exports-reparto.js` (errores pre-existentes en `functions/index.js` no relacionados).
+- `node build.js` → bundle regenerado (`chunks/exports-reparto.js` 125.5 KB).
+- `tests/e2e/pablo-import-reparto.spec.ts` → spec presente, requiere user `pruebas.gerente` + repartos activos en prod (correr manualmente post-deploy).
+
+**Archivos tocados**:
+- `src/domains/exports-reparto.js` (rework modal + preview + consistency).
+- `tests/unit/reparto-import-modal-ui.test.js` (nuevo — 26 tests).
+- `tests/e2e/pablo-import-reparto.spec.ts` (nuevo — 5 scenarios).
+- `scripts/create-pruebas-gerente-user.cjs` (nuevo — idempotente, no ejecutado).
+- `index.html` (APP_VERSION v1513 → v1514).
+- `sw.js` (CACHE_VERSION v1513 → v1514).
+- `app.bundle.js` + `chunks/exports-reparto.js` (rebuild bundle).
+
+**Rollback**: `git revert <sha_merge_v1514>` + Pages redeploy auto (~2 min). Vuelve a v1513 con el modal viejo. El user `pruebas.gerente` queda vivo si Mariano corrió el script (sin impacto operativo — role=gerente idempotente); borrarlo manualmente desde Firebase Console si molesta.
+
+**Post-merge deploy**: `git pull origin main` + Pages redeploy auto. Para activar los Playwright E2E, Mariano:
+1. Correr `node scripts/create-pruebas-gerente-user.cjs --dry` para verificar + luego sin `--dry` para crear.
+2. Correr `npx playwright test tests/e2e/pablo-import-reparto.spec.ts` manualmente.
+
+---
+
 ### v1511 (2026-10-28) — Reparto: quitar "Exportar reporte" + fix listener "Cargando ingresos pending…" eterno
 
 **Cambios Parte 1 (de 4) del PR Import Reparto Pablo**:
