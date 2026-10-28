@@ -314,7 +314,6 @@ installChunkStubs('exports-core', [
   'confirmMonthPicker',
   'exportMasterClientes',
   'exportPreciosStock',
-  'exportRepartoToExcel',
   'exportTargetsZonas',
   'exportToExcel',
   'openExportAnalisis',
