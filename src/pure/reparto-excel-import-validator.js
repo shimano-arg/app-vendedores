@@ -180,6 +180,11 @@ export function validateRepartoExcelImport(filas, repartosActivos) {
     const sku = normStr(row.Codigo);
     const clienteLbl = String(row.Cliente || '').trim();
 
+    // v1512 (2026-10-28): skip filas aviso SKU multi-reparto (Codigo === '').
+    // El export genera estas filas con fondo amarillo cuando un SKU tiene >1
+    // repartos abiertos para alertar a Pablo. No tienen datos de asignación.
+    if (!sku && !cardCode && !repartoId) continue;
+
     // 1. Validar números (Asignado / Eliminar) ANTES de match.
     const asigValid = isValidNonNegativeNumber(row.Asignado);
     const elimValid = isValidNonNegativeNumber(row.Eliminar);
