@@ -4716,6 +4716,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 ---
 
 ## 41) Changelog v300 → v1210
+### v1510 (2026-10-28) — Rebase v1504 line.desc catalog sobre v1509 (bump versión)
+
+Rebase mecánico de v1504 (desc línea de pedido resuelve del catálogo, PR #1269) sobre v1509 (offline-aware). Sin cambio funcional del fix — solo bump de APP_VERSION/CACHE_VERSION 1504→1510 para destrabar merge-conflict.
+
+**Informe**: ver PR #1269 body original.
+
+---
 
 ### v1509 (2026-10-28) — Rebase v1501 offline-aware sobre v1508 (bump versión)
 
