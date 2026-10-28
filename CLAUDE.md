@@ -3549,3 +3549,79 @@ Un helper server-side correspondiente (en el mirror `functions/core/*-core.js`) 
 - Mergear un gate nuevo sin un test VDE (unit con mock role=vendedor, o Playwright).
 - Deployar a prod sin que el commit history incluya el escenario "VDE confirma con éxito un flujo que el gate protege".
 - Confiar en que "testeé como admin" es suficiente — admin y VDE tienen caminos de rules distintos.
+
+## 99. Colecciones Firestore que SIEMPRE se leen del server (2026-10-27, v1499)
+
+**Regla fuerte**: las colecciones críticas listadas en `src/pure/firestore-read-policy.js:ALWAYS_SERVER_PATHS` se leen SIEMPRE con `{source: 'server'}` (Firebase v8 compat) o `getDocFromServer`/`getDocsFromServer` (v9+ modular). Listeners `onSnapshot` sobre estas colecciones usan `{includeMetadataChanges: true}` + descartan snapshots con `fromCache=true` via `shouldIgnoreCachedSnapshot`.
+
+**Lista actual (frozen)**:
+
+```
+app_config/stock_snapshot   → snapshot stock + backorder; cambia cada 5 min (§65).
+ingresos_reparto            → Reparto consume; cache stale → filas duplicadas/viejas.
+revision_waitlist           → Lista espera cross-vendor; otros ven lo que uno escribe.
+pedidos                     → alimenta Reparto + Backorder + modal + Planner + popup Master.
+```
+
+**Antecedente** v1498 (2026-10-27): CUDC201XG + URQUIOLA mostraba 2 filas (15+2) para Mariano en Chrome normal, pero 1 fila con 17 en incognito (misma versión, mismo usuario). Causa: cache IndexedDB stale (Firebase `enablePersistence({synchronizeTabs:true})`) sirviendo snapshot viejo. F5 no limpia IndexedDB — solo cache HTTP del browser.
+
+**Cómo agregar una colección nueva**:
+
+1. Editar `ALWAYS_SERVER_PATHS` en `src/pure/firestore-read-policy.js`.
+2. Agregar comentario explicando por qué (cambio frecuente / cross-user / cálculo crítico).
+3. Si hay listeners sobre esa colección en `index.html`, migrarlos a `{includeMetadataChanges: true}` + `if (shouldIgnoreCachedSnapshot(path, snap.metadata)) return`.
+4. Si hay reads one-shot (`.get()`), reemplazar por `.get(getReadOptionsForPath(path))`.
+5. Test unit en `tests/unit/firestore-read-policy.test.js` cubriendo el nuevo path.
+
+**Prohibido**:
+- Hard-codear `{source: 'server'}` inline en call-sites (fuera de la pure fn). La fuente única es `ALWAYS_SERVER_PATHS`.
+- Agregar colecciones críticas al listener global sin migrarlas a leer server.
+- Confiar en el cache local Firestore para datos que cambian >1 vez por hora.
+
+**Costo** (impacto Firestore reads):
+- Pre-v1499: cache sirve el ~70% de las reads según metrics Panel Control.
+- Post-v1499 (reads server-side para las 4 colecciones listadas): estimado +15-25% reads totales. Mariano aceptó el trade-off: datos frescos > reads más baratos.
+- Panel Control muestra el delta real post-deploy.
+
+## 100. Cambio de versión limpia cache IndexedDB (2026-10-27, v1499)
+
+**Regla fuerte**: antes de inicializar la persistencia Firestore (`fbDb.enablePersistence`), chequear si `APP_VERSION` del HTML != la guardada en `localStorage.shimano_app_version_last`. Si cambió, llamar `fbDb.clearPersistence()` para purgar el cache IndexedDB del release anterior.
+
+Esto previene que:
+- Datos stale persistan cross-deploys cuando el shape o la lógica del dato cambia.
+- Los usuarios tengan que hacer "Recargar limpio" manual tras cada bump.
+
+**Dónde**: `index.html:30119-...` (post `firebase.firestore()` + pre `enablePersistence`).
+
+**Fail-open**: si `clearPersistence` falla (ej. listener ya attachado por race), el log tira warning pero no bloquea init. El cache stale se purga en el próximo bump exitoso.
+
+**Precedente**: v1499 2026-10-27 bug Mariano URQUIOLA. v1498 shippeó el fix de consolidación pero su cache IndexedDB tenía doc `OJULkb...` con `clientesBO:[2 entries]` cacheado desde v1497 → UI mostraba 2 filas aunque el server tenía snapshot actualizado. Un `clearPersistence` automático al bump v1498→v1499 lo previene.
+
+## 101. Botón "Recargar limpio" preserva borradores (2026-10-27, v1499)
+
+**Regla fuerte**: `forceUpdateApp` (botón ↻ en la barra del mapa) borra TODO el estado local **excepto las claves listadas en `CLEAN_RELOAD_PRESERVE_KEYS`**:
+
+```
+shimano_zonas_pending_v1  → borradores pedidos no enviados
+shimano_theme             → preferencia dark/light
+```
+
+**Pipeline ejecutado** (en orden):
+1. `confirm()` con detalle de qué borra + qué preserva. Si hay borradores, confirmación extra.
+2. Overlay visual "Limpiando datos locales y recargando" con spinner.
+3. `fbDb.terminate()` (libera listeners + conexión IndexedDB).
+4. `firebase.firestore().clearPersistence()`.
+5. `localStorage`: borra TODO excepto claves preservadas.
+6. `sessionStorage.clear()`.
+7. `navigator.serviceWorker.getRegistrations()` + `unregister()`.
+8. `caches.keys()` + `caches.delete()`.
+9. `location.replace(base + '?_t=' + Date.now())` con cache busting.
+
+**Para agregar una clave a preservar**: editar `CLEAN_RELOAD_PRESERVE_KEYS` en `index.html:forceUpdateApp` + documentar el motivo. Nuevo = requiere test en `firestore-read-policy.test.js:T41`.
+
+**Objetivo**: tocar el botón = cualquier user ve lo mismo que otro con la misma versión, sin importar browser/perfil/sesión.
+
+**Prohibido**:
+- Agregar logic de borrado selectivo que dependa del user o del contexto. La regla es "todo o nada" (excepto borradores).
+- Preservar más claves sin justificación clara en el commit.
+- Tocar `forceUpdateApp` sin agregar/actualizar test de contrato.
