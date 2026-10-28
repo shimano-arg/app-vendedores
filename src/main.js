@@ -54,6 +54,7 @@ import { passesTypeFilter } from './pure/filters.js';
 import {
   ALWAYS_SERVER_PATHS,
   getReadOptionsForPath,
+  shouldAcceptSnapshot,
   shouldIgnoreCachedSnapshot,
   shouldReadFromServer,
 } from './pure/firestore-read-policy.js';
@@ -621,6 +622,7 @@ const phase0 = {
       shouldReadFromServer,
       getReadOptionsForPath,
       shouldIgnoreCachedSnapshot,
+      shouldAcceptSnapshot,
     },
     // Tarea L (v1457 2026-10-25) — "entrada del backorder" (filas rojas) +
     // Excel idéntico. Pure + espejo. Textos UI aparte en L_BO_ENTRY_TEXTS.

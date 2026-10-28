@@ -3849,6 +3849,12 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
 <link rel="stylesheet" href="./styles/apple-design.css">
 </head>
 <body>
+<!-- v1501 §103 (2026-10-27): banner "Sin conexión" para política lectura offline-aware.
+     Se muestra via window._setOfflineStaleBanner(path, true). Desaparece al llegar
+     el primer snapshot del server para TODAS las rutas críticas que lo prendieron. -->
+<div id="offline-stale-banner" role="status" aria-live="polite" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#92400e;color:#fff;padding:8px 16px;text-align:center;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.2);">
+  Sin conexión: los datos pueden estar desactualizados.
+</div>
 <div id="splash">
   <div class="splash-logo-wrap"><img src="Shimano-Logo.png" alt="Shimano" class="splash-logo-img"/></div>
 </div>
@@ -7126,7 +7132,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1508';
+const APP_VERSION = 'v1509';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -21688,9 +21694,9 @@ function _repartoSubscribe(){
     .where('status', 'in', ['pending', 'in_progress'])
     .orderBy('detectedAt', 'desc');
   const _handlerRep = (qs) => {
-    if (_policyModRep && qs && qs.metadata
-      && _policyModRep.shouldIgnoreCachedSnapshot('ingresos_reparto', qs.metadata)) {
-      return; // skip cache-stale
+    // v1501 §103: decisión offline-aware.
+    if (_policyModRep && qs && qs.metadata && typeof window._applyReadPolicyDecision === 'function') {
+      if (!window._applyReadPolicyDecision('ingresos_reparto', qs.metadata)) return;
     }
     _repartoIngresos = [];
     qs.forEach((d) => {
@@ -30274,6 +30280,64 @@ try {
 } catch (_e) { /* localStorage puede fallar en private mode */ }
 try { fbDb.enablePersistence({synchronizeTabs: true}); } catch(e) {}
 
+// v1501 §103 (2026-10-27) — Offline-aware read policy wiring.
+//
+// Problema con v1500: la política de lectura server descartaba TODOS los
+// snapshots `fromCache` en colecciones críticas. Resultado: un vendedor
+// sin señal veía pantallas vacías porque nunca llegaba un snapshot server.
+//
+// Fix: delegar la decisión a `shouldAcceptSnapshot` del pure helper, que
+// respeta `navigator.onLine` + ventana de 30s desde el último server
+// snapshot. Si estamos offline sin server reciente, aceptamos cache y
+// mostramos un banner "Sin conexion".
+//
+// Confirmar pedidos sigue bloqueado offline por commitPedidoCF (CF HTTP
+// callable requiere red). Esta política es sólo para LEER datos cacheados.
+window._lastServerSnapshotMs = window._lastServerSnapshotMs || {};
+window._offlineStaleBannerPaths = window._offlineStaleBannerPaths || new Set();
+window._setOfflineStaleBanner = function(path, visible) {
+  try {
+    const set = window._offlineStaleBannerPaths;
+    if (visible) set.add(path);
+    else set.delete(path);
+    const el = document.getElementById('offline-stale-banner');
+    if (!el) return;
+    el.style.display = set.size > 0 ? 'block' : 'none';
+  } catch (_e) { /* swallow */ }
+};
+window._applyReadPolicyDecision = function(path, metadata) {
+  try {
+    const mod = (window.__phase0 && window.__phase0.pure
+      && window.__phase0.pure.firestoreReadPolicy) || null;
+    if (!mod || typeof mod.shouldAcceptSnapshot !== 'function') return true;
+    const online = typeof navigator !== 'undefined' && 'onLine' in navigator
+      ? navigator.onLine : true;
+    const last = (window._lastServerSnapshotMs && window._lastServerSnapshotMs[path]) || null;
+    const dec = mod.shouldAcceptSnapshot(path, metadata, online, last, Date.now());
+    if (!dec.accept) return false;
+    if (metadata && !metadata.fromCache) {
+      window._lastServerSnapshotMs[path] = Date.now();
+      window._setOfflineStaleBanner(path, false);
+    } else if (dec.showStaleBanner) {
+      window._setOfflineStaleBanner(path, true);
+    }
+    return true;
+  } catch (_e) {
+    return true; // fail-open: aceptar snapshot
+  }
+};
+// Al recuperar conexión, limpiar banner global (los próximos server snapshots
+// lo re-limpiarán por path si quedó alguno colgado).
+try {
+  window.addEventListener('online', () => {
+    try {
+      const el = document.getElementById('offline-stale-banner');
+      if (el) el.style.display = 'none';
+      window._offlineStaleBannerPaths && window._offlineStaleBannerPaths.clear();
+    } catch (_e) {}
+  });
+} catch (_e) {}
+
 // v1470 (2026-10-26) hotfix bug Federico Castelanelli:
 // "Function WriteBatch.update() called with invalid data. Unsupported field
 // value: undefined (found in document revision_waitlist/ZPvU3dOUKtkMeNf1lnq)"
@@ -36031,9 +36095,9 @@ function _subscribePlannerPedidos() {
   const _policyPl = (window.__phase0 && window.__phase0.pure
     && window.__phase0.pure.firestoreReadPolicy) || null;
   const _plHandler = (snap) => {
-    if (_policyPl && snap && snap.metadata
-      && _policyPl.shouldIgnoreCachedSnapshot('pedidos', snap.metadata)) {
-      return;
+    // v1501 §103: decisión offline-aware.
+    if (_policyPl && snap && snap.metadata && typeof window._applyReadPolicyDecision === 'function') {
+      if (!window._applyReadPolicyDecision('pedidos', snap.metadata)) return;
     }
     plannerPedidosCache.clear();
     snap.forEach(d => plannerPedidosCache.set(d.id, { id: d.id, ...d.data() }));
@@ -36081,9 +36145,9 @@ function attachPlannerListeners() {
     && window.__phase0.pure.firestoreReadPolicy) || null;
   const _plWlQuery = db.collection('revision_waitlist').orderBy('createdAt', 'asc');
   const _plWlHandler = (snap) => {
-    if (_policyPlWl && snap && snap.metadata
-      && _policyPlWl.shouldIgnoreCachedSnapshot('revision_waitlist', snap.metadata)) {
-      return;
+    // v1501 §103: decisión offline-aware.
+    if (_policyPlWl && snap && snap.metadata && typeof window._applyReadPolicyDecision === 'function') {
+      if (!window._applyReadPolicyDecision('revision_waitlist', snap.metadata)) return;
     }
     plannerWaitlistCache.clear();
     const _wlFilter = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.shouldIncludeWaitlistDoc);
@@ -37209,13 +37273,11 @@ function ensureListenerWithFallback(name, refBuilder, applyFn, options) {
   const _onSnapshotOpts = _isCriticalPath ? { includeMetadataChanges: true } : undefined;
   const _snapHandler = (snap) => {
     const wasZombie = !state.firedAt;
-    // v1500 §102: en modo includeMetadataChanges, descartar snapshots
-    // que vengan del cache local (fromCache=true) para colecciones
-    // críticas. Si tiene pendingWrites, dejamos pasar (write local propio).
-    if (_isCriticalPath && snap && snap.metadata && _policyMod
-      && _policyMod.shouldIgnoreCachedSnapshot(_policyPath, snap.metadata)) {
-      // No actualizar firedAt — el server aún no respondió.
-      return;
+    // v1501 §103 (2026-10-27): decisión offline-aware delegada al helper global.
+    if (_isCriticalPath && snap && snap.metadata && typeof window._applyReadPolicyDecision === 'function') {
+      if (!window._applyReadPolicyDecision(_policyPath, snap.metadata)) {
+        return; // No actualizar firedAt — rechazado por política.
+      }
     }
     state.firedAt = Date.now();
     if (wasZombie && state.pollInterval) {

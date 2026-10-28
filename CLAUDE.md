@@ -3550,9 +3550,64 @@ Un helper server-side correspondiente (en el mirror `functions/core/*-core.js`) 
 - Deployar a prod sin que el commit history incluya el escenario "VDE confirma con éxito un flujo que el gate protege".
 - Confiar en que "testeé como admin" es suficiente — admin y VDE tienen caminos de rules distintos.
 
-## 99. Colecciones Firestore que SIEMPRE se leen del server (2026-10-27, v1499)
+## 99. Colecciones Firestore que SIEMPRE se leen del server (2026-10-27, v1499 — UPDATE v1501 §103 offline-aware)
 
-**Regla fuerte**: las colecciones críticas listadas en `src/pure/firestore-read-policy.js:ALWAYS_SERVER_PATHS` se leen SIEMPRE con `{source: 'server'}` (Firebase v8 compat) o `getDocFromServer`/`getDocsFromServer` (v9+ modular). Listeners `onSnapshot` sobre estas colecciones usan `{includeMetadataChanges: true}` + descartan snapshots con `fromCache=true` via `shouldIgnoreCachedSnapshot`.
+### v1501 §103 UPDATE (2026-10-27) — Decisión offline-aware
+
+**Problema con v1499/v1500**: la política original descartaba TODOS los snapshots `fromCache` sobre colecciones críticas. Un vendedor sin señal nunca recibía ningún snapshot → pantallas vacías.
+
+**Fix v1501**: nueva pure fn `shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs, nowMs)` en `src/pure/firestore-read-policy.js`. Reemplaza `shouldIgnoreCachedSnapshot` (quedó como wrapper legacy):
+
+| Caso | Comportamiento |
+|---|---|
+| Path no crítico | Accept siempre (política default) |
+| Snapshot del server (`fromCache=false`) | Accept siempre + registra timestamp |
+| `hasPendingWrites=true` (write local propio) | Accept (se muestra al user que escribió) |
+| **Online** OR último server < 30s | Reject cache (preferir servidor) |
+| **Offline** sin server reciente | Accept cache + marcar `showStaleBanner=true` |
+
+**Ventana 30s**: cuando `navigator.onLine` acaba de flapear a `false` pero tenemos server snapshot muy reciente, seguimos considerando "efectivamente online" para no caer prematuro a cache.
+
+**Banner**: `<div id="offline-stale-banner">` fijo arriba con texto "Sin conexión: los datos pueden estar desactualizados." Se muestra via `window._setOfflineStaleBanner(path, true)`. Se oculta cuando TODOS los paths críticos que lo prendieron reciben un server snapshot (set `window._offlineStaleBannerPaths` vacío). También se oculta en el event `window.online`.
+
+**Helpers wiring** (`index.html`):
+
+```js
+window._lastServerSnapshotMs    // { [path]: ms } — tracker por path
+window._offlineStaleBannerPaths // Set<path>
+window._setOfflineStaleBanner(path, visible)
+window._applyReadPolicyDecision(path, metadata) → bool  // delega a pure fn
+```
+
+Los listeners críticos llaman al helper:
+
+```js
+if (!window._applyReadPolicyDecision('ingresos_reparto', qs.metadata)) return;
+```
+
+El helper:
+1. Resuelve `navigator.onLine` + último server snapshot.
+2. Delega a `shouldAcceptSnapshot`.
+3. Si `fromCache=false` → trackea timestamp + limpia banner para este path.
+4. Si `fromCache=true` + `showStaleBanner=true` → prende banner para este path.
+5. Devuelve el bool `accept`.
+
+**Confirmar pedidos NO se toca**: `commitPedidoCF` sigue bloqueado offline (callable HTTP requiere red). Esta política es sólo para lecturas de datos.
+
+**Test 4 casos canónicos**: `tests/unit/firestore-read-policy.test.js` cubre T60-T70:
+- T60: online=true + cache stale → RECHAZA.
+- T61: online=false + server<30s → RECHAZA (recent server).
+- T62: online=false + server stale → ACEPTA + banner.
+- T63: online=false + server nunca → ACEPTA + banner.
+- + T64-T70 edge cases (server, pending writes, non-critical, borde 30s exacto, metadata vacía).
+
+**Audit test**: `tests/unit/audit/offline-aware-banner-v1501.test.js` chequea banner HTML + helpers + que los 3 listeners inline + `ensureListenerWithFallback` ya no usan `shouldIgnoreCachedSnapshot` directo.
+
+---
+
+### v1500 §102 (texto original, mantenido como referencia)
+
+**Regla fuerte**: las colecciones críticas listadas en `src/pure/firestore-read-policy.js:ALWAYS_SERVER_PATHS` se leen SIEMPRE con `{source: 'server'}` (Firebase v8 compat) o `getDocFromServer`/`getDocsFromServer` (v9+ modular). Listeners `onSnapshot` sobre estas colecciones usan `{includeMetadataChanges: true}` + descartan snapshots con `fromCache=true` **respetando la política offline-aware §103** (si estamos offline sin server reciente, aceptan cache + muestran banner).
 
 **Lista actual (frozen)**:
 

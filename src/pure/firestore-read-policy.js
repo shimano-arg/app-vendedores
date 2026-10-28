@@ -82,10 +82,9 @@ export function getReadOptionsForPath(path) {
 /**
  * ¿Un snapshot `fromCache=true` debe ignorarse para esta ruta?
  *
- * Usado por listeners `onSnapshot` con `includeMetadataChanges=true`: el
- * callback recibe snapshots cache-stale primero, server-fresh después.
- * Para colecciones críticas, descartar los cache-stale evita que la UI
- * flashee datos viejos antes de recibir el server.
+ * **DEPRECATED en v1501 §103**: usar `shouldAcceptSnapshot(path, metadata,
+ * online, lastServerSnapshotMs)` que es offline-aware. Esta función se
+ * mantiene como wrapper por compat con call-sites v1500.
  *
  * @param {string} path
  * @param {{fromCache?: boolean, hasPendingWrites?: boolean}} metadata
@@ -93,8 +92,63 @@ export function getReadOptionsForPath(path) {
  */
 export function shouldIgnoreCachedSnapshot(path, metadata) {
   if (!metadata || !metadata.fromCache) return false;
-  // hasPendingWrites=true significa que estamos esperando el ACK del server
-  // para un write LOCAL; no ignoramos (el user acaba de escribir, le mostramos).
   if (metadata.hasPendingWrites) return false;
   return shouldReadFromServer(path);
+}
+
+/**
+ * **v1501 §103 (2026-10-27)** — decisión offline-aware para listeners.
+ *
+ * Reemplaza `shouldIgnoreCachedSnapshot` con lógica que respeta estado de
+ * conectividad. Comportamiento:
+ *
+ * - **Rutas no críticas** → accept siempre (cache + server mezclado por default).
+ * - **Snapshot del servidor** (`fromCache=false`) → accept siempre.
+ * - **Local write pendiente** (`hasPendingWrites=true`) → accept (el user
+ *   acaba de escribir, lo ve inmediato).
+ * - **Online** → reject cache (prefer esperar al servidor).
+ * - **Último server snapshot reciente < 30s** → reject cache (todavía
+ *   consideramos "efectivamente online" aunque `navigator.onLine` flapee).
+ * - **Offline sin server reciente** → accept cache + marcar `showStaleBanner=true`.
+ *
+ * Regla de diseño: perder un snapshot `fromCache` cuando hay conexión es
+ * barato (el próximo server snapshot llega en <1s). Perder TODO cuando
+ * estás offline es inaceptable (vendedor en ruta sin señal).
+ *
+ * Confirmar pedidos sigue bloqueado offline por `commitPedidoCF` —
+ * independiente de esta política de lectura.
+ *
+ * @param {string} path - Path Firestore.
+ * @param {{fromCache?: boolean, hasPendingWrites?: boolean}} metadata - metadata del snapshot.
+ * @param {boolean} online - `navigator.onLine` actual.
+ * @param {number|null|undefined} lastServerSnapshotMs - timestamp (ms) del último
+ *   snapshot server que este listener recibió. `null`/`undefined` si nunca llegó uno.
+ * @param {number} [nowMs=Date.now()] - inyectable para testing.
+ * @returns {{accept: boolean, reason: string, showStaleBanner: boolean}}
+ */
+export function shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs, nowMs) {
+  // Rutas no críticas: política default Firestore (cache + server).
+  if (!shouldReadFromServer(path)) {
+    return { accept: true, reason: 'non_critical_path', showStaleBanner: false };
+  }
+  const meta = metadata || {};
+  // Server snapshot: siempre aceptar.
+  if (!meta.fromCache) {
+    return { accept: true, reason: 'from_server', showStaleBanner: false };
+  }
+  // Write local pendiente ACK: aceptar (el user lo escribió).
+  if (meta.hasPendingWrites) {
+    return { accept: true, reason: 'has_pending_writes', showStaleBanner: false };
+  }
+  // Online o server snapshot reciente < 30s: reject cache, prefer server.
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const recentServer =
+    typeof lastServerSnapshotMs === 'number' &&
+    lastServerSnapshotMs > 0 &&
+    now - lastServerSnapshotMs < 30_000;
+  if (online === true || recentServer) {
+    return { accept: false, reason: 'online_or_recent_server', showStaleBanner: false };
+  }
+  // Offline + sin server reciente: accept cache + mostrar banner.
+  return { accept: true, reason: 'offline_fallback', showStaleBanner: true };
 }

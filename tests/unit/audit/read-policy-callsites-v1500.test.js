@@ -48,28 +48,28 @@ describe('v1500 §102 — call-sites migrados a política lectura server', () =>
     expect(pedidosPathCount).toBeGreaterThanOrEqual(2);
   });
 
-  it('_repartoSubscribe usa includeMetadataChanges + shouldIgnoreCachedSnapshot', () => {
+  it('_repartoSubscribe usa includeMetadataChanges + _applyReadPolicyDecision (v1501 §103)', () => {
     const i = INDEX_HTML.indexOf('_repartoSubscribe');
     expect(i).toBeGreaterThan(0);
     const slice = INDEX_HTML.slice(i, i + 5000);
     expect(slice).toMatch(/includeMetadataChanges:\s*true/);
-    expect(slice).toMatch(/shouldIgnoreCachedSnapshot\('ingresos_reparto'/);
+    expect(slice).toMatch(/_applyReadPolicyDecision\('ingresos_reparto'/);
   });
 
-  it('_subscribePlannerPedidos usa includeMetadataChanges + shouldIgnoreCachedSnapshot', () => {
+  it('_subscribePlannerPedidos usa includeMetadataChanges + _applyReadPolicyDecision (v1501 §103)', () => {
     const i = INDEX_HTML.indexOf('function _subscribePlannerPedidos');
     expect(i).toBeGreaterThan(0);
     const slice = INDEX_HTML.slice(i, i + 3000);
     expect(slice).toMatch(/includeMetadataChanges:\s*true/);
-    expect(slice).toMatch(/shouldIgnoreCachedSnapshot\('pedidos'/);
+    expect(slice).toMatch(/_applyReadPolicyDecision\('pedidos'/);
   });
 
-  it('attachPlannerListeners (revision_waitlist) usa includeMetadataChanges + shouldIgnoreCachedSnapshot', () => {
+  it('attachPlannerListeners (revision_waitlist) usa includeMetadataChanges + _applyReadPolicyDecision (v1501 §103)', () => {
     const i = INDEX_HTML.indexOf('function attachPlannerListeners');
     expect(i).toBeGreaterThan(0);
     const slice = INDEX_HTML.slice(i, i + 5000);
     expect(slice).toMatch(/includeMetadataChanges:\s*true/);
-    expect(slice).toMatch(/shouldIgnoreCachedSnapshot\('revision_waitlist'/);
+    expect(slice).toMatch(/_applyReadPolicyDecision\('revision_waitlist'/);
   });
 
   it('.get() sobre pedidos usa getReadOptionsForPath("pedidos") (al menos 4 call-sites)', () => {
@@ -83,27 +83,24 @@ describe('v1500 §102 — call-sites migrados a política lectura server', () =>
     );
   });
 
-  it('APP_VERSION bumpeado a v1500 o posterior (actualizado por v1501 fix PACHI Ficha)', () => {
-    // Match v1500 o cualquier bump posterior (ej. v1501, v1502, ...). El audit
-    // original v1500 §102 verificó la migración; bumps siguientes NO revierten
-    // los call-sites migrados — pueden subir el número sin invalidar el audit.
+  it('APP_VERSION bumpeado a v1500 o posterior', () => {
     expect(INDEX_HTML).toMatch(/const APP_VERSION = 'v1[5-9]\d\d'/);
   });
 
-  it('CACHE_VERSION bumpeado a v1500 o posterior (actualizado por v1501 fix PACHI Ficha)', () => {
+  it('CACHE_VERSION bumpeado a v1500 o posterior', () => {
     const SW_JS = readFileSync('sw.js', 'utf8');
     expect(SW_JS).toMatch(/CACHE_VERSION = 'v1[5-9]\d\d'/);
   });
 });
 
 describe('v1500 §102 — ensureListenerWithFallback soporta options.path', () => {
-  it('ensureListenerWithFallback acepta options.path y pasa includeMetadataChanges para rutas criticas', () => {
+  it('ensureListenerWithFallback acepta options.path y usa _applyReadPolicyDecision (v1501 §103)', () => {
     const i = INDEX_HTML.indexOf('function ensureListenerWithFallback');
     expect(i).toBeGreaterThan(0);
     const slice = INDEX_HTML.slice(i, i + 5000);
     expect(slice).toMatch(/_policyPath\s*=\s*options\.path/);
     expect(slice).toMatch(/_isCriticalPath/);
     expect(slice).toMatch(/includeMetadataChanges:\s*true/);
-    expect(slice).toMatch(/shouldIgnoreCachedSnapshot\(_policyPath/);
+    expect(slice).toMatch(/_applyReadPolicyDecision\(_policyPath/);
   });
 });

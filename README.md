@@ -4717,15 +4717,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1509 (2026-10-28) — Rebase v1501 offline-aware sobre v1508 (bump versión)
+
+Rebase mecánico de v1501 (offline-aware read policy + banner) sobre v1508 (Reparto Excel). Sin cambio funcional: solo bump de APP_VERSION/CACHE_VERSION 1501→1509 para destrabar merge-conflict.
+
+---
+
 ### v1508 (2026-10-28) — Reparto de ingresos: Export + Import Excel editable (feat v1505 rebased sobre v1507 iter 8)
 
-**Cambio**: nuevo botón "Exportar Excel" (↓) en el modal Reparto genera XLSX editable con 9 columnas (Código, Cliente, Backorder, Stock disponible, Asignado, Vuelve a backorder, Eliminar, Reparto ID gris, CardCode gris) y fórmula Excel `=C{row}-E{row}-G{row}` que recalcula "Vuelve a backorder" live mientras Pablo edita. Nuevo botón "Importar Excel" (↑ verde, admin/gerente) valida 6 casos de error, muestra preview inmediato con nº fila Excel para cada error, y aplica vía `applyRepartoManualCF` con `origen='import'` + log en `reparto_log`. Reusa `consolidateClientesBO` (§97 v1498): 1 fila por cliente+SKU aunque haya múltiples pedidos origen. Nuevo chunk lazy `exports-reparto` (94 KB) sincronizado en `build.js` + `src/main.js` + `sw.js` (§18). CSV write-side via CF (patrón §63), 2 pure functions nuevas en `src/pure/reparto-excel-export-rows.js` + `src/pure/reparto-excel-import-validator.js`.
+**Cambio**: nuevo botón "Exportar Excel" (↓) + "Importar Excel" (↑ verde) en el modal Reparto, usa applyRepartoManualCF con origen=import.
 
-**Verificación**: suite completa 2351 unit + 25 smoke PASS, biome clean, typecheck clean, CI 7/7 green (CodeQL × 4, test, Vercel × 2). Verificación prod end-to-end pendiente (requiere Mariano con pedido test).
+**Informe**: DesktopINFORME_REPARTO_EXCEL_v1505.md.
 
-**Informe**: `Desktop\INFORME_REPARTO_EXCEL_v1505.md`.
+---
 
-**Rollback**: `git revert <sha_merge_v1508>` + Pages redeploy ~2 min. Vuelve a v1507.
+### v1501 (2026-10-27) — Follow-up v1500: offline-aware read policy + banner "Sin conexión" (§103)
+
+Pure fn nueva shouldAcceptSnapshot(path, metadata, online, lastServerSnapshotMs) en src/pure/firestore-read-policy.js. Online o server < 30s → RECHAZA cache. Offline sin server reciente → ACEPTA cache + banner (role=status aria-live=polite). 4 call-sites migrados.
+
+commitPedidoCF sigue bloqueado offline (callable HTTP requiere red).
+
+Tests: 30 PASS firestore-read-policy + 15 PASS banner-audit + suite 2319 PASS.
+
+**Informe**: DesktopINFORME_PR_v1501_OFFLINE_AWARE.md.
 
 ---
 
