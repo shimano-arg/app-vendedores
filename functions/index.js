@@ -1145,8 +1145,13 @@ export const applyRepartoManualCF = onCall(
     const assignments = Array.isArray(data.assignments) ? data.assignments : [];
     // v1312: eliminations[] opcional ({pedidoId, lineIndex, qtyEliminar}).
     const eliminations = Array.isArray(data.eliminations) ? data.eliminations : [];
+    // v1519 hotfix (2026-10-28): allowSobrante=true habilita "Cerrar reparto"
+    // con assignments+eliminations vacios (flow §40). Antes el guard rechazaba
+    // sin consultar allowSobrante y el core tampoco lo recibia → Pablo veia
+    // "assignments y eliminations vacios" al apretar "Cerrar reparto".
+    const allowSobrante = data.allowSobrante === true;
     if (!ingresoId) throw new HttpsError('invalid-argument', 'ingresoId requerido');
-    if (assignments.length === 0 && eliminations.length === 0) {
+    if (assignments.length === 0 && eliminations.length === 0 && !allowSobrante) {
       throw new HttpsError('invalid-argument', 'assignments y eliminations vacios');
     }
     try {
@@ -1165,6 +1170,7 @@ export const applyRepartoManualCF = onCall(
             qtyEliminar: Number(e.qtyEliminar) || 0,
           })),
           appliedByEmail: email,
+          allowSobrante,
         }
       );
       return r;
