@@ -4717,6 +4717,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1518 (2026-10-28) — Precios no "$0 / (sin precio)" post-F5
+
+**Antes**: después de un F5 post-deploy, el Master de Productos pintaba `(sin precio)` para 391 SKUs y el modal "Pedido en espera" mostraba subtotales en `$0`. Al rato (10-60s) aparecían los valores reales (`$1.554.000` / `$2.316.000`). Reportado por Mariano 2026-10-28 con BOSCHETTO ORDEN 403.
+
+**Causa raíz**: CLAUDE.md §100 (v1499) agrega `fbDb.clearPersistence()` cada bump de `APP_VERSION`. Hoy bumpeamos 4 veces (v1514 → v1515 → v1516 → v1517 → v1518). Cada F5 post-bump borra TODO el cache IndexedDB. El front renderea inmediato sin esperar al listener Firestore (`PRICE_LIST_MAP = {}` en memoria) → subtotales `$0`, badges `(sin precio)`. Después `ensurePriceListListener` recibe el snapshot server (741 SKUs intactos en `app_config/price_list`) y popula el map, pero las pantallas ya renderizadas no se refrescan solas.
+
+Verificado con script `scripts/audit/check_price_list.cjs`: `prices` tiene 741 SKUs, `updatedAt=2026-10-28T11:33Z`, intacto.
+
+**Fix A — Trigger re-render al llegar los precios**: `ensurePriceListListener` ahora re-renderea tambien `_renderWaitlistCard` (modal "Pedido en espera") al popular `PRICE_LIST_MAP`. Antes solo re-renderaba `renderProductMaster`.
+
+**Fix B — Loader en vez de "(sin precio)"**: `renderProductMaster` detecta si el map estaa vacio (`_pricesLoading = Object.keys(PRICE_LIST_MAP).length === 0 && Object.keys(TEMPORAL_PRICE_LIST_MAP).length === 0`). Si vacio, muestra `Cargando precios…` en azul. Si cargo pero el SKU no tiene precio real, sigue mostrando `(sin precio)` en gris como antes.
+
+**Verificación**:
+- Hard reload (`Ctrl+Shift+R`) → abrir Master de Productos inmediato: filas muestran `Cargando precios…` en azul (no `(sin precio)`).
+- A los pocos segundos → precios reales aparecen sin tener que cerrar/reabrir modal.
+- Abrir modal "Pedido en espera" post-F5: subtotales `$0` mientras `PRICE_LIST_MAP` carga → se refrescan solos al llegar snapshot (fix A).
+- Regresion: SKU que realmente no tiene precio SAP ni temporal sigue mostrando `(sin precio)` gris.
+
+**Archivos**: `index.html` (renderProductMaster + ensurePriceListListener + APP_VERSION v1517 → v1518), `sw.js` (CACHE_VERSION v1517 → v1518).
+
+**Rollback**: `git revert <sha_v1518>` + Pages redeploy. Vuelve al UX post-F5 que requeria esperar o cerrar/reabrir modal.
+
+---
+
 ### v1517 (2026-10-28) — Reparto: no pisar inputs mientras Pablo edita (re-apply post v1516)
 
 **Antes de v1515 (hoy a la mañana)**: el listener `onSnapshot('ingresos_reparto')` en `_repartoSubscribe` disparaba un re-render completo (`_repartoRender`) cada vez que llegaba un snapshot (otro user tocando algo, metadata update de Firestore, policy §103 reconnect). Cada re-render re-buildeaba las cards vía `_repartoBuildCard` → los `<input type="number">` de Asignado/Eliminar se reemplazaban con nuevos (value=0). Si Pablo había tipeado `2` en el SKU-A asig y entre medio llegaba snapshot, el `2` desaparecía.
