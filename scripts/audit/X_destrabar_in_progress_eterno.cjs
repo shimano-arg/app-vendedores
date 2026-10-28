@@ -117,10 +117,13 @@ async function main() {
   const errors = [];
   for (const r of stuck) {
     try {
+      // Coerción defensiva: Firestore rechaza undefined en writes. Si el doc
+      // no tenía lockedAt / lockedBy (docs pre-schema), guardamos null para
+      // mantener el snapshot sin reventar el update.
       const previousValues = {
-        status: r._rawData.status,
-        lockedAt: r._rawData.lockedAt,
-        lockedBy: r._rawData.lockedBy,
+        status: r._rawData.status != null ? r._rawData.status : null,
+        lockedAt: r._rawData.lockedAt != null ? r._rawData.lockedAt : null,
+        lockedBy: r._rawData.lockedBy != null ? r._rawData.lockedBy : null,
       };
       const prevBackfill = r._rawData._backfill || {};
       await db.collection('ingresos_reparto').doc(r.id).update({
