@@ -386,9 +386,20 @@ export async function createIngresosRepartoFromDelta(deps, beforeSnap, afterSnap
  * `qtyARepartir = max(0, fisico - ASIG_vigentes - confirmed_vigentes)`.
  * Si qtyARepartir <= 0 → skip (nada libre para repartir, aunque haya BO).
  *
+ * v1519 (2026-10-28): auto-close de ingresos con `clientesBO` stale.
+ *   - Precedente SATO 2026-10-23 (ver CLAUDE.md §64.3): draft_lock creó 2
+ *     pedidos SATO que se facturaron/cancelaron antes del reparto. El ingreso
+ *     para EDUARDO SATO 21100400100E seguía abierto con `clientesBO` apuntando
+ *     a esas líneas con qtyOpen=0 → al apretar "Aplicar reparto" la CF
+ *     rechazaba por "linea con qtyOpen=0".
+ *   - Fix: si `boVig <= 0` para un SKU con reparto abierto, auto-close con
+ *     `closureReason='bo_vigente_cero_auto'` y snapshot `_autoClose.previousValues`
+ *     para rollback. Idempotente (status='done' ya no se re-cierra).
+ *   - Batch de hasta 500 ops por invocación.
+ *
  * @param {RepartoDeps} deps
  * @param {any} snapshot - stock_snapshot.warehouseBreakdown
- * @returns {Promise<{created: string[], skipped: Array<{sku:string, reason:string}>, errors: string[]}>}
+ * @returns {Promise<{created: string[], skipped: Array<{sku:string, reason:string}>, errors: string[], autoCerrados: string[]}>}
  */
 export async function reconcileRepartosFaltantes(deps, snapshot) {
   const log = deps.log || (() => {});
@@ -402,11 +413,15 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
   const skipped = [];
   /** @type {string[]} */
   const errors = [];
+  /** @type {string[]} */
+  const autoCerrados = [];
 
-  // 1. SKUs con reparto activo (dedupe + ajuste).
+  // 1. SKUs con reparto activo (dedupe + ajuste + auto-close v1519).
   // v1392 §40: ya NO solo "skip si existe"; también ajustar qtyIngresada
   // cuando el reparto activo supera BO vigente.
-  /** @type {Map<string, {id:string, qtyIng:number, assignmentsSum:number}>} */
+  // v1519: guardamos data completa para poder auto-cerrar con snapshot
+  // en `_autoClose.previousValues`.
+  /** @type {Map<string, {id:string, qtyIng:number, assignmentsSum:number, status:string, data:any}>} */
   const repartosActivos = new Map();
   try {
     const activosSnap = await deps.fbDb
@@ -427,13 +442,15 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
         id: d.id,
         qtyIng: Number(data.qtyIngresada) || 0,
         assignmentsSum: asignadoYa,
+        status: String(data.status || 'pending'),
+        data,
       });
     });
   } catch (e) {
     errors.push(
       'reconcile: query ingresos_reparto activos fallo: ' + (e && e.message ? e.message : String(e))
     );
-    return { created, skipped, errors };
+    return { created, skipped, errors, autoCerrados };
   }
   const skusConReparto = new Set(repartosActivos.keys());
 
@@ -443,7 +460,7 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
     openPedidos = await loadOpenPedidos(deps);
   } catch (e) {
     errors.push('reconcile: loadOpenPedidos fallo: ' + (e && e.message ? e.message : String(e)));
-    return { created, skipped, errors };
+    return { created, skipped, errors, autoCerrados };
   }
 
   // 3. Para cada SKU con fisico > 0 → delegar cálculo a getStockBreakdown
@@ -451,6 +468,10 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
   //    usándose SOLO para armar el shape clientesBO[] FIFO del doc nuevo.
   //    Shape de pedidos: ya expandido en openPedidos (array de QueryDocumentSnapshot).
   const pedidosData = openPedidos.map((d) => Object.assign({ _fsId: d.id }, d.data() || {}));
+  // v1519: colección de auto-close para flushear en batch(es) después del loop
+  // (patrón acumulativo, hasta 500 writes por batch — límite Firestore).
+  /** @type {Array<{id:string, sku:string, previousStatus:string, previousClientesBO:any[]}>} */
+  const autoCloseOps = [];
   for (const [skuRaw, whs] of Object.entries(whsBreakdown)) {
     const sku = String(skuRaw).toUpperCase();
     try {
@@ -465,9 +486,32 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
       const boVig = breakdown.backorderApp.total;
       if (boVig <= 0) {
         if (skusConReparto.has(sku)) {
-          // Hay reparto abierto pero sin BO vigente → no ajustamos ni cerramos
-          // (Pablo decide; cerrar con sobrante es acción manual E2.2).
-          skipped.push({ sku, reason: 'reparto_activo_sin_bo_vigente' });
+          // v1519 §64.3: hay reparto abierto PERO sin BO vigente → auto-close.
+          // Antes (<=v1518) solo skipeaba con reason='reparto_activo_sin_bo_vigente'
+          // y el ingreso quedaba abierto para siempre con `clientesBO` stale.
+          // Al apretar "Aplicar reparto" la CF rechazaba por "linea con qtyOpen=0".
+          // Precedente SATO 2026-10-23 (doble pedido via draft_lock), ambos
+          // facturados/cancelados.
+          const activo = repartosActivos.get(sku);
+          if (activo) {
+            // Idempotente: si ya está en status='done', NO reencolamos.
+            if (activo.status === 'done') {
+              skipped.push({ sku, reason: 'ya_cerrado' });
+            } else {
+              autoCloseOps.push({
+                id: activo.id,
+                sku,
+                previousStatus: activo.status,
+                previousClientesBO: Array.isArray(activo.data && activo.data.clientesBO)
+                  ? activo.data.clientesBO
+                  : [],
+              });
+            }
+          } else {
+            // Edge case: skusConReparto decía true pero el map no tiene entry
+            // (shouldn't happen; defensive).
+            skipped.push({ sku, reason: 'reparto_activo_sin_bo_vigente' });
+          }
         } else {
           skipped.push({ sku, reason: 'sin_bo_vigente' });
         }
@@ -613,7 +657,54 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
       log('reparto_reconciliado error', { sku, err: msg });
     }
   }
-  return { created, skipped, errors };
+
+  // v1519: flush de auto-close en batch(es) de hasta 500 (límite Firestore).
+  if (autoCloseOps.length > 0) {
+    const BATCH_LIMIT = 500;
+    for (let i = 0; i < autoCloseOps.length; i += BATCH_LIMIT) {
+      const chunk = autoCloseOps.slice(i, i + BATCH_LIMIT);
+      try {
+        const batch = deps.fbDb.batch();
+        for (const op of chunk) {
+          const ref = deps.fbDb.collection(INGRESOS_REPARTO_COLLECTION).doc(op.id);
+          batch.update(ref, {
+            status: 'done',
+            appliedAt: nowIso,
+            appliedBy: 'system:reconcileRepartosFaltantes',
+            closureReason: 'bo_vigente_cero_auto',
+            _autoClose: {
+              at: nowIso,
+              reason: 'bo_vigente_cero_detected_in_reconcile',
+              previousValues: {
+                status: op.previousStatus,
+                clientesBO: op.previousClientesBO,
+              },
+            },
+          });
+        }
+        await batch.commit();
+        for (const op of chunk) {
+          autoCerrados.push(op.id);
+          log('reparto_auto_cerrado', {
+            sku: op.sku,
+            id: op.id,
+            previousStatus: op.previousStatus,
+            reason: 'bo_vigente_cero_auto',
+          });
+        }
+      } catch (e) {
+        const msg =
+          'auto-close batch (' +
+          chunk.length +
+          ' ops) fallo: ' +
+          (e && e.message ? e.message : String(e));
+        errors.push(msg);
+        log('reparto_auto_cerrado error', { chunkSize: chunk.length, err: msg });
+      }
+    }
+  }
+
+  return { created, skipped, errors, autoCerrados };
 }
 
 /**

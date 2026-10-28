@@ -4717,6 +4717,43 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1519 (2026-10-28) — Reparto: auto-cerrar ingresos con `clientesBO` stale (CLAUDE.md §64.3)
+
+**Antes**: al apretar "Aplicar reparto" sobre el ingreso de EDUARDO SATO SKU `21100400100E` (4 u), la CF rechazaba con:
+
+```
+Reparto aplicado con errores:
+linea con qtyOpen=0 @ 6LhigQdzUmEcOHcRUEjl:5 (pedido 6LhigQdzUmEcOHcRUEjl)
+linea con qtyOpen=0 @ qlB4FpI3R9Rhu5sLZvbf:5 (pedido qlB4FpI3R9Rhu5sLZvbf)
+```
+
+**Problema**: los 2 pedidos SATO del 2026-10-23 (precedente CLAUDE.md §64.3 draft_lock) fueron facturados/cancelados — sus líneas tienen `qtyOpen=0`. Pero el `clientesBO` snapshot del ingreso de reparto es **stale** (congelado al momento de crearse). El ingreso quedaba abierto para siempre bloqueando el UI de Pablo.
+
+**Cambio**:
+
+- **`functions/core/reparto-core.js:reconcileRepartosFaltantes`**: cuando `boVig <= 0 && skusConReparto.has(sku)`, auto-close del ingreso con `status='done'`, `appliedBy='system:reconcileRepartosFaltantes'`, `closureReason='bo_vigente_cero_auto'`, y `_autoClose.previousValues` snapshot para rollback. Idempotente (status='done' no se re-cierra). Batch de hasta 500 writes.
+- Return shape ahora incluye `autoCerrados: string[]` además de `created / skipped / errors`.
+- `functions/index.js:onDep11IncreaseCreateReparto` loguea `reconcileAutoCerrados` en el `done` log.
+- Nuevo script `scripts/audit/Y_cerrar_ingresos_sin_bo_vigente.cjs` (read-only + `--apply`) para limpieza manual de ingresos stale pre-v1519. **No se ejecuta automáticamente** — Mariano decide cuándo correr `--apply` tras revisar el markdown.
+
+**Por qué**: la autoridad de "¿hay BO vigente real?" es `pedidos.lines[].state='BO' && qtyOpen > 0`. El snapshot `clientesBO` del ingreso puede quedar desfasado si los pedidos origen se facturan/cancelan en el medio. Auto-cerrar el ingreso restablece la invariante "ingresos abiertos ↔ BO vigente real".
+
+**Verificación**:
+
+- `tests/functions/reparto-core-autoclose.test.js` (6 tests): T1a sin cambio con BO>0; T1b auto-close caso SATO; T1c idempotente (status='done'); T1d 3 ingresos en 1 batch; T1e fisico=0 no entra; T1f shape incluye `autoCerrados`.
+- `tests/unit/audit/Y_cerrar-dry-run.test.js` (7 tests): plan logic (todos sin BO → marcar, mixto → no marcar, con BO → no marcar, edge cases ASIG/facturado/sin pedidos).
+- Suite completa: 58/58 PASS en todos los `tests/functions/reparto*`.
+- Post-deploy: trigger manual `gcloud scheduler jobs run firebase-schedule-syncSapCatalogStockCF`; verificar en logs `reconcileAutoCerrados: N`.
+
+**Rollback**:
+1. Revertir el commit v1519 (CF + core + tests).
+2. Para los ingresos ya auto-cerrados post-deploy: cada doc tiene `_autoClose.previousValues.{status, clientesBO}`. Un script de reversión podría re-escribir esos campos + limpiar `status/appliedAt/appliedBy/closureReason/_autoClose`.
+3. Pages redeploy ~2 min + `firebase deploy --only functions:onDep11IncreaseCreateReparto`.
+
+**Archivos**: `functions/core/reparto-core.js`, `functions/index.js`, `tests/functions/reparto-core-autoclose.test.js`, `tests/unit/audit/Y_cerrar-dry-run.test.js`, `scripts/audit/Y_cerrar_ingresos_sin_bo_vigente.cjs`, `index.html` (APP_VERSION), `sw.js` (CACHE_VERSION), `README.md` §41.
+
+---
+
 ### v1518 (2026-10-28) — Precios no "$0 / (sin precio)" post-F5
 
 **Antes**: después de un F5 post-deploy, el Master de Productos pintaba `(sin precio)` para 391 SKUs y el modal "Pedido en espera" mostraba subtotales en `$0`. Al rato (10-60s) aparecían los valores reales (`$1.554.000` / `$2.316.000`). Reportado por Mariano 2026-10-28 con BOSCHETTO ORDEN 403.
