@@ -155,7 +155,6 @@ export function validateRepartoExcelImport(filas, repartosActivos) {
   const seenKeys = new Map();
   for (let i = 0; i < filas.length; i++) {
     const row = filas[i] || {};
-    const rowIdx = typeof row.__rowIndex === 'number' ? row.__rowIndex : i + 2;
     const repartoId = normStr(row.RepartoId);
     const cardCode = normStr(row.CardCode);
     const sku = normStr(row.Codigo);

@@ -160,16 +160,6 @@ import {
   distributeQtyFifo,
   groupKeyForClienteBO,
 } from './pure/reparto-consolidate.js';
-// v1497 §96 (2026-10-27): pure fn para armar filas del export Reparto.
-// Fuente única + robusta a campos faltantes (cliente sin nombre/localidad, etc).
-import {
-  computeRepartoExportRows,
-  filterIngresosForExport,
-  formatRepartoFiltrosHeader,
-  safeNum,
-  safeStr,
-  safeTs,
-} from './pure/reparto-export-rows.js';
 // v1505 (2026-10-28): pure fns del nuevo Reparto EXPORT MANUAL + IMPORT.
 // Diferente a v1497 §96: aquel es reporte resumen; este arma el template
 // editable con 9 columnas (7 visibles + 2 técnicas) y valida el reimport
@@ -185,6 +175,16 @@ import {
   groupImportMatchesByReparto,
   validateRepartoExcelImport,
 } from './pure/reparto-excel-import-validator.js';
+// v1497 §96 (2026-10-27): pure fn para armar filas del export Reparto.
+// Fuente única + robusta a campos faltantes (cliente sin nombre/localidad, etc).
+import {
+  computeRepartoExportRows,
+  filterIngresosForExport,
+  formatRepartoFiltrosHeader,
+  safeNum,
+  safeStr,
+  safeTs,
+} from './pure/reparto-export-rows.js';
 import { redistributeAsigLine } from './pure/reparto-stock-asig.js';
 import { reportCriticalErrorPure } from './pure/report-critical-error.js';
 import {
