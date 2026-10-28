@@ -174,6 +174,30 @@ window.exportRepartoManualExcel = async function () {
 
     for (let i = 0; i < result.rows.length; i++) {
       const r = result.rows[i];
+      // v1512 (2026-10-28): fila aviso SKU multi-reparto (Codigo === '', _notice=true).
+      // Se renderiza con fondo amarillo + solo las celdas Codigo+Cliente ocupadas;
+      // import validator la ignora por `Codigo === ''`.
+      if (r && (r._notice === true || r.Codigo === '')) {
+        const row = ws.addRow({
+          Codigo: '',
+          Cliente: r.Cliente || '',
+          Backorder: null,
+          StockDisponible: null,
+          Asignado: null,
+          VueleABackorder: null,
+          Eliminar: null,
+          RepartoId: '',
+          CardCode: '',
+        });
+        row.eachCell((cell) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEB99' } };
+          cell.font = { color: { argb: 'FF78350F' }, bold: true, size: 11 };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          // Fila aviso bloqueada (user no puede editar el aviso).
+          cell.protection = { locked: true };
+        });
+        continue;
+      }
       const row = ws.addRow({
         Codigo: r.Codigo,
         Cliente: r.Cliente,
@@ -215,12 +239,21 @@ window.exportRepartoManualExcel = async function () {
 
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 
+    // v1512 (2026-10-28): habilitar autofiltro + sort en la hoja protegida.
+    // Pablo reportó que "Ordenar y filtrar" en Excel desktop aparecía deshabilitado:
+    // faltaba `ws.autoFilter` que marca el rango como autofilter + `sort: true` en
+    // la protección permite ordenar las celdas desbloqueadas (Asignado + Eliminar).
+    // Las celdas bloqueadas (Codigo, Cliente, Backorder, Stock, VueleABO, RepartoId,
+    // CardCode) siguen bloqueadas; sort y filter trabajan sobre el conjunto completo.
+    const _lastRow = (result.rows ? result.rows.length : 0) + 1; // +1 por header
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: _lastRow, column: 9 } };
+
     await ws.protect('', {
       selectLockedCells: true,
       selectUnlockedCells: true,
       formatCells: false,
-      sort: false,
-      autoFilter: true,
+      sort: true, // v1512: permite ordenar
+      autoFilter: true, // permite filtrar (ya estaba)
     });
 
     const filename = pureMod.buildRepartoExcelFileName

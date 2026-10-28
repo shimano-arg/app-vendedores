@@ -80,18 +80,34 @@ describe('computeRepartoExcelExportRows — múltiples clientes mismo SKU', () =
   });
 });
 
-describe('computeRepartoExcelExportRows — mismo SKU en 3 repartos distintos', () => {
-  it('devuelve 3 filas con distintos Reparto ID', () => {
+describe('computeRepartoExcelExportRows — mismo SKU en 3 repartos distintos (v1512)', () => {
+  it('inserta fila aviso amarilla + devuelve 3 filas datos con distintos Reparto ID', () => {
     const ings = [
       ing({ _id: 'ING-A', sku: 'CLC66HAR' }),
       ing({ _id: 'ING-B', sku: 'CLC66HAR' }),
       ing({ _id: 'ING-C', sku: 'CLC66HAR' }),
     ];
     const res = computeRepartoExcelExportRows(ings, {}, { getStockFisico: () => 5 });
-    expect(res.rows.length).toBe(3);
-    const ids = res.rows.map((r) => r.RepartoId).sort();
+    // v1512: 1 fila aviso + 3 filas datos.
+    expect(res.rows.length).toBe(4);
+    const noticeRows = res.rows.filter((r) => r._notice === true);
+    expect(noticeRows.length).toBe(1);
+    expect(noticeRows[0].Codigo).toBe('');
+    expect(noticeRows[0].Cliente).toContain('CLC66HAR');
+    expect(noticeRows[0].Cliente).toContain('3 repartos abiertos');
+    const dataRows = res.rows.filter((r) => r._notice !== true);
+    expect(dataRows.length).toBe(3);
+    const ids = dataRows.map((r) => r.RepartoId).sort();
     expect(ids).toEqual(['ING-A', 'ING-B', 'ING-C']);
-    expect(res.rows.every((r) => r.Codigo === 'CLC66HAR')).toBe(true);
+    expect(dataRows.every((r) => r.Codigo === 'CLC66HAR')).toBe(true);
+  });
+
+  it('NO inserta aviso cuando el SKU tiene un solo reparto', () => {
+    const ings = [ing({ _id: 'ING-A', sku: 'SKU-UNICO' })];
+    const res = computeRepartoExcelExportRows(ings, {}, { getStockFisico: () => 5 });
+    expect(res.rows.length).toBe(1);
+    expect(res.rows[0]._notice).not.toBe(true);
+    expect(res.rows[0].Codigo).toBe('SKU-UNICO');
   });
 });
 

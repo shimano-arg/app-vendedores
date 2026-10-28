@@ -110,16 +110,20 @@ export function filterIngresosForExcelExport(ingresos, filtros, getStockFisico) 
 }
 
 /**
+ * v1512: `Backorder`/`StockDisponible`/`Asignado`/`Eliminar` pueden ser null
+ * en las filas aviso de SKU multi-reparto (`_notice=true`, `Codigo=''`).
+ *
  * @typedef {Object} RepartoExcelRow
  * @property {string} Codigo
  * @property {string} Cliente
- * @property {number} Backorder
- * @property {number} StockDisponible
- * @property {number} Asignado
+ * @property {number|null} Backorder
+ * @property {number|null} StockDisponible
+ * @property {number|null} Asignado
  * @property {string} VueleABackorder - fórmula Excel ej. "=C2-E2-G2"
- * @property {number} Eliminar
+ * @property {number|null} Eliminar
  * @property {string} RepartoId
  * @property {string} CardCode
+ * @property {boolean} [_notice] - v1512: true si es fila aviso SKU multi-reparto
  */
 
 /**
@@ -151,9 +155,62 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
   let totalBackorder = 0;
   let totalStock = 0;
 
+  // v1512 (2026-10-28): agrupar por Reparto ID dentro de cada SKU + insertar
+  // fila aviso en amarillo cuando un SKU aparece en >1 reparto abierto.
+  // Pablo reportó: CLC66HAR aparece 3 veces por cliente con 3 Reparto ID distintos.
+  // Sin aviso visual, Pablo podría asignar la misma unidad en los 3 repartos.
+  //
+  // La fila aviso tiene Codigo='' (marcador) + Cliente con el texto.
+  // El import validator debe skipearlas por `Codigo === ''`.
+  //
+  // Esto se elimina cuando entre PR2 Paso 3 (fuente única backorder) — por
+  // construcción solo habrá 1 reparto por SKU vigente.
+  const _repartoCountBySku = new Map();
   for (const ing of filtered) {
+    const _sku = safeStr(ing && ing.sku);
+    if (!_sku) continue;
+    const _rid = safeStr(ing && (ing._id || ing.id));
+    if (!_rid) continue;
+    if (!_repartoCountBySku.has(_sku)) _repartoCountBySku.set(_sku, new Set());
+    _repartoCountBySku.get(_sku).add(_rid);
+  }
+  // Ordenar ingresos por SKU ascendente + por repartoId ascendente para que las
+  // filas del mismo SKU queden juntas y los repartos dentro del SKU en orden estable.
+  const _sortedFiltered = filtered.slice().sort((a, b) => {
+    const skuA = safeStr(a && a.sku);
+    const skuB = safeStr(b && b.sku);
+    const cmpSku = skuA.localeCompare(skuB);
+    if (cmpSku !== 0) return cmpSku;
+    const ridA = safeStr(a && (a._id || a.id));
+    const ridB = safeStr(b && (b._id || b.id));
+    return ridA.localeCompare(ridB);
+  });
+
+  let _lastSku = null;
+  for (const ing of _sortedFiltered) {
     const sku = safeStr(ing && ing.sku);
     const repartoId = safeStr(ing && (ing._id || ing.id));
+    // Insertar fila aviso ANTES del primer reparto de un SKU multi-reparto.
+    if (sku && sku !== _lastSku) {
+      const _skuRepartos = _repartoCountBySku.get(sku);
+      const _count = _skuRepartos ? _skuRepartos.size : 1;
+      if (_count > 1) {
+        rows.push({
+          Codigo: '', // Marcador fila aviso — import ignora.
+          Cliente:
+            'Este SKU (' + sku + ') tiene ' + _count + ' repartos abiertos: asigna en uno solo',
+          Backorder: null,
+          StockDisponible: null,
+          Asignado: null,
+          VueleABackorder: '',
+          Eliminar: null,
+          RepartoId: '',
+          CardCode: '',
+          _notice: true, // Flag para que el renderer aplique estilo amarillo.
+        });
+      }
+      _lastSku = sku;
+    }
     const stockFis = stockFn ? safeNum(stockFn(ing.sku)) : safeNum(ing && ing.qtyIngresada);
     totalStock += stockFis;
     const rawClis = Array.isArray(ing && ing.clientesBO) ? ing.clientesBO : [];
