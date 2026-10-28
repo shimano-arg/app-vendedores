@@ -2585,6 +2585,11 @@ body.is-pachi-restricted #forecast-btn,
 body.is-pachi-restricted #rendiciones-top-btn,
 body.is-pachi-restricted .tab-btn[data-tab="rendiciones"],
 body.is-pachi-restricted #seguimiento-btn{display:none !important}
+/* v1507 iter 8 (2026-10-28): ocultar botón "PEDIDOS EN ESPERA" global del header.
+   El contador que muestra es cross-vendor (todas las ordenes abiertas del sistema)
+   y no corresponde al scope de PACHI. Su lista propia (sidebar-left-waitlist,
+   filtrada por su UID) SIGUE visible — el listener alimenta ambos. */
+body.is-pachi-restricted #waitlist-btn{display:none !important}
 /* v1478: Reportes Excel — PACHI ve solo "Pedidos del mes" + "Masterfile Clientes". */
 body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]){display:none !important}
 /* v1478: Campañas — PACHI NO ve el botón "Gráficos" (métricas de progreso).
@@ -7114,7 +7119,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1501';
+const APP_VERSION = 'v1507';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

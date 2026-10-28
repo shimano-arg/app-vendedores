@@ -92,11 +92,13 @@ import {
 import {
   canDeleteOwnWaitlist,
   canRevisionEmailOrUid,
+  isHeaderBtnHiddenForPachi,
   isPachiBodyFlagActive,
   isPachiRestricted,
   isSidebarLeftBtnHiddenForPachi,
   PACHI_BLOCKED_OPEN_FNS,
   PACHI_EMAIL,
+  PACHI_HIDDEN_HEADER_BTN_IDS,
   PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS,
   PACHI_UID,
   PACHI_UIDS,
@@ -540,6 +542,10 @@ const phase0 = {
       PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS,
       PACHI_BLOCKED_OPEN_FNS,
       isSidebarLeftBtnHiddenForPachi,
+      // v1507 iter 8 (2026-10-28): botones del header-top ocultos para PACHI.
+      // Fuente única paralela a PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.
+      PACHI_HIDDEN_HEADER_BTN_IDS,
+      isHeaderBtnHiddenForPachi,
       // v1493 §92 (2026-10-27) iter 4: fuente única del gate `can-revision`.
       canRevisionEmailOrUid,
       // v1496 §95 (2026-10-27) iter 6: ¿puede borrar waitlist card? PACHI
