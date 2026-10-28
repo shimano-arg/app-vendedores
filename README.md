@@ -4717,6 +4717,35 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1515 (2026-10-28) — Modal Reparto: no pisar inputs mientras Pablo edita
+
+**Antes**: el listener `onSnapshot('ingresos_reparto')` en `_repartoSubscribe` disparaba un re-render completo (`_repartoRender`) cada vez que llegaba un snapshot (otro user tocando algo, metadata update de Firestore, policy §103 reconnect). Cada re-render re-buildea las cards vía `_repartoBuildCard` → los `<input type="number">` de Asignado/Eliminar se reemplazan con nuevos (value=0). Si Pablo había tipeado `2` en el SKU-A asig y entre medio llegaba snapshot, el `2` desaparecía.
+
+**Problema reportado por Mariano (2026-10-28)**: "cuando usas reparto desde la app es como que tiene un temporizador en cada SKU o algo así y no te deja hacerlo a tu ritmo". No era un timer explícito; era el re-render destructivo periódico. Síntoma indistinguible de un cooldown artificial.
+
+**Cambio**: `_repartoRender` ahora detecta si Pablo está editando antes de re-buildear:
+- Hay un `.reparto-apple-input` focused dentro de `#reparto-list` → diferir.
+- Hay cualquier `.reparto-apple-input` con `value > 0` dentro de `#reparto-list` → diferir.
+- Si cualquier condición dispara → marca `window._repartoRenderPending = true` y return (NO re-build cards; los inputs de Pablo quedan intactos).
+- Si Pablo no está editando (inputs en 0 + sin focus) → render limpio normal (comportamiento previo).
+
+El próximo render limpio ocurre naturalmente:
+1. **Apply reparto exitoso** → `_repartoApply` llama la CF, el write success dispara snapshot nuevo con el ingreso `status=done` → el ingreso desaparece de la lista y los inputs se liberan.
+2. **Cerrar + reabrir modal** → `closeRepartoModal` + `openRepartoModal` reset implícito del state.
+3. **Pablo limpia manual todos los inputs a 0** y hace blur → próximo snapshot entrante encuentra gate abierto.
+
+**Por qué**: Pablo usa el reparto a su ritmo (10-15 min por sesión asignando varios SKUs). Durante esa ventana otros users entran y salen de la app → Firestore manda múltiples snapshots → cada uno pisaba el DOM. Preservar inputs mientras hay edición activa es el pattern mínimo. No necesita merge inteligente de valores (que es feature grande + bug-prone); con diferir alcanza porque el apply resetea todo.
+
+**Trade-off**: si Pablo escribe `2` en SKU-A, deja la pestaña abierta 1 hora sin aplicar, y entre medio otro user elimina el ingreso SKU-A, Pablo seguirá viendo el ingreso stale hasta que haga blur + limpie inputs a 0 (gate deja pasar) o cierre modal. Es aceptable porque: (a) escenario raro; (b) al apretar Aplicar la CF valida contra Firestore actual y rechaza con `ingreso not found` si corresponde (sin dato corrupto).
+
+**Verificación**: abrir modal Reparto con 3+ ingresos, tipear `2` en SKU-A asig, esperar 30-60s (ventana típica de snapshot), confirmar que el `2` sigue ahí. Apretar Aplicar → ingreso desaparece de la lista. Caso regresión: con todos los inputs en 0 y sin focus, los snapshots entrantes siguen refrescando el modal normalmente.
+
+**Archivos**: `index.html` (gate en `_repartoRender`, APP_VERSION v1514 → v1515), `sw.js` (CACHE_VERSION v1514 → v1515).
+
+**Rollback**: `git revert <sha_v1515>` + Pages redeploy. Vuelve al comportamiento v1514 (re-render destructivo).
+
+---
+
 ### v1514 (2026-10-28) — Import Reparto Pablo Fase B: rework UI modal + consistency rule + Playwright 5 puntos
 
 **Antes (v1512 / v1511)**: el modal `#reparto-import-modal` tenía un `<input type=file>` visible en el body + un div `#reparto-import-preview` que iba mutando contenido (chips "Reconocidas/Con cambios/Errores" + tabla 5 cols pequeña). No había drag/drop. No había consistency rule explícita. El preview no reflejaba el shape de las 3 columnas que Pablo necesita (Asignadas / Vuelve a BO / Eliminadas).

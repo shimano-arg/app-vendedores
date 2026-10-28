@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1514';
+const APP_VERSION = 'v1515';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -21731,6 +21731,28 @@ function _repartoRender(){
   const sum = document.getElementById('reparto-summary');
   const list = document.getElementById('reparto-list');
   if (!list) return;
+  // v1515 (2026-10-28): no pisar inputs mientras Pablo esta editando.
+  // Antes: cada onSnapshot entrante (otro user tocando algo, metadata update
+  // de Firestore, policy §103 reconnect) disparaba _repartoRender -> re-build
+  // de cards -> inputs reseteados a 0. Pablo lo reportaba como "temporizador
+  // por SKU que no deja trabajar al ritmo propio".
+  // Fix: si hay algun input de qty focused O con value>0, diferir el render.
+  // El proximo render limpio ocurre naturalmente al aplicar reparto (resetea
+  // inputs) o al cerrar + reabrir el modal.
+  const _editingInputs = list.querySelectorAll('input.reparto-apple-input');
+  const _ae = document.activeElement;
+  const _hasFocusEditing =
+    _ae && _ae.classList && _ae.classList.contains('reparto-apple-input') &&
+    list.contains(_ae);
+  let _hasPendingValues = false;
+  for (let _i = 0; _i < _editingInputs.length; _i++) {
+    if ((Number(_editingInputs[_i].value) || 0) > 0) { _hasPendingValues = true; break; }
+  }
+  if (_hasFocusEditing || _hasPendingValues) {
+    window._repartoRenderPending = true;
+    return;
+  }
+  window._repartoRenderPending = false;
   // v1294 (2026-10-14): filtro por SKU o nombre de cliente del input search.
   const searchEl = document.getElementById('reparto-search');
   const q = (searchEl && searchEl.value || '').trim().toLowerCase();

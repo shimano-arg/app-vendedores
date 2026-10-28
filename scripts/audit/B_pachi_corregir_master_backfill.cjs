@@ -219,9 +219,14 @@ async function main() {
   if (FASE === 'pedidos' || FASE === 'all') {
     console.log('');
     console.log('========== FASE PEDIDOS ==========');
-    console.log('Cargando pedidos (NO cerrados)...');
-    // Query acotada: closedAt == null para evitar traer historico cerrado.
-    const pedSnap = await db.collection('pedidos').where('closedAt', '==', null).get();
+    console.log('Cargando pedidos (incluye cerrados: filter in-memory por !closedAt)...');
+    // v1512 fix: `where('closedAt','==',null)` NO matchea undefined (Firestore
+    // tipa null vs ausencia). Script A usa filter in-memory `!p.closedAt` que
+    // sí captura undefined/null/empty. Alineamos: traemos TODOS los pedidos de
+    // cardCodes de PACHI y filtramos en memoria. Procesamos abiertos + cerrados
+    // porque el pedido explícito de Mariano "backfill de assignedVendorUid en
+    // los pedidos de esos clientes" incluye los 47 cerrados afectados.
+    const pedSnap = await db.collection('pedidos').get();
     pedSnap.forEach((d) => {
       const data = d.data() || {};
       const cc = normCardCode(data.clientCardCode);
@@ -236,6 +241,7 @@ async function main() {
         clientName: data.clientName || '',
         orderNumber: data.orderNumber || '',
         stage: data.stage || '',
+        closed: !!data.closedAt,
         prev: {
           assignedVendorUid: data.assignedVendorUid || null,
           vendorAssigned: data.vendorAssigned || null,
@@ -244,7 +250,9 @@ async function main() {
         },
       });
     });
-    console.log(`pedidos a corregir (closedAt==null): ${pedidoChanges.length}`);
+    const openCount = pedidoChanges.filter((p) => !p.closed).length;
+    const closedCount = pedidoChanges.filter((p) => p.closed).length;
+    console.log(`pedidos a corregir: ${pedidoChanges.length} (abiertos: ${openCount}, cerrados: ${closedCount})`);
     const byStage = {};
     pedidoChanges.forEach((p) => (byStage[p.stage || '(sin stage)'] = (byStage[p.stage || '(sin stage)'] || 0) + 1));
     console.log('Por stage:', JSON.stringify(byStage));
