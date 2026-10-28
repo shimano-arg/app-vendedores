@@ -192,8 +192,9 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
       const _count = _skuRepartos ? _skuRepartos.size : 1;
       if (_count > 1) {
         rows.push({
-          Codigo: '',  // Marcador fila aviso — import ignora.
-          Cliente: 'Este SKU (' + sku + ') tiene ' + _count + ' repartos abiertos: asigna en uno solo',
+          Codigo: '', // Marcador fila aviso — import ignora.
+          Cliente:
+            'Este SKU (' + sku + ') tiene ' + _count + ' repartos abiertos: asigna en uno solo',
           Backorder: null,
           StockDisponible: null,
           Asignado: null,
@@ -201,7 +202,7 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
           Eliminar: null,
           RepartoId: '',
           CardCode: '',
-          _notice: true,  // Flag para que el renderer aplique estilo amarillo.
+          _notice: true, // Flag para que el renderer aplique estilo amarillo.
         });
       }
       _lastSku = sku;

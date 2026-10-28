@@ -252,8 +252,8 @@ window.exportRepartoManualExcel = async function () {
       selectLockedCells: true,
       selectUnlockedCells: true,
       formatCells: false,
-      sort: true,         // v1512: permite ordenar
-      autoFilter: true,   // permite filtrar (ya estaba)
+      sort: true, // v1512: permite ordenar
+      autoFilter: true, // permite filtrar (ya estaba)
     });
 
     const filename = pureMod.buildRepartoExcelFileName
