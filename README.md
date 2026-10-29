@@ -4717,6 +4717,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1532 (2026-10-29) — Dashboard de Ventas fase 2, entrega B: tabla de productos, cobertura de cartera y facturación por cliente
+
+**Antes**: el Dashboard de Ventas (v1531) mostraba tarjetas de gestión e interacciones, pero no el detalle por producto, ni qué parte de la cartera compró, ni la facturación por cliente.
+
+**Problema**: no se podía ver qué productos se vendieron en el mes junto a su back order y su stock, ni cuántos clientes de la cartera de cada vendedor compraron, ni cuáles clientes concentran la facturación.
+
+**Cambio**:
+- Tabla de productos (CATEGORIA, FAMILIA, SKU, UNIDADES VENDIDAS, FACTURADO, UNIDADES BACKORDER, UNIDADES RESERVADAS, UNIDADES LIBRE PARA LA VENTA, UNIDADES EN STOCK). Ventas del mes y back order SAP vigente se unen con FULL OUTER JOIN desde BigQuery (un producto con back order y sin ventas también aparece). Reservadas, libre y stock se calculan en el navegador con `getStockBreakdown` (mismo cálculo que el popup "Stock del SKU"); mientras el stock no cargó se muestra "…". Tope de 200 filas visibles, con buscador (debounce 200 ms) y memo del stock por render.
+- Cobertura de cartera por vendedor: clientes que compraron desde 2026-06-01 hasta fin del mes elegido / clientes dados de alta en SAP (`v_cartera_vendor`). Etiqueta del estilo "36 de 66 · 54,55%".
+- Facturación por clientes: Top 20 con botón "Ver más".
+- Cada sección falla sola: si una query cae, esa sección muestra "No disponible" y el resto sigue.
+- Archivos: `functions/core/dashboard-ventas-queries-productos.js` (nuevo), `functions/core/dashboard-ventas-queries.js` (export `T_BO_VIVO`), `functions/core/dashboard-ventas-core.js`, `src/domains/dashboard-ventas.js`, `chunks/dashboard-ventas.js` (regenerado), tests.
+
+**Por qué**: completar la vista comercial con el cruce ventas / back order / stock por producto, la penetración de la cartera y la concentración por cliente, sin que una query caída tumbe el dashboard.
+
+**Verificación**: tests `tests/functions/dashboard-ventas-core.test.js`, `dashboard-ventas-productos-queries.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`; lint, typecheck, unit y smoke en verde (conteos reales en el reporte de la tarea). Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
+
+**Deploy**: requiere la entrega A (v1531) ya mergeada. `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
+
+**Rollback**: revert del commit/PR + redeploy de `dashboardVentasCF`.
+
 ### v1531 (2026-10-29) — Dashboard de Ventas fase 2, entrega A: tarjetas de gestión, interacciones y estilo Apple
 
 **Antes**: el Dashboard de Ventas (`#dashboard-ventas-modal`) mostraba solo facturación; sin datos de gestión comercial y con estilo propio inline.
