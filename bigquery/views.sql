@@ -3469,19 +3469,25 @@ PARTITION BY snapshot_date;
 -- ============================================================
 -- Back order ESTIMADO a cada fin de mes, para los 12 meses previos a la
 -- primera foto de backorder_daily_snapshot (si la tabla esta vacia: los 12
--- fines de mes previos al mes actual ART). Spec §3.2:
+-- fines de mes previos al mes actual ART):
 --
 --   pendiente(M, linea SQ) = MAX(0, cantidad cotizada
---                                   - cantidad facturada con doc_date <= M)
+--                                   - cantidad pasada a SO con SO.doc_date <= M)
 --
--- considerando SOLO SQ con doc_date <= M y no canceladas. La factura se
--- vincula a la linea de SQ por la cadena a nivel LINEA:
---   Invoice.line (BaseType 17, BaseEntry = SO.doc_entry, BaseLine = SO.LineNum)
---   -> SO.line   (BaseType 23, BaseEntry = SQ.doc_entry, BaseLine = SQ.LineNum)
--- Si una linea no trae BaseLine, fallback: la linea de menor LineNum del
--- documento base con el mismo ItemCode (asi una factura nunca se cuenta
--- dos veces). Valorizado con el Price de la linea de la SQ. Notas de
--- credito: se ignoran (spec).
+-- considerando SOLO SQ con doc_date <= M y no canceladas, y SO no canceladas.
+-- DEFINICION: se descuenta lo COPIADO A ORDEN DE VENTA, no lo facturado.
+-- Se aparta del texto de la spec §3.2 (que habla de la cadena
+-- Invoice -> SO -> SQ) por decision del controller (2026-10-29): la foto
+-- diaria real sale de v_backorder_lineas, cuyo pendiente
+-- (RemainingOpenQuantity de la SQ) baja cuando la cotizacion se copia a
+-- una SO. Los meses estimados usan la misma definicion para que la serie
+-- empalme sin salto con backorder_daily_snapshot.
+-- La SO se vincula a la linea de SQ a nivel LINEA:
+--   SO.line (BaseType 23, BaseEntry = SQ.doc_entry, BaseLine = SQ.LineNum)
+-- Si la linea de SO no trae BaseLine, fallback: la linea de menor LineNum de
+-- la SQ con el mismo ItemCode (asi una SO nunca se cuenta dos veces).
+-- Valorizado con el Price de la linea de la SQ. Facturas y notas de credito
+-- no intervienen.
 --
 -- Vendedor/provincia/pesca: MISMA resolucion que v_backorder_dashboard
 -- (cliente_app.assignedVendor + prov_lookup canonizada; pesca = item en
@@ -3490,11 +3496,9 @@ PARTITION BY snapshot_date;
 --
 -- Limitaciones conocidas (por eso es "estimado"):
 --   * SQ canceladas/modificadas despues de M no se ven como eran en M.
---   * Lineas cerradas a mano en SAP sin facturar cuentan como pendientes
---     en todos los meses posteriores a la SQ.
---   * Lo pasado a SO pero no facturado a M cuenta como pendiente (el back
---     order de hoy, v_backorder_lineas, lo descuenta al pasar a SO).
---   * Facturas sin cadena a SQ (venta directa) no descuentan de nada.
+--   * Lineas de SQ cerradas a mano en SAP sin pasar a SO cuentan como
+--     pendientes en todos los meses posteriores a la SQ.
+--   * SO sin cadena a SQ (venta directa) no descuentan de nada.
 --   * Las tablas raw traen 24 meses: SQ anteriores a eso no aparecen, los
 --     meses mas viejos pueden quedar cortos.
 --   * No aplica la deduplicacion v474 (sqs_a_excluir) de v_backorder_lineas.
@@ -3549,77 +3553,38 @@ sq_min_linea AS (
 so_lineas AS (
   SELECT
     o.doc_entry                                                        AS so_doc_entry,
+    o.doc_date                                                         AS so_doc_date,
     COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)   AS so_line_num,
     JSON_VALUE(line, '$.ItemCode')                                     AS item_code,
+    SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)               AS qty,
     SAFE_CAST(JSON_VALUE(line, '$.BaseEntry') AS INT64)                AS sq_doc_entry,
     SAFE_CAST(JSON_VALUE(line, '$.BaseLine') AS INT64)                 AS sq_base_line
   FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
   UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line WITH OFFSET off
   WHERE COALESCE(o.cancelled, 'tNO') = 'tNO'
+    AND o.doc_date IS NOT NULL
     AND SAFE_CAST(JSON_VALUE(line, '$.BaseType') AS INT64) = 23
     AND JSON_VALUE(line, '$.BaseEntry') IS NOT NULL
+    AND SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) > 0
   QUALIFY ROW_NUMBER() OVER (
     PARTITION BY o.doc_entry,
                  COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)) = 1
 ),
--- Cada linea de SO apunta a UNA linea de SQ.
-so_a_sq AS (
+-- Cantidad pasada a SO por linea de SQ y fecha de SO. Cada linea de SO
+-- (doc_entry + LineNum unicos) apunta a UNA sola linea de SQ: no hay
+-- duplicacion.
+pasado_a_so AS (
   SELECT
-    so.so_doc_entry,
-    so.so_line_num,
-    so.item_code,
     so.sq_doc_entry,
-    COALESCE(so.sq_base_line, fb.sq_line_num) AS sq_line_num
+    COALESCE(so.sq_base_line, fb.sq_line_num) AS sq_line_num,
+    so.so_doc_date,
+    SUM(so.qty)                               AS qty_pasada
   FROM so_lineas so
   LEFT JOIN sq_min_linea fb
     ON fb.sq_doc_entry = so.sq_doc_entry
     AND fb.item_code = so.item_code
-),
--- Fallback sin BaseLine en la factura: menor LineNum de la SO con ese ItemCode.
-so_min_linea AS (
-  SELECT so_doc_entry, item_code, MIN(so_line_num) AS so_line_num
-  FROM so_lineas
-  GROUP BY so_doc_entry, item_code
-),
--- Lineas de factura no canceladas que vienen de una SO (BaseType 17).
-inv_lineas AS (
-  SELECT
-    i.doc_entry                                                        AS inv_doc_entry,
-    COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)   AS inv_line_num,
-    i.doc_date                                                         AS inv_doc_date,
-    JSON_VALUE(line, '$.ItemCode')                                     AS item_code,
-    SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)               AS qty,
-    SAFE_CAST(JSON_VALUE(line, '$.BaseEntry') AS INT64)                AS so_doc_entry,
-    SAFE_CAST(JSON_VALUE(line, '$.BaseLine') AS INT64)                 AS so_base_line
-  FROM `app-vendedores-shimano.shimano_app.sap_invoices_raw` i,
-  UNNEST(JSON_EXTRACT_ARRAY(i.lines_json)) AS line WITH OFFSET off
-  WHERE COALESCE(i.cancelled, 'tNO') = 'tNO'
-    AND i.doc_date IS NOT NULL
-    AND SAFE_CAST(JSON_VALUE(line, '$.BaseType') AS INT64) = 17
-    AND JSON_VALUE(line, '$.BaseEntry') IS NOT NULL
-    AND SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) > 0
-  QUALIFY ROW_NUMBER() OVER (
-    PARTITION BY i.doc_entry,
-                 COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)) = 1
-),
--- Cantidad facturada por linea de SQ y fecha de factura. Cada linea de
--- factura matchea a lo sumo UNA linea de SO (doc_entry + LineNum unicos),
--- y cada SO a UNA de SQ: no hay duplicacion por la cadena.
-facturado AS (
-  SELECT
-    sa.sq_doc_entry,
-    sa.sq_line_num,
-    inv.inv_doc_date,
-    SUM(inv.qty) AS qty_facturada
-  FROM inv_lineas inv
-  LEFT JOIN so_min_linea fb
-    ON fb.so_doc_entry = inv.so_doc_entry
-    AND fb.item_code = inv.item_code
-  JOIN so_a_sq sa
-    ON sa.so_doc_entry = inv.so_doc_entry
-    AND sa.so_line_num = COALESCE(inv.so_base_line, fb.so_line_num)
-  WHERE sa.sq_line_num IS NOT NULL
-  GROUP BY sa.sq_doc_entry, sa.sq_line_num, inv.inv_doc_date
+  WHERE COALESCE(so.sq_base_line, fb.sq_line_num) IS NOT NULL
+  GROUP BY 1, 2, 3
 ),
 -- Pendiente por linea de SQ y fin de mes, clamp a 0 por linea.
 pendiente_linea AS (
@@ -3630,14 +3595,14 @@ pendiente_linea AS (
     s.card_code,
     s.item_code,
     s.precio_unitario,
-    GREATEST(s.qty - COALESCE(SUM(f.qty_facturada), 0), 0) AS pendiente_uds
+    GREATEST(s.qty - COALESCE(SUM(ps.qty_pasada), 0), 0) AS pendiente_uds
   FROM sq_lineas s
   JOIN meses m
     ON s.sq_doc_date <= m.mes_fin
-  LEFT JOIN facturado f
-    ON f.sq_doc_entry = s.sq_doc_entry
-    AND f.sq_line_num = s.sq_line_num
-    AND f.inv_doc_date <= m.mes_fin
+  LEFT JOIN pasado_a_so ps
+    ON ps.sq_doc_entry = s.sq_doc_entry
+    AND ps.sq_line_num = s.sq_line_num
+    AND ps.so_doc_date <= m.mes_fin
   GROUP BY m.mes_fin, s.sq_doc_entry, s.sq_line_num, s.card_code,
            s.item_code, s.precio_unitario, s.qty
 ),
