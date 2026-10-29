@@ -95,9 +95,16 @@ describe('buildGestionQueries', () => {
     expect(q.query).toContain('v_rendiciones');
     expect(q.query).toContain('DATE(@desde)');
     expect(q.query).toContain('monto_ars');
+    // Gastos rechazados no cuentan.
+    expect(q.query).toContain('rechazada');
     expect(q.types.desde).toBe('STRING');
     expect(q.params.desde).toBe('2026-09-01');
     expect(q.params.hasta).toBe('2026-09-30');
+  });
+
+  it('interacciones: orden estable con vendedor como desempate final', () => {
+    const q = buildGestionQueries(f(), NOW).interacciones.query;
+    expect(q).toMatch(/ORDER BY fecha_visita DESC, cliente, vendedor\s+LIMIT/);
   });
 
   it('interacciones: LIMIT 500 y total con COUNT(*) OVER()', () => {

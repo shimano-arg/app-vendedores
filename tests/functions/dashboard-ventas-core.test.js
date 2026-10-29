@@ -18,6 +18,7 @@ import {
   buildQueries,
   dashboardVentasCore,
   normalizeFilters,
+  runSeccion,
 } from '../../functions/core/dashboard-ventas-core.js';
 
 // 2026-10-29 15:00 ART = 18:00 UTC.
@@ -61,7 +62,7 @@ describe('dashboard-ventas-core', () => {
   it('vendedor_forzado: el vendedor solo ve lo suyo aunque pida otro', async () => {
     const deps = makeDeps({}, { role: 'vendedor', vendor: 'MAURICIO GIL' });
     await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['PACHI'] } });
-    expect(deps.calls.length).toBe(5);
+    expect(deps.calls.length).toBe(10);
     for (const q of deps.calls) {
       if (queryName(q.query) === 'opciones') {
         expect(q.params.scopeVendedores).toEqual(['MAURICIO GIL']);
@@ -340,14 +341,14 @@ describe('dashboard-ventas-core', () => {
     await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
     t += 5 * 60 * 1000;
     await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
-    expect(deps.calls.length).toBe(5);
+    expect(deps.calls.length).toBe(10);
     // otro uid no comparte caché.
     await dashboardVentasCore(deps, { auth: { uid: 'u2' }, data: { mes: '2026-10' } });
-    expect(deps.calls.length).toBe(10);
+    expect(deps.calls.length).toBe(20);
     // vencido el TTL se vuelve a consultar.
     t += 6 * 60 * 1000;
     await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
-    expect(deps.calls.length).toBe(15);
+    expect(deps.calls.length).toBe(30);
   });
 
   it('buildQueries: params de mes y ventana de 12 meses', () => {
@@ -394,7 +395,7 @@ describe('dashboard-ventas-core', () => {
     r1.topDinero.length = 0;
     r1.kpis.facturado = 999;
     const r2 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['A', 'B'] } });
-    expect(deps.calls.length).toBe(5);
+    expect(deps.calls.length).toBe(10);
     expect(r2.topDinero.length).toBe(1);
     expect(r2.kpis.facturado).toBe(0);
     r2.topDinero.length = 0;
@@ -422,5 +423,118 @@ describe('back order lee tablas materializadas, no las vistas lentas', () => {
     expect(all).not.toMatch(/v_backorder_reconstruido_mensual/);
     expect(all).toMatch(/backorder_dashboard_actual/);
     expect(all).toMatch(/backorder_reconstruido_mensual/);
+  });
+});
+
+describe('dashboard-ventas-core: sección gestión', () => {
+  const KPI = [{ facturado: 800000, backorder_ars: 0, pedidos: 4, pedidos_unicos: 4 }];
+
+  it('cumplimiento = facturado / target', async () => {
+    const deps = makeDeps({
+      kpis: KPI,
+      target: [{ target_ars: 1000000 }],
+      rendiciones: [{ monto_ars: 5000 }],
+      actividad: [{ visitas: 7, contactados: 3 }],
+      interacciones: [
+        { cliente: 'ACME', fecha: '2026-10-28', vendedor: 'PACHI', tipo: 'visita', total: 12 },
+      ],
+      baseActiva: [{ clientes: 40 }],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    expect(r.gestion?.target).toBe(1000000);
+    expect(r.gestion?.cumplimientoPct).toBe(80);
+    expect(r.gestion?.rendicionesArs).toBe(5000);
+    expect(r.gestion?.baseActiva).toBe(40);
+    expect(r.gestion?.ticketPromedio).toBe(200000);
+    expect(r.gestion?.visitas).toBe(7);
+    expect(r.gestion?.contactados).toBe(3);
+    expect(r.gestion?.interacciones).toBe(10);
+    expect(r.gestion?.tablaInteracciones).toEqual({
+      rows: [{ cliente: 'ACME', fecha: '2026-10-28', vendedor: 'PACHI', tipo: 'visita' }],
+      total: 12,
+    });
+    expect(r.gestion?.filtrosNoAplican).toBe(false);
+    expect(r.secciones).toEqual({});
+  });
+
+  it('cumplimiento redondea a 2 decimales', async () => {
+    const deps = makeDeps({
+      kpis: [{ facturado: 100, pedidos: 1 }],
+      target: [{ target_ars: 300 }],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.gestion?.cumplimientoPct).toBe(33.33);
+  });
+
+  it('sin target → null, nunca Infinity', async () => {
+    const deps = makeDeps({ kpis: KPI, target: [] });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.gestion?.target).toBeNull();
+    expect(r.gestion?.cumplimientoPct).toBeNull();
+    const deps0 = makeDeps({ kpis: KPI, target: [{ target_ars: 0 }] });
+    const r0 = await dashboardVentasCore(deps0, { auth: AUTH, data: {} });
+    expect(r0.gestion?.target).toBeNull();
+    expect(r0.gestion?.cumplimientoPct).toBeNull();
+  });
+
+  it('ticket sin facturas = 0', async () => {
+    const deps = makeDeps({ kpis: [{ facturado: 0, pedidos: 0 }] });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.gestion?.ticketPromedio).toBe(0);
+  });
+
+  it('falla de una query de gestión no rompe el resto', async () => {
+    const deps = makeDeps({ kpis: KPI });
+    const base = deps.runQuery;
+    deps.runQuery = async (/** @type {any} */ q) => {
+      if (queryName(q.query) === 'target') throw new Error('bq caído');
+      return base(q);
+    };
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.gestion).toBeNull();
+    expect(r.secciones.gestion).toEqual({ error: true });
+    expect(r.kpis.facturado).toBe(800000);
+  });
+
+  it('gestión exitosa deja secciones vacío', async () => {
+    const deps = makeDeps({ kpis: KPI });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.secciones).toEqual({});
+  });
+
+  it('filtro cliente → filtrosNoAplican true', async () => {
+    const deps = makeDeps({ kpis: KPI });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { clientes: ['C1'] } });
+    expect(r.gestion?.filtrosNoAplican).toBe(true);
+    const r2 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['S1'] } });
+    expect(r2.gestion?.filtrosNoAplican).toBe(true);
+  });
+
+  it('vendedor: queries de gestión reciben solo su vendor', async () => {
+    const deps = makeDeps({}, { role: 'vendedor', vendor: 'PACHI' });
+    await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { vendedores: ['GONZALO DE LA ROSA'] },
+    });
+    const g = deps.calls.filter((q) =>
+      ['target', 'rendiciones', 'actividad', 'interacciones', 'baseActiva'].includes(
+        queryName(q.query)
+      )
+    );
+    expect(g.length).toBe(5);
+    for (const q of g) expect(q.params.vendedores).toEqual(['PACHI']);
+  });
+
+  it('runSeccion: ok con filas por nombre; falla → ok:false', async () => {
+    const run = async (/** @type {any} */ q) => [{ n: queryName(q.query) }];
+    const ok = await runSeccion(run, { a: { query: '-- dashboard:a', params: {} } });
+    expect(ok).toEqual({ ok: true, rows: { a: [{ n: 'a' }] } });
+    const bad = await runSeccion(
+      async () => {
+        throw new Error('x');
+      },
+      { a: { query: '-- dashboard:a', params: {} } }
+    );
+    expect(bad).toEqual({ ok: false });
   });
 });

@@ -114,6 +114,7 @@ WHERE anio = @anio AND mes = @mesNum
 SELECT COALESCE(SUM(importe_ars), 0) AS monto_ars
 FROM ${T_RENDICIONES}
 WHERE fecha_gasto BETWEEN DATE(@desde) AND DATE(@hasta)
+  AND NOT IFNULL(rechazada, FALSE)
   AND ${arrayPredicate('vendedores', 'UPPER(TRIM(vendor))')}`,
     params: { ...vend, ...rangoMes },
     types: { ...vendT, ...rangoMesT },
@@ -146,7 +147,7 @@ SELECT
   COUNT(*) OVER () AS total
 FROM ${T_VISITAS}
 WHERE ${visitasWhere}
-ORDER BY fecha_visita DESC, cliente
+ORDER BY fecha_visita DESC, cliente, vendedor
 LIMIT ${MAX_INTERACCIONES}`,
     params: { ...visitasParams },
     types: { ...visitasTypes },
