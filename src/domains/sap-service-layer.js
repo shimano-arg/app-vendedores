@@ -136,14 +136,20 @@ const sapSL = {
   // Devuelve { ok, docNum, docEntry } con la SQ existente, o { ok: false }
   // si no hay match / falló la query (fallback defensivo: dejar que el
   // caller intente el POST).
+  //
+  // BUG-REV capa 2 (2026-10-29): ignora SQs canceladas (Cancelled='tYES').
+  // Antes devolvía la primera fila: tras revertir un pedido y cancelar su SQ,
+  // el reenvío vinculaba la SQ cancelada. Espejo de
+  // functions/core/auto-send-sap-core.js. Fila sin Cancelled = abierta.
   async findQuotationByNumAtCard(pedidoId) {
     const q = encodeURIComponent("NumAtCard eq '" + String(pedidoId) + "'");
     const r = await this.fetchWithSession(
-      '/b1s/v1/Quotations?$filter=' + q + '&$select=DocEntry,DocNum,NumAtCard&$top=1',
+      '/b1s/v1/Quotations?$filter=' + q + '&$select=DocEntry,DocNum,NumAtCard,Cancelled&$top=20',
       { method: 'GET' }
     );
     if (r.ok && r.body && Array.isArray(r.body.value) && r.body.value.length > 0) {
-      const found = r.body.value[0];
+      const found = r.body.value.find((row) => row && row.Cancelled !== 'tYES');
+      if (!found) return { ok: false };
       const docNum = Number(found.DocNum);
       const docEntry = Number(found.DocEntry);
       if (Number.isFinite(docNum) && Number.isFinite(docEntry)) {

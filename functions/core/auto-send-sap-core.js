@@ -517,18 +517,33 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     // con otro pedido es cripticamente improbable.
     // Fallback defensivo: si el GET falla o tarda, seguimos con el POST
     // (comportamiento previo). No queremos que el check bloquee envios legit.
-    const idempotenceQ = `$filter=${encodeURIComponent(`NumAtCard eq '${pedidoId}'`)}&$select=DocEntry,DocNum,NumAtCard&$top=1`;
+    // BUG-REV capa 2 (2026-10-29): se pide `Cancelled` y se descartan las SQs
+    // canceladas. Antes se tomaba la primera fila ($top=1): si un admin había
+    // revertido el pedido y cancelado su SQ, el reenvío vinculaba la SQ
+    // CANCELADA y el pedido quedaba "en SAP" sin que SAP lo procesara. Sin
+    // $top=1 para poder elegir una abierta cuando conviven cancelada + abierta.
+    // Una fila sin el campo Cancelled se trata como abierta (comportamiento
+    // previo: preferimos no re-POST ante la duda).
+    const idempotenceQ = `$filter=${encodeURIComponent(`NumAtCard eq '${pedidoId}'`)}&$select=DocEntry,DocNum,NumAtCard,Cancelled&$top=20`;
     /** @type {{DocNum: number, DocEntry: number} | null} */
     let existingSq = null;
     try {
       const check = await sapGet(session, `/b1s/v1/Quotations?${idempotenceQ}`, deps.sl);
-      if (
-        check.status === 200 &&
-        check.body &&
-        Array.isArray(check.body.value) &&
-        check.body.value.length > 0
-      ) {
-        const found = check.body.value[0];
+      const rows =
+        check.status === 200 && check.body && Array.isArray(check.body.value)
+          ? check.body.value
+          : [];
+      const found = rows.find((/** @type {any} */ q) => q && q.Cancelled !== 'tYES');
+      if (!found && rows.length > 0) {
+        log(
+          '[auto-send] idempotent check: solo SQs canceladas con este NumAtCard, se crea una nueva',
+          {
+            pedidoId,
+            cancelledDocNums: rows.map((/** @type {any} */ q) => q && q.DocNum),
+          }
+        );
+      }
+      if (found) {
         const foundDocNum = Number(found.DocNum);
         const foundDocEntry = Number(found.DocEntry);
         if (Number.isFinite(foundDocNum) && Number.isFinite(foundDocEntry)) {

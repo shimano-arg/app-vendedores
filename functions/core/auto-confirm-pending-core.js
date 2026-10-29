@@ -119,6 +119,33 @@ async function _loadOpenPedidos(fbDb) {
 const DEFAULT_TIMEOUT_MINUTES = 10;
 
 /**
+ * BUG-REV (2026-10-29): un pedido revertido confirmed→pending desde una SQ
+ * real (`volverAPendientes` en index.html) NO se auto-confirma: solo vuelve a
+ * confirmed por acción manual.
+ *
+ * `volverAPendientes` borra `transferidoSAP` y `finalizedAt` pero conserva el
+ * `confirmedAt` original, así que el timeout ya estaba vencido y el pedido se
+ * re-confirmaba en el tick siguiente (≤2 min). El trigger
+ * onPedidoConfirmedSendToSap lo reenviaba y su chequeo por NumAtCard vinculaba
+ * la SQ VIEJA (cancelada o no): el pedido quedaba "en SAP" apuntando a una SQ
+ * cancelada, o con el contenido previo a la edición. Si ese chequeo fallaba,
+ * se creaba una SQ duplicada.
+ *
+ * Marcas que escribe volverAPendientes cuando hubo SQ: `revertedFromConfirmedAt`
+ * y `previousSapDocNum` (se acepta cualquiera de las dos).
+ *
+ * @param {any} d
+ * @returns {boolean}
+ */
+export function wasRevertedFromSapQuotation(d) {
+  if (!d) return false;
+  return (
+    Boolean(d.revertedFromConfirmedAt) ||
+    (d.previousSapDocNum != null && d.previousSapDocNum !== '')
+  );
+}
+
+/**
  * @param {object} params
  * @param {any} params.fbDb Firestore admin instance.
  * @param {any} params.FieldValue Firestore FieldValue for serverTimestamp.
@@ -126,7 +153,7 @@ const DEFAULT_TIMEOUT_MINUTES = 10;
  * @param {number} [params.batchLimit] Máx de pedidos a procesar por corrida (safety).
  * @param {(msg: string, extra?: any) => void} [params.log]
  * @param {() => number} [params.now] Injectable clock para tests.
- * @returns {Promise<{result: string, processed: number, processedIds: any[], skippedForStock?: any[], autoSplitProcessed?: any[], errors: any[]}>}
+ * @returns {Promise<{result: string, processed: number, processedIds: any[], skippedForStock?: any[], skippedReverted?: any[], autoSplitProcessed?: any[], errors: any[]}>}
  */
 export async function autoConfirmPendingPedidos({
   fbDb,
@@ -168,6 +195,8 @@ export async function autoConfirmPendingPedidos({
 
   /** @type {Array<{id: string, data: any, ageMinutes: number}>} */
   const eligibles = [];
+  /** @type {Array<{id: string, reason: string, previousSapDocNum: any}>} */
+  const skippedReverted = [];
   snap.forEach((/** @type {any} */ doc) => {
     const d = doc.data() || {};
     const t = d.confirmedAt;
@@ -178,12 +207,33 @@ export async function autoConfirmPendingPedidos({
     if (d.finalizedAt) return; // ya finalizado (edge: doble-tick)
     if (!Array.isArray(d.lines) || d.lines.length === 0) return; // doc corrupto
     if (d.transferidoSAP && d.transferidoSAP.docNum) return; // ya en SAP
+    if (wasRevertedFromSapQuotation(d)) {
+      // BUG-REV: solo confirmación manual (ver wasRevertedFromSapQuotation).
+      skippedReverted.push({
+        id: doc.id,
+        reason: 'reverted_manual_confirm_only',
+        previousSapDocNum: d.previousSapDocNum ?? null,
+      });
+      return;
+    }
     eligibles.push({ id: doc.id, data: d, ageMinutes: Math.floor((nowMs - ts) / 60000) });
   });
 
+  if (skippedReverted.length) {
+    log('autoConfirmPendingPedidos: pedidos revertidos desde SQ, quedan para confirmación manual', {
+      skippedReverted,
+    });
+  }
+
   if (!eligibles.length) {
     log('autoConfirmPendingPedidos: no pedidos elegibles', { minutes, scanned: snap.size });
-    return { result: AUTO_CONFIRM_RESULT.NO_PEDIDOS, processed: 0, processedIds: [], errors: [] };
+    return {
+      result: AUTO_CONFIRM_RESULT.NO_PEDIDOS,
+      processed: 0,
+      processedIds: [],
+      skippedReverted,
+      errors: [],
+    };
   }
 
   // Pre-cargar stock_snapshot + pedidos abiertos UNA sola vez para computar
@@ -337,6 +387,9 @@ export async function autoConfirmPendingPedidos({
         if (freshData.stage !== 'pending') return false; // otro tick ya la promovio
         if (freshData.finalizedAt) return false; // defensa doble-tick
         if (freshData.transferidoSAP && freshData.transferidoSAP.docNum) return false;
+        // BUG-REV: re-chequeo dentro de la transacción (el revert pudo llegar
+        // entre el scan y este tick).
+        if (wasRevertedFromSapQuotation(freshData)) return false;
         /** @type {any} */
         const updatePayload = {
           stage: 'confirmed',
@@ -408,6 +461,7 @@ export async function autoConfirmPendingPedidos({
     processed: processedIds.length,
     processedIds,
     skippedForStock,
+    skippedReverted,
     // v1170 (2026-10-07): nuevo — pedidos confirmados con auto-split (confirmed→BO
     // para lineas con stock insuficiente). Permite auditoria "cuanto dinero paso
     // a BO automatico vs demanda real".

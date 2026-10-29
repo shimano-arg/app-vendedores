@@ -487,3 +487,138 @@ describe('autoConfirmPendingPedidos', () => {
     expect(confirmUpdates).toHaveLength(1);
   });
 });
+
+// BUG-REV (2026-10-29): `volverAPendientes` (index.html) revierte un pedido
+// confirmed→pending, borra `transferidoSAP` y `finalizedAt`, setea
+// `revertedFromConfirmedAt` + `previousSapDocNum`, pero NO toca `confirmedAt`.
+// El auto-confirm (stage=='pending' && confirmedAt < now-10min) lo volvía a
+// confirmar en el tick siguiente (≤2 min) y el trigger lo reenviaba a SAP,
+// donde el chequeo por NumAtCard vinculaba la SQ VIEJA (cancelada o no).
+// Datos ficticios. No hay llamadas a SAP.
+describe('autoConfirmPendingPedidos — pedidos revertidos desde una SQ (BUG-REV)', () => {
+  it('BR1: revertido con SQ cancelada → NO se auto-confirma y queda registrado', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'rev_cancelada',
+          data: {
+            confirmedAt: isoMinutesAgo(180),
+            revertedFromConfirmedAt: isoMinutesAgo(1),
+            revertedBy: 'admin@test.invalid',
+            previousSapDocNum: 2000001,
+            previousSapDocEntryCancelled: 501,
+          },
+        }),
+      ],
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    const p = fbDb._store.pedidos.find((x) => x.id === 'rev_cancelada');
+    expect(p.data.stage).toBe('pending');
+    expect(fbDb._store.updatesLog.filter((u) => u.id === 'rev_cancelada')).toHaveLength(0);
+    expect(r.processed).toBe(0);
+    expect(r.skippedReverted).toEqual([
+      expect.objectContaining({ id: 'rev_cancelada', reason: 'reverted_manual_confirm_only' }),
+    ]);
+  });
+
+  it('BR2: revertido SIN cancelar la SQ en SAP → NO se auto-confirma', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'rev_sin_cancel',
+          data: {
+            confirmedAt: isoMinutesAgo(60),
+            revertedFromConfirmedAt: isoMinutesAgo(30),
+            previousSapDocNum: 2000002,
+          },
+        }),
+      ],
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(fbDb._store.pedidos.find((x) => x.id === 'rev_sin_cancel').data.stage).toBe('pending');
+    expect(r.processed).toBe(0);
+  });
+
+  it('BR3: solo previousSapDocNum (sin revertedFromConfirmedAt) también se respeta', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'rev_legacy',
+          data: { confirmedAt: isoMinutesAgo(60), previousSapDocNum: 2000003 },
+        }),
+      ],
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(r.processed).toBe(0);
+  });
+
+  it('BR4: un pedido normal en el mismo tick se sigue auto-confirmando (regresión)', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({ id: 'normal', data: { confirmedAt: isoMinutesAgo(20) } }),
+        pedidoDoc({
+          id: 'rev',
+          data: {
+            confirmedAt: isoMinutesAgo(30),
+            revertedFromConfirmedAt: isoMinutesAgo(5),
+            previousSapDocNum: 2000004,
+          },
+        }),
+      ],
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(r.processed).toBe(1);
+    expect(fbDb._store.pedidos.find((x) => x.id === 'normal').data.stage).toBe('confirmed');
+    expect(fbDb._store.pedidos.find((x) => x.id === 'rev').data.stage).toBe('pending');
+  });
+
+  it('BR5: dos ticks seguidos no promueven el revertido (no hay reintento implícito)', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'rev2',
+          data: {
+            confirmedAt: isoMinutesAgo(30),
+            revertedFromConfirmedAt: isoMinutesAgo(5),
+            previousSapDocNum: 2000005,
+          },
+        }),
+      ],
+    });
+    await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    await autoConfirmPendingPedidos({ fbDb, FieldValue, now: () => NOW_MS + 60 * 60 * 1000 });
+    expect(fbDb._store.pedidos.find((x) => x.id === 'rev2').data.stage).toBe('pending');
+  });
+
+  it('BR7: el revert llega entre el scan y la transacción → la transacción no promueve', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [pedidoDoc({ id: 'carrera', data: { confirmedAt: isoMinutesAgo(30) } })],
+    });
+    const origTx = fbDb.runTransaction.bind(fbDb);
+    fbDb.runTransaction = async (fn) => {
+      // Simula volverAPendientes escribiendo justo antes de la transacción.
+      const p = fbDb._store.pedidos.find((x) => x.id === 'carrera');
+      p.data = { ...p.data, revertedFromConfirmedAt: isoMinutesAgo(0), previousSapDocNum: 2000007 };
+      return origTx(fn);
+    };
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(fbDb._store.pedidos.find((x) => x.id === 'carrera').data.stage).toBe('pending');
+    expect(r.processed).toBe(0);
+  });
+
+  it('BR6 (comportamiento vigente, decisión pendiente): revert de un pedido app_only sin marca → se sigue auto-confirmando', async () => {
+    // volverAPendientes no setea revertedFromConfirmedAt cuando no hubo SQ
+    // (via=app_only); el pedido conserva transferidoSAP={via:'app_only'} y el
+    // trigger no lo envía a SAP. Sin riesgo SAP; ver decisión en el informe.
+    const fbDb = makeFbDbStub({
+      pedidos: [
+        pedidoDoc({
+          id: 'app_only',
+          data: { confirmedAt: isoMinutesAgo(30), transferidoSAP: { via: 'app_only' } },
+        }),
+      ],
+    });
+    const r = await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    expect(r.processed).toBe(1);
+  });
+});

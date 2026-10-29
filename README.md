@@ -4717,6 +4717,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1533 (2026-10-29) — un pedido revertido no se re-confirma solo ni se vincula a una SQ cancelada
+
+**Antes:** `volverAPendientes` no tocaba `confirmedAt`. El auto-confirm lo volvía a confirmar en 2 minutos o menos, y el trigger vinculaba la primera SQ con ese `NumAtCard`, aunque estuviera cancelada.
+
+**Cambio:**
+- el auto-confirm saltea los pedidos con `revertedFromConfirmedAt` o `previousSapDocNum`;
+- la consulta idempotente (en el servidor y en el navegador) pide `Cancelled` e ignora las SQs canceladas.
+
+**Verificación:** 16 tests. Con el código original fallan 8. Falta validar en SAP de pruebas (S1 a S3).
+
+**Rollback:** redeploy de `autoConfirmPendingPedidosCF` y `onPedidoConfirmedSendToSap`, más el bundle anterior.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.
