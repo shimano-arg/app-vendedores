@@ -3710,3 +3710,12 @@ Audit `scripts/audit/A_pachi_zona_z4_master_desalineado.cjs` detectó **63 clien
 - Tener 3+ users con el mismo `roles.vendor` canónico sin plan de deduplicación. Si Mariano quiere mantener 3 PACHI (humano + apoyo + E2E tester), el pipeline server-side debe seedear al preferente.
 
 **Rollback de backfills**: el script B escribe `_backfill.<slug>.previousValues` en cada doc modificado (CLAUDE.md §55). Para revertir: iterar los docs con ese slug + restaurar los `previousValues` + borrar el slug. Siempre reversible mientras no se corra un segundo backfill con el mismo slug.
+
+## 104. Ninguna línea queda `state='ASIG'` con `qtyOpen<=0` (2026-10-29)
+
+**Regla fuerte**: toda escritura que modifique líneas ASIG (reparto, reconcile, CPST, scripts) valida con `findZombieAsigLines` (`functions/core/asig-invariant.js`) antes de escribir. Si una ASIG se queda sin unidades, pasa a otro estado (`BO` si vuelve a la cola, `cancelled` si se libera); nunca queda ASIG en 0.
+
+**Precedente**: REBORN SRL CLC66H2PY 2026-10-29. `revertSobreAsignadas` con entregable 0 dejaba ASIG `qty=0/qtyOpen=0` + BO apendeada; el CPST re-buscaba la línea por producto, caía en la zombie y bloqueaba el pedido entero.
+
+**Derivada**: quien referencia una línea de pedido guarda y usa su `lineIndex`; nunca la re-busca con `findIndex(code+state)` (puede haber varias líneas del mismo producto y estado). Limpieza de datos viejos: `scripts/audit/AS_asig_huerfanas.cjs`.
+

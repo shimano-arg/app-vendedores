@@ -38,6 +38,7 @@
 // v1391 (2026-10-21): import getStockBreakdown — el reconcile usa el mismo
 // cálculo que las pantallas (CLAUDE.md §39). lineReservesStock sigue
 // importado SOLO para armar clientesBO[] ordenado FIFO.
+import { findZombieAsigLines } from './asig-invariant.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 
 const INGRESOS_REPARTO_COLLECTION = 'ingresos_reparto';
@@ -1077,6 +1078,22 @@ export async function applyRepartoManualCore(deps, opts) {
             lines.push(_buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex));
           }
         }
+        // v1520 invariante ASIG qtyOpen>0: ninguna línea que toca esta acción
+        // (la original o las apendeadas) puede quedar state='ASIG' con
+        // qtyOpen<=0. Zombies previas en otras líneas no bloquean (las limpia
+        // scripts/audit/AS_asig_huerfanas.cjs). Precedente REBORN CLC66H2PY.
+        const _origLen = Array.isArray(data.lines) ? data.lines.length : 0;
+        const _zombies = findZombieAsigLines(lines).filter(
+          (i) => i === action.lineIndex || i >= _origLen
+        );
+        if (_zombies.length > 0) {
+          throw new Error(
+            'invariante: ASIG con qtyOpen=0 en lineas ' +
+              _zombies.join(',') +
+              ' @ ' +
+              action.pedidoId
+          );
+        }
         tx.update(pedidoRef, { lines, updatedAt: nowIso });
       });
       if (asig0(action) > 0) {
@@ -1333,6 +1350,24 @@ export async function revertSobreAsignadas(deps, snapshot, opts) {
         const origLine = _newLinesTyped[d.lineIndex];
         if (!origLine || origLine.state !== 'ASIG') continue;
         const origQo = Number(origLine.qtyOpen) || 0;
+        // v1520: entregable 0 → la línea entera vuelve a BO EN SU LUGAR. Antes
+        // quedaba state='ASIG' con qty=0/qtyOpen=0 (zombie) + BO apendeada; el
+        // CPST la tomaba como origen y bloqueaba (REBORN CLC66H2PY 2026-10-29).
+        if (!(Number(d.qtyEntregable) > 0)) {
+          Object.assign(origLine, {
+            state: 'BO',
+            qtyOpen: origQo,
+            asigReserva: false,
+            asigAt: null,
+            asigRevertidaAt: nowIso,
+            asigRevertidaBy: 'system:reconcile',
+            asigRevertidaReason: 'asig_sin_stock_revertida_a_bo',
+          });
+          delete origLine.asigRefs;
+          revertidas.push(row);
+          log('asig_revertida_auto', Object.assign({ full: true }, row));
+          continue;
+        }
         // Mutar la ASIG original a qty=entregable.
         origLine.qty = d.qtyEntregable;
         origLine.qtyOpen = Math.min(origQo, d.qtyEntregable);
@@ -1366,6 +1401,19 @@ export async function revertSobreAsignadas(deps, snapshot, opts) {
   // Aplicar updates por pedido (salvo dryRun).
   if (!dryRun) {
     for (const [pedidoId, newLines] of modifiedLines.entries()) {
+      // v1520 invariante ASIG qtyOpen>0 (ver findZombieAsigLines).
+      const _orig = pedidosData.find((p) => p._fsId === pedidoId);
+      const _antes = new Set(findZombieAsigLines((_orig && _orig.lines) || []));
+      const _nuevas = findZombieAsigLines(newLines).filter((i) => !_antes.has(i));
+      if (_nuevas.length > 0) {
+        errors.push(
+          'revertSobreAsignadas invariante pedidoId=' +
+            pedidoId +
+            ': ASIG qtyOpen=0 en ' +
+            _nuevas.join(',')
+        );
+        continue;
+      }
       try {
         await deps.fbDb.collection('pedidos').doc(pedidoId).update({
           lines: newLines,
