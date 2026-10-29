@@ -4724,16 +4724,16 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 **Problema**: no se veía target, cumplimiento, rendiciones, base activa, ticket promedio ni actividad (visitas, contactos, interacciones) del vendedor/cliente elegido.
 
 **Cambio**:
-- Tarjetas nuevas: Target, % cumplimiento, Rendiciones – monto (excluye rechazadas), Base activa (90 días al fin del mes elegido o hasta hoy), Ticket promedio (facturado / facturas), N° visitas, N° contactados, N° interacciones.
+- Tarjetas nuevas: Target, % cumplimiento, Rendiciones – monto (excluye rechazadas), Base activa (90 días al fin del mes elegido o hasta hoy), Ticket promedio (facturado / N° de facturas del mes), N° visitas, N° contactados, N° interacciones.
 - Tabla de interacciones (Cliente, Fecha, Vendedor, Tipo; tope 500) desde `v_visitas_full`.
 - Target y rendiciones se calculan solo por vendedor+mes; visitas/contactos respetan el filtro Cliente.
 - Falla parcial de una sección: esa tarjeta muestra "No disponible" sin romper el resto (`runSeccion`).
 - Estilo Apple scoped a `#dashboard-ventas-modal` en `styles/apple-design.css` (specificity 2,1,0 sobre los estilos inline; grilla en dark).
-- Archivos: `functions/core/dashboard-ventas-queries-gestion.js` (nuevo), `dashboard-ventas-queries.js` (exports), `dashboard-ventas-core.js` (gestion + secciones + runSeccion), `src/domains/dashboard-ventas.js`, `styles/apple-design.css`, `index.html` (CSS `.dv-inter-wrap`), tests.
+- Archivos: `functions/core/dashboard-ventas-queries-gestion.js` (nuevo), `dashboard-ventas-queries.js` (exports), `dashboard-ventas-core.js` (gestion + secciones + runSeccion), `src/domains/dashboard-ventas.js`, `chunks/dashboard-ventas.js` (regenerado), `styles/apple-design.css`, `index.html` (CSS `.dv-inter-wrap`), tests.
 
 **Por qué**: dar al gerente/vendedor la vista de gestión junto a la facturación, con el mismo lenguaje visual del resto de la app, sin que una query caída tumbe el dashboard.
 
-**Verificación**: tests `tests/functions/dashboard-ventas-core.test.js`, `dashboard-ventas-gestion-queries.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`, `dashboard-ventas-apple.test.js`; unit, smoke, lint y typecheck en verde (ver reporte de la tarea). Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
+**Verificación**: tests `tests/functions/dashboard-ventas-core.test.js`, `dashboard-ventas-gestion-queries.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`, `dashboard-ventas-apple.test.js`; lint y typecheck limpios; unit 2567 tests OK (180 archivos); smoke 25 OK; functions dashboard-ventas + bounded-cache 48 OK. Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
 
 **Deploy**: `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
 
