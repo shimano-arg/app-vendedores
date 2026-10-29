@@ -130,7 +130,9 @@ describe('dashboard-ventas-core', () => {
 
   it('normalizeFilters: trim, sin vacíos, sin duplicados; >200 → invalid-argument', () => {
     const f = normalizeFilters({ skus: [' A ', '', 'A', 'B', null, 7] }, NOW);
-    expect(f.skus).toEqual(['A', 'B', '7']);
+    expect(f.skus).toEqual(['7', 'A', 'B']);
+    // Orden estable para la clave de caché.
+    expect(normalizeFilters({ skus: ['B', 'A'] }, NOW).skus).toEqual(['A', 'B']);
     const muchos = Array.from({ length: 201 }, (_, i) => 'S' + i);
     expect(() => normalizeFilters({ skus: muchos }, NOW)).toThrow();
     try {
@@ -299,5 +301,28 @@ describe('dashboard-ventas-core', () => {
     expect(qs.serieVentas.types.desde).toBe('DATE');
     expect(qs.kpis.query).toContain('is_pesca = TRUE');
     expect(qs.kpis.query).toContain("doc_kind = 'INVOICE'");
+  });
+
+  it('GROUP BY sin alias que choquen con columnas reales (anio/mes de v_ventas_lineas)', () => {
+    const qs = buildQueries(normalizeFilters({ mes: '2026-10' }, NOW), NOW);
+    expect(qs.serieVentas.query).toContain('GROUP BY anio_contable, mes_contable');
+    for (const q of Object.values(qs)) {
+      expect(q.query).not.toMatch(/GROUP BY anio\b/);
+      expect(q.query).not.toMatch(/GROUP BY mes\b/);
+    }
+  });
+
+  it('cache: mismo filtro en otro orden pega en caché; la respuesta es una copia', async () => {
+    const deps = makeDeps({ topSkus: [{ sku: 'A', descr: 'x', uds: 1, ars: 10 }] });
+    const r1 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['B', 'A'] } });
+    r1.topDinero.length = 0;
+    r1.kpis.facturado = 999;
+    const r2 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['A', 'B'] } });
+    expect(deps.calls.length).toBe(5);
+    expect(r2.topDinero.length).toBe(1);
+    expect(r2.kpis.facturado).toBe(0);
+    r2.topDinero.length = 0;
+    const r3 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['A', 'B'] } });
+    expect(r3.topDinero.length).toBe(1);
   });
 });

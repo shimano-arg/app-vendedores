@@ -84,7 +84,7 @@ function num(/** @type {any} */ v) {
 
 /**
  * Normaliza los filtros crudos del cliente.
- * Arrays: strings trimmed, sin vacíos, sin duplicados, máx 200 (si no, invalid-argument).
+ * Arrays: strings trimmed, sin vacíos, sin duplicados, ordenados, máx 200 (si no, invalid-argument).
  * Mes: AAAA-MM con mes 01-12; si no es válido, mes en curso (hora Argentina).
  * @param {any} raw
  * @param {number} [nowMs]
@@ -112,7 +112,8 @@ export function normalizeFilters(raw, nowMs) {
     if (vals.length > MAX_VALORES_FILTRO) {
       throw mkErr('invalid-argument', `filtro ${k}: máximo ${MAX_VALORES_FILTRO} valores`);
     }
-    out[k] = vals;
+    // Orden estable: misma selección en otro orden = misma clave de caché.
+    out[k] = vals.sort();
   }
   return out;
 }
@@ -210,7 +211,8 @@ export async function dashboardVentasCore(deps, params) {
 
   const cacheKey = `${auth.uid}|${JSON.stringify(filters)}`;
   const cached = deps.cache ? deps.cache.get(cacheKey) : null;
-  if (cached && now - cached.at < CACHE_TTL_MS) return cached.value;
+  // Copia: quien reciba la respuesta no puede corromper la caché.
+  if (cached && now - cached.at < CACHE_TTL_MS) return structuredClone(cached.value);
 
   const qs = buildQueries(filters, now);
   const run = (/** @type {BqQuery} */ q) => deps.runQuery(q, q.params);
@@ -266,6 +268,6 @@ export async function dashboardVentasCore(deps, params) {
     dataUpdatedAt: new Date(now).toISOString(),
   };
 
-  if (deps.cache) deps.cache.set(cacheKey, { at: now, value });
+  if (deps.cache) deps.cache.set(cacheKey, { at: now, value: structuredClone(value) });
   return value;
 }

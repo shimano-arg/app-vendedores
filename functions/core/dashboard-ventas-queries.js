@@ -8,6 +8,10 @@
  * en BigQuery, por eso cada query devuelve también un mapa `types` que se
  * pasa tal cual a `bigquery.query({query, params, types})`.
  *
+ * Ojo con los alias: v_ventas_lineas ya tiene columnas `anio`/`mes`
+ * (fecha del documento), distintas de `anio_contable`/`mes_contable`. Los
+ * GROUP BY usan columnas reales o posición, nunca un alias que choque.
+ *
  * Cada query arranca con el marcador `-- dashboard:<nombre>` (sirve para
  * logs y para que los tests identifiquen la query).
  */
@@ -176,7 +180,7 @@ FROM ${T_VENTAS}
 WHERE ${VENTAS_BASE}
   AND DATE(anio_contable, mes_contable, 1) BETWEEN @desde AND @hasta
   AND ${filt}
-GROUP BY anio, mes`,
+GROUP BY anio_contable, mes_contable`,
     params: rangoParams,
     types: rangoTypes,
   };
@@ -193,7 +197,7 @@ WITH dias AS (
   SELECT FORMAT_DATE('%Y-%m', snapshot_date) AS mes, MAX(snapshot_date) AS dia
   FROM ${T_BO_SNAP}
   WHERE snapshot_date BETWEEN @desde AND LAST_DAY(@hasta)
-  GROUP BY mes
+  GROUP BY 1
 ),
 meses_recon AS (
   SELECT DISTINCT mes_fin
@@ -214,7 +218,7 @@ FROM meses_recon m
 LEFT JOIN ${T_BO_RECON} r
   ON r.mes_fin = m.mes_fin
   AND ${filterPredicate('r.')}
-GROUP BY mes
+GROUP BY 2
 UNION ALL
 SELECT 'vivo' AS fuente, @mesActual AS mes,
   COALESCE(SUM(pendiente_uds), 0) AS uds, COALESCE(SUM(pendiente_ars), 0) AS ars
