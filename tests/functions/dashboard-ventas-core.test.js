@@ -385,3 +385,25 @@ describe('dashboard-ventas-core', () => {
     expect(r3.topDinero.length).toBe(1);
   });
 });
+
+describe('back order lee tablas materializadas, no las vistas lentas', () => {
+  it('ninguna query usa v_backorder_dashboard ni v_backorder_reconstruido_mensual', async () => {
+    const { buildQueries } = await import('../../functions/core/dashboard-ventas-queries.js');
+    const qs = buildQueries({
+      mes: '2026-09',
+      vendedores: [],
+      scopeVendedores: [],
+      clientes: [],
+      provincias: [],
+      categorias: [],
+      skus: [],
+    });
+    const all = Object.values(qs)
+      .map((q) => q.query)
+      .join('\n');
+    expect(all).not.toMatch(/v_backorder_dashboard/);
+    expect(all).not.toMatch(/v_backorder_reconstruido_mensual/);
+    expect(all).toMatch(/backorder_dashboard_actual/);
+    expect(all).toMatch(/backorder_reconstruido_mensual/);
+  });
+});

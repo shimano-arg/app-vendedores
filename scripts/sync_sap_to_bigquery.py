@@ -1783,6 +1783,50 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
     return written
 
 
+def sync_backorder_dashboard_tables(bq_client: bigquery.Client,
+                                    dry_run: bool = False,
+                                    now: datetime = None) -> dict:
+    """Dashboard de Ventas (2026-10-29): materializa el back order para el CF.
+
+    v_backorder_lineas (y por lo tanto v_backorder_dashboard) recalcula todo
+    el back order SAP en cada lectura y tarda 1-2 minutos; el CF del
+    dashboard corta a los 60 s. Este paso guarda el resultado en tablas:
+
+    - backorder_dashboard_actual: en CADA corrida del sync (cada 30 min).
+    - backorder_reconstruido_mensual: una vez por dia (corrida >= 23:00 ART)
+      o si la tabla todavia no existe. Los meses pasados casi no cambian.
+
+    Devuelve {'actual': bool, 'reconstruido': bool} segun lo que refresco.
+    """
+    hecho = {'actual': False, 'reconstruido': False}
+    if dry_run:
+        log('[BO_DASH] dry-run: refrescaria backorder_dashboard_actual')
+        return hecho
+    ds = f'{BQ_PROJECT}.{BQ_DATASET}'
+    bq_client.query(f"""
+        CREATE OR REPLACE TABLE `{ds}.backorder_dashboard_actual` AS
+        SELECT * FROM `{ds}.v_backorder_dashboard`
+    """).result()
+    hecho['actual'] = True
+    log('[BO_DASH] backorder_dashboard_actual refrescada')
+
+    art = timezone(timedelta(hours=-3))  # America/Argentina/Buenos_Aires (sin DST)
+    now_art = (now or datetime.now(timezone.utc)).astimezone(art)
+    existe = True
+    try:
+        bq_client.get_table(f'{ds}.backorder_reconstruido_mensual')
+    except Exception:
+        existe = False
+    if now_art.hour >= 23 or not existe:
+        bq_client.query(f"""
+            CREATE OR REPLACE TABLE `{ds}.backorder_reconstruido_mensual` AS
+            SELECT * FROM `{ds}.v_backorder_reconstruido_mensual`
+        """).result()
+        hecho['reconstruido'] = True
+        log('[BO_DASH] backorder_reconstruido_mensual refrescada')
+    return hecho
+
+
 def sync_backorder_daily_snapshot(bq_client: bigquery.Client,
                                   dry_run: bool = False,
                                   now: datetime = None) -> int:
@@ -1807,7 +1851,9 @@ def sync_backorder_daily_snapshot(bq_client: bigquery.Client,
         return 0
 
     tabla = f'`{BQ_PROJECT}.{BQ_DATASET}.backorder_daily_snapshot`'
-    vista = f'`{BQ_PROJECT}.{BQ_DATASET}.v_backorder_dashboard`'
+    # Lee la tabla materializada (sync_backorder_dashboard_tables), no la
+    # vista: la vista recalcula todo el back order SAP y tarda minutos.
+    vista = f'`{BQ_PROJECT}.{BQ_DATASET}.backorder_dashboard_actual`'
     params = [bigquery.ScalarQueryParameter('d', 'DATE', snap_date)]
 
     bq_client.query(f"""
@@ -3559,6 +3605,14 @@ def main():
         sync_backorder_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
     except Exception as e:
         log(f'[BACKORDER] fallo (no bloqueante): {e}')
+
+    # === 11a. Back order materializado para el Dashboard de Ventas (BQ -> BQ)
+    # La vista tarda minutos; el CF lee estas tablas. Va antes de 11b porque
+    # la foto diaria copia backorder_dashboard_actual.
+    try:
+        sync_backorder_dashboard_tables(bq_client, dry_run=dry_run)
+    except Exception as e:
+        log(f'[BO_DASH] fallo (no bloqueante): {e}')
 
     # === 11b. Foto diaria del back order (BQ -> BQ) Dashboard de Ventas
     # Una vez por dia (primera corrida >= 23:00 ART) guarda v_backorder_dashboard

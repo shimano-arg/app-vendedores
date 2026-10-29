@@ -17,10 +17,12 @@
  */
 
 const DS = 'app-vendedores-shimano.shimano_app';
+// Back order: tablas materializadas por el sync (scripts/sync_sap_to_bigquery.py
+// sync_backorder_dashboard_tables). Las vistas tardan 1-2 min; el CF corta a 60 s.
 const T_VENTAS = `\`${DS}.v_ventas_lineas\``;
-const T_BO_VIVO = `\`${DS}.v_backorder_dashboard\``;
+const T_BO_VIVO = `\`${DS}.backorder_dashboard_actual\``;
 const T_BO_SNAP = `\`${DS}.backorder_daily_snapshot\``;
-const T_BO_RECON = `\`${DS}.v_backorder_reconstruido_mensual\``;
+const T_BO_RECON = `\`${DS}.backorder_reconstruido_mensual\``;
 
 export const TZ_ART = 'America/Argentina/Buenos_Aires';
 
@@ -211,8 +213,8 @@ GROUP BY anio_contable, mes_contable`,
 
   // Back order fin de mes. Tres fuentes, el core elige por mes:
   //   snapshot     = foto del último snapshot_date del mes (real).
-  //   reconstruido = v_backorder_reconstruido_mensual (estimado).
-  //   vivo         = v_backorder_dashboard ahora (para el mes en curso sin foto).
+  //   reconstruido = backorder_reconstruido_mensual (estimado; tabla diaria de la vista).
+  //   vivo         = backorder_dashboard_actual (tabla del sync, ≤ 30 min de atraso).
   // El día/mes disponible se decide SIN filtros y los filtros van en el JOIN:
   // así un filtro que no matchea da 0 (hay foto) y no cae a la otra fuente.
   const serieBackorder = {
