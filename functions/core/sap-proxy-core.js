@@ -117,6 +117,45 @@ export function extractResource(endpoint) {
 }
 
 /**
+ * SEC-01 (P0, 2026-10-29): valida la parte "ruta" del endpoint (antes del
+ * `?`) para que la allowlist por recurso no se pueda esquivar.
+ *
+ * El bug: `fetch` de Node normaliza la URL (WHATWG) y convierte
+ * `/b1s/v1/Items/%2e%2e/Invoices` en `/b1s/v1/Invoices`, mientras que
+ * `extractResource` miraba el string crudo y veía `Items`. El chequeo de `..`
+ * literal no detectaba las variantes codificadas.
+ *
+ * Reglas (sobre la ruta, no sobre el query string):
+ * - Sin `\`, `#`, espacios ni caracteres de control.
+ * - Sin `%2e` (punto), `%2f` (barra), `%5c` (barra invertida) ni `%25`
+ *   (doble codificación), en mayúsculas o minúsculas. Ningún SKU/CardCode del
+ *   catálogo contiene `.`, `/`, `\` ni `%` (verificado 2026-10-29), así que
+ *   no hay endpoints legítimos que los necesiten.
+ * - La ruta debe quedar idéntica tras la normalización WHATWG (`new URL`):
+ *   si el parser la cambia (segmentos `.`/`..`), se rechaza. Así lo que valida
+ *   la allowlist es exactamente lo que recibe el Service Layer.
+ *
+ * @param {string} endpoint
+ * @returns {{ok: true} | {ok: false, reason: string}}
+ */
+export function validateEndpointPath(endpoint) {
+  const qIdx = endpoint.indexOf('?');
+  const path = qIdx === -1 ? endpoint : endpoint.slice(0, qIdx);
+  if (endpoint.includes('#')) return { ok: false, reason: 'fragment' };
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: se buscan a propósito
+  if (/[\u0000- \u007f\\]/.test(path)) return { ok: false, reason: 'caracter invalido' };
+  if (/%(2e|2f|5c|25)/i.test(path)) return { ok: false, reason: 'codificacion de ruta' };
+  let normalized;
+  try {
+    normalized = new URL(path, 'https://sl.invalid').pathname;
+  } catch {
+    return { ok: false, reason: 'ruta no parseable' };
+  }
+  if (normalized !== path) return { ok: false, reason: 'ruta cambia al normalizar' };
+  return { ok: true };
+}
+
+/**
  * @typedef {Object} SapProxyRequest
  * @property {string} endpoint Ej: '/b1s/v1/Items?$select=ItemCode' o '/b1s/v1/Quotations'.
  * @property {'GET'|'POST'|'PATCH'|'DELETE'} [method] Default GET.
@@ -214,6 +253,16 @@ export async function handleSapProxy(data, auth, deps) {
   // resolucion server-side. Fix: rechazar `..` y `//` en cualquier parte.
   if (data.endpoint.includes('..') || data.endpoint.includes('//')) {
     log('sapProxy denied by traversal', { uid: auth.uid, endpoint: data.endpoint });
+    throw makeHttpsError('invalid-argument', 'endpoint inválido (path traversal).');
+  }
+  // SEC-01 (P0): variantes codificadas / normalización (ver validateEndpointPath).
+  const pathCheck = validateEndpointPath(data.endpoint);
+  if (!pathCheck.ok) {
+    log('sapProxy denied by path validation', {
+      uid: auth.uid,
+      reason: pathCheck.reason,
+      endpoint: data.endpoint,
+    });
     throw makeHttpsError('invalid-argument', 'endpoint inválido (path traversal).');
   }
   const method = data.method || 'GET';

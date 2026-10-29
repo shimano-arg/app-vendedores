@@ -4717,6 +4717,14 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix functions (2026-10-29) — sapProxy rechaza rutas codificadas (%2e, %2f, %5c)
+
+**Cambio:** `validateEndpointPath` rechaza `%2e`, `%2f`, `%5c` y `%25`, `\`, caracteres de control y `#`, y cualquier ruta que cambie al normalizarla. Se valida antes de cualquier llamada de red.
+
+**Verificación:** 44 tests nuevos; el código original dejaba pasar 10 variantes.
+
+**Rollback:** redeploy de `sapProxy`.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.
