@@ -7197,7 +7197,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1529';
+const APP_VERSION = 'v1530';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26078,6 +26078,7 @@ function _renderWaitlistCard(){
       chg, precio,
       subtotal: subtConSap + subtSinSap,
       subtConSap, subtSinSap, subtConApp, subtSinApp,
+      qtyConStock: qtyConSap,
       backorderUnidades: qtySinApp,
       backorderCliente: boCliente,
       warnQuiebra, warnDuplicado,
@@ -26088,6 +26089,10 @@ function _renderWaitlistCard(){
       asigRefs: Array.isArray(it && it.asigRefs) ? it.asigRefs : null,
     });
   });
+  // v1530: unidades con stock por item (mismo calculo que "Subtotal (Con Stock)")
+  // para que "Exportar pedido" marque en rojo lo que queda en back order.
+  window._wcardQtyConStock = { id: w._id, byIdx: {} };
+  for (const _r of rows) window._wcardQtyConStock.byIdx[_r.idx] = _r.qtyConStock;
   const statsEl = document.getElementById('wcard-stats');
   while (statsEl.firstChild) statsEl.removeChild(statsEl.firstChild);
   const fmtArs = (n) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -26814,25 +26819,34 @@ const _WL_EXPORT_MODES = [
 
 function _wlExportRows(w, mode) {
   const getPrice = (code) => (typeof getDefaultPrice === 'function' ? getDefaultPrice(code) || 0 : 0);
+  const cs = window._wcardQtyConStock;
+  const getQtyConStock = (i) => (cs && cs.id === w._id && cs.byIdx ? cs.byIdx[i] : null);
   const pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.buildWaitlistExportRows;
-  if (typeof pure === 'function') return pure(w.items || [], mode, getPrice);
+  if (typeof pure === 'function') return pure(w.items || [], mode, getPrice, getQtyConStock);
   // Fallback inline (bundle viejo cacheado por el SW): misma logica que el pure.
   const rows = [];
   let total = 0;
   let unidades = 0;
-  for (const it of w.items || []) {
-    if (!it || !it.code) continue;
+  let totalSinStock = 0;
+  let unidadesSinStock = 0;
+  let productos = 0;
+  (w.items || []).forEach((it, i) => {
+    if (!it || !it.code) return;
     const qty = Number(it.qty) || 0;
-    if (qty <= 0) continue;
+    if (qty <= 0) return;
     const asig = it.origen === 'stock-asignado';
-    if (mode === 'asignado' && !asig) continue;
-    if (mode === 'original' && asig) continue;
+    if (mode === 'asignado' && !asig) return;
+    if (mode === 'original' && asig) return;
     const precio = Number(getPrice(it.code)) || 0;
-    total += qty * precio;
-    unidades += qty;
-    rows.push({ code: String(it.code), desc: String(it.desc || ''), qty, precio, subtotal: qty * precio, stockAsignado: asig });
-  }
-  return { rows, total, unidades };
+    const raw = getQtyConStock(i);
+    const conStock = (raw == null || !Number.isFinite(Number(raw))) ? qty : Math.min(qty, Math.max(0, Math.floor(Number(raw))));
+    const sinStock = qty - conStock;
+    const base = { code: String(it.code), desc: String(it.desc || ''), precio, stockAsignado: asig };
+    productos++;
+    if (conStock > 0) { total += conStock * precio; unidades += conStock; rows.push(Object.assign({}, base, { qty: conStock, subtotal: conStock * precio, sinStock: false })); }
+    if (sinStock > 0) { totalSinStock += sinStock * precio; unidadesSinStock += sinStock; rows.push(Object.assign({}, base, { qty: sinStock, subtotal: sinStock * precio, sinStock: true })); }
+  });
+  return { rows, total, unidades, totalSinStock, unidadesSinStock, productos };
 }
 
 window.waitlistExportPedido = function () {
@@ -26871,10 +26885,16 @@ window.waitlistExportPedido = function () {
     n.style.cssText = 'font-size:12.5px;font-weight:700;margin-top:4px;color:#0369a1';
     n.textContent = r.rows.length === 0
       ? 'No hay productos para esta opción'
-      : r.rows.length + ' prod · ' + r.unidades + ' u · ' + fmt(r.total);
+      : r.productos + ' prod · ' + r.unidades + ' u · ' + fmt(r.total);
     b.appendChild(t);
     b.appendChild(d);
     b.appendChild(n);
+    if (r.unidadesSinStock > 0) {
+      const bo = document.createElement('div');
+      bo.style.cssText = 'font-size:12px;font-weight:700;margin-top:2px;color:#dc2626';
+      bo.textContent = 'Sin stock (back order, no suma): ' + r.unidadesSinStock + ' u · ' + fmt(r.totalSinStock);
+      b.appendChild(bo);
+    }
     b.onclick = () => { ov.remove(); window.waitlistExportPedidoDescargar(opt.mode); };
     box.appendChild(b);
   }
@@ -26898,7 +26918,7 @@ window.waitlistExportPedidoDescargar = async function (mode) {
   const btn = document.getElementById('wcard-export-pedido-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
   try {
-    const { rows, total } = _wlExportRows(w, opt.mode);
+    const { rows, total, totalSinStock, unidadesSinStock } = _wlExportRows(w, opt.mode);
     const conTipo = opt.mode === 'completo';
     const wb = new ExcelJS.Workbook();
     const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
@@ -26913,7 +26933,7 @@ window.waitlistExportPedidoDescargar = async function (mode) {
     const nCols = HEAD.length;
     const totalCol = 5;
     ws.mergeCells(1, 1, 1, totalCol - 1);
-    ws.getCell(1, 1).value = 'TOTAL DEL PEDIDO';
+    ws.getCell(1, 1).value = unidadesSinStock > 0 ? 'TOTAL DEL PEDIDO (CON STOCK)' : 'TOTAL DEL PEDIDO';
     ws.getCell(1, 1).alignment = { vertical: 'middle', horizontal: 'right' };
     ws.getCell(1, totalCol).value = total || 0;
     ws.getCell(1, totalCol).numFmt = '"$"#,##0';
@@ -26923,12 +26943,38 @@ window.waitlistExportPedidoDescargar = async function (mode) {
       ws.getCell(1, ci).font = TOTAL_FONT;
     }
     ws.getRow(1).height = 24;
-    HEAD.forEach((hd, i) => { const c = ws.getCell(2, i + 1); c.value = hd; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
+    // v1530: lo que no tiene stock va aparte, en rojo, y no suma al total.
+    const ROJO = 'FFDC2626';
+    const BO_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+    let headRow = 2;
+    if (unidadesSinStock > 0) {
+      ws.mergeCells(2, 1, 2, totalCol - 1);
+      ws.getCell(2, 1).value = 'SIN STOCK, QUEDA EN BACK ORDER (' + unidadesSinStock + ' u, NO SUMA)';
+      ws.getCell(2, 1).alignment = { vertical: 'middle', horizontal: 'right' };
+      ws.getCell(2, totalCol).value = totalSinStock || 0;
+      ws.getCell(2, totalCol).numFmt = '"$"#,##0';
+      ws.getCell(2, totalCol).alignment = CENTER;
+      for (let ci = 1; ci <= nCols; ci++) {
+        ws.getCell(2, ci).fill = BO_FILL;
+        ws.getCell(2, ci).font = { color: { argb: ROJO }, bold: true, size: 12 };
+      }
+      ws.getRow(2).height = 20;
+      headRow = 3;
+    }
+    HEAD.forEach((hd, i) => { const c = ws.getCell(headRow, i + 1); c.value = hd; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
     rows.forEach((r, idx) => {
-      const row = ws.getRow(idx + 3);
-      const vals = [r.code, r.desc, r.qty, r.precio, r.subtotal];
+      const row = ws.getRow(idx + headRow + 1);
+      const vals = [r.code, r.sinStock ? r.desc + ' (sin stock - back order)' : r.desc, r.qty, r.precio, r.subtotal];
       if (conTipo) vals.push(r.stockAsignado ? 'SI' : '');
-      vals.forEach((v, ci) => { row.getCell(ci + 1).value = v; row.getCell(ci + 1).alignment = CENTER; });
+      vals.forEach((v, ci) => {
+        const cell = row.getCell(ci + 1);
+        cell.value = v;
+        cell.alignment = CENTER;
+        if (r.sinStock) {
+          cell.font = { color: { argb: ROJO }, bold: true, strike: ci === 4 };
+          cell.fill = BO_FILL;
+        }
+      });
       row.getCell(4).numFmt = '"$"#,##0';
       row.getCell(5).numFmt = '"$"#,##0';
     });

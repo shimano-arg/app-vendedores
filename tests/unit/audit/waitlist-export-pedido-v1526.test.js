@@ -88,3 +88,70 @@ describe('v1527: "Recargar limpio" preserva la lista de precios local', () => {
     expect(m[1]).toContain("'shimano_zonas_pending_v1'");
   });
 });
+
+describe('v1530: lo que no tiene stock va en rojo y no suma', () => {
+  // Con stock por indice de item (mismo calculo que "Subtotal (Con Stock)" del modal).
+  const CON = { 0: 2, 1: 1, 2: 0, 3: 4 };
+  const getCon = (i) => CON[i];
+
+  it('parcial = fila normal + fila sinStock; sin stock = solo fila roja', () => {
+    const r = buildWaitlistExportRows(ITEMS, 'completo', getPrice, getCon);
+    expect(r.rows.map((x) => `${x.code}:${x.qty}:${x.sinStock}`)).toEqual([
+      'A:2:false',
+      'B:1:false',
+      'B:2:true',
+      'C:1:true',
+      'D:4:false',
+    ]);
+    expect(r.productos).toBe(4);
+  });
+
+  it('el total suma solo lo que tiene stock; el back order va aparte', () => {
+    const r = buildWaitlistExportRows(ITEMS, 'completo', getPrice, getCon);
+    expect(r.total).toBe(2 * 100 + 1 * 250 + 4 * 50);
+    expect(r.unidades).toBe(7);
+    expect(r.totalSinStock).toBe(2 * 250 + 1000);
+    expect(r.unidadesSinStock).toBe(3);
+    // Total con + sin = lo que pidio el cliente.
+    expect(r.total + r.totalSinStock).toBe(2 * 100 + 3 * 250 + 1000 + 4 * 50);
+  });
+
+  it('ejemplo Mariano: pedido $1.000.000 con $200.000 sin stock -> total $800.000', () => {
+    const items = [
+      { code: 'X', qty: 8 },
+      { code: 'Y', qty: 2 },
+    ];
+    const r = buildWaitlistExportRows(items, 'completo', () => 100000, (i) => [8, 0][i]);
+    expect(r.total).toBe(800000);
+    expect(r.totalSinStock).toBe(200000);
+  });
+
+  it('sin dato de stock (null) o con mas stock que lo pedido: todo suma', () => {
+    const items = [
+      { code: 'A', qty: 2 },
+      { code: 'B', qty: 3 },
+    ];
+    const r = buildWaitlistExportRows(items, 'completo', getPrice, (i) => [null, 99][i]);
+    expect(r.rows.every((x) => !x.sinStock)).toBe(true);
+    expect(r.total).toBe(2 * 100 + 3 * 250);
+    expect(r.unidadesSinStock).toBe(0);
+  });
+
+  it('asignado + original = completo tambien con back order', () => {
+    const a = buildWaitlistExportRows(ITEMS, 'asignado', getPrice, getCon);
+    const o = buildWaitlistExportRows(ITEMS, 'original', getPrice, getCon);
+    const c = buildWaitlistExportRows(ITEMS, 'completo', getPrice, getCon);
+    expect(a.total + o.total).toBe(c.total);
+    expect(a.totalSinStock + o.totalSinStock).toBe(c.totalSinStock);
+  });
+
+  it('contrato index.html: el modal guarda el con-stock por item y el Excel pinta rojo', () => {
+    const html = readFileSync('index.html', 'utf8');
+    expect(html).toContain('qtyConStock: qtyConSap,');
+    expect(html).toContain('window._wcardQtyConStock = { id: w._id, byIdx: {} };');
+    expect(html).toContain('pure(w.items || [], mode, getPrice, getQtyConStock)');
+    expect(html).toContain("'SIN STOCK, QUEDA EN BACK ORDER ('");
+    expect(html).toContain("'TOTAL DEL PEDIDO (CON STOCK)'");
+    expect(html).toContain("const ROJO = 'FFDC2626';");
+  });
+});
