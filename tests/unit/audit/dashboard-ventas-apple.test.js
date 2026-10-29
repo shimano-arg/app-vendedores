@@ -66,4 +66,10 @@ describe('Dashboard de Ventas estilo Apple', () => {
     }
     expect(sels.some((s) => s.includes('.dv-card'))).toBe(true);
   });
+
+  it('la primera campaña pierde el borde superior (hermano de .dv-section-head, no :first-of-type)', () => {
+    const sels = selectors(css);
+    expect(sels.some((s) => /\.dv-section-head\s*\+\s*\.dv-camp$/.test(s))).toBe(true);
+    expect(sels.some((s) => s.includes('.dv-camp:first-of-type'))).toBe(false);
+  });
 });

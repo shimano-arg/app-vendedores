@@ -572,4 +572,44 @@ describe('Dashboard de Ventas — etiquetas de dato y campañas', () => {
     expect(html).toContain('40,5%');
     expect(html).toContain('100 u');
   });
+
+  it('campaña sin objetivo (null o 0) muestra "Sin objetivo" y no "0 u" ni "$0"', () => {
+    const fn = (name) =>
+      CHUNK.match(new RegExp('\\nfunction ' + name + '\\([\\s\\S]*?\\n\\}\\n'))[0];
+    const f = new Function(
+      [
+        '_escHtml',
+        '_fmtArs',
+        '_fmtUds',
+        '_fmtPct',
+        '_fmtFecha',
+        '_noDisponible',
+        '_campaniasSection',
+      ]
+        .map(fn)
+        .join('\n') + '\nreturn _campaniasSection;'
+    )();
+    for (const objetivo of [null, 0]) {
+      for (const objetivoTipo of ['units', 'money']) {
+        const html = f(
+          [
+            {
+              id: 'c',
+              nombre: 'X',
+              desde: '2026-10-01',
+              hasta: '2026-10-31',
+              objetivoTipo,
+              objetivo,
+              uds: 5,
+              ars: 100,
+              pct: null,
+            },
+          ],
+          {}
+        );
+        expect(html).toContain('Objetivo: Sin objetivo');
+        expect(html).not.toMatch(/Objetivo: (0 u|\$\s?0)/);
+      }
+    }
+  });
 });

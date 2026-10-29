@@ -7072,7 +7072,7 @@ html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
   padding: 10px 0;
   border-top: 1px solid rgba(128, 128, 128, 0.18);
 }
-#dashboard-ventas-modal #dashboard-ventas-body .dv-camp:first-of-type { border-top: none; }
+#dashboard-ventas-modal #dashboard-ventas-body .dv-section-head + .dv-camp { border-top: none; }
 #dashboard-ventas-modal #dashboard-ventas-body .dv-camp-nombre {
   font-weight: 600;
   color: var(--dv-text);

@@ -771,8 +771,13 @@ function _campaniasSection(rows, secciones) {
     cuerpo = '<div class="dv-muted">Sin campañas activas</div>';
   } else {
     for (const c of rows) {
-      const objetivo =
-        c.objetivoTipo === 'money' ? _fmtArs(c.objetivo) : _fmtUds(c.objetivo) + ' u';
+      // Sin objetivo cargado (null o 0) no se muestra "0 u" / "$0".
+      const sinObjetivo = c.objetivo == null || Number(c.objetivo) === 0;
+      const objetivo = sinObjetivo
+        ? 'Sin objetivo'
+        : c.objetivoTipo === 'money'
+          ? _fmtArs(c.objetivo)
+          : _fmtUds(c.objetivo) + ' u';
       const pct = c.pct == null ? null : Number(c.pct);
       const ancho = pct == null ? 0 : Math.max(0, Math.min(100, pct));
       cuerpo +=
