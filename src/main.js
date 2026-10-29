@@ -37,6 +37,7 @@ import {
   computeRecorteVendedorPlan,
   sumQtyBySku,
 } from './pure/cpst-item-cancel-helpers.js';
+import { formatAsigHuerfanaAviso, planCpstOrigenes } from './pure/cpst-origenes-plan.js';
 import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
@@ -489,6 +490,11 @@ const phase0 = {
     formatAssignedVendorReason,
     computeCpstRevertPlan,
     sumRevertUnits,
+    // v1521 (2026-10-29): pre-flight CPST tolerante a ASIG huérfanas.
+    cpstOrigenesPlan: {
+      planCpstOrigenes,
+      formatAsigHuerfanaAviso,
+    },
     collectAsigRefsForCancel,
     sumUnitsToFreeOnCancel,
     collectAsigRefsForItemCancel,
