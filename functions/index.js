@@ -3468,7 +3468,14 @@ export const commitPedidoCF = onCall(
           via: 'commitPedidoCF',
         });
       } catch (_logErr) {
-        /* non-fatal */
+        // v1521 §Q6 Mariano (2026-10-29): el log de rechazo es best-effort pero
+        // NO lo tragamos en silencio — console.error asegura que el fallo del
+        // write a operations_log quede en Cloud Logging para auditoría.
+        console.error('commitPedidoCF operations_log write failed on ROLE_REQUIRED', {
+          uid: auth.uid,
+          email,
+          err: (_logErr && _logErr.message) || String(_logErr),
+        });
       }
       throw new HttpsError(
         'permission-denied',
@@ -3606,7 +3613,13 @@ export const updatePedidoLinesCF = onCall(
           via: 'updatePedidoLinesCF',
         });
       } catch (_logErr) {
-        /* non-fatal */
+        // v1521 §Q6 Mariano (2026-10-29): mismo patrón que commitPedidoCF — el
+        // write a operations_log es best-effort pero no se traga en silencio.
+        console.error('updatePedidoLinesCF operations_log write failed on ROLE_REQUIRED', {
+          uid: auth.uid,
+          email,
+          err: (_logErr && _logErr.message) || String(_logErr),
+        });
       }
       throw new HttpsError(
         'permission-denied',

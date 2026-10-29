@@ -48,4 +48,28 @@ describe('wrappers CF — role gate via assertCallerRole', () => {
     // updatePedidoLinesCF usa su propio type, no commit_pedido_rejected.
     expect(functionsIndex.includes(`type: 'update_pedido_lines_rejected'`)).toBe(true);
   });
+
+  it('T6 (§Q6 v1521): fallo del operations_log en ROLE_REQUIRED NO se traga en silencio (commitPedidoCF)', () => {
+    // Ajuste Mariano Q6 (2026-10-29): el catch del write a operations_log debe
+    // dejar console.error con el detalle. Antes era `/* non-fatal */` silente.
+    expect(functionsIndex).toMatch(
+      /console\.error\(\s*'commitPedidoCF operations_log write failed on ROLE_REQUIRED'/
+    );
+  });
+
+  it('T7 (§Q6 v1521): fallo del operations_log en ROLE_REQUIRED NO se traga en silencio (updatePedidoLinesCF)', () => {
+    expect(functionsIndex).toMatch(
+      /console\.error\(\s*'updatePedidoLinesCF operations_log write failed on ROLE_REQUIRED'/
+    );
+  });
+
+  it('T8 (§Q6 v1521): el comentario legacy "/* non-fatal */" ya NO está en los catch del role gate', () => {
+    // Scope: solo los dos bloques del role gate (ROLE_REQUIRED). Otros catch
+    // non-fatal del archivo (p.ej. side-effects posteriores al commit) siguen OK.
+    const roleGateRegion = functionsIndex.split('ROLE_REQUIRED').slice(1).join('ROLE_REQUIRED');
+    // Buscamos el patrón específico "} catch (_logErr) {\n...non-fatal..." dentro
+    // de los primeros ~500 chars posteriores a cada ROLE_REQUIRED.
+    const snippet = roleGateRegion.slice(0, 2000);
+    expect(snippet).not.toMatch(/\/\*\s*non-fatal\s*\*\//);
+  });
 });
