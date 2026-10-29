@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1523';
+const APP_VERSION = 'v1524';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -22047,6 +22047,22 @@ function _repartoBuildCard(ing){
 }
 
 // v1392 §40: cerrar reparto con sobrante (acción explícita de Pablo).
+// v1524 (2026-10-29): quitar del modal un ingreso recien cerrado. El render
+// normal se difiere mientras haya inputs con valor en OTRAS cards (v1517), y
+// como las cards vienen pre-cargadas con cantidades sugeridas casi siempre hay
+// valores > 0 -> el SKU aplicado quedaba visible hasta refrescar. Sacamos solo
+// esa card (las demas conservan lo que Pablo cargo) e intentamos el render.
+function _repartoQuitarIngresoLocal(ingresoId){
+  if (!ingresoId) return;
+  _repartoIngresos = (_repartoIngresos || []).filter((x) => x._id !== ingresoId);
+  try {
+    const list = document.getElementById('reparto-list');
+    const card = list && list.querySelector('.reparto-apple-card[data-ingreso-id="' + CSS.escape(ingresoId) + '"]');
+    if (card) card.remove();
+  } catch (_e) { /* si falla el DOM, el proximo render lo saca */ }
+  try { _repartoRender(); } catch (_e) {}
+}
+
 // Llama applyRepartoManualCF con allowSobrante=true + assignments=[] y
 // eliminations=[]. Backend marca status='done' + closedReason + sobranteLibre.
 window._repartoCerrarConSobrante = async function(ingresoId){
@@ -22073,6 +22089,7 @@ window._repartoCerrarConSobrante = async function(ingresoId){
     const data = resp && resp.data;
     if (data && data.ok) {
       if (typeof showSyncTag === 'function') showSyncTag('Reparto cerrado. ' + libresPost + ' u libres.');
+      _repartoQuitarIngresoLocal(ingresoId);
     } else {
       alert('Error al cerrar: ' + ((data && (data.errors || []).join('\n')) || 'desconocido'));
     }
@@ -22097,6 +22114,7 @@ window._repartoMarcarProcesado = async function(ingresoId){
       closureReason: 'no-clientes-activos',
     });
     if (typeof showSyncTag === 'function') showSyncTag('Ingreso cerrado sin reparto');
+    _repartoQuitarIngresoLocal(ingresoId);
   } catch (e) {
     console.error('[reparto] marcar procesado err', e);
     alert('Error cerrando el ingreso: ' + (e.message || e));
@@ -22348,6 +22366,8 @@ window._repartoApply = async function(ingresoId){
       if (totalAsig > 0) msg += ' · ' + totalAsig + 'u ASIG';
       if (totalElim > 0) msg += ' · ' + totalElim + 'u canceladas';
       if (typeof showSyncTag === 'function') showSyncTag(msg);
+      // Sin errores el servidor marca el ingreso 'done' (reparto-core nextStatus).
+      if (!(Array.isArray(r.errors) && r.errors.length > 0)) _repartoQuitarIngresoLocal(ingresoId);
     } else {
       alert('Reparto aplicado con errores:\n\n' + ((r.errors || []).slice(0, 5).join('\n')));
     }

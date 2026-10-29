@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1524 (2026-10-29) — Reparto: el SKU desaparece del modal al aplicar, sin refrescar
+
+**Antes**: al tocar "Aplicar reparto" (o "Cerrar reparto" / "Marcar procesado") el SKU seguía en el modal hasta refrescar la app.
+
+**Problema**: `_repartoRender` se difiere mientras haya inputs con valor > 0 (v1517, para no borrar lo que Pablo está cargando). Las cards vienen pre-cargadas con cantidades sugeridas, así que casi siempre hay valores > 0 en otras cards → el render posterior al cierre nunca corría (`_repartoRenderPending` se marcaba pero nadie lo consumía).
+
+**Cambio**: `_repartoQuitarIngresoLocal(ingresoId)` saca ese ingreso del array y su card del DOM, y después intenta el render. Se llama al aplicar sin errores, al cerrar con sobrante y al marcar procesado. Las demás cards conservan sus valores.
+
+**Por qué**: el servidor ya deja el ingreso en `done` (sale de la query del listener); solo faltaba reflejarlo en pantalla sin pisar el trabajo en curso.
+
+**Verificación**: `tests/unit/audit/reparto-quitar-card-v1524.test.js` (4) + unit 2488 / smoke 25.
+
+**Rollback**: revert del commit.
+
 ### v1523 (2026-10-29) — Precios al instante al refrescar + fecha de stock del Master de Productos al día
 
 **Antes**: al refrescar la app, el Master de Productos mostraba "Cargando precios…" mucho tiempo, y la fecha de stock quedaba en la del archivo `stock.json` (ej. 28/10 08:33 un 29/10).
