@@ -1274,7 +1274,7 @@ function _buildAsigLine(origLine, qty, nowIso, ingresoId, splitFromIdx) {
  * @param {RepartoDeps} deps
  * @param {any} snapshot - stock_snapshot.warehouseBreakdown
  * @param {{dryRun?: boolean}} [opts] - dryRun=true no escribe en Firestore.
- * @returns {Promise<{revertidas: Array<{sku:string, pedidoId:string, lineIndex:number, cardCode:string, clientName:string, qtyEntregable:number, qtyRevertida:number}>, errors: string[]}>}
+ * @returns {Promise<{revertidas: Array<{sku:string, pedidoId:string, lineIndex:number, cardCode:string, clientName:string, qtyEntregable:number, qtyRevertida:number}>, errors: string[], skipped?: Array<{pedidoId:string, motivo:string}>}>}
  */
 export async function revertSobreAsignadas(deps, snapshot, opts) {
   const dryRun = !!(opts && opts.dryRun);
@@ -1295,7 +1295,7 @@ export async function revertSobreAsignadas(deps, snapshot, opts) {
     errors.push(
       'revertSobreAsignadas: loadOpenPedidos fallo: ' + (e && e.message ? e.message : String(e))
     );
-    return { revertidas, errors };
+    return { revertidas, errors, skipped: [] };
   }
   const pedidosData = openPedidos.map((d) => Object.assign({ _fsId: d.id }, d.data() || {}));
 
@@ -1398,7 +1398,14 @@ export async function revertSobreAsignadas(deps, snapshot, opts) {
     }
   }
 
+  /** @type {Array<{pedidoId: string, motivo: string}>} */
+  const skipped = [];
   // Aplicar updates por pedido (salvo dryRun).
+  // v1522: cada pedido se escribe en una transacción que re-lee el doc. Si sus
+  // líneas cambiaron desde la lectura masiva (ej. Pablo aplicó un reparto en
+  // el medio), NO se escribe en esta vuelta: la versión calculada está vieja y
+  // pisaría la asignación nueva (lost update). La próxima corrida (~5 min,
+  // cada escritura de stock_snapshot) lo recalcula con datos frescos.
   if (!dryRun) {
     for (const [pedidoId, newLines] of modifiedLines.entries()) {
       // v1520 invariante ASIG qtyOpen>0 (ver findZombieAsigLines).
@@ -1414,11 +1421,24 @@ export async function revertSobreAsignadas(deps, snapshot, opts) {
         );
         continue;
       }
+      const _leidas = JSON.stringify((_orig && _orig.lines) || []);
       try {
-        await deps.fbDb.collection('pedidos').doc(pedidoId).update({
-          lines: newLines,
-          updatedAt: nowIso,
+        const pedidoRef = deps.fbDb.collection('pedidos').doc(pedidoId);
+        const motivo = await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+          const snap = await tx.get(pedidoRef);
+          if (!snap.exists) return 'pedido_no_existe';
+          const fresh = snap.data() || {};
+          if (fresh.closedAt) return 'pedido_cerrado';
+          if (JSON.stringify(Array.isArray(fresh.lines) ? fresh.lines : []) !== _leidas) {
+            return 'pedido_cambio_durante_reconcile';
+          }
+          tx.update(pedidoRef, { lines: newLines, updatedAt: nowIso });
+          return null;
         });
+        if (motivo) {
+          skipped.push({ pedidoId, motivo });
+          log('revert_sobre_asignadas_skip', { pedidoId, motivo });
+        }
       } catch (e) {
         errors.push(
           'revertSobreAsignadas update pedidoId=' +
@@ -1430,7 +1450,7 @@ export async function revertSobreAsignadas(deps, snapshot, opts) {
     }
   }
 
-  return { revertidas, errors };
+  return { revertidas, errors, skipped };
 }
 
 // Compat alias — el export viejo scanSobreAsignadas sigue existiendo como
