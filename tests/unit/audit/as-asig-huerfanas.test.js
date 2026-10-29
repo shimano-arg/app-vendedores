@@ -1,4 +1,4 @@
-// v1520 (2026-10-29) — análisis puro del script AS_asig_huerfanas.cjs.
+// v1521 (2026-10-29) — análisis puro del script AS_asig_huerfanas.cjs.
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { lineReservesStock } from '../../../src/pure/stock-realmente-disponible.js';

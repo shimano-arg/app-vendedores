@@ -1,4 +1,4 @@
-// v1520 (2026-10-29) — Pre-flight CPST tolerante a ASIG huérfanas.
+// v1521 (2026-10-29) — Pre-flight CPST tolerante a ASIG huérfanas.
 // Caso real: REBORN SRL (C30710852762) CLC66H2PY, pedido 8lGQkjUJfZwqsfnNw4iw.
 // El pedido tenía una línea ASIG zombie (qty=0, qtyOpen=0, dejada por
 // revertSobreAsignadas con entregable 0) ANTES de la línea ASIG viva con 2u.

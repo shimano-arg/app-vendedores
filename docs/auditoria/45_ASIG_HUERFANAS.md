@@ -41,7 +41,7 @@ La última corrida imprime las tablas Z/W/R/S por cliente y producto, el total d
 | R asignación sin línea | manual | re-asignar desde Reparto si corresponde |
 | S clave vieja en snapshot por producto | manual / fix de código | no afecta el popup del Master (lee pedidos) |
 
-Cada write guarda `_backfill.AS_asig_huerfanas_2026-10-29_v1520` (§55) y re-verifica dentro de una transacción.
+Cada write guarda `_backfill.AS_asig_huerfanas_2026-10-29_v1521` (§55) y re-verifica dentro de una transacción.
 
 ## Listado (pendiente de correr)
 

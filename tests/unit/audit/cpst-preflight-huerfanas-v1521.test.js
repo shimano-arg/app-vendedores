@@ -1,4 +1,4 @@
-// v1520 (2026-10-29) — contrato del pre-flight de _cpstConfirmar.
+// v1521 (2026-10-29) — contrato del pre-flight de _cpstConfirmar.
 // Repro REBORN SRL CLC66H2PY: una ASIG huérfana no puede bloquear el pedido.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ function bodyOf(marker, len = 14000) {
   return html.slice(i, i + len);
 }
 
-describe('v1520 pre-flight CPST tolerante a ASIG huérfanas', () => {
+describe('v1521 pre-flight CPST tolerante a ASIG huérfanas', () => {
   it('_cpstBuildCache guarda lineIndex en cada entry', () => {
     const b = bodyOf('function _cpstBuildCache(){', 9000);
     expect(b).toMatch(/entries\.push\(\{\s*pedidoId: pedidoId,\s*lineIndex: idx,/);

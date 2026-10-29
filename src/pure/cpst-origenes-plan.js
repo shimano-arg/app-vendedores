@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * v1520 (2026-10-29) — Pre-flight de "Crear Pedido Desde Stock Asignado"
+ * v1521 (2026-10-29) — Pre-flight de "Crear Pedido Desde Stock Asignado"
  * tolerante a asignaciones huérfanas.
  *
  * Antes: `_cpstConfirmar` (index.html) re-buscaba la línea origen con

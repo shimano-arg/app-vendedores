@@ -1,4 +1,4 @@
-// AS v1520 (2026-10-29) — Asignaciones huérfanas (ASIG sin respaldo real).
+// AS v1521 (2026-10-29) — Asignaciones huérfanas (ASIG sin respaldo real).
 //
 // Disparador: CPST de REBORN SRL (C30710852762) 29/10 09:08 rechazado con
 // "CLC66H2PY (pedido 8lGQkjUJfZwqsfnNw4iw): linea con qtyOpen=0, state=ASIG".
@@ -23,11 +23,11 @@
 //
 // --apply ejecuta únicamente las acciones Z (cerrar zombie) y W (corregir o
 // liberar ref). R y S quedan como acción manual. Cada write guarda snapshot
-// _backfill.AS_asig_huerfanas_2026-10-29_v1520 (CLAUDE.md §55) y re-verifica
+// _backfill.AS_asig_huerfanas_2026-10-29_v1521 (CLAUDE.md §55) y re-verifica
 // el estado dentro de una transacción antes de escribir.
 
 const PROJECT = 'app-vendedores-shimano';
-const SLUG = 'AS_asig_huerfanas_2026-10-29_v1520';
+const SLUG = 'AS_asig_huerfanas_2026-10-29_v1521';
 
 /** @param {any} v */
 function toMs(v) {

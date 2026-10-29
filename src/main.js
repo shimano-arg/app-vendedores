@@ -148,6 +148,13 @@ import {
   columnStats,
   formatAge,
 } from './pure/planner-column-age.js';
+// v1520 (2026-10-29) §103: popup "Stock del SKU" muestra TODO lo que resta
+// hasta llegar a Libre + fórmula explícita. Reemplaza las 5 líneas de §40.11
+// que escondían "Confirmadas sin facturar".
+import {
+  buildPopupStockSkuLineas,
+  renderPopupStockSkuPlainText,
+} from './pure/popup-stock-sku-lineas.js';
 import {
   formatProductCatLineParts,
   formatProductDesc,
@@ -483,7 +490,7 @@ const phase0 = {
     formatAssignedVendorReason,
     computeCpstRevertPlan,
     sumRevertUnits,
-    // v1520 (2026-10-29): pre-flight CPST tolerante a ASIG huérfanas.
+    // v1521 (2026-10-29): pre-flight CPST tolerante a ASIG huérfanas.
     cpstOrigenesPlan: {
       planCpstOrigenes,
       formatAsigHuerfanaAviso,
@@ -665,6 +672,8 @@ const phase0 = {
     getStockUtilizableParaClienteExAsig,
     getStockBreakdown,
     STOCK_LABELS,
+    buildPopupStockSkuLineas,
+    renderPopupStockSkuPlainText,
     lineReservesStock,
     computeVirtualAsigFifo,
     computeBackorderSkuMap,

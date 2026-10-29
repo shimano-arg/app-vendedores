@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1520';
+const APP_VERSION = 'v1521';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17379,7 +17379,7 @@ function _cpstBuildCache(){
         };
       }
       mapRaw[nombre].skus[skuUp].qty += qo;
-      // v1520: lineIndex para que el pre-flight no re-busque por SKU (caía en
+      // v1521: lineIndex para que el pre-flight no re-busque por SKU (caía en
       // ASIG zombie qtyOpen=0 anterior — REBORN CLC66H2PY 2026-10-29).
       mapRaw[nombre].skus[skuUp].entries.push({
         pedidoId: pedidoId,
@@ -18746,7 +18746,7 @@ window._cpstConfirmar = async function(){
     // Cache de pedidos para no fetchear 2 veces el mismo.
     /** @type {Map<string, any>} */
     const pedidosCache = new Map();
-    // v1520 (2026-10-29): PASO A — leer los pedidos origen. Solo un fallo de
+    // v1521 (2026-10-29): PASO A — leer los pedidos origen. Solo un fallo de
     // lectura (red/permisos) bloquea; un pedido inexistente o una linea ASIG
     // huerfana (qtyOpen=0) ya NO bloquea: se omite y se avisa (PASO B).
     // Antes: findIndex(code+state) caia en una ASIG zombie qtyOpen=0 anterior a
@@ -18781,7 +18781,7 @@ window._cpstConfirmar = async function(){
                       errors.slice(0, 10).join('\n') +
                       (errors.length > 10 ? '\n...y ' + (errors.length - 10) + ' mas' : ''));
     }
-    // v1520: PASO B — resolver lineas origen por entry.lineIndex (pure fn).
+    // v1521: PASO B — resolver lineas origen por entry.lineIndex (pure fn).
     const _cpstPlanMod = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.cpstOrigenesPlan) || null;
     if (!_cpstPlanMod) {
       throw new Error('La app no terminó de cargar. Recargá la página y volvé a intentar.');
@@ -18796,7 +18796,7 @@ window._cpstConfirmar = async function(){
       const cub = _origenesPlan.cubiertoPorSku[sk.sku];
       return typeof cub === 'number' ? Math.min(aj, cub) : 0;
     };
-    // v1520: log asig_huerfana (fire-and-forget, §70 shape userUid).
+    // v1521: log asig_huerfana (fire-and-forget, §70 shape userUid).
     if (_origenesPlan.huerfanas.length > 0) {
       console.warn('[asig_huerfana]', c.nombre, _origenesPlan.huerfanas);
       try {
@@ -18856,7 +18856,7 @@ window._cpstConfirmar = async function(){
     const totalRevertUnits = revertActions.reduce((s, a) => s + a.qtyRevert, 0);
     // Nada que hacer? abort temprano.
     if (pedidosOrigenes.length === 0 && totalRevertUnits === 0) {
-      // v1520: si todo era huerfano, aviso simple en vez de error tecnico.
+      // v1521: si todo era huerfano, aviso simple en vez de error tecnico.
       if (_avisoHuerfanas) throw new Error(_avisoHuerfanas);
       throw new Error('No hay unidades para procesar. Nada tildado o todas las entries con qty=0.');
     }
@@ -19035,7 +19035,7 @@ window._cpstConfirmar = async function(){
     } catch (_e) {}
   } catch (e) {
     console.error('_cpstConfirmar', e);
-    // v1520 §68: sin jerga técnica en el texto visible.
+    // v1521 §68: sin jerga técnica en el texto visible.
     alert('No se pudo crear el pedido. Nada se guardó.\n\n' + (e.message || e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Confirmar y pasar a Lista de Espera'; }
@@ -33330,20 +33330,36 @@ window.queryStockLive = function(code, btn){
         }
       }
       if (_bk) {
-        // v1403 §40.11: popup con 5 líneas en orden fijo. "Stock asignado"
-        // muestra el total nominal (post-reconcile = entregable) — la CF
-        // revertSobreAsignadas garantiza que ASIG.qty <= físico - confirmed.
-        // Sacados "Confirmadas sin facturar" y "Reservadas" (siguen vivos en
-        // el breakdown + tooltip de la lista de espera).
-        const _line = (label, qty) => label + ': ' + qty + ' unidades';
-        const _lines = [
-          _line('Stock físico (dep 11)', _bk.fisicoDep11),
-          _line('En tránsito (dep 12)', _bk.transitoDep12),
-          _line('Back order (app)', _bk.backorderApp.total),
-          _line('Stock asignado', _bk.asignadas.total),
-          _line('Libre para la venta', _bk.libre),
-        ];
-        status = _lines.join('\n');
+        // v1520 §103 (2026-10-29): popup muestra TODO lo que resta hasta
+        // llegar a Libre + fórmula explícita. Reemplaza §40.11 (v1403) que
+        // escondía "Confirmadas sin facturar" aunque sí restaba del libre
+        // (bug reportado 29/10 para TRX301B: fisico 16, asig 7, libre 2 —
+        // faltaban las 7u confirmadas sin SAP de ORDEN 419 + 615). Fuente
+        // única: window.__phase0.pure.renderPopupStockSkuPlainText.
+        const _renderFn = window.__phase0 && window.__phase0.pure
+          && window.__phase0.pure.renderPopupStockSkuPlainText;
+        if (typeof _renderFn === 'function') {
+          status = _renderFn(_bk);
+        } else {
+          // Fallback inline si el bundle no cargó (SW stale pre-v1520).
+          const _line = (label, qty, nota) => {
+            let s = label + ': ' + qty + ' unidades';
+            if (nota) s += ' (' + nota + ')';
+            return s;
+          };
+          const _lines = [
+            _line('Stock físico (dep 11)', _bk.fisicoDep11, null),
+            _line('En tránsito (dep 12)', _bk.transitoDep12, 'todavía no es vendible'),
+          ];
+          if (_bk.backorderApp.total > 0) {
+            _lines.push(_line('En back order', _bk.backorderApp.total, 'todavía no toca stock'));
+          }
+          _lines.push(_line('Pedidos asignados', _bk.asignadas.total, 'reservan stock'));
+          _lines.push(_line('Pedidos confirmados sin facturar', _bk.confirmadasSinFacturar.total, 'reservan stock'));
+          _lines.push(_line('Libre para la venta', _bk.libre, null));
+          const _formula = 'Cuenta: ' + _bk.fisicoDep11 + ' físico − ' + _bk.asignadas.total + ' asignados − ' + _bk.confirmadasSinFacturar.total + ' confirmados sin facturar = ' + _bk.libre;
+          status = _lines.join('\n') + '\n\n' + _formula;
+        }
       } else {
         // Fallback si el bundle no está cargado (edge case; no debería pasar).
         status =

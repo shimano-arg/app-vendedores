@@ -4717,7 +4717,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
-### v1520 (2026-10-29) — Crear Pedido Desde Stock Asignado no se bloquea por una asignación huérfana
+### v1521 (2026-10-29) — Crear Pedido Desde Stock Asignado no se bloquea por una asignación huérfana
 
 **Antes**: CPST de REBORN SRL (`C30710852762`, VDE Gonzalo De La Rosa), 23 SKU / 50 u, 29/10 09:08. El pre-flight abortaba todo con:
 
@@ -4744,6 +4744,29 @@ CLC66H2PY: faltaron 2u para cubrir qtyAjustada
 **Rollback**: revertir el commit (index.html + src/main.js + bundle). Vuelve el bloqueo, sin efecto en datos.
 
 **Archivos**: `src/pure/cpst-origenes-plan.js`, `src/main.js`, `app.bundle.js`, `index.html`, `sw.js`, `scripts/audit/AS_asig_huerfanas.cjs`, `docs/auditoria/45_ASIG_HUERFANAS.md`, tests.
+### v1520 (2026-10-29) — Popup "Stock del SKU" muestra TODO lo que resta hasta Libre + fórmula explícita (CLAUDE.md §103)
+
+**Antes**: el popup del Master de Productos (`queryStockLive`) mostraba 5 líneas en orden fijo (`Stock físico / En tránsito / Back order / Stock asignado / Libre`) desde §40.11 v1403. Pero cuando el SKU tenía confirmed sin SAP, la cuenta no cerraba a ojo: `libre = físico − min(asig + conf, físico)` (§40.2), entonces 7u de confirmed restaban invisibles.
+
+**Caso emblemático TRX301B (29/10 09:04)**: físico 16, tránsito 0, asig 7, libre 2. Mariano reportó "16 menos 7 son 9, no 2; faltan 7 unidades sin explicar". Verificado con `scripts/audit/O_breakdown_trx301b.cjs`: las 7u eran **confirmed sin SAP** (ORDEN 419 LEONARDO IUALE 1u + ORDEN 615 PESCAR.INFO SHOP 6u). Doble conteo ASIG→confirmed: 0u detectadas (bloque §33/§35 cancela ASIG original al transferir a confirmed OK).
+
+**Fix**: popup lista TODAS las fuentes que restan + fórmula explícita. Orden fijo nuevo:
+1. Stock físico (dep 11)
+2. En tránsito (dep 12) — todavía no es vendible
+3. En back order — solo si > 0; todavía no toca stock (§40)
+4. Pedidos asignados — reservan stock
+5. Pedidos confirmados sin facturar — reservan stock
+6. Libre para la venta
+7. `Cuenta: F físico − A asignados − C confirmados sin facturar = L`
+
+**Fuente única** (§39): `src/pure/popup-stock-sku-lineas.js` — `buildPopupStockSkuLineas(breakdown)` + `renderPopupStockSkuPlainText(breakdown)`. Expuestas en `window.__phase0.pure`. El inline en `index.html:queryStockLive` llama al serializador y mantiene fallback por si el bundle no cargó (SW stale).
+
+**Verificación**:
+- `tests/unit/audit/popup-stock-sku-formula-cierra.test.js` (6 tests): fixture TRX301B real cierra `16 − 7 − 7 = 2`; regresión §40.11 "confirmed oculto"; BO > 0 info; BO = 0 no aparece; conf = 0 sigue apareciendo; texto plano incluye fórmula.
+- Suite stock relevante: 32/32 PASS.
+- Captura prod post-deploy sobre TRX301B.
+
+**Archivos**: `src/pure/popup-stock-sku-lineas.js` (nuevo), `src/main.js` (import + export), `index.html` (`queryStockLive` + APP_VERSION), `sw.js` (CACHE_VERSION), `tests/unit/audit/popup-stock-sku-formula-cierra.test.js`, `scripts/audit/O_breakdown_trx301b.cjs`, `CLAUDE.md` §103, `README.md` §41.
 
 ---
 
