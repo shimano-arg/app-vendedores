@@ -4717,6 +4717,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix rules (2026-10-29) — roles: alta acotada, secretos de vendedores sólo para lectores, bootstrap con Google verificado
+
+**Cambio:**
+- el create de `roles` sólo admite los 5 campos legítimos y `vendor:null`;
+- `isFichaClienteEditor()` exige `isReader()`;
+- la lectura de docs de vendedores exige rol lector (antes alcanzaba cualquier cuenta autenticada, que podía leer `totpSecret` y `passwordHash`);
+- `auth_secrets/{uid}` queda cerrado a clientes;
+- el bootstrap admin exige email verificado y login con Google.
+
+**Verificación:** Rules 225/236 + las 6 conocidas. Con las reglas originales fallan R3, R4, R5, F1, L1, L2, B2 y B3.
+
+**Rollback:** `firebase deploy --only firestore:rules` con la versión anterior.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.

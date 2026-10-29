@@ -79,8 +79,11 @@ service cloud.firestore {
         && (request.auth.uid == 'LaBFi1xkSLObzLEdRoP8fonZ06r2'
             || request.auth.uid == 'tUJHiLDyLHWvbkpWgCQXWJcucfV2');
     }
+    // SEC-04 (P0, 2026-10-29): además del flag, exige un rol con lectura
+    // (isReader). Un usuario unassigned con el flag ya no edita fichas.
     function isFichaClienteEditor() {
       return request.auth != null
+        && isReader()
         && (
           isPachiUid()
           || (
@@ -120,7 +123,13 @@ service cloud.firestore {
         || isGerente()
         || isMariano()
         || resource.data.internalPartnerUid == request.auth.uid
-        || resource.data.role == 'vendedor'
+        // D2 (2026-10-29): la lectura de docs de vendedores queda para roles
+        // lectores (vendedor/interno/viewer/gerente/admin). Antes alcanzaba
+        // con estar autenticado: un Gmail recién creado (role unassigned)
+        // leía totpSecret/passwordHash de todos los VDEs. El caso de uso de
+        // v1491 (VDE resuelve vendorKey→UID) lo hacen lectores. Los secretos
+        // salen de `roles` en la migración D2 (ver auth_secrets abajo).
+        || (isReader() && resource.data.role == 'vendedor')
       );
       // v917 (2026-09-14, SecAudit Sprint 0 CRIT-01): cerrar auto-escalation
       // admin. Antes: `role in ['unassigned','admin']` permitia que CUALQUIER
@@ -129,15 +138,38 @@ service cloud.firestore {
       // cuenta bootstrap `bot.shimano.pesca@gmail.com`. Ver
       // `fetchAndApplyRole` en index.html:22212 (isBoot flow).
       // Promociones posteriores usan `update` que requiere isAdmin() (linea 66).
+      // SEC-04 (P0, 2026-10-29): el create solo admite los 5 campos que
+      // escriben los flujos legítimos de alta (index.html fetchAndApplyRole y
+      // el alta de usuario no autorizado): email, displayName, role, vendor,
+      // createdAt. Antes no había hasOnly() → una cuenta nueva podía crearse
+      // su doc con fichaClienteEditorFull:true (u otros flags) y editar
+      // cualquier ficha de client_master. vendor debe ser null (el vendor lo
+      // asigna el admin vía update, que sigue siendo solo isAdmin()).
       allow create: if request.auth != null && request.auth.uid == uid
+                     && request.resource.data.keys().hasOnly(['email', 'displayName', 'role', 'vendor', 'createdAt'])
+                     && (!('vendor' in request.resource.data) || request.resource.data.vendor == null)
                      && (
                        request.resource.data.role == 'unassigned'
                        || (
                          request.resource.data.role == 'admin'
                          && request.auth.token.email == 'bot.shimano.pesca@gmail.com'
+                         // D3 (2026-10-29): exige email verificado y login con
+                         // Google. Sin esto, una cuenta email/contraseña creada
+                         // con ese email (no verificado) podía auto-crearse admin.
+                         && request.auth.token.email_verified == true
+                         && request.auth.token.firebase.sign_in_provider == 'google.com'
                        )
                      );
       allow update, delete: if isAdmin();
+    }
+
+    // D2 (2026-10-29): secretos del gate de contraseña y del TOTP. Solo Admin
+    // SDK (Cloud Functions de verificación y del Panel Usuarios). Ningún
+    // cliente lee ni escribe, ni siquiera el dueño o un admin: la verificación
+    // ocurre en el servidor. Colección nueva, todavía sin datos (la migración
+    // desde roles/{uid} requiere aprobación).
+    match /auth_secrets/{uid} {
+      allow read, write: if false;
     }
 
     match /userData/{uid} {

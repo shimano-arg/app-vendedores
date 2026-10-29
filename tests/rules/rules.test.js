@@ -124,7 +124,12 @@ describe('unassigned role', () => {
   });
   it('bot.shimano.pesca sí puede crearse como admin (bootstrap flow)', async () => {
     const newUid = 'uid-boot';
-    const db = authedDb(newUid, { email: 'bot.shimano.pesca@gmail.com' });
+    // D3 (2026-10-29): la regla exige email verificado + login con Google.
+    const db = authedDb(newUid, {
+      email: 'bot.shimano.pesca@gmail.com',
+      email_verified: true,
+      firebase: { sign_in_provider: 'google.com' },
+    });
     await assertSucceeds(setDoc(doc(db, 'roles', newUid), { role: 'admin' }));
   });
 });
