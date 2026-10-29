@@ -126,6 +126,9 @@ const LAZY_CHUNKS = {
   // esta open y algo llama renderPanelControl antes del load, el stub
   // dispara loadChunk + re-invoke automatico.
   'panel-control': ['openPanelControl', 'closePanelControl', 'renderPanelControl'],
+  // v1529 (2026-10-29): DASHBOARD DE VENTAS (admin/gerente/vendedor). Lee la
+  // callable dashboardVentasCF (BigQuery) + Chart.js on-demand desde cdnjs.
+  'dashboard-ventas': ['openDashboardVentas', 'closeDashboardVentas'],
   // v1283 (2026-10-20): reemplazo de 'seguimiento' por 'cartera-vendor'.
   // El modal viejo (6 tabs visitas/pedidos/pendientes/oportunidades/duplas) fue
   // tirado completo. El nuevo chunk es un dashboard de analisis de cartera por

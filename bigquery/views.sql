@@ -3360,3 +3360,321 @@ LEFT JOIN visitas_agg v  ON v.card_code  = c.card_code
 LEFT JOIN compras_agg co ON co.card_code = c.card_code
 LEFT JOIN deuda_agg   d  ON d.card_code  = c.card_code
 ;
+
+
+-- ============================================================
+-- View: v_backorder_dashboard  (Dashboard de Ventas, 2026-10-29)
+-- ============================================================
+-- Back order SAP vigente (v_backorder_lineas, ya deduplicado por v474)
+-- reducido a pesca con vendedor asignado, listo para el Dashboard de Ventas
+-- y para la foto diaria `backorder_daily_snapshot`.
+-- Vendedor y provincia se resuelven con el MISMO join que v_ventas_lineas
+-- (cliente_app.assignedVendor + prov_lookup canonizada); si cambia alla,
+-- cambiar aca tambien.
+-- Columnas: item_code, card_code, assigned_vendor, provincia_cliente,
+--           familia, pendiente_uds, precio_unitario, pendiente_ars.
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_backorder_dashboard` AS
+WITH prov_lookup AS (
+  SELECT card_code, provincia AS provincia_raw
+  FROM (
+    SELECT card_code, provincia, priority,
+           ROW_NUMBER() OVER (PARTITION BY card_code ORDER BY priority) AS rn
+    FROM (
+      SELECT
+        JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        1 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '')
+      UNION ALL
+      SELECT
+        JSON_VALUE(data, '$.sapCardCode') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        2 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_master_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.sapCardCode') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '', NULL)
+    )
+    WHERE card_code IS NOT NULL
+  )
+  WHERE rn = 1
+),
+cliente_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+)
+SELECT
+  b.sku                                                                 AS item_code,
+  b.cliente_code                                                        AS card_code,
+  ca.assigned_vendor_app                                                AS assigned_vendor,
+  CASE
+    WHEN prov.provincia_raw IN ('CIUDAD AUTÓNOMA DE BUENOS AIRES',
+                                'CAPITAL FEDERAL',
+                                'CIUDAD DE BUENOS AIRES') THEN 'CABA'
+    WHEN prov.provincia_raw = 'CÓRDOBA'    THEN 'CORDOBA'
+    WHEN prov.provincia_raw = 'ENTRE RÍOS' THEN 'ENTRE RIOS'
+    WHEN prov.provincia_raw = 'TUCUMÁN'    THEN 'TUCUMAN'
+    WHEN prov.provincia_raw = 'RÍO NEGRO'  THEN 'RIO NEGRO'
+    WHEN prov.provincia_raw = 'NEUQUÉN'    THEN 'NEUQUEN'
+    ELSE prov.provincia_raw
+  END                                                                   AS provincia_cliente,
+  b.familia                                                             AS familia,
+  b.pendiente                                                           AS pendiente_uds,
+  b.precio_unitario                                                     AS precio_unitario,
+  b.pendiente * b.precio_unitario                                       AS pendiente_ars
+FROM `app-vendedores-shimano.shimano_app.v_backorder_lineas` b
+LEFT JOIN prov_lookup prov
+  ON prov.card_code = b.cliente_code
+LEFT JOIN cliente_app ca
+  ON ca.card_code = b.cliente_code
+WHERE b.is_pesca = TRUE
+  AND ca.assigned_vendor_app IS NOT NULL;
+
+
+-- ============================================================
+-- Tabla: backorder_daily_snapshot  (Dashboard de Ventas, 2026-10-29)
+-- ============================================================
+-- La crea tambien sync_backorder_daily_snapshot (scripts/sync_sap_to_bigquery.py)
+-- con el MISMO schema. Se repite aca, idempotente, para que la vista
+-- v_backorder_reconstruido_mensual (que la lee) se pueda crear antes de la
+-- primera foto diaria. Si cambia el schema alla, cambiarlo aca tambien.
+CREATE TABLE IF NOT EXISTS `app-vendedores-shimano.shimano_app.backorder_daily_snapshot` (
+  snapshot_date     DATE,
+  item_code         STRING,
+  card_code         STRING,
+  assigned_vendor   STRING,
+  provincia_cliente STRING,
+  familia           STRING,
+  pendiente_uds     FLOAT64,
+  precio_unitario   FLOAT64,
+  pendiente_ars     FLOAT64
+)
+PARTITION BY snapshot_date;
+
+
+-- ============================================================
+-- View: v_backorder_reconstruido_mensual  (Dashboard de Ventas, 2026-10-29)
+-- ============================================================
+-- Back order ESTIMADO a cada fin de mes, para los 12 meses previos a la
+-- primera foto de backorder_daily_snapshot (si la tabla esta vacia: los 12
+-- fines de mes previos al mes actual ART):
+--
+--   pendiente(M, linea SQ) = MAX(0, cantidad cotizada
+--                                   - cantidad pasada a SO con SO.doc_date <= M)
+--
+-- considerando SOLO SQ con doc_date <= M y no canceladas, y SO no canceladas.
+-- DEFINICION: se descuenta lo COPIADO A ORDEN DE VENTA, no lo facturado.
+-- Se aparta del texto de la spec §3.2 (que habla de la cadena
+-- Invoice -> SO -> SQ) por decision del controller (2026-10-29): la foto
+-- diaria real sale de v_backorder_lineas, cuyo pendiente
+-- (RemainingOpenQuantity de la SQ) baja cuando la cotizacion se copia a
+-- una SO. Los meses estimados usan la misma definicion para que la serie
+-- empalme sin salto con backorder_daily_snapshot.
+-- La SO se vincula a la linea de SQ a nivel LINEA:
+--   SO.line (BaseType 23, BaseEntry = SQ.doc_entry, BaseLine = SQ.LineNum)
+-- Si la linea de SO no trae BaseLine, fallback: la linea de menor LineNum de
+-- la SQ con el mismo ItemCode (asi una SO nunca se cuenta dos veces).
+-- Valorizado con el Price de la linea de la SQ. Facturas y notas de credito
+-- no intervienen.
+--
+-- Vendedor/provincia/pesca: MISMA resolucion que v_backorder_dashboard
+-- (cliente_app.assignedVendor + prov_lookup canonizada; pesca = item en
+-- v_sap_items_enriched, familia = familia_norm). Vendedor/provincia son los
+-- de HOY, no los de M. Si cambia alla, cambiar aca tambien.
+--
+-- Limitaciones conocidas (por eso es "estimado"):
+--   * SQ canceladas/modificadas despues de M no se ven como eran en M.
+--   * Lineas de SQ cerradas a mano en SAP sin pasar a SO cuentan como
+--     pendientes en todos los meses posteriores a la SQ.
+--   * SO sin cadena a SQ (venta directa) no descuentan de nada.
+--   * Las tablas raw traen 24 meses: SQ anteriores a eso no aparecen, los
+--     meses mas viejos pueden quedar cortos.
+--   * No aplica la deduplicacion v474 (sqs_a_excluir) de v_backorder_lineas.
+--
+-- Columnas: mes_fin, item_code, card_code, assigned_vendor,
+--           provincia_cliente, familia, pendiente_uds, pendiente_ars.
+-- Grano: 1 fila por (mes_fin, item_code, card_code, assigned_vendor,
+--        provincia_cliente, familia). Pensada para UNION con
+--        backorder_daily_snapshot (mes_fin <-> snapshot_date).
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_backorder_reconstruido_mensual` AS
+WITH meses AS (
+  -- 12 fines de mes estrictamente anteriores al mes de la primera foto.
+  SELECT LAST_DAY(DATE_SUB(base.mes_ini, INTERVAL n MONTH)) AS mes_fin
+  FROM (
+    SELECT DATE_TRUNC(
+             COALESCE(
+               (SELECT MIN(snapshot_date)
+                FROM `app-vendedores-shimano.shimano_app.backorder_daily_snapshot`),
+               CURRENT_DATE('America/Argentina/Buenos_Aires')),
+             MONTH) AS mes_ini
+  ) base,
+  UNNEST(GENERATE_ARRAY(1, 12)) AS n
+),
+-- Lineas de SQ no canceladas (1 fila por doc_entry + LineNum).
+sq_lineas AS (
+  SELECT
+    q.doc_entry                                                        AS sq_doc_entry,
+    q.doc_date                                                         AS sq_doc_date,
+    q.card_code,
+    COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)   AS sq_line_num,
+    JSON_VALUE(line, '$.ItemCode')                                     AS item_code,
+    SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)               AS qty,
+    SAFE_CAST(JSON_VALUE(line, '$.Price') AS FLOAT64)                  AS precio_unitario
+  FROM `app-vendedores-shimano.shimano_app.sap_quotations_raw` q,
+  UNNEST(JSON_EXTRACT_ARRAY(q.lines_json)) AS line WITH OFFSET off
+  WHERE COALESCE(q.cancelled, 'tNO') = 'tNO'
+    AND q.doc_date IS NOT NULL
+    AND JSON_VALUE(line, '$.ItemCode') IS NOT NULL
+    AND SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) > 0
+  -- Defensa contra filas raw repetidas (hoy WRITE_TRUNCATE, no deberia haber).
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY q.doc_entry,
+                 COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)) = 1
+),
+-- Fallback sin BaseLine: menor LineNum de la SQ con ese ItemCode.
+sq_min_linea AS (
+  SELECT sq_doc_entry, item_code, MIN(sq_line_num) AS sq_line_num
+  FROM sq_lineas
+  GROUP BY sq_doc_entry, item_code
+),
+-- Lineas de SO no canceladas que vienen de una SQ (BaseType 23).
+so_lineas AS (
+  SELECT
+    o.doc_entry                                                        AS so_doc_entry,
+    o.doc_date                                                         AS so_doc_date,
+    COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)   AS so_line_num,
+    JSON_VALUE(line, '$.ItemCode')                                     AS item_code,
+    SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64)               AS qty,
+    SAFE_CAST(JSON_VALUE(line, '$.BaseEntry') AS INT64)                AS sq_doc_entry,
+    SAFE_CAST(JSON_VALUE(line, '$.BaseLine') AS INT64)                 AS sq_base_line
+  FROM `app-vendedores-shimano.shimano_app.sap_orders_raw` o,
+  UNNEST(JSON_EXTRACT_ARRAY(o.lines_json)) AS line WITH OFFSET off
+  WHERE COALESCE(o.cancelled, 'tNO') = 'tNO'
+    AND o.doc_date IS NOT NULL
+    AND SAFE_CAST(JSON_VALUE(line, '$.BaseType') AS INT64) = 23
+    AND JSON_VALUE(line, '$.BaseEntry') IS NOT NULL
+    AND SAFE_CAST(JSON_VALUE(line, '$.Quantity') AS FLOAT64) > 0
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY o.doc_entry,
+                 COALESCE(SAFE_CAST(JSON_VALUE(line, '$.LineNum') AS INT64), off)) = 1
+),
+-- Cantidad pasada a SO por linea de SQ y fecha de SO. Cada linea de SO
+-- (doc_entry + LineNum unicos) apunta a UNA sola linea de SQ: no hay
+-- duplicacion.
+pasado_a_so AS (
+  SELECT
+    so.sq_doc_entry,
+    COALESCE(so.sq_base_line, fb.sq_line_num) AS sq_line_num,
+    so.so_doc_date,
+    SUM(so.qty)                               AS qty_pasada
+  FROM so_lineas so
+  LEFT JOIN sq_min_linea fb
+    ON fb.sq_doc_entry = so.sq_doc_entry
+    AND fb.item_code = so.item_code
+  WHERE COALESCE(so.sq_base_line, fb.sq_line_num) IS NOT NULL
+  GROUP BY 1, 2, 3
+),
+-- Pendiente por linea de SQ y fin de mes, clamp a 0 por linea.
+pendiente_linea AS (
+  SELECT
+    m.mes_fin,
+    s.sq_doc_entry,
+    s.sq_line_num,
+    s.card_code,
+    s.item_code,
+    s.precio_unitario,
+    GREATEST(s.qty - COALESCE(SUM(ps.qty_pasada), 0), 0) AS pendiente_uds
+  FROM sq_lineas s
+  JOIN meses m
+    ON s.sq_doc_date <= m.mes_fin
+  LEFT JOIN pasado_a_so ps
+    ON ps.sq_doc_entry = s.sq_doc_entry
+    AND ps.sq_line_num = s.sq_line_num
+    AND ps.so_doc_date <= m.mes_fin
+  GROUP BY m.mes_fin, s.sq_doc_entry, s.sq_line_num, s.card_code,
+           s.item_code, s.precio_unitario, s.qty
+),
+prov_lookup AS (
+  SELECT card_code, provincia AS provincia_raw
+  FROM (
+    SELECT card_code, provincia, priority,
+           ROW_NUMBER() OVER (PARTITION BY card_code ORDER BY priority) AS rn
+    FROM (
+      SELECT
+        JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        1 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '')
+      UNION ALL
+      SELECT
+        JSON_VALUE(data, '$.sapCardCode') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        2 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_master_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.sapCardCode') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '', NULL)
+    )
+    WHERE card_code IS NOT NULL
+  )
+  WHERE rn = 1
+),
+cliente_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+)
+SELECT
+  p.mes_fin,
+  p.item_code,
+  p.card_code,
+  ca.assigned_vendor_app                                                AS assigned_vendor,
+  CASE
+    WHEN prov.provincia_raw IN ('CIUDAD AUTÓNOMA DE BUENOS AIRES',
+                                'CAPITAL FEDERAL',
+                                'CIUDAD DE BUENOS AIRES') THEN 'CABA'
+    WHEN prov.provincia_raw = 'CÓRDOBA'    THEN 'CORDOBA'
+    WHEN prov.provincia_raw = 'ENTRE RÍOS' THEN 'ENTRE RIOS'
+    WHEN prov.provincia_raw = 'TUCUMÁN'    THEN 'TUCUMAN'
+    WHEN prov.provincia_raw = 'RÍO NEGRO'  THEN 'RIO NEGRO'
+    WHEN prov.provincia_raw = 'NEUQUÉN'    THEN 'NEUQUEN'
+    ELSE prov.provincia_raw
+  END                                                                   AS provincia_cliente,
+  it.familia_norm                                                       AS familia,
+  SUM(p.pendiente_uds)                                                  AS pendiente_uds,
+  SUM(p.pendiente_uds * COALESCE(p.precio_unitario, 0))                 AS pendiente_ars
+FROM pendiente_linea p
+-- INNER JOIN = solo pesca (mismo criterio que is_pesca en v_backorder_lineas).
+JOIN `app-vendedores-shimano.shimano_app.v_sap_items_enriched` it
+  ON it.item_code = p.item_code
+LEFT JOIN prov_lookup prov
+  ON prov.card_code = p.card_code
+LEFT JOIN cliente_app ca
+  ON ca.card_code = p.card_code
+WHERE p.pendiente_uds > 0
+  AND ca.assigned_vendor_app IS NOT NULL
+-- Ordinales: evita ambiguedad entre alias y columnas homonimas de los joins.
+GROUP BY 1, 2, 3, 4, 5, 6;

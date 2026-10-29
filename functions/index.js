@@ -38,9 +38,12 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
+// Cache en memoria acotada (Dashboard de Ventas, v1529).
+import { createBoundedCache } from './core/bounded-cache.js';
 import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
 // E2 §stock-servidor-atomico (2026-10-23)
 import { commitPedidoCore } from './core/commit-pedido-core.js';
+import { dashboardVentasCore } from './core/dashboard-ventas-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
@@ -1247,6 +1250,90 @@ export const releaseAsigCF = onCall(
       }
       console.error('releaseAsigCF unexpected error', e);
       throw new HttpsError('internal', 'release asig fallo: ' + (e?.message || String(e)));
+    }
+  }
+);
+
+/**
+ * Dashboard de Ventas (2026-10-29) — dashboardVentasCF
+ *
+ * Wrapper fino (CLAUDE.md §7): la logica vive en core/dashboard-ventas-core.js.
+ * Lee BigQuery con parametros tipados; cache en memoria acotada (200 entradas).
+ */
+const _dashboardVentasCache = createBoundedCache(200);
+
+export const dashboardVentasCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '512MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    // Mismos dominios que commitPedidoCF (PACHI usa gmail.com). El gate real
+    // es roles/{uid} dentro del core.
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    try {
+      const db = getFirestore();
+      /** @type {any} */
+      let bq = null;
+      return await dashboardVentasCore(
+        {
+          runQuery: async (/** @type {any} */ q) => {
+            if (!bq) {
+              const { BigQuery } = await import('@google-cloud/bigquery');
+              bq = new BigQuery({ projectId: 'app-vendedores-shimano' });
+            }
+            const [rows] = await bq.query({
+              query: q.query,
+              params: q.params,
+              types: q.types,
+              location: 'southamerica-east1',
+            });
+            return rows;
+          },
+          getUserRole: async (/** @type {string} */ uid) => {
+            const snap = await db.collection('roles').doc(uid).get();
+            const d = snap.exists ? snap.data() || {} : {};
+            return { role: d.role, vendor: d.vendor };
+          },
+          getConfig: async () => {
+            try {
+              const snap = await db.collection('app_config').doc('dashboard_ventas').get();
+              const d = snap.exists ? snap.data() || {} : {};
+              return { mostrarEstimados: d.mostrarEstimados === true };
+            } catch (_e) {
+              return { mostrarEstimados: false };
+            }
+          },
+          cache: _dashboardVentasCache,
+          now: () => Date.now(),
+          log: (/** @type {string} */ m, /** @type {any} */ extra) => console.log(m, extra || {}),
+        },
+        { auth, data: req.data || {} }
+      );
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      const code = e && /** @type {any} */ (e).code;
+      if (
+        code === 'unauthenticated' ||
+        code === 'permission-denied' ||
+        code === 'invalid-argument'
+      ) {
+        throw new HttpsError(code, e.message || 'dashboard ventas rechazado');
+      }
+      console.error('dashboardVentasCF unexpected error', e);
+      throw new HttpsError('internal', 'dashboard ventas fallo');
     }
   }
 );
