@@ -4717,6 +4717,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1525 (2026-10-29) — Reparto en una sola transacción (rápido, sin SKU trabados) + clientes al día
+
+**Antes**: `applyRepartoManualCore` marcaba el ingreso `in_progress` y aplicaba cada cliente en una transacción aparte, en serie (cada una releyendo el `stock_snapshot` entero). El modal mostraba los clientes del snapshot guardado cuando entró el stock.
+
+**Problema**: (1) lento: N clientes = N rondas, y cada pedido escrito dispara `onPedidoWriteRecalcSnapshot`, que escribe el mismo `stock_snapshot` que lee la ronda siguiente; (2) si la CF cortaba (timeout 60 s) el ingreso quedaba `in_progress` para siempre con la mitad aplicada — 2026-10-28 18:49 quedaron trabados CVL401, LUGC15, LUGC17, LUGC22, BALTICA20LG, BALTICA20MD (destrabados con `scripts/audit/X_destrabar_in_progress_eterno.cjs`); (3) al reintentar, el modal ofrecía clientes ya atendidos y el servidor devolvía "linea no esta en BO (state=ASIG)".
+
+**Cambio**:
+- Servidor (`functions/core/reparto-core.js`): todo el reparto en UNA `runTransaction` (§58: reads → cálculo → writes). Sin lock previo. Estado final `done` o sigue `pending`, nunca `in_progress`. Líneas que ya no están en BO / sin pendiente / pedido inexistente → `skipped` (no error, no se duplica). Asignaciones se suman a las de intentos previos. `in_progress` heredado con lock > 2 min se acepta.
+- Pantalla (`index.html`): las filas del reparto se filtran con el estado actual de los pedidos (`_repartoFiltrarClientesVivos`), con la cantidad pendiente de hoy. Mensajes de rechazo sin jerga (`_repartoMensajeError`, §68) y aviso de clientes salteados.
+
+**Por qué**: una sola transacción elimina la espera en serie, la contención con el recálculo y el estado a medias.
+
+**Verificación**: `tests/functions/reparto-una-transaccion-v1525.test.js` (7) + `tests/unit/audit/reparto-clientes-vivos-v1525.test.js` (5); reparto/asig-invariante 71 PASS; unit 2493 / smoke 25. (11 fallas preexistentes en `tests/functions/commit-pedido-*`, iguales en main.)
+
+**Deploy**: `firebase deploy --only functions:applyRepartoManualCF`.
+
+**Rollback**: revert del commit + redeploy de la CF.
+
 ### v1524 (2026-10-29) — Reparto: el SKU desaparece del modal al aplicar, sin refrescar
 
 **Antes**: al tocar "Aplicar reparto" (o "Cerrar reparto" / "Marcar procesado") el SKU seguía en el modal hasta refrescar la app.

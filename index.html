@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1524';
+const APP_VERSION = 'v1525';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -21837,6 +21837,26 @@ function _repartoClienteEsReparteable(c){
   return true;
 }
 
+// v1525: devuelve los clientes del snapshot que todavia esperan stock, con la
+// cantidad pendiente de HOY. Si no hay pedidos cargados o no se encuentra el
+// pedido, se deja la fila tal cual (el servidor valida igual).
+function _repartoFiltrarClientesVivos(snapClientes){
+  if (!Array.isArray(snapClientes)) return [];
+  if (typeof globalPedidos === 'undefined' || !Array.isArray(globalPedidos) || globalPedidos.length === 0) {
+    return snapClientes;
+  }
+  const out = [];
+  for (const c of snapClientes) {
+    if (!c || !c.pedidoId) continue;
+    const p = globalPedidos.find((pp) => pp && (pp._fsId === c.pedidoId || pp._id === c.pedidoId || pp.id === c.pedidoId));
+    if (!p) { out.push(c); continue; }
+    if (!_repartoClienteEsReparteable(c)) continue;
+    const line = (Array.isArray(p.lines) ? p.lines : [])[Number(c.lineIndex) || 0];
+    out.push(Object.assign({}, c, { qtyBackorder: Number(line && line.qtyOpen) || 0 }));
+  }
+  return out;
+}
+
 function _repartoBuildCard(ing){
   // v1301 (2026-10-14): rediseno Apple-style. Minimalista, neutro, chips
   // tinted (pastel/transparencia), tipografia SF Pro-like, radios 14px,
@@ -21918,7 +21938,11 @@ function _repartoBuildCard(ing){
   // + CUDC201XG aparecía 2 filas con 15 + 2; ahora 1 fila con 17). Pure fn
   // `consolidateClientesBO` suma qty + preserva pedidoIds[] FIFO para
   // distribución al aplicar.
-  const _rawClientes = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
+  // v1525 (2026-10-29): filtrar el snapshot con el estado ACTUAL de los
+  // pedidos. Antes se mostraban clientes que ya habian recibido sus unidades
+  // (intento anterior a medias) y el servidor rechazaba "linea no esta en BO".
+  const _snapRaw = Array.isArray(ing.clientesBO) ? ing.clientesBO : [];
+  const _rawClientes = _repartoFiltrarClientesVivos(_snapRaw);
   const _consolidateFn = (window.__phase0 && window.__phase0.pure
     && window.__phase0.pure.repartoConsolidate
     && window.__phase0.pure.repartoConsolidate.consolidateClientesBO);
@@ -21931,7 +21955,9 @@ function _repartoBuildCard(ing){
     const td = document.createElement('td');
     td.setAttribute('colspan', '7');
     td.style.cssText = 'padding:20px;text-align:center;color:#86868b;font-weight:500;background:rgba(120,120,128,.04)';
-    td.textContent = 'Este ingreso no tiene clientes cargados en el snapshot.';
+    td.textContent = _snapRaw.length > 0
+      ? 'Los clientes de este ingreso ya recibieron sus unidades o ya no esperan este producto. Tocá "Cerrar reparto".'
+      : 'Este ingreso no tiene clientes cargados en el snapshot.';
     tr.appendChild(td);
     tbody.appendChild(tr);
   }
@@ -22365,11 +22391,13 @@ window._repartoApply = async function(ingresoId){
       let msg = 'Reparto aplicado: ' + ing.sku;
       if (totalAsig > 0) msg += ' · ' + totalAsig + 'u ASIG';
       if (totalElim > 0) msg += ' · ' + totalElim + 'u canceladas';
+      const _nSkip = Array.isArray(r.skipped) ? r.skipped.length : 0;
+      if (_nSkip > 0) msg += ' · ' + _nSkip + ' cliente(s) ya tenían asignado (no se duplicó)';
       if (typeof showSyncTag === 'function') showSyncTag(msg);
       // Sin errores el servidor marca el ingreso 'done' (reparto-core nextStatus).
       if (!(Array.isArray(r.errors) && r.errors.length > 0)) _repartoQuitarIngresoLocal(ingresoId);
     } else {
-      alert('Reparto aplicado con errores:\n\n' + ((r.errors || []).slice(0, 5).join('\n')));
+      alert(_repartoMensajeError(r.errors || []));
     }
   } catch (e) {
     console.error('[reparto] apply error', e);
@@ -22378,6 +22406,21 @@ window._repartoApply = async function(ingresoId){
     if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = 'Aplicar reparto'; }
   }
 };
+
+// v1525: mensaje entendible para los rechazos de applyRepartoManualCF (§68).
+function _repartoMensajeError(errors){
+  const e = (errors || []).join('\n');
+  if (/nada para aplicar/.test(e)) {
+    return 'No se aplicó nada: esos clientes ya tenían asignado este producto o ya no lo esperan. Cerrá el modal, volvé a abrirlo y revisá los que quedan.';
+  }
+  if (/ya aplicado o cancelado/.test(e)) {
+    return 'Este reparto se está aplicando o ya se aplicó. Esperá un minuto, volvé a abrir Reparto y fijate si sigue.';
+  }
+  if (/E5 stock físico bajó|excedería físico|sobre-reparto/.test(e)) {
+    return 'No se aplicó nada: el stock cambió mientras repartías (alguien vendió o se movió mercadería). Volvé a abrir Reparto y repartí con el stock actual.';
+  }
+  return 'No se pudo aplicar el reparto. Avisale a Mariano con este detalle:\n\n' + (errors || []).slice(0, 5).join('\n');
+}
 
 window.setEstadoTab = function(t){
   _estadoTab = t;

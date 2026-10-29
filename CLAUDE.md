@@ -3763,5 +3763,7 @@ Expuestos en `window.__phase0.pure.{buildPopupStockSkuLineas, renderPopupStockSk
 
 **Derivada 2 (v1522)**: un proceso automático que reescribe `lines` de un pedido lo hace en `runTransaction`, re-leyendo el doc; si cambió desde que lo leyó, no escribe en esa vuelta. Nunca `update({lines})` con una copia leída antes (pisa repartos concurrentes).
 
+**Derivada 3 (v1525)**: el reparto manual (`applyRepartoManualCore`) aplica TODOS los clientes en una sola `runTransaction`; nunca deja el ingreso `in_progress`. Línea que ya no está en BO se saltea (`skipped`), no se reasigna.
+
 **Derivada**: quien referencia una línea de pedido guarda y usa su `lineIndex`; nunca la re-busca con `findIndex(code+state)` (puede haber varias líneas del mismo producto y estado). Limpieza de datos viejos: `scripts/audit/AS_asig_huerfanas.cjs`.
 

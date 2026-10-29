@@ -87,6 +87,11 @@ function makeFakeFbDb({ ingreso, pedidos = [], stockFisico = 10 }) {
       const tx = {
         get: async (ref) => ref.get(),
         update: (ref, data) => {
+          // v1525: el ingreso se actualiza dentro de la transaccion.
+          if (ref === ingresoDocRef) {
+            ref.update(data);
+            return;
+          }
           writes.push({ ref, op: 'update', data });
           if (ref._mem) Object.assign(ref._mem, data);
         },

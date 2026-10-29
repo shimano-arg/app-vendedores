@@ -730,7 +730,7 @@ export async function reconcileRepartosFaltantes(deps, snapshot) {
  * @param {any} ingresoDoc
  * @param {Array<any>} [assignments]
  * @param {Array<any>} [eliminations]
- * @param {{allowSobrante?: boolean}} [opts]
+ * @param {{allowSobrante?: boolean, nowMs?: number}} [opts]
  */
 export function validateRepartoPayload(ingresoDoc, assignments, eliminations, opts) {
   /** @type {string[]} */
@@ -739,7 +739,10 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations, op
     errors.push('ingreso_reparto no encontrado');
     return { valid: false, errors };
   }
-  if (ingresoDoc.status !== 'pending') {
+  // v1525: in_progress de la version vieja con lock > 2 min se acepta
+  // (el intento anterior corto; la pantalla muestra lo que falta hoy).
+  const nowMs = opts && typeof opts.nowMs === 'number' ? opts.nowMs : Date.now();
+  if (!ingresoAceptaReparto(ingresoDoc, nowMs)) {
     errors.push('ingreso ya aplicado o cancelado (status=' + ingresoDoc.status + ')');
   }
   const asigArr = Array.isArray(assignments) ? assignments : [];
@@ -824,7 +827,7 @@ export function validateRepartoPayload(ingresoDoc, assignments, eliminations, op
  * @param {Array<{pedidoId: string, lineIndex: number, qtyEliminar: number}>} [opts.eliminations]
  * @param {string} opts.appliedByEmail Email del user que aplica (audit).
  * @param {boolean} [opts.allowSobrante] v1392 §40: cerrar con sobrante.
- * @returns {Promise<{ok: boolean, errors: string[], applied: Assignment[], eliminated?: Array<{pedidoId: string, lineIndex: number, qtyEliminada: number}>}>}
+ * @returns {Promise<{ok: boolean, errors: string[], applied: Assignment[], eliminated?: Array<{pedidoId: string, lineIndex: number, qtyEliminada: number}>, skipped?: Array<{pedidoId: string, lineIndex: number, motivo: string}>}>}
  */
 export async function applyRepartoManualCore(deps, opts) {
   const log = deps.log || (() => {});
@@ -838,6 +841,7 @@ export async function applyRepartoManualCore(deps, opts) {
   const ingresoDoc = /** @type {IngresoRepartoDoc} */ (snap.data() || {});
   const validation = validateRepartoPayload(ingresoDoc, opts.assignments, opts.eliminations, {
     allowSobrante: opts.allowSobrante === true,
+    nowMs: now.getTime(),
   });
   if (!validation.valid) {
     return { ok: false, errors: validation.errors, applied: [] };
@@ -881,35 +885,8 @@ export async function applyRepartoManualCore(deps, opts) {
       applied: [],
     };
   }
-  // v1277 BLOCKER-1 fix: lock ANTES del loop para que un crash parcial +
-  // retry del user no cause doble aplicacion. Si el lock falla no tocamos
-  // pedidos; si pasa, validator (status != pending) bloquea re-ejecuciones.
-  try {
-    await ingresoRef.update({
-      status: 'in_progress',
-      lockedAt: nowIso,
-      lockedBy: opts.appliedByEmail || '',
-    });
-  } catch (lockErr) {
-    return {
-      ok: false,
-      errors: [
-        'lock del ingreso fallo (no se modifico nada): ' +
-          (lockErr && lockErr.message ? lockErr.message : String(lockErr)),
-      ],
-      applied: [],
-    };
-  }
-  /** @type {Assignment[]} */
-  const applied = [];
-  /** @type {Array<{pedidoId: string, lineIndex: number, qtyEliminada: number}>} */
-  const eliminated = [];
-  /** @type {string[]} */
-  const errors = [];
 
-  // v1312: combinar assignments + eliminations por (pedidoId, lineIndex) para
-  // hacer 1 tx por linea (atomico: la linea original + las nuevas ASIG se
-  // crean/cambian juntas).
+  // v1312: combinar assignments + eliminations por (pedidoId, lineIndex).
   /** @type {Map<string, {pedidoId: string, lineIndex: number, asig: number, elim: number}>} */
   const actionsByLine = new Map();
   const _asigArr = Array.isArray(opts.assignments) ? opts.assignments : [];
@@ -936,125 +913,153 @@ export async function applyRepartoManualCore(deps, opts) {
     entry.elim += Number(e.qtyEliminar) || 0;
     actionsByLine.set(key, entry);
   }
+  const allowSobrante = opts.allowSobrante === true;
+  const skuUp = String(ingresoDoc.sku || '')
+    .toUpperCase()
+    .trim();
 
-  for (const [, action] of actionsByLine) {
-    const pedidoRef = deps.fbDb.collection('pedidos').doc(action.pedidoId);
-    try {
-      await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
-        // E5 §stock-servidor-atomico (v1433): re-leer stock_snapshot DENTRO
-        // de la txn para validar que el stock físico no bajó entre pre-tx
-        // (línea 697) y la aplicación individual. Protege de la race
-        // "VDE confirma venta mismo SKU mientras Pablo aplica reparto"
-        // (G1.G02 del audit grises 2026-10-22).
-        const stockSnapInTx = await tx.get(
-          deps.fbDb.collection('app_config').doc('stock_snapshot')
-        );
-        const stockDataInTx = stockSnapInTx.exists ? stockSnapInTx.data() : null;
-        const wbsInTx = _parseWarehouseBreakdown(stockDataInTx);
-        const skuForTx = String(ingresoDoc.sku || '')
-          .toUpperCase()
-          .trim();
-        const whsInTx = (wbsInTx && wbsInTx[skuForTx]) || null;
-        const fisicoInTx = whsInTx ? Number(whsInTx['11'] || 0) : 0;
-        if (fisicoInTx < stockFisicoDep11) {
-          throw new Error(
+  // v1525 (2026-10-29): TODO el reparto en UNA transaccion. Antes: lock
+  // status=in_progress + 1 transaccion por linea, en serie. Con 15 clientes
+  // eran 15 rondas (cada una releyendo el stock_snapshot entero y chocando con
+  // onPedidoWriteRecalcSnapshot, que escribe ese mismo doc) -> lento, y si la
+  // CF cortaba a los 60 s el ingreso quedaba in_progress para siempre con la
+  // mitad aplicada (LUGC22 / BALTICA20LG / CVL401, 2026-10-28 18:49).
+  // Ahora: se lee todo una vez, se calcula y se escribe junto. Si algo aborta,
+  // no se aplica nada y el ingreso sigue pending (nunca queda trabado).
+  // Lineas que ya no estan en BO (asignadas antes, facturadas, borradas) se
+  // saltean con aviso en `skipped`; no son error.
+  /** @type {Assignment[]} */
+  let applied = [];
+  /** @type {Array<{pedidoId: string, lineIndex: number, qtyEliminada: number}>} */
+  let eliminated = [];
+  /** @type {string[]} */
+  let errors = [];
+  /** @type {Array<{pedidoId: string, lineIndex: number, motivo: string}>} */
+  let skipped = [];
+  let nextStatus = 'pending';
+  /** @type {Record<string, any>} */
+  let updatePayload = {};
+  try {
+    await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+      // Reset por si Firestore reintenta la transaccion.
+      applied = [];
+      eliminated = [];
+      errors = [];
+      skipped = [];
+      // === FASE READ (§58: todos los reads antes de cualquier write) ===
+      const ingSnapTx = await tx.get(ingresoRef);
+      const ingTx = ingSnapTx.exists ? ingSnapTx.data() || {} : null;
+      if (!ingTx || !ingresoAceptaReparto(ingTx, now.getTime())) {
+        throw Object.assign(new Error('ingreso ya aplicado o cancelado'), { _abort: true });
+      }
+      // E5 §stock-servidor-atomico (v1433): re-leer stock DENTRO de la txn.
+      const stockSnapInTx = await tx.get(deps.fbDb.collection('app_config').doc('stock_snapshot'));
+      const stockDataInTx = stockSnapInTx.exists ? stockSnapInTx.data() : null;
+      const wbsInTx = _parseWarehouseBreakdown(stockDataInTx);
+      const whsInTx = (wbsInTx && wbsInTx[skuUp]) || null;
+      const fisicoInTx = whsInTx ? Number(whsInTx['11'] || 0) : 0;
+      if (fisicoInTx < stockFisicoDep11) {
+        throw Object.assign(
+          new Error(
             'E5 stock físico bajó durante aplicación (' +
               stockFisicoDep11 +
               ' → ' +
               fisicoInTx +
               ') SKU=' +
-              skuForTx +
-              ' @ ' +
-              action.pedidoId +
-              ':' +
-              action.lineIndex
-          );
+              skuUp
+          ),
+          { _abort: true }
+        );
+      }
+      const currentAsig =
+        stockDataInTx && stockDataInTx.asigBySkuApp
+          ? Number(stockDataInTx.asigBySkuApp[skuUp] || 0)
+          : null;
+      /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
+      const pedidos = new Map();
+      for (const action of actionsByLine.values()) {
+        if (pedidos.has(action.pedidoId)) continue;
+        const ref = deps.fbDb.collection('pedidos').doc(action.pedidoId);
+        const s = await tx.get(ref);
+        pedidos.set(action.pedidoId, {
+          ref,
+          exists: !!s.exists,
+          data: s.exists ? s.data() || {} : null,
+        });
+      }
+
+      // === FASE COMPUTE ===
+      /** @type {Map<string, any[]>} lineas modificadas por pedido */
+      const workLines = new Map();
+      for (const action of actionsByLine.values()) {
+        const where = action.pedidoId + ':' + action.lineIndex;
+        const asig = asig0(action);
+        const elim = elim0(action);
+        const p = pedidos.get(action.pedidoId);
+        if (!p || !p.exists) {
+          skipped.push({ ...ref0(action), motivo: 'pedido no existe' });
+          continue;
         }
-        // E5: validar que ASIG actual + nueva no exceda fisico actual.
-        // Lectura del aggregate app-source `asigBySkuApp` (ya mantenido por
-        // onPedidoWriteRecalcSnapshot). Si no está disponible, saltamos.
-        if (stockDataInTx && stockDataInTx.asigBySkuApp) {
-          const currentAsig = Number(stockDataInTx.asigBySkuApp[skuForTx] || 0);
-          const newAsig = Math.max(0, Number(action.asig) || 0);
-          if (currentAsig + newAsig > fisicoInTx) {
-            throw new Error(
-              'E5 reparto excedería físico actual: asigActual=' +
-                currentAsig +
-                ' + newAsig=' +
-                newAsig +
-                ' > fisico=' +
-                fisicoInTx +
-                ' SKU=' +
-                skuForTx
-            );
-          }
-        }
-        const pedidoSnap = await tx.get(pedidoRef);
-        if (!pedidoSnap.exists) {
-          throw new Error('pedido no existe: ' + action.pedidoId);
-        }
-        const data = pedidoSnap.data();
-        // v1336 (2026-10-15): guards v1300 (FATECHI) REMOVIDOS por pedido
-        // explicito de Mariano. "Yo tomo la responsabilidad si ya se habia
-        // asignado en pedidos viejo". Admin/gerente only (gate frontend).
-        // Preservado: validaciones matematicas basicas (line existe,
-        // qtyOpen > 0, asig+elim <= qtyOpen).
-        const lines = Array.isArray(data.lines) ? [...data.lines] : [];
-        const line = lines[action.lineIndex];
+        const baseLines =
+          workLines.get(action.pedidoId) || (Array.isArray(p.data.lines) ? [...p.data.lines] : []);
+        const line = baseLines[action.lineIndex];
         if (!line) {
-          throw new Error('line index invalido: ' + action.lineIndex + ' @ ' + action.pedidoId);
+          skipped.push({ ...ref0(action), motivo: 'linea no existe' });
+          continue;
         }
-        // v1343 (2026-10-15): guard de SKU. Reemplaza el check boMap (snapshot)
-        // del validator. Verifica que la linea realmente corresponde al SKU
-        // del ingreso — asi un payload erroneo (frontend stale, abuso) no
-        // asigna stock de otro SKU al cliente.
+        // v1343: guard de SKU (payload erroneo no asigna stock de otro SKU).
         const lineSku = String(line.code || '')
           .toUpperCase()
           .trim();
-        const ingresoSku = String(ingresoDoc.sku || '')
-          .toUpperCase()
-          .trim();
-        if (lineSku !== ingresoSku) {
-          throw new Error(
+        if (lineSku !== skuUp) {
+          errors.push(
             'line SKU no coincide con ingreso (line.code=' +
               line.code +
               ' vs ingreso.sku=' +
               ingresoDoc.sku +
               ') @ ' +
-              action.pedidoId +
-              ':' +
-              action.lineIndex
+              where
           );
+          continue;
+        }
+        // Linea ya repartida/facturada/cancelada desde que se armo la pantalla:
+        // no es error, se saltea (no se asigna dos veces).
+        if (line.state !== 'BO') {
+          skipped.push({
+            ...ref0(action),
+            motivo: 'ya no espera stock (state=' + line.state + ')',
+          });
+          continue;
         }
         const qo = Number(line.qtyOpen) || 0;
         if (qo <= 0) {
-          throw new Error('linea con qtyOpen=0 @ ' + action.pedidoId + ':' + action.lineIndex);
+          skipped.push({ ...ref0(action), motivo: 'no le queda nada pendiente' });
+          continue;
         }
-        // v1343: guard de state. Solo se puede repartir sobre lineas BO.
-        // Si la linea esta en invoiced/cancelled/ASIG/recycled, rechazar.
-        if (line.state !== 'BO') {
-          throw new Error(
-            'linea no esta en BO (state=' +
-              line.state +
-              ') @ ' +
-              action.pedidoId +
-              ':' +
-              action.lineIndex
+        // E5: ASIG actual + nueva no puede exceder el fisico actual.
+        if (currentAsig !== null && currentAsig + asig > fisicoInTx) {
+          errors.push(
+            'E5 reparto excedería físico actual: asigActual=' +
+              currentAsig +
+              ' + newAsig=' +
+              asig +
+              ' > fisico=' +
+              fisicoInTx +
+              ' SKU=' +
+              skuUp +
+              ' @ ' +
+              where
           );
+          continue;
         }
-        const asig = Math.max(0, Number(action.asig) || 0);
-        const elim = Math.max(0, Number(action.elim) || 0);
-        // v1338 (2026-10-15): cap asig+elim > qo REMOVIDO (sobre-asignacion
-        // permitida). Si asig+elim > qo, qr queda en 0 (no negativo). Mariano
-        // toma la responsabilidad.
-        const qr = Math.max(0, qo - asig - elim); // qtyMantenerBO (>= 0 siempre)
-        // Linea original: siempre acumula qtyCancelled si elim>0.
+        const lines = [...baseLines];
+        // v1338: asig+elim > qo permitido (sobre-asignacion); qr nunca negativo.
+        const qr = Math.max(0, qo - asig - elim);
         const newOrig = Object.assign({}, line, {
           qtyCancelled: (Number(line.qtyCancelled) || 0) + elim,
           qtyOpen: qr,
         });
         if (qr === 0 && asig > 0 && elim === 0) {
-          // Linea entera pasa a ASIG.
           newOrig.qtyOpen = asig;
           newOrig.state = 'ASIG';
           newOrig.asigAt = nowIso;
@@ -1062,7 +1067,6 @@ export async function applyRepartoManualCore(deps, opts) {
           newOrig.asigFromReparto = opts.ingresoId;
           lines[action.lineIndex] = newOrig;
         } else if (qr === 0 && elim > 0) {
-          // Linea original cancelled (full o parcial depending on asig).
           newOrig.state = 'cancelled';
           newOrig.cancelledAt = nowIso;
           newOrig.cancelledFrom = 'reparto-eliminado';
@@ -1072,110 +1076,101 @@ export async function applyRepartoManualCore(deps, opts) {
             lines.push(_buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex));
           }
         } else {
-          // qr > 0: linea original queda BO con menos qty (+qtyCancelled si elim>0).
           lines[action.lineIndex] = newOrig;
           if (asig > 0) {
             lines.push(_buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex));
           }
         }
-        // v1520 invariante ASIG qtyOpen>0: ninguna línea que toca esta acción
-        // (la original o las apendeadas) puede quedar state='ASIG' con
-        // qtyOpen<=0. Zombies previas en otras líneas no bloquean (las limpia
-        // scripts/audit/AS_asig_huerfanas.cjs). Precedente REBORN CLC66H2PY.
-        const _origLen = Array.isArray(data.lines) ? data.lines.length : 0;
+        // v1520 invariante §104: ninguna linea tocada queda ASIG con qtyOpen<=0.
+        const _prevLen = baseLines.length;
         const _zombies = findZombieAsigLines(lines).filter(
-          (i) => i === action.lineIndex || i >= _origLen
+          (i) => i === action.lineIndex || i >= _prevLen
         );
         if (_zombies.length > 0) {
-          throw new Error(
-            'invariante: ASIG con qtyOpen=0 en lineas ' +
-              _zombies.join(',') +
-              ' @ ' +
-              action.pedidoId
+          errors.push(
+            'invariante: ASIG con qtyOpen=0 en lineas ' + _zombies.join(',') + ' @ ' + where
           );
+          continue;
         }
-        tx.update(pedidoRef, { lines, updatedAt: nowIso });
-      });
-      if (asig0(action) > 0) {
-        applied.push({
-          pedidoId: action.pedidoId,
-          lineIndex: action.lineIndex,
-          qtyAsignada: asig0(action),
-        });
+        workLines.set(action.pedidoId, lines);
+        if (asig > 0) {
+          applied.push({
+            pedidoId: action.pedidoId,
+            lineIndex: action.lineIndex,
+            qtyAsignada: asig,
+          });
+        }
+        if (elim > 0) {
+          eliminated.push({
+            pedidoId: action.pedidoId,
+            lineIndex: action.lineIndex,
+            qtyEliminada: elim,
+          });
+        }
       }
-      if (elim0(action) > 0) {
-        eliminated.push({
-          pedidoId: action.pedidoId,
-          lineIndex: action.lineIndex,
-          qtyEliminada: elim0(action),
-        });
-      }
-      log('reparto aplicado', {
-        pedidoId: action.pedidoId,
-        lineIndex: action.lineIndex,
-        asig: action.asig,
-        elim: action.elim,
-      });
-    } catch (e) {
-      const msg = (e && e.message ? e.message : String(e)) + ' (pedido ' + action.pedidoId + ')';
-      errors.push(msg);
-    }
-  }
-  // v1392 §40: Marcar ingreso como done si:
-  //   - no hay errores, Y
-  //   - (hay asignaciones/eliminaciones aplicadas) O (opts.allowSobrante=true)
-  // Si allowSobrante=true + 0 touched → Pablo cerró explícito con sobrante.
-  const touched = applied.length + eliminated.length;
-  const allowSobrante = opts.allowSobrante === true;
-  const sumIngresada = Number(ingresoDoc.qtyIngresada) || 0;
-  const sumAsigAplicada = applied.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
-  const sumElimAplicada = eliminated.reduce((s, e) => s + (Number(e.qtyEliminada) || 0), 0);
-  const sobrante = Math.max(0, sumIngresada - sumAsigAplicada - sumElimAplicada);
-  const nextStatus =
-    errors.length === 0
-      ? touched > 0 || allowSobrante
-        ? 'done'
-        : 'pending'
-      : touched > 0
-        ? 'in_progress'
-        : 'pending';
-  /** @type {Record<string, any>} */
-  const updatePayload = {
-    status: nextStatus,
-    appliedAt: nowIso,
-    appliedBy: opts.appliedByEmail || '',
-    assignments: applied,
-    eliminations: eliminated,
-    assignmentErrors: errors,
-  };
-  if (nextStatus === 'done' && sobrante > 0) {
-    updatePayload.closedReason = allowSobrante
-      ? 'admin_cerrado_con_sobrante_' + sobrante + '_libres'
-      : 'done_con_sobrante_' + sobrante;
-    updatePayload.sobranteLibre = sobrante;
-  }
-  // Medir ventana ingreso→reparto (CLAUDE.md): tiempo entre detectedAt y appliedAt.
-  if (ingresoDoc.detectedAt) {
-    const detectedMs =
-      typeof ingresoDoc.detectedAt === 'string' ? Date.parse(ingresoDoc.detectedAt) : null;
-    if (detectedMs !== null) {
-      const ventanaMs = now.getTime() - detectedMs;
-      updatePayload.ventanaIngresoARepartoMs = ventanaMs;
-      log('reparto_ventana', {
-        ingresoId: opts.ingresoId,
-        detectedAt: ingresoDoc.detectedAt,
+
+      // Estado final. Nunca 'in_progress': o queda done, o sigue pending
+      // (con lo aplicado ya guardado) para reintentar desde la pantalla.
+      const touched = applied.length + eliminated.length;
+      /** @type {any[]} */
+      const prevAssignments = Array.isArray(ingTx.assignments) ? ingTx.assignments : [];
+      /** @type {any[]} */
+      const prevEliminations = Array.isArray(ingTx.eliminations) ? ingTx.eliminations : [];
+      const allAssignments = prevAssignments.concat(applied);
+      const allEliminations = prevEliminations.concat(eliminated);
+      nextStatus = errors.length === 0 && (touched > 0 || allowSobrante) ? 'done' : 'pending';
+      const sumIngresada = Number(ingresoDoc.qtyIngresada) || 0;
+      const sumAsigTotal = allAssignments.reduce((s, a) => s + (Number(a.qtyAsignada) || 0), 0);
+      const sumElimTotal = allEliminations.reduce((s, e) => s + (Number(e.qtyEliminada) || 0), 0);
+      const sobrante = Math.max(0, sumIngresada - sumAsigTotal - sumElimTotal);
+      updatePayload = {
+        status: nextStatus,
         appliedAt: nowIso,
-        ventanaMinutos: Math.round(ventanaMs / 60000),
-      });
-    }
-  }
-  try {
-    await ingresoRef.update(updatePayload);
+        appliedBy: opts.appliedByEmail || '',
+        assignments: allAssignments,
+        eliminations: allEliminations,
+        assignmentErrors: errors,
+        assignmentSkipped: skipped,
+        lockedAt: null,
+        lockedBy: null,
+      };
+      if (nextStatus === 'done' && sobrante > 0) {
+        updatePayload.closedReason = allowSobrante
+          ? 'admin_cerrado_con_sobrante_' + sobrante + '_libres'
+          : 'done_con_sobrante_' + sobrante;
+        updatePayload.sobranteLibre = sobrante;
+      }
+      // Medir ventana ingreso→reparto: tiempo entre detectedAt y appliedAt.
+      if (nextStatus === 'done' && ingresoDoc.detectedAt) {
+        const detectedMs =
+          typeof ingresoDoc.detectedAt === 'string' ? Date.parse(ingresoDoc.detectedAt) : null;
+        if (detectedMs !== null)
+          updatePayload.ventanaIngresoARepartoMs = now.getTime() - detectedMs;
+      }
+
+      // === FASE WRITE ===
+      for (const [pedidoId, lines] of workLines) {
+        tx.update(/** @type {any} */ (pedidos.get(pedidoId)).ref, { lines, updatedAt: nowIso });
+      }
+      // Si no se toco nada y no es cierre con sobrante, el ingreso queda igual.
+      if (touched > 0 || allowSobrante || nextStatus !== ingTx.status) {
+        tx.update(ingresoRef, updatePayload);
+      }
+    });
   } catch (e) {
-    errors.push('update ingreso status failed: ' + (e && e.message ? e.message : String(e)));
+    const msg = e && e.message ? e.message : String(e);
+    log('reparto abortado', { ingresoId: opts.ingresoId, err: msg });
+    return { ok: false, errors: [msg], applied: [], eliminated: [], skipped: [] };
   }
-  // Audit log. v1277 IMPORTANT-6 fix: no silent swallow — si falla, loguear
-  // + agregar al errors[] del response para que caller lo vea.
+  log('reparto aplicado', {
+    ingresoId: opts.ingresoId,
+    applied: applied.length,
+    eliminated: eliminated.length,
+    skipped: skipped.length,
+    errors: errors.length,
+    status: nextStatus,
+  });
+  // Audit log. v1277 IMPORTANT-6 fix: no silent swallow.
   try {
     await deps.fbDb.collection(REPARTO_LOG_COLLECTION).add({
       ingresoId: opts.ingresoId,
@@ -1186,6 +1181,7 @@ export async function applyRepartoManualCore(deps, opts) {
       appliedBy: opts.appliedByEmail || '',
       assignmentsCount: applied.length,
       eliminationsCount: eliminated.length,
+      skippedCount: skipped.length,
       errorsCount: errors.length,
       errors: errors.slice(0, 10),
       status: nextStatus,
@@ -1197,7 +1193,46 @@ export async function applyRepartoManualCore(deps, opts) {
     log('reparto_log write failed', { ingresoId: opts.ingresoId, err: msg });
     errors.push(msg);
   }
-  return { ok: errors.length === 0, errors, applied, eliminated };
+  const touched = applied.length + eliminated.length;
+  if (errors.length === 0 && touched === 0 && !allowSobrante) {
+    errors.push(
+      'nada para aplicar: esos clientes ya no esperan stock (ya asignados, facturados o borrados)'
+    );
+  }
+  return { ok: errors.length === 0, errors, applied, eliminated, skipped };
+}
+
+/**
+ * v1525: un ingreso acepta reparto si esta pending, o si quedo in_progress
+ * de la version vieja (lock por linea) y el lock tiene mas de 2 minutos.
+ * @param {any} ingresoDoc
+ * @param {number} nowMs
+ */
+function ingresoAceptaReparto(ingresoDoc, nowMs) {
+  if (!ingresoDoc) return false;
+  if (ingresoDoc.status === 'pending') return true;
+  if (ingresoDoc.status !== 'in_progress') return false;
+  const lockMs = toMillisSafeReparto(ingresoDoc.lockedAt || ingresoDoc.appliedAt);
+  return lockMs === null || nowMs - lockMs > STALE_LOCK_MS;
+}
+
+const STALE_LOCK_MS = 2 * 60 * 1000;
+
+/** @param {any} v */
+function toMillisSafeReparto(v) {
+  if (!v) return null;
+  if (typeof v === 'string') {
+    const t = Date.parse(v);
+    return Number.isNaN(t) ? null : t;
+  }
+  if (typeof v.toMillis === 'function') return v.toMillis();
+  if (typeof v.seconds === 'number') return v.seconds * 1000;
+  return null;
+}
+
+/** @param {{pedidoId: string, lineIndex: number}} action */
+function ref0(action) {
+  return { pedidoId: action.pedidoId, lineIndex: action.lineIndex };
 }
 
 // v1312 helpers.
