@@ -642,6 +642,10 @@ function _cssVar(name, fallback) {
   }
 }
 
+const CHART_FONT =
+  "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif";
+const CHART_GRID = { color: 'rgba(0,0,0,.06)' };
+
 function _barChart(canvasId, rows, field, fmt, color) {
   const el = document.getElementById(canvasId);
   if (!el || !window.Chart) return;
@@ -674,16 +678,21 @@ function _barChart(canvasId, rows, field, fmt, color) {
       },
       scales: {
         x: {
+          grid: CHART_GRID,
+          border: { display: false },
           ticks: {
+            font: { family: CHART_FONT },
             callback: (v) => fmt(v),
             maxTicksLimit: 5,
             color: _cssVar('--text-muted', '#64748b'),
           },
         },
         y: {
+          grid: { display: false },
+          border: { display: false },
           ticks: {
             autoSkip: false,
-            font: { size: 10 },
+            font: { size: 10, family: CHART_FONT },
             color: _cssVar('--text-secondary', '#334155'),
           },
         },
@@ -762,13 +771,20 @@ function _lineChart(canvasId, serie, fmt, color, conEstimado) {
       scales: {
         y: {
           beginAtZero: true,
+          grid: CHART_GRID,
+          border: { display: false },
           ticks: {
+            font: { family: CHART_FONT },
             callback: (v) => fmt(v),
             maxTicksLimit: 6,
             color: _cssVar('--text-muted', '#64748b'),
           },
         },
-        x: { ticks: { color: _cssVar('--text-muted', '#64748b') } },
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { font: { family: CHART_FONT }, color: _cssVar('--text-muted', '#64748b') },
+        },
       },
     },
   });

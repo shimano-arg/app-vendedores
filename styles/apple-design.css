@@ -7004,3 +7004,140 @@ html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
   margin-top: 4px !important;
 }
 
+
+/* dashboard-ventas-apple:start
+   Dashboard de Ventas fase 2 (Task 4): estilo Apple. Todo scoped a
+   #dashboard-ventas-modal. Tema claro con valores Apple; en dark se usan las
+   variables del tema (no se fuerza blanco). No toca height/overflow del
+   .modal-box (CLAUDE.md §49). */
+#dashboard-ventas-modal {
+  --dv-bg: #f5f5f7;
+  --dv-card: #ffffff;
+  --dv-text: #1d1d1f;
+  --dv-muted: #86868b;
+  --dv-line: rgba(0, 0, 0, 0.06);
+  --dv-accent: #49A2DA;
+  --dv-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+}
+#dashboard-ventas-modal:is([data-theme="dark"] *) {
+  --dv-bg: var(--bg-base);
+  --dv-card: var(--bg-elevated);
+  --dv-text: var(--text-primary);
+  --dv-muted: var(--text-muted);
+  --dv-line: var(--border-subtle);
+}
+#dashboard-ventas-modal.modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+#dashboard-ventas-modal.modal-overlay.open {
+  animation: appleOverlayFadeIn 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+#dashboard-ventas-modal.modal-overlay.open .modal-box {
+  animation: appleModalSlideIn 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: center bottom;
+  border-radius: 16px !important;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  font-family: var(--dv-font) !important;
+}
+#dashboard-ventas-modal .modal-head {
+  background: var(--dv-card) !important;
+  color: var(--dv-text) !important;
+  border-bottom: 1px solid var(--dv-line) !important;
+}
+#dashboard-ventas-modal .modal-head h2 {
+  color: var(--dv-text) !important;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+#dashboard-ventas-modal .modal-head .subt { color: var(--dv-muted) !important; }
+#dashboard-ventas-modal .modal-close { color: var(--dv-muted) !important; }
+#dashboard-ventas-modal #dashboard-ventas-body {
+  background: var(--dv-bg);
+  font-family: var(--dv-font);
+  color: var(--dv-text);
+}
+#dashboard-ventas-modal .dv-card,
+#dashboard-ventas-modal .dv-section,
+#dashboard-ventas-modal .dv-filtros {
+  background: var(--dv-card);
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+#dashboard-ventas-modal .dv-card { padding: 14px 16px; }
+#dashboard-ventas-modal .dv-section { padding: 14px 16px; }
+#dashboard-ventas-modal .dv-card-title,
+#dashboard-ventas-modal .dv-filtro-label {
+  color: var(--dv-muted);
+  letter-spacing: 0.02em;
+}
+#dashboard-ventas-modal .dv-card-value {
+  color: var(--dv-text);
+  letter-spacing: -0.02em;
+}
+#dashboard-ventas-modal .dv-section-head h3 {
+  color: var(--dv-text);
+  letter-spacing: -0.01em;
+}
+#dashboard-ventas-modal .dv-input,
+#dashboard-ventas-modal .dv-ms > summary,
+#dashboard-ventas-modal .dv-ms-locked,
+#dashboard-ventas-modal .dv-ms-search {
+  border: 1px solid var(--dv-line);
+  border-radius: 10px;
+  font-family: var(--dv-font);
+}
+#dashboard-ventas-modal .dv-input:focus,
+#dashboard-ventas-modal .dv-ms-search:focus {
+  outline: none;
+  border-color: var(--dv-accent);
+  box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.25);
+}
+#dashboard-ventas-modal .dv-btn-primary,
+#dashboard-ventas-modal .dv-btn-secondary {
+  border-radius: 999px;
+  font-family: var(--dv-font);
+  transition: transform 100ms ease-out, background-color 100ms ease-out;
+}
+#dashboard-ventas-modal .dv-btn-primary {
+  background: var(--dv-accent);
+  color: #ffffff;
+}
+#dashboard-ventas-modal .dv-btn-secondary {
+  border: none;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--dv-text);
+}
+#dashboard-ventas-modal .dv-btn-primary:active,
+#dashboard-ventas-modal .dv-btn-secondary:active,
+#dashboard-ventas-modal .dv-link:active {
+  transform: scale(0.97);
+}
+#dashboard-ventas-modal .dv-link { color: var(--dv-accent); transition: transform 100ms ease-out; }
+#dashboard-ventas-modal .dv-table th {
+  background: var(--dv-card);
+  color: var(--dv-muted);
+  font-weight: 600;
+}
+#dashboard-ventas-modal .dv-table th,
+#dashboard-ventas-modal .dv-table td { border-bottom: 1px solid var(--dv-line); }
+@media (prefers-reduced-motion: reduce) {
+  #dashboard-ventas-modal.modal-overlay.open,
+  #dashboard-ventas-modal.modal-overlay.open .modal-box {
+    animation-name: appleModalSlideInReduced !important;
+    animation-duration: 180ms !important;
+  }
+  #dashboard-ventas-modal .dv-btn-primary,
+  #dashboard-ventas-modal .dv-btn-secondary,
+  #dashboard-ventas-modal .dv-link {
+    transition: none;
+  }
+  #dashboard-ventas-modal .dv-btn-primary:active,
+  #dashboard-ventas-modal .dv-btn-secondary:active,
+  #dashboard-ventas-modal .dv-link:active {
+    transform: none !important;
+  }
+}
+/* dashboard-ventas-apple:end */
