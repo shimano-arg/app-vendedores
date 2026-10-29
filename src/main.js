@@ -389,6 +389,8 @@ installChunkStubs('forecast', [
   'resetMultiplier',
 ]);
 installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
+// v1528 (2026-10-29): Dashboard de Ventas (chunk lazy, misma lista que build.js).
+installChunkStubs('dashboard-ventas', ['openDashboardVentas', 'closeDashboardVentas']);
 // v1283 (2026-10-20): reemplazo de 'seguimiento' chunk por 'cartera-vendor'.
 // El modal viejo (6 tabs) fue tirado; el nuevo es dashboard de analisis de
 // cartera por vendedor. Ver docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md

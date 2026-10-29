@@ -2862,7 +2862,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #backorders-modal .modal-box,
 #waitlist-card-modal .modal-box,
 #backorders-graficos-modal .modal-box,
-#estado-modal .modal-box{
+#estado-modal .modal-box,
+#dashboard-ventas-modal .modal-box{
   height: 90vh !important;
   max-height: 90vh !important;
   display: flex !important;
@@ -2876,7 +2877,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 #backorders-modal .modal-head,
 #waitlist-card-modal .modal-head,
 #backorders-graficos-modal .modal-head,
-#estado-modal .modal-head{
+#estado-modal .modal-head,
+#dashboard-ventas-modal .modal-head{
   flex-shrink: 0 !important;
 }
 /* Buscadores + filtros + summaries + totales fijos arriba/abajo (no crecen). */
@@ -4056,6 +4058,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
          Activas (pedido explicito de Mariano). Abre modal Estado con 3 tabs. -->
     <button class="btn-zonas" id="pedidos-btn" onclick="openEstadoModal()" title="Estado de pedidos: Lista de espera, Pendientes y Confirmados SAP" style="background:#1e40af;color:#fff">Pedidos</button>
     <button class="btn-dashboard" id="dashboard-btn" onclick="openDashboardModal()" title="Abrir dashboard de ventas">Dashboard</button>
+    <!-- v1528 (2026-10-29): Dashboard de Ventas (BigQuery via dashboardVentasCF).
+         Visible para admin, gerente y vendedor: el servidor restringe al vendedor
+         a sus propios clientes. Chunk lazy src/domains/dashboard-ventas.js. -->
+    <button class="btn-dashboard" id="dashboard-ventas-btn" onclick="openDashboardVentas()" title="Ventas pesca y evolución del backorder con filtros" style="background:#0f766e">Dashboard de Ventas</button>
     <button class="btn-clientes" id="clientes-top-btn" onclick="setTab('clients')" title="Ver lista de clientes SAP + Leads">Clientes</button>
     <button class="btn-alta-cli-top" id="alta-cli-top-btn" onclick="setTab('altacli')" title="Alta de clientes nuevos">Alta clientes</button>
     <button class="btn-rendiciones-top" id="rendiciones-top-btn" onclick="setTab('rendiciones')" title="Rendiciones: mis gastos + aprobaciones">Rendiciones <span id="tab-rend-count-btn" style="display:none;background:rgba(255,255,255,.25);padding:1px 6px;border-radius:9px;font-size:10px;margin-left:4px">0</span></button>
@@ -5238,6 +5244,8 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     <div class="modal-box" style="width:min(920px,98vw);max-height:92vh;display:flex;flex-direction:column">
       <div class="modal-head" style="background:linear-gradient(135deg,#0284a0,#00A9E0)">
         <div><h2>Dashboard de ventas</h2><div class="subt" id="dashboard-subt">Resumen de pedidos confirmados, targets y campañas.</div></div>
+        <!-- v1528: acceso al Dashboard de Ventas (BigQuery) desde el Dashboard. -->
+        <button type="button" onclick="closeDashboardModal();openDashboardVentas()" style="margin-left:auto;margin-right:8px;padding:6px 12px;border:1px solid rgba(255,255,255,.6);border-radius:8px;background:rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Dashboard de Ventas</button>
         <button class="modal-close" onclick="closeDashboardModal()">&times;</button>
       </div>
       <!-- v640 (2026-08-26): tabs Targets / Visuales / Visitas / Finanzas.
@@ -5265,6 +5273,65 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         </div>
       </div>
       <div class="users-wrap" id="dashboard-content" style="overflow-y:auto"></div>
+    </div>
+  </div>
+  <!-- v1528 (2026-10-29): DASHBOARD DE VENTAS. Contenido lo arma el chunk lazy
+       src/domains/dashboard-ventas.js (callable dashboardVentasCF + Chart.js).
+       Altura fija + scroll interno por el bloque CSS §49. -->
+  <div class="modal-overlay" id="dashboard-ventas-modal" onclick="if(event.target===this)closeDashboardVentas()">
+    <div class="modal-box" style="width:min(1000px,98vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
+        <div><h2>Dashboard de Ventas</h2><div class="subt">Ventas pesca y evolución del backorder.</div></div>
+        <button class="modal-close" onclick="closeDashboardVentas()">&times;</button>
+      </div>
+      <style>
+        #dashboard-ventas-body{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 20px}
+        #dashboard-ventas-body .dv-filtros{border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-secondary);margin-bottom:10px}
+        #dashboard-ventas-body .dv-filtros>summary{cursor:pointer;padding:10px 14px;font-weight:700;font-size:13px;color:var(--text-primary)}
+        #dashboard-ventas-body .dv-filtros-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;padding:0 14px 10px}
+        #dashboard-ventas-body .dv-filtro-label{font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+        #dashboard-ventas-body .dv-input,#dashboard-ventas-body .dv-ms>summary,#dashboard-ventas-body .dv-ms-locked{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);font-size:13px;min-height:38px}
+        #dashboard-ventas-body .dv-ms{position:relative}
+        #dashboard-ventas-body .dv-ms>summary{cursor:pointer;list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        #dashboard-ventas-body .dv-ms-locked{color:var(--text-secondary)}
+        #dashboard-ventas-body .dv-ms-pop{margin-top:4px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-elevated);padding:6px}
+        #dashboard-ventas-body .dv-ms-search{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--border-subtle);border-radius:6px;font-size:13px;background:var(--bg-elevated);color:var(--text-primary)}
+        #dashboard-ventas-body .dv-ms-actions{text-align:right;padding:4px 0}
+        #dashboard-ventas-body .dv-ms-list{max-height:220px;overflow-y:auto}
+        #dashboard-ventas-body .dv-ms-opt{display:flex;gap:6px;align-items:flex-start;padding:5px 4px;font-size:12.5px;color:var(--text-primary);cursor:pointer}
+        #dashboard-ventas-body .dv-filtros-actions{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 12px}
+        #dashboard-ventas-body .dv-btn-primary{padding:9px 18px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:700;font-size:13px;cursor:pointer;min-height:40px}
+        #dashboard-ventas-body .dv-btn-primary:active,#dashboard-ventas-body .dv-btn-secondary:active{transform:scale(.97)}
+        #dashboard-ventas-body .dv-btn-primary[disabled]{opacity:.6;cursor:default}
+        #dashboard-ventas-body .dv-btn-secondary{padding:9px 14px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);font-size:13px;cursor:pointer;min-height:40px}
+        #dashboard-ventas-body .dv-link{border:none;background:none;color:#0f766e;font-weight:700;font-size:12.5px;cursor:pointer;padding:4px}
+        #dashboard-ventas-body .dv-leyenda{font-size:12px;color:var(--text-secondary);margin:6px 2px 12px}
+        #dashboard-ventas-body .dv-muted{color:var(--text-muted);font-size:12px}
+        #dashboard-ventas-body .dv-estado{padding:40px 12px;text-align:center;color:var(--text-secondary);font-size:14px}
+        #dashboard-ventas-body .dv-error{color:#b91c1c}
+        #dashboard-ventas-body .dv-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+        #dashboard-ventas-body .dv-card{background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:10px;padding:12px 14px;min-width:0}
+        #dashboard-ventas-body .dv-card-title{font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px}
+        #dashboard-ventas-body .dv-card-value{font-size:clamp(16px,4.2vw,22px);font-weight:800;color:var(--text-primary);letter-spacing:-.02em;overflow-wrap:anywhere}
+        #dashboard-ventas-body .dv-section{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+        #dashboard-ventas-body .dv-section-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+        #dashboard-ventas-body .dv-section-head h3{margin:0;font-size:14px;font-weight:700;color:var(--text-primary)}
+        #dashboard-ventas-body .dv-chart{position:relative;width:100%}
+        #dashboard-ventas-body .dv-vermas{margin-top:10px}
+        #dashboard-ventas-body .dv-table-wrap{max-height:360px;overflow:auto;margin-top:6px}
+        #dashboard-ventas-body .dv-table{width:100%;border-collapse:collapse;font-size:12px}
+        #dashboard-ventas-body .dv-table th,#dashboard-ventas-body .dv-table td{padding:5px 6px;border-bottom:1px solid var(--border-subtle);text-align:left;color:var(--text-primary)}
+        #dashboard-ventas-body .dv-table th{position:sticky;top:0;background:var(--bg-secondary);font-size:11px}
+        #dashboard-ventas-body .dv-table .num{text-align:right;white-space:nowrap}
+        #dashboard-ventas-body .dv-table .mono{font-family:ui-monospace,Menlo,monospace}
+        @media (max-width:700px){
+          #dashboard-ventas-body{padding:10px 10px 18px}
+          #dashboard-ventas-body .dv-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+          #dashboard-ventas-body .dv-filtros-grid{grid-template-columns:1fr}
+        }
+        @media (prefers-reduced-motion:reduce){#dashboard-ventas-body .dv-btn-primary:active,#dashboard-ventas-body .dv-btn-secondary:active{transform:none}}
+      </style>
+      <div id="dashboard-ventas-body"><div class="dv-estado">Cargando…</div></div>
     </div>
   </div>
   <div class="modal-overlay" id="campaigns-modal" onclick="if(event.target===this)closeCampaignsPanel()">
@@ -7129,7 +7196,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1527';
+const APP_VERSION = 'v1528';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -32309,6 +32376,8 @@ function _moveButtonsToSidebarLeft(){
   const orden = [
     { id: 'mis-camps-btn', label: 'Campañas' },
     { id: 'dashboard-btn', label: 'Dashboard' },
+    // v1528: Dashboard de Ventas (visible también para vendedor).
+    { id: 'dashboard-ventas-btn', label: 'Ventas' },
     { id: 'seguimiento-btn', label: 'Seguimiento' },
     { id: _exportBtn ? _exportBtn.id : null, label: 'Exportar' },
     { id: 'backorders-btn', label: 'Backorder' },

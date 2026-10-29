@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v1527';
+const CACHE_VERSION = 'v1528';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -55,6 +55,8 @@ const STATIC_ASSETS = [
   // v810 (2026-09-04) Loop iter 7: PANEL DE CONTROL admin-only (Mariano).
   // Health + KPIs + Sentry + GH Actions detail. 939 LOC on-demand.
   './chunks/panel-control.js',
+  // v1528 (2026-10-29): Dashboard de Ventas (admin/gerente/vendedor).
+  './chunks/dashboard-ventas.js',
   // v1283 (2026-10-20): reemplazo seguimiento → cartera-vendor.
   // Dashboard de analisis de cartera por vendedor (6 KPIs + tabla filtrable).
   // Lee cartera_vendor/{vendorKey} Firestore (snapshot nightly 04:00 ART).

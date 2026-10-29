@@ -4717,6 +4717,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1528 (2026-10-29) — Dashboard de Ventas (pantalla nueva, chunk lazy)
+
+**Antes**: no había forma de ver dentro de la app las ventas pesca del mes con filtros ni la evolución del back order SAP. El Dashboard actual (`src/domains/dashboard.js`) muestra pedidos confirmados y targets, y está oculto para vendedores.
+
+**Problema**: para analizar facturado, Top SKU o back order por vendedor/cliente/provincia/categoría había que pedirle un reporte a Mariano (Power BI / BigQuery a mano).
+
+**Cambio**:
+- `src/domains/dashboard-ventas.js` (chunk lazy nuevo, §18 en los 3 lugares: `build.js`, `src/main.js`, `sw.js`). Exports `openDashboardVentas` / `closeDashboardVentas`.
+- Filtros multiselección con búsqueda (Mes, Vendedor, Cliente, Provincia, Categoría, SKU) en panel desplegable; para rol vendedor el filtro Vendedor queda fijo en el suyo (el servidor igual lo fuerza). "Aplicar" llama a la callable `dashboardVentasCF`.
+- 4 tarjetas (Facturado mensual, Valorización backorder, Cant. de pedidos del mes, Cant. pedidos únicos), 2×2 en celular. Top 20 SKU por unidades y por dinero en barras horizontales; "Ver más" abre la tabla completa con búsqueda. 3 gráficos de línea de 12 meses (ventas, back order unidades, back order dinero); los meses reconstruidos van en línea punteada con leyenda "estimado" y los meses sin datos cortan la línea.
+- Chart.js 4.4.1 se carga a pedido desde cdnjs al abrir.
+- `index.html`: botón "Dashboard de Ventas" al lado de "Dashboard" (visible para admin, gerente y vendedor; en escritorio aparece como "Ventas" en el panel izquierdo), botón de acceso en el encabezado del Dashboard viejo, modal `#dashboard-ventas-modal` agregado al bloque CSS §49. La barra inferior mobile tiene 5 lugares fijos, por eso no se agregó ahí.
+- Error con `formatMensajeConCodigo('DASHBOARD_VENTAS_FAILED')` (§68). La hora que se muestra es "Calculado HH:MM" (cuándo armó la respuesta el servidor, no la hora del sync).
+
+**Por qué**: decisión de Mariano (spec `docs/superpowers/specs/2026-10-29-dashboard-ventas-design.md`): ventas y back order visibles para cada vendedor sobre sus propios clientes.
+
+**Verificación**: `tests/unit/audit/dashboard-ventas-ui.test.js` (contrato de chunk, modal §49, botón visible para vendedor, textos exactos, Chart.js); unit / smoke / biome / typecheck en verde. Pendiente: prueba manual con rol vendedor (§90) contra la CF deployada.
+
+**Deploy**: `firebase deploy --only functions:dashboardVentasCF` + aplicar en BigQuery las vistas nuevas de `bigquery/views.sql` (`v_backorder_dashboard`, `v_backorder_reconstruido_mensual`, tabla `backorder_daily_snapshot`). Los meses estimados quedan ocultos hasta poner `app_config/dashboard_ventas.mostrarEstimados=true`, después de validar la reconstrucción con `scripts/audit/BQ_validar_backorder_reconstruido.py`.
+
+**Rollback**: revert del commit (solo front). La CF puede quedar deployada sin consumidores.
+
 ### v1527 (2026-10-29) — "Recargar limpio" conserva la lista de precios
 
 **Antes / Problema**: el botón "Recargar limpio" (`forceUpdateApp`) borraba todo el localStorage salvo borradores y tema, incluida la lista de precios local de v1523. Después de tocarlo, el Master quedaba "Cargando precios..." hasta que llegaba el listener.
