@@ -147,4 +147,18 @@ describe('AS planLimpieza', () => {
       ])
     );
   });
+
+  it('respaldo parcial (ORDEN 504: ASIG con qtyOpen 2, reserva 3) → ajustar_ref a 2, no liberar', () => {
+    const f = fixture();
+    f.pedidos[0].lines[2] = { code: 'CLC66H2PY', state: 'ASIG', qty: 3, qtyOpen: 2, asigAt };
+    f.waitlists[0].pedidosOrigenes = [
+      { pedidoId: 'PED_REBORN', lineIndex: 2, sku: 'CLC66H2PY', qtyAsignada: 3 },
+    ];
+    f.waitlists[0].items[0].asigRefs = [
+      { pedidoId: 'PED_REBORN', lineIndex: 2, sku: 'CLC66H2PY', qtyAsignada: 3 },
+    ];
+    const acciones = planLimpieza(analizar(f), f.pedidos);
+    const a = acciones.find((x) => x.waitlistId === 'WL1');
+    expect(a).toMatchObject({ accion: 'ajustar_ref', lineIndex: 2, qtyAntes: 3, qtyNueva: 2 });
+  });
 });

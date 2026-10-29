@@ -219,6 +219,10 @@ function planLimpieza(res, pedidos) {
     if (alt >= 0) {
       usadas.add(w.pedidoId + '|' + alt);
       acciones.push({ accion: 'corregir_ref', waitlistId: w.waitlistId, pedidoId: w.pedidoId, deLineIndex: w.lineIndex, aLineIndex: alt, sku: w.sku, qty: w.qtyAsignada, porque: 'el pedido tiene otra línea ASIG viva del mismo producto que cubre la cantidad' });
+    } else if (w.lineState === 'ASIG' && num(w.lineQtyOpen) > 0) {
+      // Respaldo parcial: la línea sigue viva con menos unidades → bajar la ref
+      // a lo que existe (no perder las unidades reales).
+      acciones.push({ accion: 'ajustar_ref', waitlistId: w.waitlistId, pedidoId: w.pedidoId, lineIndex: w.lineIndex, sku: w.sku, qtyAntes: num(w.qtyAsignada), qtyNueva: num(w.lineQtyOpen), porque: 'la línea ASIG tiene menos unidades abiertas que la reserva; se baja la reserva a lo que existe' });
     } else {
       acciones.push({ accion: 'liberar_ref', waitlistId: w.waitlistId, pedidoId: w.pedidoId, lineIndex: w.lineIndex, sku: w.sku, qty: w.fantasma, porque: 'no hay línea ASIG viva que la respalde; el ítem queda en la orden sin reserva (al confirmar va con stock libre o espera stock)' });
     }
@@ -256,7 +260,7 @@ async function aplicar(db, acciones, nowIso) {
           });
           out.ok++;
         });
-      } else if (a.accion === 'corregir_ref' || a.accion === 'liberar_ref') {
+      } else if (a.accion === 'corregir_ref' || a.accion === 'liberar_ref' || a.accion === 'ajustar_ref') {
         const ref = db.collection('revision_waitlist').doc(a.waitlistId);
         await db.runTransaction(async (tx) => {
           const snap = await tx.get(ref);
@@ -264,7 +268,12 @@ async function aplicar(db, acciones, nowIso) {
           const w = snap.data() || {};
           const fromIdx = a.accion === 'corregir_ref' ? a.deLineIndex : a.lineIndex;
           const hit = (o) => o && o.pedidoId === a.pedidoId && Number(o.lineIndex) === Number(fromIdx);
-          const fix = (o) => (a.accion === 'corregir_ref' ? { ...o, lineIndex: a.aLineIndex } : null);
+          const fix = (o) =>
+            a.accion === 'corregir_ref'
+              ? { ...o, lineIndex: a.aLineIndex }
+              : a.accion === 'ajustar_ref'
+                ? { ...o, qtyAsignada: a.qtyNueva }
+                : null;
           const prevOrig = w.pedidosOrigenes || [];
           const prevItems = w.items || [];
           const pedidosOrigenes = prevOrig.map((o) => (hit(o) ? fix(o) : o)).filter(Boolean);

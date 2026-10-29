@@ -43,6 +43,23 @@ La última corrida imprime las tablas Z/W/R/S por cliente y producto, el total d
 
 Cada write guarda `_backfill.AS_asig_huerfanas_2026-10-29_v1521` (§55) y re-verifica dentro de una transacción.
 
-## Listado (pendiente de correr)
+## Listado (corrido por Mariano 2026-10-29, prod, read-only)
 
-_Completar con la salida de `node scripts/audit/AS_asig_huerfanas.cjs`._
+**Caso REBORN confirmado** (`8lGQkjUJfZwqsfnNw4iw`, CLC66H2PY):
+- 21/10 20:38 Pablo asigna 2u (ingreso `YlQVZ9YR8MpYUgy9POKx`) → línea 162 ASIG split de la 77.
+- 27/10 17:21 `revertSobreAsignadas` con entregable 0 → línea 162 queda `ASIG qty=0 qtyOpen=0` (zombie) y apendea línea 163 BO 2u.
+- 28/10 18:49 reparto `IJP5yi0gAayLkCeNrwi5` (lote de ayer) convierte la 163 entera en ASIG 2u.
+- 29/10 09:08 CPST: `findIndex` cae en la 162 → bloqueo. Las 2u existían en la 163.
+
+| Tipo | Filas | Unidades fantasma | Lectura |
+|---|---:|---:|---|
+| Z zombies | 53 | 0 propias | Todas `qty=0`, `revertida=true`. No restan stock; son trampas para quien busque por producto. |
+| W refs sin respaldo | 4 | **7** | Todas en la ORDEN 504 (FERNANDO LUIS HORACIO DEL INTENTO): 597144 2u, LDM54TE3023015S 3u, LDM54TE4028015S 1u, PLM58RE0200150S 1u. |
+| R | 42 | 0 | Todas `doble_aplicacion` = cliente re-asignado después de un revert (patrón REBORN). No hay asignaciones perdidas. |
+| S snapshot por producto | 37 | 62 | Claves viejas en `stock_snapshot/{SKU}.asignadas.byClient`. Sin efecto: `commitPedidoCF` lee ese doc pero no usa el campo, y el popup lee pedidos. |
+
+**Unidades fantasma reales hoy: 7** (ORDEN 504). Las 62 de S son contables, no operativas.
+
+**TRX301B**: 3 zombies (ACOSTA, DINKELDEIN, SFRAMELI) + 3 claves viejas en S; ninguna resta del popup. Las 7u "sin explicar" de las 09:04 eran confirmadas sin facturar (IUALE 1 + PESCAR.INFO 6), resuelto en v1520 §103 (PR #1285).
+
+**Plan**: 53 `cerrar_zombie` + ORDEN 504: 2 `liberar_ref` (597144, LDM54TE3023015S) + 2 `ajustar_ref` 3→2 (LDM54TE4028015S, PLM58RE0200150S).
