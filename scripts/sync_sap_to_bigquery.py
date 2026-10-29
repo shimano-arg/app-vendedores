@@ -1783,6 +1783,68 @@ def sync_dashboard_snapshot_to_firestore(bq_client: bigquery.Client,
     return written
 
 
+def sync_backorder_daily_snapshot(bq_client: bigquery.Client,
+                                  dry_run: bool = False,
+                                  now: datetime = None) -> int:
+    """Dashboard de Ventas (2026-10-29): foto diaria del back order SAP.
+
+    Copia v_backorder_dashboard a shimano_app.backorder_daily_snapshot con
+    snapshot_date = hoy (ART). Se ejecuta UNA vez por dia: solo corre en la
+    primera pasada despues de las 23:00 ART; antes devuelve 0 sin tocar BQ.
+    Idempotente: borra las filas del dia y las vuelve a insertar, asi una
+    segunda corrida el mismo dia reemplaza la foto en vez de duplicarla.
+
+    Devuelve la cantidad de filas escritas (0 si se saltea o es dry_run).
+    """
+    art = timezone(timedelta(hours=-3))  # America/Argentina/Buenos_Aires (sin DST)
+    now_art = (now or datetime.now(timezone.utc)).astimezone(art)
+    if now_art.hour < 23:
+        log(f'[BO_DAILY] {now_art:%H:%M} ART < 23:00, se saltea la foto diaria')
+        return 0
+    snap_date = now_art.date()
+    if dry_run:
+        log(f'[BO_DAILY] dry-run: escribiria foto del {snap_date}')
+        return 0
+
+    tabla = f'`{BQ_PROJECT}.{BQ_DATASET}.backorder_daily_snapshot`'
+    vista = f'`{BQ_PROJECT}.{BQ_DATASET}.v_backorder_dashboard`'
+    params = [bigquery.ScalarQueryParameter('d', 'DATE', snap_date)]
+
+    bq_client.query(f"""
+        CREATE TABLE IF NOT EXISTS {tabla} (
+          snapshot_date     DATE,
+          item_code         STRING,
+          card_code         STRING,
+          assigned_vendor   STRING,
+          provincia_cliente STRING,
+          familia           STRING,
+          pendiente_uds     FLOAT64,
+          precio_unitario   FLOAT64,
+          pendiente_ars     FLOAT64
+        )
+        PARTITION BY snapshot_date
+    """).result()
+
+    bq_client.query(
+        f'DELETE FROM {tabla} WHERE snapshot_date = @d',
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    ).result()
+
+    job = bq_client.query(f"""
+        INSERT INTO {tabla}
+          (snapshot_date, item_code, card_code, assigned_vendor,
+           provincia_cliente, familia, pendiente_uds, precio_unitario,
+           pendiente_ars)
+        SELECT @d, item_code, card_code, assigned_vendor, provincia_cliente,
+               familia, pendiente_uds, precio_unitario, pendiente_ars
+        FROM {vista}
+    """, job_config=bigquery.QueryJobConfig(query_parameters=params))
+    job.result()
+    n = int(job.num_dml_affected_rows or 0)
+    log(f'[BO_DAILY] {n} filas escritas en backorder_daily_snapshot ({snap_date})')
+    return n
+
+
 def sync_backorder_snapshot_to_firestore(bq_client: bigquery.Client,
                                           db: firestore.Client,
                                           dry_run: bool = False) -> int:
@@ -3497,6 +3559,14 @@ def main():
         sync_backorder_snapshot_to_firestore(bq_client, db, dry_run=dry_run)
     except Exception as e:
         log(f'[BACKORDER] fallo (no bloqueante): {e}')
+
+    # === 11b. Foto diaria del back order (BQ -> BQ) Dashboard de Ventas
+    # Una vez por dia (primera corrida >= 23:00 ART) guarda v_backorder_dashboard
+    # en backorder_daily_snapshot para graficar la evolucion del back order.
+    try:
+        sync_backorder_daily_snapshot(bq_client, dry_run=dry_run)
+    except Exception as e:
+        log(f'[BO_DAILY] fallo (no bloqueante): {e}')
 
     # === 12. SKU ventas snapshot (BQ -> Firestore) v42x+ (2026-08-06)
     # Agrega v_ventas_lineas por (item_code, año, mes) ventana 13 meses y

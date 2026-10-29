@@ -3360,3 +3360,84 @@ LEFT JOIN visitas_agg v  ON v.card_code  = c.card_code
 LEFT JOIN compras_agg co ON co.card_code = c.card_code
 LEFT JOIN deuda_agg   d  ON d.card_code  = c.card_code
 ;
+
+
+-- ============================================================
+-- View: v_backorder_dashboard  (Dashboard de Ventas, 2026-10-29)
+-- ============================================================
+-- Back order SAP vigente (v_backorder_lineas, ya deduplicado por v474)
+-- reducido a pesca con vendedor asignado, listo para el Dashboard de Ventas
+-- y para la foto diaria `backorder_daily_snapshot`.
+-- Vendedor y provincia se resuelven con el MISMO join que v_ventas_lineas
+-- (cliente_app.assignedVendor + prov_lookup canonizada); si cambia alla,
+-- cambiar aca tambien.
+-- Columnas: item_code, card_code, assigned_vendor, provincia_cliente,
+--           familia, pendiente_uds, precio_unitario, pendiente_ars.
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_backorder_dashboard` AS
+WITH prov_lookup AS (
+  SELECT card_code, provincia AS provincia_raw
+  FROM (
+    SELECT card_code, provincia, priority,
+           ROW_NUMBER() OVER (PARTITION BY card_code ORDER BY priority) AS rn
+    FROM (
+      SELECT
+        JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        1 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '')
+      UNION ALL
+      SELECT
+        JSON_VALUE(data, '$.sapCardCode') AS card_code,
+        UPPER(TRIM(JSON_VALUE(data, '$.provincia'))) AS provincia,
+        2 AS priority
+      FROM `app-vendedores-shimano.shimano_app.client_master_raw_raw_latest`
+      WHERE JSON_VALUE(data, '$.sapCardCode') IS NOT NULL
+        AND JSON_VALUE(data, '$.provincia') NOT IN ('(sin provincia)', '', NULL)
+    )
+    WHERE card_code IS NOT NULL
+  )
+  WHERE rn = 1
+),
+cliente_app AS (
+  SELECT
+    JSON_VALUE(data, '$.cardCodeSap') AS card_code,
+    ARRAY_AGG(
+      JSON_VALUE(data, '$.assignedVendor')
+      IGNORE NULLS
+      ORDER BY document_id
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS assigned_vendor_app
+  FROM `app-vendedores-shimano.shimano_app.client_applications_raw_raw_latest`
+  WHERE JSON_VALUE(data, '$.cardCodeSap') IS NOT NULL
+    AND JSON_VALUE(data, '$.cardCodeSap') != ''
+  GROUP BY card_code
+)
+SELECT
+  b.sku                                                                 AS item_code,
+  b.cliente_code                                                        AS card_code,
+  ca.assigned_vendor_app                                                AS assigned_vendor,
+  CASE
+    WHEN prov.provincia_raw IN ('CIUDAD AUTÓNOMA DE BUENOS AIRES',
+                                'CAPITAL FEDERAL',
+                                'CIUDAD DE BUENOS AIRES') THEN 'CABA'
+    WHEN prov.provincia_raw = 'CÓRDOBA'    THEN 'CORDOBA'
+    WHEN prov.provincia_raw = 'ENTRE RÍOS' THEN 'ENTRE RIOS'
+    WHEN prov.provincia_raw = 'TUCUMÁN'    THEN 'TUCUMAN'
+    WHEN prov.provincia_raw = 'RÍO NEGRO'  THEN 'RIO NEGRO'
+    WHEN prov.provincia_raw = 'NEUQUÉN'    THEN 'NEUQUEN'
+    ELSE prov.provincia_raw
+  END                                                                   AS provincia_cliente,
+  b.familia                                                             AS familia,
+  b.pendiente                                                           AS pendiente_uds,
+  b.precio_unitario                                                     AS precio_unitario,
+  b.pendiente * b.precio_unitario                                       AS pendiente_ars
+FROM `app-vendedores-shimano.shimano_app.v_backorder_lineas` b
+LEFT JOIN prov_lookup prov
+  ON prov.card_code = b.cliente_code
+LEFT JOIN cliente_app ca
+  ON ca.card_code = b.cliente_code
+WHERE b.is_pesca = TRUE
+  AND ca.assigned_vendor_app IS NOT NULL;
