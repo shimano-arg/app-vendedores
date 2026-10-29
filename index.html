@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1526';
+const APP_VERSION = 'v1527';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -8164,6 +8164,10 @@ window._renderVersionMinimaBlockingModal = _renderVersionMinimaBlockingModal;
 const CLEAN_RELOAD_PRESERVE_KEYS = Object.freeze([
   'shimano_zonas_pending_v1',  // borradores pedidos no enviados
   'shimano_theme',              // preferencia dark/light
+  // v1527: lista de precios local (v1523). Sin esto "Recargar limpio" dejaba
+  // el Master sin precios hasta que llegaba el listener (segundos largos).
+  // El listener la reemplaza igual al llegar: no queda dato viejo.
+  'shimano_price_cache_v1',
 ]);
 window.CLEAN_RELOAD_PRESERVE_KEYS = CLEAN_RELOAD_PRESERVE_KEYS;
 
