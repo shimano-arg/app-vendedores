@@ -314,6 +314,9 @@ export function enrichPayloadWithClientVendor(payload, resolution, cargadoPor) {
  * @param {string} reason
  * @returns {string}
  */
+/** Roles cuyos usuarios pueden tener cartera, en orden de precedencia (§46). */
+const ROLES_CON_CARTERA = ['vendedor', 'interno', 'gerente', 'admin'];
+
 /**
  * v1491 §89 HOTFIX (2026-10-27) — resolución SERVER-SIDE del vendedor del cliente.
  *
@@ -341,23 +344,29 @@ export async function resolveClientVendorServerSide(args) {
   if (!args || !args.fbDb) return EMPTY;
   const { fbDb, cardCode, clientName, vendorKeyHint } = args;
 
-  // 1. roles (role=vendedor) → users union.
+  // 1. roles → users union, en los 4 roles que usa la pantalla (§46), con la
+  //    misma precedencia: vendedor > interno > gerente > admin (el primero
+  //    gana en los .find de abajo). hotfix 2026-10-29: antes solo role='vendedor' → los
+  //    clientes de un VDI (interno, ej. IOANNIS PALKOUDAKIS) o de un gerente
+  //    daban VENDOR_UID_MISSING al confirmarlos un vendedor.
   /** @type {Array<{uid:string, email:string, vendorKey:string}>} */
   const users = [];
-  try {
-    const rolesSnap = await fbDb.collection('roles').where('role', '==', 'vendedor').get();
-    rolesSnap.forEach((/** @type {any} */ d) => {
-      const data = d.data() || {};
-      if (data.vendor) {
-        users.push({
-          uid: d.id,
-          email: data.email || '',
-          vendorKey: String(data.vendor).trim(),
-        });
-      }
-    });
-  } catch (_e) {
-    /* non-fatal: seguir sin lookup UID; fallback por hint abajo */
+  for (const role of ROLES_CON_CARTERA) {
+    try {
+      const rolesSnap = await fbDb.collection('roles').where('role', '==', role).get();
+      rolesSnap.forEach((/** @type {any} */ d) => {
+        const data = d.data() || {};
+        if (data.vendor && !users.some((u) => u.uid === d.id)) {
+          users.push({
+            uid: d.id,
+            email: data.email || '',
+            vendorKey: String(data.vendor).trim(),
+          });
+        }
+      });
+    } catch (_e) {
+      /* non-fatal: seguir con los otros roles; fallback por hint abajo */
+    }
   }
 
   // 2. approvedAltas → master.
