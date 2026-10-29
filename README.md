@@ -4717,6 +4717,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
+
+**Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.
+
+**Problema**: el cliente recibía un total que incluía unidades que van a quedar en back order, sin forma de distinguir qué se entrega ahora.
+
+**Cambio**:
+- `src/pure/waitlist-export-rows.js`: `buildWaitlistExportRows` recibe `getQtyConStock(indice)`. Cada producto se parte en una fila con lo que tiene stock (suma) y una fila `sinStock` con lo que falta (no suma). Devuelve también `totalSinStock`, `unidadesSinStock` y `productos`.
+- `index.html`: `_renderWaitlistCard` guarda por item las unidades con stock (`qtyConSap`, el mismo cálculo de "Subtotal del pedido (Con Stock)"); el export las usa. En el Excel, "TOTAL DEL PEDIDO (CON STOCK)", una fila roja "SIN STOCK, QUEDA EN BACK ORDER (N u, NO SUMA)" y las filas de back order en rojo con el subtotal tachado. El selector muestra el monto sin stock en rojo. Aplica a las 3 opciones.
+- Ejemplo: pedido $1.000.000 con $200.000 sin stock → total $800.000 y $200.000 en rojo.
+
+**Por qué**: pedido de Mariano (captura ORDEN 711 SFRAMELI): que el cliente vea cuánto hay disponible y qué queda en back order.
+
+**Verificación**: 6 tests nuevos en `tests/unit/audit/waitlist-export-pedido-v1526.test.js` (parcial / sin stock / sin dato / partición asignado+original / ejemplo $800.000 / contrato). Excel real generado con ExcelJS desde el código de `index.html` con 3 casos (todo con stock, parcial 3 de 5, sin stock): total y filas rojas correctos.
+
+**Rollback**: revert del commit. No toca datos ni SAP; solo el Excel.
+
 ### Hotfix dashboardVentasCF (2026-10-29) — gráficos de 12 meses y filtros vacíos
 
 **Antes**: las queries de `functions/core/dashboard-ventas-queries.js` pasaban `desde`, `hasta` y `desdeOpciones` como string con tipo `'DATE'`.
