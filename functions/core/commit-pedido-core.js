@@ -1206,6 +1206,10 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     tx.update(waitlistOrigenSnap.ref, {
       stage: 'consumed',
       consumedByPedidoId: pedidoRef.id,
+      // v1520 §SEC-AUTH-001 Opción A trazabilidad (PR #1 2026-10-28): UID del
+      // caller que marca consumed. Permite auditar quien consume cada waitlist
+      // (ver SEC-AUTH-002 residual VDE↔VDE).
+      consumedBy: payload.ownerUid || null,
       consumedAt: nowIso,
       closedAt: nowIso,
       closedReason: 'consumed_by_commitPedidoCF',
