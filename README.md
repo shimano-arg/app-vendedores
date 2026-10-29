@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix dashboardVentasCF (2026-10-29) — gráficos de 12 meses y filtros vacíos
+
+**Antes**: las queries de `functions/core/dashboard-ventas-queries.js` pasaban `desde`, `hasta` y `desdeOpciones` como string con tipo `'DATE'`.
+
+**Problema**: `@google-cloud/bigquery` manda vacío (NULL) un string con tipo `'DATE'` (`valueToQueryParameter_('2025-11-01','DATE')` → `parameterValue: {}`). `BETWEEN NULL AND NULL` no devuelve filas: "Evolución de ventas" salía planchada en $0, el back order solo mostraba el mes en curso y las opciones de los filtros salían vacías. Tarjetas y Top 20 andaban porque usan `anio`/`mesNum` INT64.
+
+**Cambio**: las fechas viajan como `STRING` y el SQL las convierte con `DATE(@desde)`.
+
+**Verificación**: test nuevo en `tests/functions/dashboard-ventas-core.test.js` que pasa cada parámetro por la librería real y falla si alguno llega vacío (falla con el código viejo, pasa con el nuevo).
+
+**Deploy**: `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. No cambia el front.
+
+**Rollback**: revert + redeploy de `dashboardVentasCF`.
+
 ### v1529 (2026-10-29) — Dashboard de Ventas (pantalla nueva, chunk lazy)
 
 **Antes**: no había forma de ver dentro de la app las ventas pesca del mes con filtros ni la evolución del back order SAP. El Dashboard actual (`src/domains/dashboard.js`) muestra pedidos confirmados y targets, y está oculto para vendedores.

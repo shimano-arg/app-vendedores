@@ -11,6 +11,7 @@
  * El mock de runQuery identifica cada query por el marcador
  * `-- dashboard:<nombre>` que lleva la primera línea del SQL.
  */
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import {
   applyRoleScope,
@@ -357,9 +358,25 @@ describe('dashboard-ventas-core', () => {
     expect(qs.serieVentas.params.desde).toBe('2025-04-01');
     expect(qs.serieVentas.params.hasta).toBe('2026-03-01');
     expect(qs.serieBackorder.params.mesActual).toBe('2026-10');
-    expect(qs.serieVentas.types.desde).toBe('DATE');
+    expect(qs.serieVentas.types.desde).toBe('STRING');
     expect(qs.kpis.query).toContain('is_pesca = TRUE');
     expect(qs.kpis.query).toContain("doc_kind = 'INVOICE'");
+  });
+
+  it('ningún parámetro llega vacío a BigQuery (bug 29/10: DATE como string iba NULL)', () => {
+    const req = createRequire(new URL('../../functions/package.json', import.meta.url));
+    const { BigQuery } = req('@google-cloud/bigquery');
+    const qs = buildQueries(normalizeFilters({ mes: '2026-09', vendedores: ['PACHI'] }, NOW), NOW);
+    for (const [name, q] of Object.entries(qs)) {
+      for (const [k, v] of Object.entries(q.params)) {
+        const t = q.types && q.types[k];
+        const p = BigQuery.valueToQueryParameter_(v, t);
+        const val = p.parameterValue;
+        const vacio = val.value === undefined && !Array.isArray(val.arrayValues);
+        expect(vacio, `${name}.${k} (${JSON.stringify(t)}) llega vacío`).toBe(false);
+      }
+      expect(q.query).not.toMatch(/BETWEEN @desde|>= @desdeOpciones/);
+    }
   });
 
   it('GROUP BY sin alias que choquen con columnas reales (anio/mes de v_ventas_lineas)', () => {

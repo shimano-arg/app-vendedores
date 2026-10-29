@@ -196,15 +196,17 @@ GROUP BY item_code`,
     types: { ...mesTypes },
   };
 
+  // Fechas como STRING + DATE() en el SQL: la librería de BigQuery manda vacío
+  // (NULL) un string con tipo 'DATE', y el rango quedaba sin filas.
   const rangoParams = { ...fp.params, desde, hasta };
-  const rangoTypes = { ...fp.types, desde: 'DATE', hasta: 'DATE' };
+  const rangoTypes = { ...fp.types, desde: 'STRING', hasta: 'STRING' };
 
   const serieVentas = {
     query: `-- dashboard:serieVentas
 SELECT anio_contable AS anio, mes_contable AS mes, SUM(importe_linea_ars) AS valor
 FROM ${T_VENTAS}
 WHERE ${VENTAS_BASE}
-  AND DATE(anio_contable, mes_contable, 1) BETWEEN @desde AND @hasta
+  AND DATE(anio_contable, mes_contable, 1) BETWEEN DATE(@desde) AND DATE(@hasta)
   AND ${filt}
 GROUP BY anio_contable, mes_contable`,
     params: rangoParams,
@@ -222,13 +224,13 @@ GROUP BY anio_contable, mes_contable`,
 WITH dias AS (
   SELECT FORMAT_DATE('%Y-%m', snapshot_date) AS mes, MAX(snapshot_date) AS dia
   FROM ${T_BO_SNAP}
-  WHERE snapshot_date BETWEEN @desde AND LAST_DAY(@hasta)
+  WHERE snapshot_date BETWEEN DATE(@desde) AND LAST_DAY(DATE(@hasta))
   GROUP BY 1
 ),
 meses_recon AS (
   SELECT DISTINCT mes_fin
   FROM ${T_BO_RECON}
-  WHERE mes_fin BETWEEN @desde AND LAST_DAY(@hasta)
+  WHERE mes_fin BETWEEN DATE(@desde) AND LAST_DAY(DATE(@hasta))
 )
 SELECT 'snapshot' AS fuente, d.mes AS mes,
   COALESCE(SUM(s.pendiente_uds), 0) AS uds, COALESCE(SUM(s.pendiente_ars), 0) AS ars
@@ -265,7 +267,7 @@ WITH base AS (
     COALESCE(item_name_catalogo, descripcion_linea) AS item_desc
   FROM ${T_VENTAS}
   WHERE ${VENTAS_BASE}
-    AND DATE(anio_contable, mes_contable, 1) >= @desdeOpciones
+    AND DATE(anio_contable, mes_contable, 1) >= DATE(@desdeOpciones)
     AND ${arrayPredicate('scopeVendedores', 'UPPER(TRIM(assigned_vendor))')}
 )
 SELECT 'vendedor' AS tipo, vendor AS code, CAST(NULL AS STRING) AS name
@@ -283,7 +285,7 @@ UNION ALL
 SELECT 'sku', item_code, ANY_VALUE(item_desc) FROM base
 WHERE item_code IS NOT NULL GROUP BY item_code`,
     params: { scopeVendedores, desdeOpciones },
-    types: { scopeVendedores: ['STRING'], desdeOpciones: 'DATE' },
+    types: { scopeVendedores: ['STRING'], desdeOpciones: 'STRING' },
   };
 
   return { kpis, topSkus, serieVentas, serieBackorder, opciones };
