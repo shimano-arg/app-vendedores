@@ -4058,7 +4058,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
          Activas (pedido explicito de Mariano). Abre modal Estado con 3 tabs. -->
     <button class="btn-zonas" id="pedidos-btn" onclick="openEstadoModal()" title="Estado de pedidos: Lista de espera, Pendientes y Confirmados SAP" style="background:#1e40af;color:#fff">Pedidos</button>
     <button class="btn-dashboard" id="dashboard-btn" onclick="openDashboardModal()" title="Abrir dashboard de ventas">Dashboard</button>
-    <!-- v1528 (2026-10-29): Dashboard de Ventas (BigQuery via dashboardVentasCF).
+    <!-- v1529 (2026-10-29): Dashboard de Ventas (BigQuery via dashboardVentasCF).
          Visible para admin, gerente y vendedor: el servidor restringe al vendedor
          a sus propios clientes. Chunk lazy src/domains/dashboard-ventas.js. -->
     <button class="btn-dashboard" id="dashboard-ventas-btn" onclick="openDashboardVentas()" title="Ventas pesca y evolución del backorder con filtros" style="background:#0f766e">Dashboard de Ventas</button>
@@ -5244,7 +5244,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     <div class="modal-box" style="width:min(920px,98vw);max-height:92vh;display:flex;flex-direction:column">
       <div class="modal-head" style="background:linear-gradient(135deg,#0284a0,#00A9E0)">
         <div><h2>Dashboard de ventas</h2><div class="subt" id="dashboard-subt">Resumen de pedidos confirmados, targets y campañas.</div></div>
-        <!-- v1528: acceso al Dashboard de Ventas (BigQuery) desde el Dashboard. -->
+        <!-- v1529: acceso al Dashboard de Ventas (BigQuery) desde el Dashboard. -->
         <button type="button" onclick="closeDashboardModal();openDashboardVentas()" style="margin-left:auto;margin-right:8px;padding:6px 12px;border:1px solid rgba(255,255,255,.6);border-radius:8px;background:rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:600;cursor:pointer">Dashboard de Ventas</button>
         <button class="modal-close" onclick="closeDashboardModal()">&times;</button>
       </div>
@@ -5275,7 +5275,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
       <div class="users-wrap" id="dashboard-content" style="overflow-y:auto"></div>
     </div>
   </div>
-  <!-- v1528 (2026-10-29): DASHBOARD DE VENTAS. Contenido lo arma el chunk lazy
+  <!-- v1529 (2026-10-29): DASHBOARD DE VENTAS. Contenido lo arma el chunk lazy
        src/domains/dashboard-ventas.js (callable dashboardVentasCF + Chart.js).
        Altura fija + scroll interno por el bloque CSS §49. -->
   <div class="modal-overlay" id="dashboard-ventas-modal" onclick="if(event.target===this)closeDashboardVentas()">
@@ -7197,7 +7197,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1528';
+const APP_VERSION = 'v1529';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -32377,7 +32377,7 @@ function _moveButtonsToSidebarLeft(){
   const orden = [
     { id: 'mis-camps-btn', label: 'Campañas' },
     { id: 'dashboard-btn', label: 'Dashboard' },
-    // v1528: Dashboard de Ventas (visible también para vendedor).
+    // v1529: Dashboard de Ventas (visible también para vendedor).
     { id: 'dashboard-ventas-btn', label: 'Ventas' },
     { id: 'seguimiento-btn', label: 'Seguimiento' },
     { id: _exportBtn ? _exportBtn.id : null, label: 'Exportar' },

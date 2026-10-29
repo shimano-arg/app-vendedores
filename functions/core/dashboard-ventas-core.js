@@ -106,7 +106,9 @@ export function normalizeFilters(raw, nowMs) {
     const vals = [];
     for (const v of src) {
       if (typeof v !== 'string' && typeof v !== 'number') continue;
-      const s = String(v).trim();
+      let s = String(v).trim();
+      // Vendedor en mayúsculas: igual que UPPER(TRIM(assigned_vendor)) en SQL.
+      if (k === 'vendedores') s = s.toUpperCase();
       if (s && !vals.includes(s)) vals.push(s);
     }
     if (vals.length > MAX_VALORES_FILTRO) {
@@ -126,11 +128,13 @@ export function normalizeFilters(raw, nowMs) {
  */
 export function applyRoleScope(filters, roleInfo) {
   const role = String((roleInfo && roleInfo.role) || '').toLowerCase();
-  if (role === 'admin' || role === 'gerente') return { ...filters };
+  if (role === 'admin' || role === 'gerente') return { ...filters, scopeVendedores: [] };
   if (role === 'vendedor') {
-    const vendor = String((roleInfo && roleInfo.vendor) || '').trim();
+    const vendor = String((roleInfo && roleInfo.vendor) || '')
+      .trim()
+      .toUpperCase();
     if (!vendor) throw mkErr('permission-denied', 'vendedor sin vendor asignado en roles');
-    return { ...filters, vendedores: [vendor] };
+    return { ...filters, vendedores: [vendor], scopeVendedores: [vendor] };
   }
   throw mkErr('permission-denied', 'rol sin acceso al Dashboard de Ventas');
 }

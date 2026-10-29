@@ -140,3 +140,11 @@ describe('Dashboard de Ventas — Chart.js y back order estimado', () => {
     expect(CHUNK).toMatch(/\.destroy\(\)/);
   });
 });
+
+describe('Dashboard de Ventas — Top 20', () => {
+  it('las barras del Top filtran valor > 0 antes de cortar a 20', () => {
+    expect(CHUNK).toMatch(
+      /\.filter\(\(r\) => \(Number\(r\[field\]\) \|\| 0\) > 0\)\.slice\(0, TOP_N\)/
+    );
+  });
+});

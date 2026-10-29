@@ -3,7 +3,8 @@
 Compara la reconstruccion estimada de la vista
 `shimano_app.v_backorder_reconstruido_mensual` para un fin de mes contra un
 valor real conocido que da Mariano (monto en ARS o unidades), e imprime el
-desvio porcentual. Spec: docs/superpowers/specs/2026-10-29-dashboard-ventas-design.md §3.2.
+desvio porcentual. Universo de la comparacion: pesca + vendedor asignado (lo
+mismo que muestra el dashboard); el valor real tiene que ser de ese universo. Spec: docs/superpowers/specs/2026-10-29-dashboard-ventas-design.md §3.2.
 
 SOLO LECTURA: hace un SELECT parametrizado, no escribe nada.
 
@@ -121,9 +122,9 @@ def _fmt(valor: float, tipo: str) -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description='Valida el back order reconstruido contra un valor real.')
+    ap = argparse.ArgumentParser(description='Valida el back order reconstruido contra un valor real (universo: pesca + vendedor asignado).')
     ap.add_argument('--mes', required=True, help='mes a validar, AAAA-MM')
-    ap.add_argument('--valor', required=True, type=float, help='valor real conocido (> 0)')
+    ap.add_argument('--valor', required=True, type=float, help='valor real conocido (> 0), solo pesca + vendedor asignado')
     ap.add_argument('--tipo', required=True, choices=sorted(COLUMNA_POR_TIPO), help='ars o uds')
     args = ap.parse_args(argv)
 

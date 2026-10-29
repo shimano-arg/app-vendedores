@@ -31,7 +31,10 @@ export const OPCIONES_MESES = 24;
 
 /**
  * @typedef {{ mes: string, vendedores: string[], clientes: string[],
- *   provincias: string[], categorias: string[], skus: string[] }} DashboardFilters
+ *   provincias: string[], categorias: string[], skus: string[],
+ *   scopeVendedores?: string[] }} DashboardFilters
+ * `scopeVendedores`: alcance por rol, solo para las opciones de los filtros
+ * ([vendor] para vendedor, [] para admin/gerente).
  * @typedef {{ query: string, params: Record<string, any>, types: Record<string, any> }} BqQuery
  */
 
@@ -87,6 +90,27 @@ export function monthsEndingAt(mes, n) {
 }
 
 /**
+ * Columna del filtro, normalizada si es la de vendedor: roles.vendor y
+ * assigned_vendor se comparan en mayúsculas y sin espacios en los bordes
+ * (los valores del param ya llegan así desde normalizeFilters/applyRoleScope).
+ * @param {string} p nombre del param
+ * @param {string} colRef columna con alias
+ */
+function colExpr(p, colRef) {
+  return p === 'vendedores' ? `UPPER(TRIM(${colRef}))` : colRef;
+}
+
+/**
+ * Predicado de un array param. Vacío (o NULL: BigQuery puede recibir un array
+ * vacío como NULL y ARRAY_LENGTH(NULL) es NULL) = no filtra.
+ * @param {string} param
+ * @param {string} colSql
+ */
+function arrayPredicate(param, colSql) {
+  return `(COALESCE(ARRAY_LENGTH(@${param}), 0) = 0 OR ${colSql} IN UNNEST(@${param}))`;
+}
+
+/**
  * Predicado de los filtros multiselección. Filtro vacío = no filtra.
  * @param {string} [alias] prefijo de tabla (ej. 's.'), vacío por default.
  * @param {ReadonlyArray<string>} [only] limitar a estos filtros.
@@ -95,7 +119,7 @@ export function monthsEndingAt(mes, n) {
 function filterPredicate(alias, only) {
   const a = alias || '';
   return FILTER_COLS.filter(([p]) => !only || only.includes(p))
-    .map(([p, col]) => `(ARRAY_LENGTH(@${p}) = 0 OR ${a}${col} IN UNNEST(@${p}))`)
+    .map(([p, col]) => arrayPredicate(p, colExpr(p, `${a}${col}`)))
     .join('\n    AND ');
 }
 
@@ -228,20 +252,22 @@ WHERE ${filt}`,
     types: { ...rangoTypes, mesActual: 'STRING' },
   };
 
-  // Opciones de los filtros: solo con el scope de vendedor (un vendedor ve
-  // solo sus clientes). El resto de los filtros no recorta las opciones.
+  // Opciones de los filtros: solo con el alcance del rol (un vendedor ve solo
+  // sus clientes; admin/gerente ven todo aunque hayan aplicado Vendedor=A).
+  // El resto de los filtros no recorta las opciones.
+  const scopeVendedores = (f.scopeVendedores || []).slice();
   const opciones = {
     query: `-- dashboard:opciones
 WITH base AS (
-  SELECT assigned_vendor, card_code, card_name, provincia_cliente, familia, item_code,
+  SELECT UPPER(TRIM(assigned_vendor)) AS vendor, card_code, card_name, provincia_cliente, familia, item_code,
     COALESCE(item_name_catalogo, descripcion_linea) AS item_desc
   FROM ${T_VENTAS}
   WHERE ${VENTAS_BASE}
     AND DATE(anio_contable, mes_contable, 1) >= @desdeOpciones
-    AND ${filterPredicate('', ['vendedores'])}
+    AND ${arrayPredicate('scopeVendedores', 'UPPER(TRIM(assigned_vendor))')}
 )
-SELECT 'vendedor' AS tipo, assigned_vendor AS code, CAST(NULL AS STRING) AS name
-FROM base GROUP BY assigned_vendor
+SELECT 'vendedor' AS tipo, vendor AS code, CAST(NULL AS STRING) AS name
+FROM base GROUP BY vendor
 UNION ALL
 SELECT 'cliente', card_code, ANY_VALUE(card_name) FROM base
 WHERE card_code IS NOT NULL GROUP BY card_code
@@ -254,8 +280,8 @@ WHERE familia IS NOT NULL GROUP BY familia
 UNION ALL
 SELECT 'sku', item_code, ANY_VALUE(item_desc) FROM base
 WHERE item_code IS NOT NULL GROUP BY item_code`,
-    params: { vendedores: f.vendedores.slice(), desdeOpciones },
-    types: { vendedores: ['STRING'], desdeOpciones: 'DATE' },
+    params: { scopeVendedores, desdeOpciones },
+    types: { scopeVendedores: ['STRING'], desdeOpciones: 'DATE' },
   };
 
   return { kpis, topSkus, serieVentas, serieBackorder, opciones };

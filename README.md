@@ -4728,16 +4728,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 - Filtros multiselección con búsqueda (Mes, Vendedor, Cliente, Provincia, Categoría, SKU) en panel desplegable; para rol vendedor el filtro Vendedor queda fijo en el suyo (el servidor igual lo fuerza). "Aplicar" llama a la callable `dashboardVentasCF`.
 - 4 tarjetas (Facturado mensual, Valorización backorder, Cant. de pedidos del mes, Cant. pedidos únicos), 2×2 en celular. Top 20 SKU por unidades y por dinero en barras horizontales; "Ver más" abre la tabla completa con búsqueda. 3 gráficos de línea de 12 meses (ventas, back order unidades, back order dinero); los meses reconstruidos van en línea punteada con leyenda "estimado" y los meses sin datos cortan la línea.
 - Chart.js 4.4.1 se carga a pedido desde cdnjs al abrir.
-- `index.html`: botón "Dashboard de Ventas" al lado de "Dashboard" (visible para admin, gerente y vendedor; en escritorio aparece como "Ventas" en el panel izquierdo), botón de acceso en el encabezado del Dashboard viejo, modal `#dashboard-ventas-modal` agregado al bloque CSS §49. La barra inferior mobile tiene 5 lugares fijos, por eso no se agregó ahí.
+- `index.html`: botón "Dashboard de Ventas" al lado de "Dashboard" (lo ven todos los roles, pero solo admin, gerente y vendedor reciben datos: a los demás el servidor los rechaza con un mensaje; en escritorio aparece como "Ventas" en el panel izquierdo), botón de acceso en el encabezado del Dashboard viejo, modal `#dashboard-ventas-modal` agregado al bloque CSS §49. La barra inferior mobile tiene 5 lugares fijos, por eso no se agregó ahí.
 - Error con `formatMensajeConCodigo('DASHBOARD_VENTAS_FAILED')` (§68). La hora que se muestra es "Calculado HH:MM" (cuándo armó la respuesta el servidor, no la hora del sync).
+- Servidor (`dashboardVentasCF`): acepta los mismos dominios que `commitPedidoCF` (incluye gmail.com por PACHI); el permiso real lo da `roles/{uid}`. El vendedor se compara en mayúsculas y sin espacios en los bordes. Las opciones de los filtros se recortan solo por el alcance del rol (un admin que filtró Vendedor=A sigue viendo todos los vendedores en la lista).
+- Nota: Santiago no hereda los clientes de PACHI en este tablero (a diferencia del Dashboard actual).
 
 **Por qué**: decisión de Mariano (spec `docs/superpowers/specs/2026-10-29-dashboard-ventas-design.md`): ventas y back order visibles para cada vendedor sobre sus propios clientes.
 
 **Verificación**: `tests/unit/audit/dashboard-ventas-ui.test.js` (contrato de chunk, modal §49, botón visible para vendedor, textos exactos, Chart.js); unit / smoke / biome / typecheck en verde. Pendiente: prueba manual con rol vendedor (§90) contra la CF deployada.
 
-**Deploy**: `firebase deploy --only functions:dashboardVentasCF` + aplicar en BigQuery las vistas nuevas de `bigquery/views.sql` (`v_backorder_dashboard`, `v_backorder_reconstruido_mensual`, tabla `backorder_daily_snapshot`). Los meses estimados quedan ocultos hasta poner `app_config/dashboard_ventas.mostrarEstimados=true`, después de validar la reconstrucción con `scripts/audit/BQ_validar_backorder_reconstruido.py`.
+**Deploy**: ANTES del primer sync de las 23:00 ART, crear en BigQuery lo nuevo de `bigquery/views.sql`: vista `v_backorder_dashboard`, tabla `backorder_daily_snapshot` y vista `v_backorder_reconstruido_mensual` (el sync escribe la foto diaria en esa tabla). Después `firebase deploy --only functions:dashboardVentasCF`. Los meses estimados quedan ocultos hasta poner `app_config/dashboard_ventas.mostrarEstimados=true`, después de validar la reconstrucción con `scripts/audit/BQ_validar_backorder_reconstruido.py`.
 
-**Rollback**: revert del commit (solo front). La CF puede quedar deployada sin consumidores.
+**Rollback**: revert del commit y no deployar la CF (o borrarla con `firebase functions:delete dashboardVentasCF`; si queda deployada no tiene consumidores). Las vistas y la tabla nuevas de BigQuery se pueden dejar: no las lee nada más.
 
 ### v1528 (2026-10-29) — "Revisá tu pedido" deja de marcar sin stock lo que es STOCK ASIGNADO del cliente
 

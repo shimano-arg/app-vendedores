@@ -62,8 +62,67 @@ describe('dashboard-ventas-core', () => {
     await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['PACHI'] } });
     expect(deps.calls.length).toBe(5);
     for (const q of deps.calls) {
+      if (queryName(q.query) === 'opciones') {
+        expect(q.params.scopeVendedores).toEqual(['MAURICIO GIL']);
+        expect(q.types.scopeVendedores).toEqual(['STRING']);
+        continue;
+      }
       expect(q.params.vendedores).toEqual(['MAURICIO GIL']);
       expect(q.types.vendedores).toEqual(['STRING']);
+    }
+  });
+
+  it('opciones_scope_por_rol: admin con Vendedor=A sigue viendo todos los vendedores', async () => {
+    const deps = makeDeps({}, { role: 'admin' });
+    await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['A'] } });
+    const opc = deps.calls.find((q) => queryName(q.query) === 'opciones');
+    expect(opc.params.scopeVendedores).toEqual([]);
+    expect(opc.params.vendedores).toBeUndefined();
+    expect(opc.query).not.toContain('@vendedores');
+    const kpis = deps.calls.find((q) => queryName(q.query) === 'kpis');
+    expect(kpis.params.vendedores).toEqual(['A']);
+    // gerente igual que admin.
+    const f = applyRoleScope(normalizeFilters({ vendedores: ['A'] }, NOW), { role: 'gerente' });
+    expect(f.scopeVendedores).toEqual([]);
+  });
+
+  it('vendedor_normalizado: mayúsculas y sin espacios en ambos lados', async () => {
+    const deps = makeDeps({}, { role: 'vendedor', vendor: '  Mauricio Gil ' });
+    await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    for (const q of deps.calls) {
+      if (queryName(q.query) === 'opciones') {
+        expect(q.params.scopeVendedores).toEqual(['MAURICIO GIL']);
+        expect(q.query).toContain('UPPER(TRIM(assigned_vendor)) IN UNNEST(@scopeVendedores)');
+      } else {
+        expect(q.params.vendedores).toEqual(['MAURICIO GIL']);
+      }
+    }
+    expect(normalizeFilters({ vendedores: [' pachi ', 'PACHI'] }, NOW).vendedores).toEqual([
+      'PACHI',
+    ]);
+    const qs = buildQueries(normalizeFilters({}, NOW), NOW);
+    expect(qs.kpis.query).toContain('UPPER(TRIM(assigned_vendor)) IN UNNEST(@vendedores)');
+    expect(qs.serieBackorder.query).toContain(
+      'UPPER(TRIM(s.assigned_vendor)) IN UNNEST(@vendedores)'
+    );
+    expect(qs.serieBackorder.query).toContain(
+      'UPPER(TRIM(r.assigned_vendor)) IN UNNEST(@vendedores)'
+    );
+    // Ningún predicado compara assigned_vendor crudo contra el param.
+    for (const name of ['kpis', 'topSkus', 'serieVentas', 'serieBackorder', 'opciones']) {
+      const q = /** @type {any} */ (qs)[name];
+      expect(q.query).not.toMatch(/[^(]assigned_vendor IN UNNEST/);
+    }
+  });
+
+  it('array_vacio_null: todos los predicados usan COALESCE(ARRAY_LENGTH(...), 0)', () => {
+    const qs = buildQueries(normalizeFilters({}, NOW), NOW);
+    for (const name of ['kpis', 'topSkus', 'serieVentas', 'serieBackorder', 'opciones']) {
+      const q = /** @type {any} */ (qs)[name];
+      const all = q.query.match(/ARRAY_LENGTH\(@\w+\)/g) || [];
+      const ok = q.query.match(/COALESCE\(ARRAY_LENGTH\(@\w+\), 0\) = 0/g) || [];
+      expect(all.length).toBeGreaterThan(0);
+      expect(ok.length).toBe(all.length);
     }
   });
 
@@ -114,7 +173,7 @@ describe('dashboard-ventas-core', () => {
       const q = /** @type {any} */ (qs)[name];
       expect(q.params.provincias).toEqual(["O'HIGGINS"]);
       expect(q.query).not.toContain('HIGGINS');
-      expect(q.query).toContain('(ARRAY_LENGTH(@provincias) = 0 OR');
+      expect(q.query).toContain('(COALESCE(ARRAY_LENGTH(@provincias), 0) = 0 OR');
     }
     expect(qs.opciones.query).not.toContain('HIGGINS');
   });

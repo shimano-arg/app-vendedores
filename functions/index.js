@@ -38,8 +38,7 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
-// §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
-// §61 (v1440) destrabó con rule abierta. Cierra el parche.
+// Cache en memoria acotada (Dashboard de Ventas, v1529).
 import { createBoundedCache } from './core/bounded-cache.js';
 import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
 // E2 §stock-servidor-atomico (2026-10-23)
@@ -65,6 +64,8 @@ import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
 // v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
 import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
+// §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
+// §61 (v1440) destrabó con rule abierta. Cierra el parche.
 import { releaseAsigCore } from './core/release-asig-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 // v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
@@ -1276,7 +1277,10 @@ export const dashboardVentasCF = onCall(
     }
     const email = String(auth.token?.email || '').toLowerCase();
     const domain = email.split('@')[1] || '';
-    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+    // Mismos dominios que commitPedidoCF (PACHI usa gmail.com). El gate real
+    // es roles/{uid} dentro del core.
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
     try {

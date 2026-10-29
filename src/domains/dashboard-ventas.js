@@ -1,5 +1,5 @@
 // @ts-nocheck
-// DASHBOARD DE VENTAS (v1528, 2026-10-29).
+// DASHBOARD DE VENTAS (v1529, 2026-10-29).
 //
 // Pantalla nueva para analizar ventas pesca + evolución del back order con 6
 // filtros combinables. Visible para admin, gerente y vendedor. Los datos los
@@ -528,7 +528,8 @@ function _cssVar(name, fallback) {
 function _barChart(canvasId, rows, field, fmt, color) {
   const el = document.getElementById(canvasId);
   if (!el || !window.Chart) return;
-  const top = rows.slice(0, TOP_N);
+  // Spec: SKUs con neto <= 0 no entran al Top (la tabla "Ver más" sí los muestra).
+  const top = rows.filter((r) => (Number(r[field]) || 0) > 0).slice(0, TOP_N);
   charts[canvasId] = new window.Chart(el, {
     type: 'bar',
     data: {
