@@ -1084,6 +1084,8 @@ El `background` NO depende de `has-exceed`. El re-render al llegar el snapshot n
 
 ### §40.5 (2026-10-21, v1397): ASIG sin respaldo físico vuelve a BO al pasar por CPST
 
+> **UPDATE v1522 (2026-10-29)**: la reversión ya NO la hace el navegador en `_cpstConfirmar` (el bloque era un no-op). La hace el servidor: `revertSobreAsignadas` en `onDep11IncreaseCreateReparto` (§40.11), transaccional con re-lectura (§104 derivada 2). El CPST solo avisa "N unidades no tienen stock hoy; el sistema las devuelve a la cola de espera en los próximos minutos".
+
 Regla fuerte: **una asignación solo existe con respaldo físico. Sin respaldo, es cola (BO).**
 
 Cuando el VDE confirma "Crear Pedido Desde Stock Asignado" y el stock físico libre para el cliente HOY no alcanza para cubrir el nominal, las unidades no entregables **no quedan como ASIG viva**. Vuelven al estado `BO` del pedido original con audit (`asigRevertidaAt`, `asigRevertidaBy`, `asigRevertidaReason='asig_sin_stock_revertida_a_bo'`). El SKU entra en la reconciliación normal y aparece en Reparto para que Pablo reasigne cuando ingrese mercadería.

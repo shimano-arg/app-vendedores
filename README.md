@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1522 (2026-10-29) — Crear Pedido Desde Stock Asignado: se quita la reversión a back order del navegador (no hacía nada)
+
+**Antes**: al confirmar CPST, `_cpstConfirmar` armaba un plan `computeCpstRevertPlan` para devolver a back order las unidades sin stock, y el mensaje decía "N unidades vuelven a back order".
+
+**Problema**: el plan nunca escribía nada efectivo (las unidades recortadas ya no estaban como ASIG entregable; la devolución real la hace `revertSobreAsignadas` en el servidor cada ~5 min). El mensaje prometía algo que el navegador no hacía, y si todo estaba sin stock igual se reservaba un número de orden.
+
+**Cambio**: se elimina el bloque de reversión del cliente (plan + `batch.update` a pedidos origen + log `cpst_revert_asig_to_bo`). Mensaje nuevo: "N unidades no tienen stock hoy; el sistema las devuelve a la cola de espera en los próximos minutos." Si no hay ninguna unidad disponible, se avisa y no se crea pedido (antes de reservar número de orden). `logOp cpst_create` registra `unidadesSinStock`.
+
+**Por qué**: un solo responsable de devolver unidades a la cola (servidor, transaccional desde v1522 en `revertSobreAsignadas`), sin mensajes falsos al vendedor.
+
+**Verificación**: `tests/unit/audit/cpst-sin-revert-cliente-v1522.test.js` (5) + suites unit/smoke.
+
+**Rollback**: revert del commit; `src/pure/cpst-revert-plan.js` se conserva.
+
 ### v1521 (2026-10-29) — Crear Pedido Desde Stock Asignado no se bloquea por una asignación huérfana
 
 **Antes**: CPST de REBORN SRL (`C30710852762`, VDE Gonzalo De La Rosa), 23 SKU / 50 u, 29/10 09:08. El pre-flight abortaba todo con:
