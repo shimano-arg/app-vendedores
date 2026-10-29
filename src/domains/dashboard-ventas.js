@@ -644,7 +644,14 @@ function _cssVar(name, fallback) {
 
 const CHART_FONT =
   "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif";
-const CHART_GRID = { color: 'rgba(0,0,0,.06)' };
+const CHART_GRID_LIGHT = 'rgba(0,0,0,.06)';
+const CHART_GRID_DARK = 'rgba(255,255,255,.08)';
+
+/** Grilla suave; en tema oscuro usa blanco translúcido para que se vea. */
+function _chartGrid() {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  return { color: dark ? CHART_GRID_DARK : CHART_GRID_LIGHT };
+}
 
 function _barChart(canvasId, rows, field, fmt, color) {
   const el = document.getElementById(canvasId);
@@ -678,7 +685,7 @@ function _barChart(canvasId, rows, field, fmt, color) {
       },
       scales: {
         x: {
-          grid: CHART_GRID,
+          grid: _chartGrid(),
           border: { display: false },
           ticks: {
             font: { family: CHART_FONT },
@@ -771,7 +778,7 @@ function _lineChart(canvasId, serie, fmt, color, conEstimado) {
       scales: {
         y: {
           beginAtZero: true,
-          grid: CHART_GRID,
+          grid: _chartGrid(),
           border: { display: false },
           ticks: {
             font: { family: CHART_FONT },

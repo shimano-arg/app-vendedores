@@ -7058,85 +7058,85 @@ html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
   font-family: var(--dv-font);
   color: var(--dv-text);
 }
-#dashboard-ventas-modal .dv-card,
-#dashboard-ventas-modal .dv-section,
-#dashboard-ventas-modal .dv-filtros {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-card,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-section,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-filtros {
   background: var(--dv-card);
   border: none;
   border-radius: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
 }
-#dashboard-ventas-modal .dv-card { padding: 14px 16px; }
-#dashboard-ventas-modal .dv-section { padding: 14px 16px; }
-#dashboard-ventas-modal .dv-card-title,
-#dashboard-ventas-modal .dv-filtro-label {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-card { padding: 14px 16px; }
+#dashboard-ventas-modal #dashboard-ventas-body .dv-section { padding: 14px 16px; }
+#dashboard-ventas-modal #dashboard-ventas-body .dv-card-title,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-filtro-label {
   color: var(--dv-muted);
   letter-spacing: 0.02em;
 }
-#dashboard-ventas-modal .dv-card-value {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-card-value {
   color: var(--dv-text);
   letter-spacing: -0.02em;
 }
-#dashboard-ventas-modal .dv-section-head h3 {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-section-head h3 {
   color: var(--dv-text);
   letter-spacing: -0.01em;
 }
-#dashboard-ventas-modal .dv-input,
-#dashboard-ventas-modal .dv-ms > summary,
-#dashboard-ventas-modal .dv-ms-locked,
-#dashboard-ventas-modal .dv-ms-search {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-input,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-ms > summary,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-ms-locked,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-ms-search {
   border: 1px solid var(--dv-line);
   border-radius: 10px;
   font-family: var(--dv-font);
 }
-#dashboard-ventas-modal .dv-input:focus,
-#dashboard-ventas-modal .dv-ms-search:focus {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-input:focus,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-ms-search:focus {
   outline: none;
   border-color: var(--dv-accent);
   box-shadow: 0 0 0 3px rgba(73, 162, 218, 0.25);
 }
-#dashboard-ventas-modal .dv-btn-primary,
-#dashboard-ventas-modal .dv-btn-secondary {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-btn-primary,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-btn-secondary {
   border-radius: 999px;
   font-family: var(--dv-font);
   transition: transform 100ms ease-out, background-color 100ms ease-out;
 }
-#dashboard-ventas-modal .dv-btn-primary {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-btn-primary {
   background: var(--dv-accent);
   color: #ffffff;
 }
-#dashboard-ventas-modal .dv-btn-secondary {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-btn-secondary {
   border: none;
   background: rgba(0, 0, 0, 0.05);
   color: var(--dv-text);
 }
-#dashboard-ventas-modal .dv-btn-primary:active,
-#dashboard-ventas-modal .dv-btn-secondary:active,
-#dashboard-ventas-modal .dv-link:active {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-btn-primary:active,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-btn-secondary:active,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-link:active {
   transform: scale(0.97);
 }
-#dashboard-ventas-modal .dv-link { color: var(--dv-accent); transition: transform 100ms ease-out; }
-#dashboard-ventas-modal .dv-table th {
+#dashboard-ventas-modal #dashboard-ventas-body .dv-link { color: var(--dv-accent); transition: transform 100ms ease-out; }
+#dashboard-ventas-modal #dashboard-ventas-body .dv-table th {
   background: var(--dv-card);
   color: var(--dv-muted);
   font-weight: 600;
 }
-#dashboard-ventas-modal .dv-table th,
-#dashboard-ventas-modal .dv-table td { border-bottom: 1px solid var(--dv-line); }
+#dashboard-ventas-modal #dashboard-ventas-body .dv-table th,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-table td { border-bottom: 1px solid var(--dv-line); }
 @media (prefers-reduced-motion: reduce) {
   #dashboard-ventas-modal.modal-overlay.open,
   #dashboard-ventas-modal.modal-overlay.open .modal-box {
     animation-name: appleModalSlideInReduced !important;
     animation-duration: 180ms !important;
   }
-  #dashboard-ventas-modal .dv-btn-primary,
-  #dashboard-ventas-modal .dv-btn-secondary,
-  #dashboard-ventas-modal .dv-link {
+  #dashboard-ventas-modal #dashboard-ventas-body .dv-btn-primary,
+  #dashboard-ventas-modal #dashboard-ventas-body .dv-btn-secondary,
+  #dashboard-ventas-modal #dashboard-ventas-body .dv-link {
     transition: none;
   }
-  #dashboard-ventas-modal .dv-btn-primary:active,
-  #dashboard-ventas-modal .dv-btn-secondary:active,
-  #dashboard-ventas-modal .dv-link:active {
+  #dashboard-ventas-modal #dashboard-ventas-body .dv-btn-primary:active,
+  #dashboard-ventas-modal #dashboard-ventas-body .dv-btn-secondary:active,
+  #dashboard-ventas-modal #dashboard-ventas-body .dv-link:active {
     transform: none !important;
   }
 }

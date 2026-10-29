@@ -48,7 +48,22 @@ describe('Dashboard de Ventas estilo Apple', () => {
   });
   it('Chart.js: grilla suave, sin borde de ejes, fuente system', () => {
     expect(JS).toContain('rgba(0,0,0,.06)');
+    expect(JS).toContain('rgba(255,255,255,.08)');
+    expect(JS).toMatch(/data-theme'\) === 'dark'/);
     expect(JS).toContain('border: { display: false }');
     expect(JS).toContain('-apple-system');
+  });
+
+  it('cascada: cada .dv-X que el CSS inline estiliza se gana con #dashboard-ventas-body', () => {
+    const html = readFileSync('index.html', 'utf8');
+    const inline = [...html.matchAll(/#dashboard-ventas-body\s+(\.dv-[a-z-]+)/g)].map((m) => m[1]);
+    const classes = [...new Set(inline)];
+    expect(classes.length).toBeGreaterThan(10);
+    const sels = selectors(css);
+    for (const c of classes) {
+      const competing = sels.filter((s) => new RegExp(`${c}(?![a-z-])`).test(s));
+      for (const s of competing) expect(s, c).toContain('#dashboard-ventas-body');
+    }
+    expect(sels.some((s) => s.includes('.dv-card'))).toBe(true);
   });
 });
