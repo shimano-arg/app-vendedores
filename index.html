@@ -28240,7 +28240,7 @@ window._waitlistPasarAPendientesContinuar = function(w){
   const provNorm = (w.clientProvince || '').toUpperCase();
   const locName = w.clientLocality || '';
   currentOrderKey = orderKey(w.clientName, provNorm, locName, 'C');
-  currentOrderClient = {name: w.clientName, tipo: 'C', province: provNorm, locName};
+  currentOrderClient = {name: w.clientName, tipo: 'C', province: provNorm, locName, cardCode: w.clientCardCode || ''};
   // Cargar en orders[] usando el mismo mapping que confirmExcelPedido.
   const outLines = finalItems.map(l => {
     const precio = (typeof getDefaultPrice === 'function') ? getDefaultPrice(l.code) : 0;

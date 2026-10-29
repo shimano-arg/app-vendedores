@@ -4717,7 +4717,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
-### v1528 (2026-10-29) — Dashboard de Ventas (pantalla nueva, chunk lazy)
+### v1529 (2026-10-29) — Dashboard de Ventas (pantalla nueva, chunk lazy)
 
 **Antes**: no había forma de ver dentro de la app las ventas pesca del mes con filtros ni la evolución del back order SAP. El Dashboard actual (`src/domains/dashboard.js`) muestra pedidos confirmados y targets, y está oculto para vendedores.
 
@@ -4738,6 +4738,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 **Deploy**: `firebase deploy --only functions:dashboardVentasCF` + aplicar en BigQuery las vistas nuevas de `bigquery/views.sql` (`v_backorder_dashboard`, `v_backorder_reconstruido_mensual`, tabla `backorder_daily_snapshot`). Los meses estimados quedan ocultos hasta poner `app_config/dashboard_ventas.mostrarEstimados=true`, después de validar la reconstrucción con `scripts/audit/BQ_validar_backorder_reconstruido.py`.
 
 **Rollback**: revert del commit (solo front). La CF puede quedar deployada sin consumidores.
+
+### v1528 (2026-10-29) — "Revisá tu pedido" deja de marcar sin stock lo que es STOCK ASIGNADO del cliente
+
+**Antes**: el modal "Revisá tu pedido" (`renderReviewLines`, `src/domains/pedidos-modal.js`) calculaba el disponible de cada línea con el libre general (`_revisionStockFor(sku).disponible`).
+
+**Problema**: en las líneas STOCK ASIGNADO el libre general resta también la reserva del propio cliente y da 0, así que el modal las mostraba "SIN STOCK" aunque las unidades son suyas. BENGOCHEA ORDEN 653 (29/10): Lista de espera $1.827.000 todo con stock; Revisá tu pedido 597144, 597151 y ULT5500XSD sin stock ($617.000). Era solo de pantalla: `commitPedidoCF` ya usa la fórmula por cliente para esas líneas (§33/§35), por eso al confirmar entraban bien.
+
+**Cambio**: `src/pure/review-disp-linea.js` → `dispParaLineaReview(line, cardCode, deps)`, misma regla que la CF: `origen='stock-asignado'` con `asigRefs` usa `getStockUtilizableParaClienteExAsig(sku, cardCode)`; el resto, libre general. `currentOrderClient` lleva `cardCode` al venir de la lista de espera (fallback `sapGetClienteCode(nombre)`).
+
+**Por qué**: las dos pantallas y el servidor tienen que clasificar igual.
+
+**Verificación**: `tests/unit/review-disp-linea.test.js` (9); unit 2512 / smoke 25; typecheck + biome OK. Manual: BENGOCHEA ORDEN 653 → "Pasar a Pendientes" → Disponibles 8 prod · 13 u · $1.827.000.
+
+**Rollback**: revert del commit (solo front).
 
 ### v1527 (2026-10-29) — "Recargar limpio" conserva la lista de precios
 

@@ -216,6 +216,8 @@ import {
 // client_master por cardCode. Usada por renderPendientesList +
 // renderConfirmadosList en index.html.
 import { resolveOrphanPedidoLocation } from './pure/resolve-orphan-pedido-location.js';
+// v1528: disponible por línea en Revisá tu pedido (STOCK ASIGNADO usa utilizable del cliente).
+import { dispParaLineaReview } from './pure/review-disp-linea.js';
 // v1416 §42.2 (2026-10-22): guard "Revisá tu pedido" ofrece unificación en vez
 // de bloqueo seco. Reusa helpers §42 (findOpenWaitlistsForClient) + pure helpers
 // propios de merge (mergeWaitlistIntoOrderLines, buildUnifiedAtReviewUpdate,
@@ -680,6 +682,7 @@ const phase0 = {
     renderPopupStockSkuPlainText,
     buildWaitlistExportRows,
     isStockAsignadoItem,
+    dispParaLineaReview,
     lineReservesStock,
     computeVirtualAsigFifo,
     computeBackorderSkuMap,
