@@ -78,3 +78,13 @@ describe('contrato index.html v1526', () => {
     expect(main).toMatch(/buildWaitlistExportRows,\n\s+isStockAsignadoItem,/);
   });
 });
+
+describe('v1527: "Recargar limpio" preserva la lista de precios local', () => {
+  it('shimano_price_cache_v1 esta en CLEAN_RELOAD_PRESERVE_KEYS', () => {
+    const html = readFileSync('index.html', 'utf8');
+    const m = html.match(/const CLEAN_RELOAD_PRESERVE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\)/);
+    expect(m).not.toBeNull();
+    expect(m[1]).toContain("'shimano_price_cache_v1'");
+    expect(m[1]).toContain("'shimano_zonas_pending_v1'");
+  });
+});

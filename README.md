@@ -4717,6 +4717,16 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1527 (2026-10-29) — "Recargar limpio" conserva la lista de precios
+
+**Antes / Problema**: el botón "Recargar limpio" (`forceUpdateApp`) borraba todo el localStorage salvo borradores y tema, incluida la lista de precios local de v1523. Después de tocarlo, el Master quedaba "Cargando precios..." hasta que llegaba el listener.
+
+**Cambio**: `CLEAN_RELOAD_PRESERVE_KEYS` suma `shimano_price_cache_v1`. El listener reemplaza la lista al llegar, así que no queda un precio viejo.
+
+**Verificación**: test en `tests/unit/audit/waitlist-export-pedido-v1526.test.js`; unit 2503.
+
+**Rollback**: revert del commit.
+
 ### v1526 (2026-10-29) — "Exportar pedido" con 3 opciones (Stock Asignado / Original / Completo)
 
 **Antes**: el botón "Exportar pedido para enviar al cliente" (`waitlistExportArchivoCliente`) bajaba cada producto con `min(cantidad pedida, stock libre general)` y omitía los que daban 0. Agregaba una 2da hoja con back orders SAP del cliente.
