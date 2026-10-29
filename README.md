@@ -4717,6 +4717,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix functions (2026-10-29) — la cancelación de SQs del servidor funciona y no marca líneas si SAP falla
+
+**Antes:** `sq-cancel-core` leía `.value` sobre `{status, body}`, así que siempre daba "SQ no encontrada". Además no revisaba el status del POST `/Cancel`.
+
+**Cambio:** `slBody()` normaliza la respuesta y exige 2xx.
+
+**Verificación:** 10 tests. Con el código original fallan 9.
+
+**Atención:** con el deploy, la cancelación **empieza a funcionar de verdad**. Antes de desplegar hay que revisar `sqCancelMode`.
+
+**Rollback:** `sqCancelMode='shadow'` y redeploy de las 2 CFs anteriores.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.

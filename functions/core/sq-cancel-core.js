@@ -118,6 +118,35 @@ export async function scanExpiredConfirmedSqs(deps) {
 }
 
 /**
+ * SEC-05 (2026-10-29): normaliza la respuesta de `deps.slFetch`.
+ *
+ * En producción `slFetch` envuelve `sapGet`/`sapPost` (functions/core/sap-sl-client.js)
+ * y devuelve `{status, body}`. Este módulo leía `.value` / `.DocumentLines`
+ * directamente sobre ese objeto → siempre "SQ no encontrada" (las
+ * cancelaciones nunca ocurrían) y el POST /Cancel no revisaba el status.
+ * Los tests mockeaban la forma cruda (`{value}`), por eso no lo detectaban.
+ *
+ * - Forma wrapper (`status` numérico): exige 2xx; si no, lanza con el status.
+ * - Forma cruda (sin `status`): se devuelve tal cual (compatibilidad).
+ *
+ * @param {any} res
+ * @param {string} what descripción para el mensaje de error
+ * @returns {any} body
+ */
+export function slBody(res, what) {
+  if (res && typeof res === 'object' && typeof res.status === 'number') {
+    if (res.status < 200 || res.status >= 300) {
+      const msg =
+        (res.body && res.body.error && res.body.error.message && res.body.error.message.value) ||
+        '';
+      throw new Error(`${what}: HTTP ${res.status}${msg ? ' - ' + msg : ''}`);
+    }
+    return res.body;
+  }
+  return res;
+}
+
+/**
  * Verifica una SQ en SAP antes de cancelar. Retorna { canCancel, reason }.
  * Solo se usa en modo 'active' (Fase C). Shadow mode no llama a SL.
  *
@@ -136,8 +165,11 @@ export async function verifySqCanBeCancelled(deps, docNum) {
     // devolvia canCancel=false reason="error" permanentemente → modo 'active'
     // dejaba de cancelar SQs. Fix: GET header primero + GET inline de la
     // entity single via /Quotations({docEntry}) donde SI anda el expand.
-    const headerRes = await deps.slFetch(
-      `/b1s/v1/Quotations?$filter=DocNum eq ${docNum}&$select=DocEntry,DocNum,DocumentStatus,Cancelled`
+    const headerRes = slBody(
+      await deps.slFetch(
+        `/b1s/v1/Quotations?$filter=DocNum eq ${docNum}&$select=DocEntry,DocNum,DocumentStatus,Cancelled`
+      ),
+      'GET SQ header'
     );
     if (!headerRes || !Array.isArray(headerRes.value) || headerRes.value.length === 0) {
       return { canCancel: false, reason: 'SQ no encontrada en SAP' };
@@ -153,8 +185,9 @@ export async function verifySqCanBeCancelled(deps, docNum) {
       };
     }
     // Expand sobre single entity SI es soportado por SL.
-    const linesRes = await deps.slFetch(
-      `/b1s/v1/Quotations(${header.DocEntry})?$select=DocumentLines`
+    const linesRes = slBody(
+      await deps.slFetch(`/b1s/v1/Quotations(${header.DocEntry})?$select=DocumentLines`),
+      'GET SQ lines'
     );
     const lineas = Array.isArray(linesRes && linesRes.DocumentLines) ? linesRes.DocumentLines : [];
     // Chequear si alguna linea tiene TargetType 15 (Delivery) — significa que ya
@@ -186,13 +219,20 @@ export async function cancelSqInSap(deps, docNum) {
   if (!deps.slFetch) return { ok: false, error: 'slFetch no inyectado' };
   try {
     // Buscar DocEntry por DocNum
-    const q = await deps.slFetch(`/b1s/v1/Quotations?$filter=DocNum eq ${docNum}&$select=DocEntry`);
+    const q = slBody(
+      await deps.slFetch(`/b1s/v1/Quotations?$filter=DocNum eq ${docNum}&$select=DocEntry`),
+      'GET SQ DocEntry'
+    );
     if (!q || !Array.isArray(q.value) || q.value.length === 0) {
       return { ok: false, error: 'SQ no encontrada' };
     }
     const docEntry = q.value[0].DocEntry;
-    // Ejecutar cancelacion via metodo Cancel del CRUD
-    await deps.slFetch(`/b1s/v1/Quotations(${docEntry})/Cancel`, { method: 'POST' });
+    // Ejecutar cancelacion via metodo Cancel del CRUD. SEC-05: se valida el
+    // status (SL responde 204); un 4xx/5xx lanza y NO se marcan líneas.
+    slBody(
+      await deps.slFetch(`/b1s/v1/Quotations(${docEntry})/Cancel`, { method: 'POST' }),
+      'POST Cancel'
+    );
     return { ok: true };
   } catch (e) {
     return {
