@@ -49,8 +49,7 @@ WHERE table_name IN ('v_visitas','v_visitas_full','v_targets','v_rendiciones','v
 ORDER BY table_name, ordinal_position
 ```
 
-- [ ] Si `v_visitas_full` tiene `card_code`: interacciones leen de `v_visitas_full` y respetan el filtro Cliente.
-- [ ] Si no: leen de `v_visitas` (`tienda` como cliente) y la tabla muestra la nota "no se filtra por cliente". Anotar la decisión en el commit de Task 1.
+- [x] **Resuelto 2026-10-29:** `v_visitas_full` tiene `vendedor, tienda, fecha_visita, es_contacto, card_code, card_name_sap`. Interacciones y actividad leen de `v_visitas_full`; Cliente = `COALESCE(card_name_sap, tienda)`; el filtro Cliente aplica por `card_code` (visitas a leads sin `card_code` quedan fuera cuando hay filtro Cliente).
 
 ### Task 1: Queries de gestión
 
