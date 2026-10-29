@@ -4732,7 +4732,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Por qué**: completar la vista comercial con el cruce ventas / back order / stock por producto, la penetración de la cartera y la concentración por cliente, sin que una query caída tumbe el dashboard.
 
-**Verificación**: tests `tests/functions/dashboard-ventas-core.test.js`, `dashboard-ventas-productos-queries.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`; lint, typecheck, unit y smoke en verde (conteos reales en el reporte de la tarea). Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
+**Verificación**: tests `tests/functions/dashboard-ventas-core.test.js`, `dashboard-ventas-productos-queries.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`; lint 0 errores, typecheck limpio, unit 2578 tests (180 archivos), smoke 25, functions dashboard-ventas + bounded-cache 60, todo en verde. Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
 
 **Deploy**: requiere la entrega A (v1531) ya mergeada. `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
 
