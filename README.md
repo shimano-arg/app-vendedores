@@ -4717,6 +4717,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1521 (2026-10-29) — Crear Pedido Desde Stock Asignado no se bloquea por una asignación huérfana
+
+**Antes**: CPST de REBORN SRL (`C30710852762`, VDE Gonzalo De La Rosa), 23 SKU / 50 u, 29/10 09:08. El pre-flight abortaba todo con:
+
+```
+CLC66H2PY (pedido 8lGQkjUJfZwqsfnNw4iw): linea con qtyOpen=0, state=ASIG
+CLC66H2PY: faltaron 2u para cubrir qtyAjustada
+```
+
+**Problema** (root cause en código; datos de prod pendientes de `AS_asig_huerfanas.cjs --pedido=8lGQkjUJfZwqsfnNw4iw`):
+1. `_cpstBuildCache` arma las entries desde la línea ASIG con `qtyOpen>0` en el índice `idx`, pero **no guardaba `lineIndex`**.
+2. `_cpstConfirmar` re-buscaba la línea con `lines.findIndex(code===sku && state==='ASIG')` → toma la **primera** ASIG del producto. Si antes hay una ASIG zombie (`qty=0, qtyOpen=0`), cae en ella, hace `break` y aborta el pedido entero.
+3. Productor de la zombie: `revertSobreAsignadas` (§40.11) con `qtyEntregable=0` deja `state='ASIG', qty=0, qtyOpen=0` y apendea la BO. Si un reparto posterior asigna esa BO, el pedido queda con zombie + ASIG viva del mismo producto. Fix de la causa en PR aparte (CF).
+
+**Cambio**:
+- `src/pure/cpst-origenes-plan.js` (nuevo): `planCpstOrigenes(skus, pedidosById)` usa `entry.lineIndex` si la línea sigue siendo del producto, ASIG y con `qtyOpen>0`; si no, busca la primera ASIG viva no usada; si no hay, la entry es **huérfana**: se omite y se reporta. `formatAsigHuerfanaAviso` arma el texto simple.
+- `index.html:_cpstBuildCache`: entries con `lineIndex`.
+- `index.html:_cpstConfirmar`: solo un fallo de lectura bloquea. Las huérfanas se omiten, el pedido se crea con lo cubierto, el mensaje final agrega "2 unidades de CLC66H2PY ya no están disponibles, avisale a Mariano." y cada huérfana se loguea en `operations_log` con `type='asig_huerfana'`. Si todo era huérfano, no se escribe nada y se muestra solo el aviso.
+- `scripts/audit/AS_asig_huerfanas.cjs` (nuevo, read-only por default): lista zombies (Z), refs de lista de espera sin respaldo (W), asignaciones de reparto sin línea / dobles (R) y claves viejas en `stock_snapshot/{SKU}.asignadas.byClient` (S); plan de limpieza dry-run; `--apply` solo Z+W con `_backfill` §55. Informe: `docs/auditoria/45_ASIG_HUERFANAS.md`.
+
+**Hallazgo lateral (no corregido, decisión de Mariano)**: `computeCpstRevertPlan` (§40.5) lee `entry.qtyAsignada`, que las entries nunca tuvieron → el revert ASIG→BO del CPST es no-op desde v1397.
+
+**Verificación**: `tests/unit/cpst-origenes-plan.test.js` (10), `tests/unit/audit/cpst-preflight-huerfanas-v1520.test.js` (6), `tests/unit/audit/as-asig-huerfanas.test.js` (7). Bundle cargado en `vm` expone `__phase0.pure.cpstOrigenesPlan` y resuelve el caso REBORN sin huérfanas. Prod: Gonzalo repite el CPST de REBORN.
+
+**Rollback**: revertir el commit (index.html + src/main.js + bundle). Vuelve el bloqueo, sin efecto en datos.
+
+**Archivos**: `src/pure/cpst-origenes-plan.js`, `src/main.js`, `app.bundle.js`, `index.html`, `sw.js`, `scripts/audit/AS_asig_huerfanas.cjs`, `docs/auditoria/45_ASIG_HUERFANAS.md`, tests.
 ### v1520 (2026-10-29) — Popup "Stock del SKU" muestra TODO lo que resta hasta Libre + fórmula explícita (CLAUDE.md §103)
 
 **Antes**: el popup del Master de Productos (`queryStockLive`) mostraba 5 líneas en orden fijo (`Stock físico / En tránsito / Back order / Stock asignado / Libre`) desde §40.11 v1403. Pero cuando el SKU tenía confirmed sin SAP, la cuenta no cerraba a ojo: `libre = físico − min(asig + conf, físico)` (§40.2), entonces 7u de confirmed restaban invisibles.
