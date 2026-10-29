@@ -98,6 +98,12 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto:
       'Tu usuario no tiene permiso para esta acción. Cerrá sesión y volvé a entrar; si sigue, avisale a Mariano.',
   },
+  // D8 (2026-10-29): commitPedidoCF / updatePedidoLinesCF rechazan por rol
+  // (SEC-02). Distinto de PERMISSION_DENIED: cerrar sesión no lo arregla.
+  ROLE_REQUIRED: {
+    texto:
+      'Tu usuario todavía no tiene un rol asignado para cargar pedidos. Pedile a Mariano que te habilite.',
+  },
   SAP_UNAVAILABLE: {
     texto:
       'No pudimos consultar el stock al sistema porque no responde. Esperá un minuto y volvé a intentar.',
@@ -143,6 +149,7 @@ export const PALABRAS_PROHIBIDAS = Object.freeze([
   'SNAPSHOT_TOO_OLD',
   'VALIDATION_ERROR',
   'PERMISSION_DENIED',
+  'ROLE_REQUIRED',
   'SAP_UNAVAILABLE',
   // Jerga técnica.
   'snapshot',

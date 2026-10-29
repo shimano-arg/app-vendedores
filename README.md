@@ -4717,6 +4717,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1531 (2026-10-29) — sin contraseña por defecto en el frontend + mensaje para usuario sin rol
+
+**Antes:**
+- `index.html` tenía la contraseña por defecto del gate (`<redactado>`) y la escribía en `roles/{uid}` a quien no tuviera hash;
+- el rechazo por rol mostraba "Cerrá sesión y volvé a entrar".
+
+**Problema:**
+- la contraseña era pública, así que el gate no protegía nada;
+- para los no-admin, la escritura ya fallaba por reglas.
+
+**Cambio:**
+- sin hash configurado, no hay gate;
+- nuevo mensaje `ROLE_REQUIRED` en `mensajes-vendedor.js`, mapeado desde `details.errorCode`.
+
+**Verificación:** 7 tests; unit 2519/2519; smoke 25/25.
+
+**Rollback:** revert del PR.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.

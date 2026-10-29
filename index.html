@@ -7197,7 +7197,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1530';
+const APP_VERSION = 'v1531';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18477,7 +18477,11 @@ window._tryCommitPedidoCF = async function(docData){
 
       // Rama NEGOCIO: NUNCA fallback, devolver errorCode.
       console.error('[_tryCommitPedidoCF] error de negocio NO cae a fallback:', code, message);
+      // D8 (2026-10-29): SEC-02 manda details.errorCode='ROLE_REQUIRED' (usuario
+      // sin rol). Tiene su propio mensaje: cerrar sesión no lo resuelve.
+      const _detailsCode = (e && e.details && e.details.errorCode) || '';
       const mappedErrorCode =
+        _detailsCode === 'ROLE_REQUIRED' ? 'ROLE_REQUIRED' :
         code === 'functions/unauthenticated' || code === 'functions/permission-denied' ? 'PERMISSION_DENIED' :
         code === 'functions/invalid-argument' ? 'VALIDATION_ERROR' :
         'INTERNAL';
@@ -31551,7 +31555,8 @@ fbAuth.onAuthStateChanged(async user => {
     await fetchAndApplyRole();
     if (userRole === 'unassigned') return;
     // Password gate: si el doc tiene passwordHash, exigir password antes de entrar.
-    // Si no lo tiene (usuario nuevo o flujo viejo), setea el default 'Shi0*'.
+    // Si no lo tiene, no hay gate (SEC-06, 2026-10-29: ya no se inicializa con
+    // una contraseña por defecto, que estaba publicada en este archivo).
     const okPwd = await ensurePasswordGate();
     if (!okPwd) return; // canceló o no validó
     // TOTP gate (2FA): si el usuario lo tiene activado, pedir codigo de 6 digitos.
@@ -31687,9 +31692,11 @@ function loadQRCodeLib(){
 // ============================================================
 // Cada doc /roles/{uid} tiene passwordHash + passwordSalt. Al ingresar a la
 // app despues del login Google, se le pide al usuario su password. Si el
-// doc no la tiene seteada, se inicializa con el default DEFAULT_USER_PASSWORD.
-// El admin puede resetearla a cualquier valor nuevo desde Panel Usuarios.
-const DEFAULT_USER_PASSWORD = 'Shi0*';
+// doc no la tiene seteada, NO hay gate: la configura el admin desde Panel
+// Usuarios (SEC-06, 2026-10-29). Antes se inicializaba con una contraseña por
+// defecto escrita en este archivo público: conocida por cualquiera, no protegía.
+// Para los no-admin la inicialización ya fallaba por reglas (roles.update es
+// solo isAdmin) y el gate se salteaba; el efecto neto no cambia.
 
 async function hashPasswordSHA256(password, salt){
   const enc = new TextEncoder();
@@ -31728,18 +31735,8 @@ async function ensurePasswordGate(){
   catch(e) { console.error('passwordGate fetch', e); return true; } // si falla el read, dejamos pasar (no romper la app)
   if (!snap || !snap.exists) return true;
   const data = snap.data() || {};
-  // Si no tiene password seteada -> setear el default Shi0* ahora.
-  if (!data.passwordHash || !data.passwordSalt) {
-    try {
-      const creds = await buildPasswordCredentials(DEFAULT_USER_PASSWORD);
-      await fbDb.collection('roles').doc(currentUser.uid).update(creds);
-      data.passwordHash = creds.passwordHash;
-      data.passwordSalt = creds.passwordSalt;
-    } catch(e) {
-      console.warn('inicializar default password', e);
-      return true; // si no se pudo persistir, dejamos pasar
-    }
-  }
+  // SEC-06 (2026-10-29): sin hash configurado no hay gate (ver cabecera).
+  if (!data.passwordHash || !data.passwordSalt) return true;
   // Mostrar modal y esperar validacion.
   return showPasswordGateModal(data.passwordSalt, data.passwordHash);
 }
