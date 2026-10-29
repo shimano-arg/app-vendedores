@@ -4717,6 +4717,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix Pages (2026-10-29) — publicar sólo la PWA (allowlist) y sin sourcemaps con código fuente
+
+**Antes:** `deploy-pages.yml` subía `path: '.'`, es decir, el repo entero: `CLAUDE.md`, `docs/`, `tests/fixtures`, `functions/` y las reglas. Además, el bundle y los chunks se publicaban con sourcemap inline, que incluye el código fuente de `src/`.
+
+**Cambio:**
+- `scripts/pages/build-pages-site.mjs` publica una allowlist en `_site`;
+- quita el sourcemap inline sólo de lo publicado;
+- falla si falta un archivo requerido o si se cuela algo prohibido;
+- el directorio de salida no puede ser una carpeta del repo.
+
+**Verificación:**
+- 13 tests;
+- Chromium local sobre v1528: cero 404, 9 chunks en 200, SW con 19 entradas, rutas prohibidas en 404;
+- el bundle publicado baja de 3,1 MB a 820 KB.
+
+**Rollback:** volver a `path: '.'` en `deploy-pages.yml`.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.
