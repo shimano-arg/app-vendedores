@@ -182,15 +182,62 @@ function _errorMessage() {
   );
 }
 
+// Plugin propio (sin librería nueva): dibuja el valor al final de cada barra.
+// El formateador viene en options.plugins.dvDataLabels.fmt; solo actúa en 'bar'.
+let dvPluginRegistrado = false;
+const dvDataLabels = {
+  id: 'dvDataLabels',
+  afterDatasetsDraw(chart) {
+    if (chart.config.type !== 'bar') return;
+    const opts = (chart.options.plugins && chart.options.plugins.dvDataLabels) || {};
+    if (typeof opts.fmt !== 'function') return;
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = '11px ' + CHART_FONT;
+    ctx.fillStyle = dark ? '#e5e7eb' : '#1f2937';
+    ctx.textBaseline = 'middle';
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((bar, i) => {
+        const v = ds.data[i];
+        if (v == null) return;
+        const txt = String(opts.fmt(v, i));
+        const horizontal = chart.options.indexAxis === 'y';
+        if (horizontal) {
+          ctx.textAlign = 'left';
+          ctx.fillText(txt, bar.x + 4, bar.y);
+        } else {
+          ctx.textAlign = 'center';
+          ctx.fillText(txt, bar.x, bar.y - 8);
+        }
+      });
+    });
+    ctx.restore();
+  },
+};
+
+function _registrarPlugins(Chart) {
+  if (dvPluginRegistrado || !Chart || typeof Chart.register !== 'function') return;
+  Chart.register(dvDataLabels);
+  dvPluginRegistrado = true;
+}
+
 function _loadChartJs() {
-  if (window.Chart) return Promise.resolve(window.Chart);
+  if (window.Chart) {
+    _registrarPlugins(window.Chart);
+    return Promise.resolve(window.Chart);
+  }
   if (chartJsPromise) return chartJsPromise;
   chartJsPromise = new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = CHART_JS_URL;
     s.async = true;
-    s.onload = () =>
-      window.Chart ? resolve(window.Chart) : reject(new Error('Chart.js sin global'));
+    s.onload = () => {
+      if (!window.Chart) return reject(new Error('Chart.js sin global'));
+      _registrarPlugins(window.Chart);
+      resolve(window.Chart);
+    };
     s.onerror = () => {
       chartJsPromise = null;
       reject(new Error('no se pudo cargar Chart.js'));
@@ -714,6 +761,52 @@ function _coberturaSection(rows, secciones) {
   );
 }
 
+// Campañas: una tarjeta por campaña con ventas, objetivo y avance.
+function _campaniasSection(rows, secciones) {
+  if (!Array.isArray(rows) || (secciones && secciones.campanias && secciones.campanias.error)) {
+    return _noDisponible('dv-campanias', 'Campañas');
+  }
+  let cuerpo = '';
+  if (rows.length === 0) {
+    cuerpo = '<div class="dv-muted">Sin campañas activas</div>';
+  } else {
+    for (const c of rows) {
+      const objetivo =
+        c.objetivoTipo === 'money' ? _fmtArs(c.objetivo) : _fmtUds(c.objetivo) + ' u';
+      const pct = c.pct == null ? null : Number(c.pct);
+      const ancho = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+      cuerpo +=
+        '<div class="dv-camp">' +
+        '<div class="dv-camp-nombre">' +
+        _escHtml(c.nombre) +
+        '</div>' +
+        '<div class="dv-camp-fechas">' +
+        _escHtml(_fmtFecha(c.desde)) +
+        ' al ' +
+        _escHtml(_fmtFecha(c.hasta)) +
+        '</div>' +
+        '<div class="dv-camp-datos">Vendido: ' +
+        _escHtml(_fmtUds(c.uds)) +
+        ' u · ' +
+        _escHtml(_fmtArs(c.ars)) +
+        ' — Objetivo: ' +
+        _escHtml(objetivo) +
+        ' — ' +
+        _escHtml(pct == null ? '—' : _fmtPct(pct)) +
+        '</div>' +
+        '<div class="dv-camp-bar"><div class="dv-camp-bar-fill" style="width:' +
+        ancho.toFixed(1) +
+        '%"></div></div>' +
+        '</div>';
+    }
+  }
+  return (
+    '<section class="dv-section" id="dv-campanias"><div class="dv-section-head"><h3>Campañas</h3></div>' +
+    cuerpo +
+    '</section>'
+  );
+}
+
 function _clientesSection(rows, secciones) {
   if (!Array.isArray(rows) || (secciones && secciones.clientes && secciones.clientes.error)) {
     return _noDisponible('dv-clientes-chart', 'Facturación por cliente');
@@ -809,6 +902,7 @@ function renderResults() {
     html += _productosSection(d.productos, d.secciones, state.prodQuery);
     html += _coberturaSection(d.cobertura, d.secciones);
     html += _clientesSection(d.clientes, d.secciones);
+    html += _campaniasSection(d.campanias, d.secciones);
   }
 
   _destroyCharts();
@@ -887,6 +981,7 @@ function _barChart(canvasId, rows, field, fmt, color) {
       animation: false,
       plugins: {
         legend: { display: false },
+        dvDataLabels: { fmt },
         tooltip: {
           callbacks: {
             title: (items) => {
@@ -1034,6 +1129,7 @@ function _coberturaChart(rows) {
       animation: false,
       plugins: {
         legend: { display: false },
+        dvDataLabels: { fmt: (_v, i) => (rows[i] ? _coberturaEtiqueta(rows[i]) : '') },
         tooltip: {
           callbacks: {
             title: (items) => {

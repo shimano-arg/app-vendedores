@@ -24,8 +24,8 @@
 import {
   buildQueries,
   currentMonthArt,
-  monthsEndingAt,
-  SERIE_MESES,
+  monthsBetween,
+  SERIE_DESDE,
 } from './dashboard-ventas-queries.js';
 
 import { buildCampaniasQuery } from './dashboard-ventas-queries-campanias.js';
@@ -413,7 +413,7 @@ export async function dashboardVentasCore(deps, params) {
       ars: num(r.ars),
     }));
 
-  const meses = monthsEndingAt(filters.mes, SERIE_MESES);
+  const meses = monthsBetween(SERIE_DESDE, filters.mes);
   /** @type {Map<string, number>} */
   const ventasPorMes = new Map();
   for (const r of ventasRows || []) {

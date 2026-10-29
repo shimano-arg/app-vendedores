@@ -183,7 +183,14 @@ describe('Dashboard de Ventas — gestión e interacciones', () => {
     contactados: 4,
     interacciones: 7,
     tablaInteracciones: {
-      rows: [{ cliente: 'ACME', fecha: '2026-10-05', vendedor: 'PACHI', tipo: 'visita' }],
+      rows: [
+        {
+          cliente: 'ACME',
+          fecha: '2026-10-05',
+          vendedor: 'PACHI',
+          tipo: 'visita',
+        },
+      ],
       total: 1,
     },
     filtrosNoAplican: false,
@@ -237,13 +244,23 @@ describe('Dashboard de Ventas — gestión e interacciones', () => {
   });
 
   it('total > rows -> "Mostrando N de M"', () => {
-    const h = _interaccionesSection({ rows: g.tablaInteracciones.rows, total: 800 });
+    const h = _interaccionesSection({
+      rows: g.tablaInteracciones.rows,
+      total: 800,
+    });
     expect(h).toContain('Mostrando 1 de 800');
   });
 
   it('escapa el cliente (sin <img)', () => {
     const h = _interaccionesSection({
-      rows: [{ cliente: '<img src=x>', fecha: '2026-10-05', vendedor: 'V', tipo: 'contacto' }],
+      rows: [
+        {
+          cliente: '<img src=x>',
+          fecha: '2026-10-05',
+          vendedor: 'V',
+          tipo: 'contacto',
+        },
+      ],
       total: 1,
     });
     expect(h).not.toContain('<img');
@@ -254,8 +271,18 @@ describe('Dashboard de Ventas — gestión e interacciones', () => {
     const h = _interaccionesSection(
       {
         rows: [
-          { cliente: 'ACME', fecha: '2026-10-05', vendedor: 'V', tipo: 'visita' },
-          { cliente: 'OTRO', fecha: '2026-10-06', vendedor: 'V', tipo: 'visita' },
+          {
+            cliente: 'ACME',
+            fecha: '2026-10-05',
+            vendedor: 'V',
+            tipo: 'visita',
+          },
+          {
+            cliente: 'OTRO',
+            fecha: '2026-10-06',
+            vendedor: 'V',
+            tipo: 'visita',
+          },
         ],
         total: 2,
       },
@@ -265,8 +292,18 @@ describe('Dashboard de Ventas — gestión e interacciones', () => {
     const h2 = _interaccionesSection(
       {
         rows: [
-          { cliente: 'ACME', fecha: '2026-10-05', vendedor: 'V', tipo: 'visita' },
-          { cliente: 'OTRO', fecha: '2026-10-06', vendedor: 'V', tipo: 'visita' },
+          {
+            cliente: 'ACME',
+            fecha: '2026-10-05',
+            vendedor: 'V',
+            tipo: 'visita',
+          },
+          {
+            cliente: 'OTRO',
+            fecha: '2026-10-06',
+            vendedor: 'V',
+            tipo: 'visita',
+          },
         ],
         total: 2,
       },
@@ -322,9 +359,17 @@ describe('Dashboard de Ventas — productos, cobertura y clientes (entrega B)', 
   it('_stockColumnas con breakdown -> reservadas/libre/stock', () => {
     setWin({
       getStockDisponibleVenta: () => 5,
-      getStockBreakdown: () => ({ reservadasTotal: 3, libre: 2, fisicoDep11: 5 }),
+      getStockBreakdown: () => ({
+        reservadasTotal: 3,
+        libre: 2,
+        fisicoDep11: 5,
+      }),
     });
-    expect(api._stockColumnas('X')).toEqual({ reservadas: 3, libre: 2, stock: 5 });
+    expect(api._stockColumnas('X')).toEqual({
+      reservadas: 3,
+      libre: 2,
+      stock: 5,
+    });
     restore();
   });
 
@@ -334,7 +379,11 @@ describe('Dashboard de Ventas — productos, cobertura y clientes (entrega B)', 
     expect(api._stockColumnas('X')).toEqual(vacio);
     setWin({
       getStockDisponibleVenta: () => null,
-      getStockBreakdown: () => ({ reservadasTotal: 3, libre: 2, fisicoDep11: 5 }),
+      getStockBreakdown: () => ({
+        reservadasTotal: 3,
+        libre: 2,
+        fisicoDep11: 5,
+      }),
     });
     expect(api._stockColumnas('X')).toEqual(vacio);
     restore();
@@ -452,7 +501,7 @@ describe('Dashboard de Ventas — productos, cobertura y clientes (entrega B)', 
   it('el buscador de productos tiene debounce de 200 ms y renderResults limpia el memo', () => {
     expect(CHUNK).toMatch(/PRODUCTOS_DEBOUNCE_MS = 200/);
     expect(CHUNK).toMatch(/setTimeout\([\s\S]{0,300}PRODUCTOS_DEBOUNCE_MS\)/);
-    expect(CHUNK).toMatch(/function renderResults\(\) \{\n  _stockMemo\.clear\(\);/);
+    expect(CHUNK).toMatch(/function renderResults\(\) \{\n {2}_stockMemo\.clear\(\);/);
   });
 
   it('Ver más de clientes filtra por nombre y por código', () => {
@@ -469,5 +518,58 @@ describe('Dashboard de Ventas — productos, cobertura y clientes (entrega B)', 
     expect(h).toContain('OTRO SRL');
     expect(h).not.toContain('ACME SA');
     vmState.verMasQuery.clientes = '';
+  });
+});
+
+describe('Dashboard de Ventas — etiquetas de dato y campañas', () => {
+  it('registra el plugin dvDataLabels y _barChart lo usa con su formateador', () => {
+    expect(CHUNK).toContain("id: 'dvDataLabels'");
+    expect(CHUNK).toMatch(/Chart\.register\(/);
+    expect(CHUNK).toMatch(/dvDataLabels:\s*\{\s*fmt/);
+  });
+
+  it('la sección dv-campanias muestra "Sin campañas activas" con lista vacía', () => {
+    const fn = (name) => {
+      const m = CHUNK.match(new RegExp('\\nfunction ' + name + '\\([\\s\\S]*?\\n\\}\\n'));
+      expect(m, 'función ' + name).toBeTruthy();
+      return m[0];
+    };
+    const f = new Function(
+      [
+        '_escHtml',
+        '_fmtArs',
+        '_fmtUds',
+        '_fmtPct',
+        '_fmtFecha',
+        '_noDisponible',
+        '_campaniasSection',
+      ]
+        .map(fn)
+        .join('\n') + '\nreturn _campaniasSection;'
+    )();
+    expect(f([], {})).toContain('id="dv-campanias"');
+    expect(f([], {})).toContain('Sin campañas activas');
+    expect(f(null, {})).toContain('No disponible');
+    expect(f([], { campanias: { error: true } })).toContain('No disponible');
+    const html = f(
+      [
+        {
+          id: 'c1',
+          nombre: '<b>Oferta</b>',
+          desde: '2026-10-01',
+          hasta: '2026-10-31',
+          objetivoTipo: 'units',
+          objetivo: 100,
+          uds: 40,
+          ars: 1234000,
+          pct: 40.5,
+        },
+      ],
+      {}
+    );
+    expect(html).toContain('&lt;b&gt;Oferta&lt;/b&gt;');
+    expect(html).toContain('01/10/2026');
+    expect(html).toContain('40,5%');
+    expect(html).toContain('100 u');
   });
 });

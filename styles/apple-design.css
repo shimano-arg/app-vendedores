@@ -7068,6 +7068,32 @@ html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
 }
 #dashboard-ventas-modal #dashboard-ventas-body .dv-card { padding: 14px 16px; }
 #dashboard-ventas-modal #dashboard-ventas-body .dv-section { padding: 14px 16px; }
+#dashboard-ventas-modal #dashboard-ventas-body .dv-camp {
+  padding: 10px 0;
+  border-top: 1px solid rgba(128, 128, 128, 0.18);
+}
+#dashboard-ventas-modal #dashboard-ventas-body .dv-camp:first-of-type { border-top: none; }
+#dashboard-ventas-modal #dashboard-ventas-body .dv-camp-nombre {
+  font-weight: 600;
+  color: var(--dv-text);
+}
+#dashboard-ventas-modal #dashboard-ventas-body .dv-camp-fechas,
+#dashboard-ventas-modal #dashboard-ventas-body .dv-camp-datos {
+  font-size: 12px;
+  color: var(--dv-muted);
+  margin-top: 2px;
+}
+#dashboard-ventas-modal #dashboard-ventas-body .dv-camp-bar {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.2);
+}
+#dashboard-ventas-modal #dashboard-ventas-body .dv-camp-bar-fill {
+  height: 100%;
+  background: #0284a0;
+  border-radius: 3px;
+}
 #dashboard-ventas-modal #dashboard-ventas-body .dv-card-title,
 #dashboard-ventas-modal #dashboard-ventas-body .dv-filtro-label {
   color: var(--dv-muted);

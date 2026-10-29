@@ -20,6 +20,7 @@ import {
   normalizeFilters,
   runSeccion,
 } from '../../functions/core/dashboard-ventas-core.js';
+import { monthsBetween, SERIE_DESDE } from '../../functions/core/dashboard-ventas-queries.js';
 
 // 2026-10-29 15:00 ART = 18:00 UTC.
 const NOW = Date.parse('2026-10-29T18:00:00Z');
@@ -61,7 +62,10 @@ const AUTH = { uid: 'u1' };
 describe('dashboard-ventas-core', () => {
   it('vendedor_forzado: el vendedor solo ve lo suyo aunque pida otro', async () => {
     const deps = makeDeps({}, { role: 'vendedor', vendor: 'MAURICIO GIL' });
-    await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['PACHI'] } });
+    await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { vendedores: ['PACHI'] },
+    });
     expect(deps.calls.length).toBe(14);
     for (const q of deps.calls) {
       if (queryName(q.query) === 'opciones') {
@@ -76,7 +80,10 @@ describe('dashboard-ventas-core', () => {
 
   it('opciones_scope_por_rol: admin con Vendedor=A sigue viendo todos los vendedores', async () => {
     const deps = makeDeps({}, { role: 'admin' });
-    await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['A'] } });
+    await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { vendedores: ['A'] },
+    });
     const opc = deps.calls.find((q) => queryName(q.query) === 'opciones');
     expect(opc.params.scopeVendedores).toEqual([]);
     expect(opc.params.vendedores).toBeUndefined();
@@ -84,7 +91,9 @@ describe('dashboard-ventas-core', () => {
     const kpis = deps.calls.find((q) => queryName(q.query) === 'kpis');
     expect(kpis.params.vendedores).toEqual(['A']);
     // gerente igual que admin.
-    const f = applyRoleScope(normalizeFilters({ vendedores: ['A'] }, NOW), { role: 'gerente' });
+    const f = applyRoleScope(normalizeFilters({ vendedores: ['A'] }, NOW), {
+      role: 'gerente',
+    });
     expect(f.scopeVendedores).toEqual([]);
   });
 
@@ -214,19 +223,32 @@ describe('dashboard-ventas-core', () => {
     const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
     expect(r.topDinero.map((x) => x.sku)).toEqual(['B', 'A', 'NEG']);
     expect(r.topUnidades.map((x) => x.sku)).toEqual(['B', 'A', 'NEG']);
-    expect(r.topDinero[0]).toEqual({ sku: 'B', desc: 'Reel B', uds: 10, ars: 9000 });
+    expect(r.topDinero[0]).toEqual({
+      sku: 'B',
+      desc: 'Reel B',
+      uds: 10,
+      ars: 9000,
+    });
   });
 
   it('sin_datos: runQuery vacío → kpis en 0, listas vacías', async () => {
     const deps = makeDeps({});
-    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
-    expect(r.kpis).toEqual({ facturado: 0, backorderArs: 0, pedidos: 0, pedidosUnicos: 0 });
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect(r.kpis).toEqual({
+      facturado: 0,
+      backorderArs: 0,
+      pedidos: 0,
+      pedidosUnicos: 0,
+    });
     expect(r.topUnidades).toEqual([]);
     expect(r.topDinero).toEqual([]);
-    expect(r.serieVentas.length).toBe(12);
-    expect(r.serieVentas[0]).toEqual({ mes: '2025-11', valor: 0 });
-    expect(r.serieVentas[11]).toEqual({ mes: '2026-10', valor: 0 });
-    expect(r.serieBoUds.length).toBe(12);
+    expect(r.serieVentas.length).toBe(5);
+    expect(r.serieVentas[0]).toEqual({ mes: '2026-06', valor: 0 });
+    expect(r.serieVentas[4]).toEqual({ mes: '2026-10', valor: 0 });
+    expect(r.serieBoUds.length).toBe(5);
     expect(r.serieBoUds.every((p) => p.valor === null)).toBe(true);
     expect(r.opciones).toEqual({
       vendedores: [],
@@ -240,7 +262,14 @@ describe('dashboard-ventas-core', () => {
 
   it('kpis y opciones toman forma desde las filas', async () => {
     const deps = makeDeps({
-      kpis: [{ facturado: '123.5', pedidos: 4, pedidos_unicos: 2, backorder_ars: 77 }],
+      kpis: [
+        {
+          facturado: '123.5',
+          pedidos: 4,
+          pedidos_unicos: 2,
+          backorder_ars: 77,
+        },
+      ],
       opciones: [
         { tipo: 'vendedor', code: 'PACHI', name: null },
         { tipo: 'cliente', code: 'C2', name: 'Bravo' },
@@ -251,7 +280,12 @@ describe('dashboard-ventas-core', () => {
       ],
     });
     const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
-    expect(r.kpis).toEqual({ facturado: 123.5, backorderArs: 77, pedidos: 4, pedidosUnicos: 2 });
+    expect(r.kpis).toEqual({
+      facturado: 123.5,
+      backorderArs: 77,
+      pedidos: 4,
+      pedidosUnicos: 2,
+    });
     expect(r.opciones.vendedores).toEqual(['PACHI']);
     expect(r.opciones.clientes).toEqual([
       { code: 'C1', name: 'Alfa' },
@@ -269,7 +303,10 @@ describe('dashboard-ventas-core', () => {
         { fuente: 'vivo', mes: '2026-10', uds: 12, ars: 1200 },
       ],
     });
-    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
     const sep = r.serieBoUds.find((p) => p.mes === '2026-09');
     expect(sep).toEqual({ mes: '2026-09', valor: 10, estimado: false });
     const oct = r.serieBoArs.find((p) => p.mes === '2026-10');
@@ -285,8 +322,15 @@ describe('dashboard-ventas-core', () => {
         { fuente: 'vivo', mes: '2026-10', uds: 99, ars: 9900 },
       ],
     });
-    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
-    expect(r.serieBoUds[11]).toEqual({ mes: '2026-10', valor: 5, estimado: false });
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect(r.serieBoUds[4]).toEqual({
+      mes: '2026-10',
+      valor: 5,
+      estimado: false,
+    });
   });
 
   it('estimado_flag: mes reconstruido → estimado:true; mostrarEstimados=false → null', async () => {
@@ -321,17 +365,43 @@ describe('dashboard-ventas-core', () => {
     });
   });
 
-  it('serieVentas llena 12 meses con los valores de BQ', async () => {
+  it('monthsBetween: inclusive y con hasta < desde devuelve [hasta]', () => {
+    expect(SERIE_DESDE).toBe('2026-06');
+    expect(monthsBetween('2026-06', '2026-10')).toEqual([
+      '2026-06',
+      '2026-07',
+      '2026-08',
+      '2026-09',
+      '2026-10',
+    ]);
+    expect(monthsBetween('2026-06', '2026-06')).toEqual(['2026-06']);
+    expect(monthsBetween('2026-06', '2026-03')).toEqual(['2026-03']);
+  });
+
+  it('serieVentas va desde jun-26 hasta el mes elegido con los valores de BQ', async () => {
     const deps = makeDeps({
       serieVentas: [
         { anio: 2026, mes: 9, valor: 300 },
-        { anio: 2025, mes: 11, valor: 100 },
+        { anio: 2026, mes: 6, valor: 100 },
       ],
     });
-    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
-    expect(r.serieVentas[0]).toEqual({ mes: '2025-11', valor: 100 });
-    expect(r.serieVentas[10]).toEqual({ mes: '2026-09', valor: 300 });
-    expect(r.serieVentas[11]).toEqual({ mes: '2026-10', valor: 0 });
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect(r.serieVentas.length).toBe(5);
+    expect(r.serieVentas[0]).toEqual({ mes: '2026-06', valor: 100 });
+    expect(r.serieVentas[3]).toEqual({ mes: '2026-09', valor: 300 });
+    expect(r.serieVentas[4]).toEqual({ mes: '2026-10', valor: 0 });
+  });
+
+  it('serieVentas con un mes anterior a jun-26 tiene un solo punto', async () => {
+    const deps = makeDeps({});
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-03' },
+    });
+    expect(r.serieVentas.map((p) => p.mes)).toEqual(['2026-03']);
   });
 
   it('cache_hit: dos llamadas iguales dentro de 10 min → una sola corrida', async () => {
@@ -343,7 +413,10 @@ describe('dashboard-ventas-core', () => {
     await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
     expect(deps.calls.length).toBe(14);
     // otro uid no comparte caché.
-    await dashboardVentasCore(deps, { auth: { uid: 'u2' }, data: { mes: '2026-10' } });
+    await dashboardVentasCore(deps, {
+      auth: { uid: 'u2' },
+      data: { mes: '2026-10' },
+    });
     expect(deps.calls.length).toBe(28);
     // vencido el TTL se vuelve a consultar.
     t += 6 * 60 * 1000;
@@ -351,13 +424,16 @@ describe('dashboard-ventas-core', () => {
     expect(deps.calls.length).toBe(42);
   });
 
-  it('buildQueries: params de mes y ventana de 12 meses', () => {
+  it('buildQueries: params de mes y ventana desde jun-26', () => {
     const f = normalizeFilters({ mes: '2026-03' }, NOW);
     const qs = buildQueries(f, NOW);
     expect(qs.kpis.params.anio).toBe(2026);
     expect(qs.kpis.params.mesNum).toBe(3);
-    expect(qs.serieVentas.params.desde).toBe('2025-04-01');
+    expect(qs.serieVentas.params.desde).toBe('2026-03-01');
     expect(qs.serieVentas.params.hasta).toBe('2026-03-01');
+    expect(
+      buildQueries(normalizeFilters({ mes: '2026-10' }, NOW), NOW).serieVentas.params.desde
+    ).toBe('2026-06-01');
     expect(qs.serieBackorder.params.mesActual).toBe('2026-10');
     expect(qs.serieVentas.types.desde).toBe('STRING');
     expect(qs.kpis.query).toContain('is_pesca = TRUE');
@@ -390,16 +466,27 @@ describe('dashboard-ventas-core', () => {
   });
 
   it('cache: mismo filtro en otro orden pega en caché; la respuesta es una copia', async () => {
-    const deps = makeDeps({ topSkus: [{ sku: 'A', descr: 'x', uds: 1, ars: 10 }] });
-    const r1 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['B', 'A'] } });
+    const deps = makeDeps({
+      topSkus: [{ sku: 'A', descr: 'x', uds: 1, ars: 10 }],
+    });
+    const r1 = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { skus: ['B', 'A'] },
+    });
     r1.topDinero.length = 0;
     r1.kpis.facturado = 999;
-    const r2 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['A', 'B'] } });
+    const r2 = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { skus: ['A', 'B'] },
+    });
     expect(deps.calls.length).toBe(14);
     expect(r2.topDinero.length).toBe(1);
     expect(r2.kpis.facturado).toBe(0);
     r2.topDinero.length = 0;
-    const r3 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['A', 'B'] } });
+    const r3 = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { skus: ['A', 'B'] },
+    });
     expect(r3.topDinero.length).toBe(1);
   });
 });
@@ -436,11 +523,20 @@ describe('dashboard-ventas-core: sección gestión', () => {
       rendiciones: [{ monto_ars: 5000 }],
       actividad: [{ visitas: 7, contactados: 3 }],
       interacciones: [
-        { cliente: 'ACME', fecha: '2026-10-28', vendedor: 'PACHI', tipo: 'visita', total: 12 },
+        {
+          cliente: 'ACME',
+          fecha: '2026-10-28',
+          vendedor: 'PACHI',
+          tipo: 'visita',
+          total: 12,
+        },
       ],
       baseActiva: [{ clientes: 40 }],
     });
-    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
     expect(r.gestion?.target).toBe(1000000);
     expect(r.gestion?.cumplimientoPct).toBe(80);
     expect(r.gestion?.rendicionesArs).toBe(5000);
@@ -450,7 +546,14 @@ describe('dashboard-ventas-core: sección gestión', () => {
     expect(r.gestion?.contactados).toBe(3);
     expect(r.gestion?.interacciones).toBe(10);
     expect(r.gestion?.tablaInteracciones).toEqual({
-      rows: [{ cliente: 'ACME', fecha: '2026-10-28', vendedor: 'PACHI', tipo: 'visita' }],
+      rows: [
+        {
+          cliente: 'ACME',
+          fecha: '2026-10-28',
+          vendedor: 'PACHI',
+          tipo: 'visita',
+        },
+      ],
       total: 12,
     });
     expect(r.gestion?.filtrosNoAplican).toBe(false);
@@ -504,9 +607,15 @@ describe('dashboard-ventas-core: sección gestión', () => {
 
   it('filtro cliente → filtrosNoAplican true', async () => {
     const deps = makeDeps({ kpis: KPI });
-    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { clientes: ['C1'] } });
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { clientes: ['C1'] },
+    });
     expect(r.gestion?.filtrosNoAplican).toBe(true);
-    const r2 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['S1'] } });
+    const r2 = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { skus: ['S1'] },
+    });
     expect(r2.gestion?.filtrosNoAplican).toBe(true);
   });
 
@@ -527,7 +636,9 @@ describe('dashboard-ventas-core: sección gestión', () => {
 
   it('runSeccion: ok con filas por nombre; falla → ok:false', async () => {
     const run = async (/** @type {any} */ q) => [{ n: queryName(q.query) }];
-    const ok = await runSeccion(run, { a: { query: '-- dashboard:a', params: {} } });
+    const ok = await runSeccion(run, {
+      a: { query: '-- dashboard:a', params: {} },
+    });
     expect(ok).toEqual({ ok: true, rows: { a: [{ n: 'a' }] } });
     const bad = await runSeccion(
       async () => {
@@ -680,7 +791,12 @@ describe('dashboard-ventas-core: sección campañas', () => {
     const deps = makeDeps({
       campanias: [
         fila({}),
-        fila({ campaign_id: 'c2', target_type: 'money', target_amount: 3000, realizado_ars: 1000 }),
+        fila({
+          campaign_id: 'c2',
+          target_type: 'money',
+          target_amount: 3000,
+          realizado_ars: 1000,
+        }),
       ],
     });
     const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
@@ -740,7 +856,10 @@ describe('dashboard-ventas-core: sección campañas', () => {
 
   it('rol vendedor: la query recibe solo su vendor', async () => {
     const deps = makeDeps({}, { role: 'vendedor', vendor: 'PACHI' });
-    await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['GONZALO DE LA ROSA'] } });
+    await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { vendedores: ['GONZALO DE LA ROSA'] },
+    });
     const g = deps.calls.filter((q) => queryName(q.query) === 'campanias');
     expect(g.length).toBe(1);
     expect(g[0].params.vendedores).toEqual(['PACHI']);
