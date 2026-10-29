@@ -3711,6 +3711,48 @@ Audit `scripts/audit/A_pachi_zona_z4_master_desalineado.cjs` detectó **63 clien
 
 **Rollback de backfills**: el script B escribe `_backfill.<slug>.previousValues` en cada doc modificado (CLAUDE.md §55). Para revertir: iterar los docs con ese slug + restaurar los `previousValues` + borrar el slug. Siempre reversible mientras no se corra un segundo backfill con el mismo slug.
 
+
+## 103. Popup "Stock del SKU" muestra TODO lo que resta hasta Libre + fórmula explícita (2026-10-29, v1520)
+
+**Regla fuerte**: el popup del Master de Productos (`queryStockLive` en `index.html`) muestra, línea por línea, todas las fuentes que RESTAN del físico hasta llegar a Libre, y cierra con una fórmula explícita del tipo `Cuenta: F físico − A asignados − C confirmados sin facturar = L`. **Prohibido** restar algo que no esté visible en la lista.
+
+**Reemplaza** §40.11 (v1403) que había simplificado a 5 líneas y escondió "Confirmadas sin facturar". El error: `libre = fisico − min(asig + conf, fisico)` (§40.2 cap por físico), entonces cuando `conf > 0` la cuenta no cerraba a ojo. Precedente de bug reportado por Mariano 29/10 09:04 — TRX301B físico 16, asig 7, confirmed 7 (ORDEN 419 IUALE 1u + ORDEN 615 PESCAR.INFO 6u), libre 2. El popup mostraba sólo asig y Libre: "16 menos 7 son 9, no 2; faltan 7 unidades sin explicar". Las 7u escondidas eran los confirmed sin SAP, verificado con `scripts/audit/O_breakdown_trx301b.cjs`.
+
+**Fuente única de verdad** (§39):
+
+```js
+// src/pure/popup-stock-sku-lineas.js
+buildPopupStockSkuLineas(breakdown)       -> {lineas: StockLineaPopup[], formula: string}
+renderPopupStockSkuPlainText(breakdown)   -> string  (serialización para alert())
+```
+
+Expuestos en `window.__phase0.pure.{buildPopupStockSkuLineas, renderPopupStockSkuPlainText}`. El inline en `index.html:queryStockLive` llama a `renderPopupStockSkuPlainText(breakdown)`; mantiene un fallback inline por si el bundle no cargó (SW stale pre-v1520).
+
+**Orden fijo de líneas**:
+1. Stock físico (dep 11)
+2. En tránsito (dep 12) — informativo, no entra en la cuenta
+3. En back order — informativo si `backorderApp.total > 0` (no reserva, §40)
+4. Pedidos asignados — reserva, resta del físico
+5. Pedidos confirmados sin facturar — reserva, resta del físico
+6. Libre para la venta
+7. `Cuenta: F físico − A asignados − C confirmados sin facturar = L`
+
+**Lenguaje simple** (§68): "Pedidos asignados" y "Pedidos confirmados sin facturar" en vez de "Stock asignado" + "Confirmadas sin facturar". El nota `(reservan stock)` entre paréntesis deja claro para el vendedor por qué restan.
+
+**BO = 0**: la línea "En back order" NO aparece (ruido evitado). **Conf = 0**: la línea SIGUE apareciendo con 0 unidades (la fórmula es siempre la misma forma; no obliga a Mariano a adivinar si se omitió un renglón).
+
+**Doble conteo ASIG→confirmed**: NO existe en los datos de prod verificados (0u detectadas en TRX301B). El bloque §33/§35 (identidad por `origen` + `asigRefs`) cancela la ASIG original al transferir a confirmed. Si en el futuro un script detectara una línea ASIG viva (`qtyOpen > 0`) con `asigRefs` apuntándola desde una confirmed también viva, el fix es en la cancelación (no en el popup).
+
+**Tests obligatorios** (`tests/unit/audit/popup-stock-sku-formula-cierra.test.js`):
+- Fixture real TRX301B (29/10): la fórmula cierra `16 − 7 − 7 = 2`.
+- Regresión §40.11: la línea "Pedidos confirmados sin facturar" existe cuando `conf > 0`.
+- BO > 0: aparece como línea con `entraEnCuenta=false`; la fórmula no la suma.
+- BO = 0: no aparece.
+- Conf = 0: aparece con 0u.
+- `renderPopupStockSkuPlainText` incluye la fórmula exacta en el texto.
+
+**Precedente**: `fix/popup-stock-sku-formula-cierra` 2026-10-29 (v1520). Reporte Mariano 29/10 09:04 con captura TRX301B. Audit `scripts/audit/O_breakdown_trx301b.cjs` + 6 tests.
+
 ## 104. Ninguna línea queda `state='ASIG'` con `qtyOpen<=0` (2026-10-29)
 
 **Regla fuerte**: toda escritura que modifique líneas ASIG (reparto, reconcile, CPST, scripts) valida con `findZombieAsigLines` (`functions/core/asig-invariant.js`) antes de escribir. Si una ASIG se queda sin unidades, pasa a otro estado (`BO` si vuelve a la cola, `cancelled` si se libera); nunca queda ASIG en 0.
