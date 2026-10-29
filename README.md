@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix functions 2 (2026-10-29) — VDI sin campo `vendor` en `roles` (ORDEN 653 BENGOCHEA)
+
+**Antes**: después del hotfix anterior el servidor ya buscaba en los 4 roles, pero solo aceptaba usuarios con `roles.vendor` cargado.
+
+**Problema**: los VDI (rol interno) no tienen `vendor`: la pantalla (`loadVdiPartnerUsers`) deduce su vendorKey del displayName ("Ioannis" → IOANNIS PALKOUDAKIS). El servidor descartaba a Ioannis y la ORDEN 653 de BENGOCHEA seguía dando VENDOR_UID_MISSING, también desde el usuario de Ioannis.
+
+**Cambio**: `vendorKeyFromRoleDoc(role, data)` en `functions/core/resolve-client-vendor-core.js`, misma regla que la pantalla: `vendor` si existe; si es interno sin `vendor`, el VDI histórico (IOANNIS PALKOUDAKIS / SANTIAGO ESTEBAN) cuyo primer nombre aparece en displayName o email.
+
+**Verificación**: `tests/functions/resolve-vendor-uid-roles.test.js` (5, incluye el caso sin `vendor` y el caso de un interno desconocido que no se asigna); 23 tests del gate verdes; unit 2512; lint + typecheck OK.
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF --project app-vendedores-shimano`.
+
+**Rollback**: revert + redeploy de `commitPedidoCF`.
+
 ### Hotfix functions (2026-10-29) — VENDOR_UID_MISSING en clientes de VDI o gerente
 
 **Antes**: `resolveClientVendorServerSide` (`functions/core/resolve-client-vendor-core.js`), que `commitPedidoCF` usa antes del gate `VENDOR_UID_MISSING` (§89), buscaba el usuario del vendedor solo entre `roles` con `role='vendedor'`.

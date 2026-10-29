@@ -92,4 +92,34 @@ describe('resolveClientVendorServerSide — roles', () => {
     });
     expect(r.vendorUid).toBe('uid-pachi');
   });
+  it('VDI sin campo vendor: el nombre sale del displayName, como en la pantalla (ORDEN 653)', async () => {
+    const db = makeMockDb({
+      roles: [
+        { uid: 'uid-ioannis', role: 'interno', displayName: 'Ioannis Palkoudakis', email: 'i@x' },
+      ],
+      altas: [ALTA_IOANNIS],
+    });
+    const r = await resolveClientVendorServerSide({
+      fbDb: db,
+      cardCode: 'C20293164852',
+      clientName: 'JUAN MIGUEL BENGOCHEA',
+      vendorKeyHint: 'IOANNIS PALKOUDAKIS',
+    });
+    expect(r.vendorUid).toBe('uid-ioannis');
+    expect(r.resolved).toBe(true);
+  });
+
+  it('VDI sin vendor ni displayName conocido no se inventa un vendedor', async () => {
+    const db = makeMockDb({
+      roles: [{ uid: 'uid-otro', role: 'interno', displayName: 'Otra Persona', email: 'o@x' }],
+      altas: [ALTA_IOANNIS],
+    });
+    const r = await resolveClientVendorServerSide({
+      fbDb: db,
+      cardCode: 'C20293164852',
+      clientName: 'JUAN MIGUEL BENGOCHEA',
+      vendorKeyHint: 'IOANNIS PALKOUDAKIS',
+    });
+    expect(r.vendorUid || '').toBe('');
+  });
 });

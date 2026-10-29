@@ -317,6 +317,31 @@ export function enrichPayloadWithClientVendor(payload, resolution, cargadoPor) {
 /** Roles cuyos usuarios pueden tener cartera, en orden de precedencia (§46). */
 const ROLES_CON_CARTERA = ['vendedor', 'interno', 'gerente', 'admin'];
 
+/** VDIs con zona histórica: la pantalla deduce su vendorKey del displayName. */
+const VDI_VENDOR_KEYS = ['IOANNIS PALKOUDAKIS', 'SANTIAGO ESTEBAN'];
+
+/**
+ * vendorKey de un doc de `roles`, con la misma regla que la pantalla
+ * (`loadVdiPartnerUsers` en index.html): `vendor` si está cargado; para un
+ * VDI (rol interno) sin `vendor`, el vendor histórico cuyo primer nombre
+ * aparece en displayName/email. ORDEN 653 BENGOCHEA (29/10): el usuario de
+ * Ioannis no tiene `vendor` y el servidor lo descartaba → VENDOR_UID_MISSING.
+ *
+ * @param {string} role
+ * @param {any} data
+ * @returns {string}
+ */
+export function vendorKeyFromRoleDoc(role, data) {
+  const v = String((data && data.vendor) || '').trim();
+  if (v) return v;
+  if (role !== 'interno') return '';
+  const dn = String((data && (data.displayName || data.email)) || '').toUpperCase();
+  for (const known of VDI_VENDOR_KEYS) {
+    if (dn.includes(known.split(' ')[0])) return known;
+  }
+  return '';
+}
+
 /**
  * v1491 §89 HOTFIX (2026-10-27) — resolución SERVER-SIDE del vendedor del cliente.
  *
@@ -356,11 +381,12 @@ export async function resolveClientVendorServerSide(args) {
       const rolesSnap = await fbDb.collection('roles').where('role', '==', role).get();
       rolesSnap.forEach((/** @type {any} */ d) => {
         const data = d.data() || {};
-        if (data.vendor && !users.some((u) => u.uid === d.id)) {
+        const vendorKey = vendorKeyFromRoleDoc(role, data);
+        if (vendorKey && !users.some((u) => u.uid === d.id)) {
           users.push({
             uid: d.id,
             email: data.email || '',
-            vendorKey: String(data.vendor).trim(),
+            vendorKey,
           });
         }
       });
