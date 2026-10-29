@@ -38,6 +38,7 @@ import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
 import { autoConfirmPendingPedidos } from './core/auto-confirm-pending-core.js';
 import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.js';
 import { runDailyBackup } from './core/backup-core.js';
+import { assertCallerRole } from './core/caller-role.js';
 import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
 // E2 §stock-servidor-atomico (2026-10-23)
 import { commitPedidoCore } from './core/commit-pedido-core.js';
@@ -3431,13 +3432,49 @@ export const commitPedidoCF = onCall(
       throw new HttpsError('unauthenticated', 'login requerido');
     }
     const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    // Dominios permitidos (igual que applyRepartoManualCF).
-    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
-    if (!ALLOWED_DOMAINS.has(domain)) {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
     const db = getFirestore();
+    // §SEC-AUTH-001 + §SEC-CF-003 (PR #1 v1520, 2026-10-28) — role gate server-side.
+    // Reemplaza ALLOWED_DOMAINS: lee /roles/{auth.uid}.role y rechaza si no está
+    // en ALLOWED_ROLES (vendedor | interno | gerente | admin). Role gate es más
+    // fuerte + compatible con Gmail legítimos (pachinaba@gmail.com,
+    // erbinomariano@gmail.com) sin falso positivo por dominio.
+    let callerRole = '';
+    let roleReadError = null;
+    try {
+      const roleDoc = await db.collection('roles').doc(auth.uid).get();
+      callerRole = String((roleDoc.data() || {}).role || '')
+        .toLowerCase()
+        .trim();
+    } catch (e) {
+      // Log error real antes del rechazo (ajuste Mariano 2026-10-28).
+      roleReadError = e;
+      console.error('commitPedidoCF roles/{uid} read failed', {
+        uid: auth.uid,
+        email,
+        err: (e && e.message) || String(e),
+      });
+    }
+    const roleCheck = assertCallerRole(callerRole);
+    if (!roleCheck.ok) {
+      try {
+        await db.collection('operations_log').add({
+          type: 'commit_pedido_rejected',
+          errorCode: 'ROLE_REQUIRED',
+          userId: auth.uid,
+          userEmail: email,
+          callerRole: roleCheck.normalized || '(vacío)',
+          roleReadError: roleReadError ? String(roleReadError.message || roleReadError) : null,
+          timestamp: new Date(),
+          via: 'commitPedidoCF',
+        });
+      } catch (_logErr) {
+        /* non-fatal */
+      }
+      throw new HttpsError(
+        'permission-denied',
+        'Tu usuario no tiene rol asignado. Pedile al admin que lo configure.'
+      );
+    }
     const data = req.data || {};
     // Payload shape validado dentro del core. Inyectamos owner info del request.
     const payload = {
@@ -3537,19 +3574,44 @@ export const updatePedidoLinesCF = onCall(
       throw new HttpsError('unauthenticated', 'login requerido');
     }
     const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
-    if (!ALLOWED_DOMAINS.has(domain)) {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
     const db = getFirestore();
-    // Lee role del user para auth check.
+    // §SEC-AUTH-001 + §SEC-CF-003 (PR #1 v1520, 2026-10-28) — role gate server-side.
+    // Reemplaza ALLOWED_DOMAINS por el role gate del helper puro.
     let role = '';
+    let roleReadError = null;
     try {
       const roleDoc = await db.collection('roles').doc(auth.uid).get();
-      role = String((roleDoc.data() || {}).role || '').toLowerCase();
-    } catch (_e) {
-      /* non-fatal, VDE queda sin role */
+      role = String((roleDoc.data() || {}).role || '')
+        .toLowerCase()
+        .trim();
+    } catch (e) {
+      roleReadError = e;
+      console.error('updatePedidoLinesCF roles/{uid} read failed', {
+        uid: auth.uid,
+        email,
+        err: (e && e.message) || String(e),
+      });
+    }
+    const roleCheck = assertCallerRole(role);
+    if (!roleCheck.ok) {
+      try {
+        await db.collection('operations_log').add({
+          type: 'update_pedido_lines_rejected',
+          errorCode: 'ROLE_REQUIRED',
+          userId: auth.uid,
+          userEmail: email,
+          callerRole: roleCheck.normalized || '(vacío)',
+          roleReadError: roleReadError ? String(roleReadError.message || roleReadError) : null,
+          timestamp: new Date(),
+          via: 'updatePedidoLinesCF',
+        });
+      } catch (_logErr) {
+        /* non-fatal */
+      }
+      throw new HttpsError(
+        'permission-denied',
+        'Tu usuario no tiene rol asignado. Pedile al admin que lo configure.'
+      );
     }
     const data = req.data || {};
     try {

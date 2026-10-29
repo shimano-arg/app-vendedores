@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1519';
+const APP_VERSION = 'v1520';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -30989,6 +30989,17 @@ window.doInlineLogin = async function(){
       msg = 'No existe una cuenta con ese email. Pediselo al admin para que te dé de alta.';
     } else if (code === 'auth/operation-not-allowed') {
       msg = 'Email + contraseña no está habilitado en Firebase. Admin: habilitarlo.';
+    } else if (code === 'auth/admin-restricted-operation') {
+      // v1520 §SEC-AUTH-001 ítem 0.c PR #1: tras deshabilitar signup en Console
+      // (ítem 0.a), un intento de login de email sin cuenta recibe este código.
+      // Antes caía al escapeHtml(e.message) genérico. §68: 2 oraciones + código
+      // técnico al final en línea aparte.
+      msg = 'Pedile al admin que te dé de alta. Las cuentas nuevas se crean desde el Panel.\n\nCódigo técnico: auth/admin-restricted-operation';
+    } else if (code === 'auth/user-disabled') {
+      // v1520 §SEC-AUTH-001 ítem 2 complemento: tras disable B.1 de los 6 users
+      // sin role (precedente script C precondición 2026-10-28), futuros logins
+      // reciben este código. §68 compliance.
+      msg = 'Tu cuenta está deshabilitada. Pedile al admin que la reactive.\n\nCódigo técnico: auth/user-disabled';
     } else if (code === 'auth/too-many-requests') {
       msg = 'Demasiados intentos. Esperá unos minutos.';
     } else if (code === 'auth/network-request-failed') {
