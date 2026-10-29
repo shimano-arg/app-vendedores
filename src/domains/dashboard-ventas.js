@@ -70,11 +70,10 @@ let chartJsPromise = null;
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Escape local (mismo resultado que window.escapeHtml): el análisis de
+// seguridad del repo (CodeQL) solo reconoce un sanitizador visible acá.
 function _escHtml(s) {
   const v = s == null ? '' : s;
-  if (typeof window !== 'undefined' && typeof window.escapeHtml === 'function') {
-    return window.escapeHtml(v);
-  }
   return String(v)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -370,8 +369,6 @@ function _verMasTabla(tipo, rows) {
   let html =
     '<div class="dv-vermas"><input type="search" class="dv-ms-search" placeholder="Buscar SKU o descripción…" data-vermas-search="' +
     tipo +
-    '" value="' +
-    _escHtml(state.verMasQuery[tipo]) +
     '"><div class="dv-table-wrap"><table class="dv-table"><thead><tr><th>#</th><th>SKU</th><th>Descripción</th><th class="num">Unidades</th><th class="num">Dinero</th></tr></thead><tbody>';
   for (const { r, pos } of filtered) {
     html +=
@@ -492,6 +489,11 @@ function renderResults() {
 
   _destroyCharts();
   root.innerHTML = html;
+  // El texto del buscador de "Ver más" se pone por DOM, nunca dentro del HTML.
+  root.querySelectorAll('input[data-vermas-search]').forEach((inp) => {
+    const k = inp.getAttribute('data-vermas-search');
+    if (k) /** @type {HTMLInputElement} */ (inp).value = state.verMasQuery[k] || '';
+  });
 
   // Sin modal abierto no se dibuja (respuesta que llegó después de cerrar).
   if (_isOpen() && !state.loading && !state.error && d && !_isEmpty(d)) {
