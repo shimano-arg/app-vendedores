@@ -229,10 +229,14 @@ describe('applyRepartoManualCore — invariante en la transacción', () => {
       new URL('../../functions/core/reparto-core.js', import.meta.url),
       'utf8'
     );
-    const i = src.indexOf('// v1520 invariante ASIG qtyOpen>0');
-    expect(i).toBeGreaterThan(-1);
-    const tramo = src.slice(i, i + 1200);
-    expect(tramo).toContain('findZombieAsigLines(lines)');
-    expect(tramo.indexOf('throw')).toBeLessThan(tramo.indexOf('tx.update(pedidoRef'));
+    // v1525: el reparto es una sola transaccion; el chequeo corre en la fase
+    // de calculo y la linea con zombie no entra en `workLines` (no se escribe).
+    const fn = src.slice(src.indexOf('export async function applyRepartoManualCore'));
+    const iCheck = fn.indexOf('findZombieAsigLines(lines)');
+    const iWrite = fn.indexOf('(pedidos.get(pedidoId)).ref');
+    expect(iCheck).toBeGreaterThan(-1);
+    expect(iWrite).toBeGreaterThan(iCheck);
+    const tramo = fn.slice(iCheck, iCheck + 600);
+    expect(tramo.indexOf('continue')).toBeLessThan(tramo.indexOf('workLines.set'));
   });
 });
