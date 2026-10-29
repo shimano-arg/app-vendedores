@@ -27,16 +27,40 @@ const FILTROS_DEF = [
   { key: 'skus', label: 'SKU' },
 ];
 
+function _selVacia() {
+  return { vendedores: [], clientes: [], provincias: [], categorias: [], skus: [] };
+}
+
+// Estado del módulo. Sobrevive al logout (el chunk no se recarga), por eso
+// guarda el `uid` dueño: si al abrir el usuario es otro, se resetea todo y
+// nunca se muestran datos del usuario anterior.
 const state = {
+  uid: null,
   mes: '',
-  sel: { vendedores: [], clientes: [], provincias: [], categorias: [], skus: [] },
+  sel: _selVacia(),
   data: null,
+  opciones: null,
+  opcionesRendered: null,
   loading: false,
   error: '',
   verMas: { unidades: false, dinero: false },
   verMasQuery: { unidades: '', dinero: '' },
   reqSeq: 0,
 };
+
+function _resetState(uid) {
+  state.uid = uid;
+  state.mes = _mesActualArt();
+  state.sel = _selVacia();
+  state.data = null;
+  state.opciones = null;
+  state.opcionesRendered = null;
+  state.loading = false;
+  state.error = '';
+  state.verMas = { unidades: false, dinero: false };
+  state.verMasQuery = { unidades: '', dinero: '' };
+  state.reqSeq++;
+}
 
 /** @type {Record<string, any>} */
 const charts = {};
@@ -47,11 +71,11 @@ let chartJsPromise = null;
 // ---------------------------------------------------------------------------
 
 function _escHtml(s) {
+  const v = s == null ? '' : s;
   if (typeof window !== 'undefined' && typeof window.escapeHtml === 'function') {
-    return window.escapeHtml(s);
+    return window.escapeHtml(v);
   }
-  if (s == null) return '';
-  return String(s)
+  return String(v)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -82,6 +106,20 @@ function _myVendor() {
   } catch (_e) {
     return window.assignedVendor || '';
   }
+}
+
+function _currentUid() {
+  try {
+    const u = typeof currentUser !== 'undefined' ? currentUser : window.currentUser;
+    return (u && u.uid) || null;
+  } catch (_e) {
+    return (window.currentUser && window.currentUser.uid) || null;
+  }
+}
+
+function _isOpen() {
+  const modal = document.getElementById('dashboard-ventas-modal');
+  return !!(modal && modal.classList && modal.classList.contains('open'));
 }
 
 function _isVendedor() {
@@ -171,9 +209,9 @@ function _destroyCharts() {
 // Opciones de filtros
 // ---------------------------------------------------------------------------
 
-/** Devuelve [{value,label}] de la opción `key` de la respuesta. */
+/** Devuelve [{value,label}] de la opción `key` de la última respuesta. */
 function _opcionesDe(key) {
-  const op = (state.data && state.data.opciones) || {};
+  const op = state.opciones || {};
   const arr = Array.isArray(op[key]) ? op[key] : [];
   if (key === 'clientes') {
     return arr.map((c) => ({
@@ -190,11 +228,11 @@ function _opcionesDe(key) {
   return arr.map((v) => ({ value: String(v), label: String(v) }));
 }
 
-function _resumenSel(key) {
+function _resumenSel(key, opciones) {
   const n = state.sel[key].length;
   if (n === 0) return 'Todos';
   if (n === 1) {
-    const o = _opcionesDe(key).find((x) => x.value === state.sel[key][0]);
+    const o = opciones.find((x) => x.value === state.sel[key][0]);
     return o ? o.label : state.sel[key][0];
   }
   return n + ' seleccionados';
@@ -234,7 +272,7 @@ function _renderFiltro(def) {
     '</div><details class="dv-ms" data-ms="' +
     def.key +
     '"><summary>' +
-    _escHtml(_resumenSel(def.key)) +
+    _escHtml(_resumenSel(def.key, opciones)) +
     '</summary><div class="dv-ms-pop">' +
     '<input type="search" class="dv-ms-search" placeholder="Buscar…" data-ms-search="' +
     def.key +
@@ -248,10 +286,12 @@ function _renderFiltro(def) {
   );
 }
 
+/** Lee del DOM lo que el usuario marcó. Solo se llama al tocar "Aplicar". */
 function _readSelFromDom(root) {
-  const next = { vendedores: [], clientes: [], provincias: [], categorias: [], skus: [] };
+  const next = _selVacia();
   root.querySelectorAll('input[type="checkbox"][data-filtro]').forEach((el) => {
-    if (el.checked) next[el.getAttribute('data-filtro')].push(el.value);
+    const key = el.getAttribute('data-filtro');
+    if (el.checked && next[key]) next[key].push(el.value);
   });
   if (_isVendedor()) next.vendedores = [];
   state.sel = next;
@@ -262,6 +302,51 @@ function _readSelFromDom(root) {
 // ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
+
+/** Arma el esqueleto (filtros arriba, resultados abajo) una sola vez. */
+function _ensureSkeleton() {
+  const body = document.getElementById('dashboard-ventas-body');
+  if (!body) return null;
+  if (!document.getElementById('dv-filtros-host') || !document.getElementById('dv-results')) {
+    body.innerHTML = '<div id="dv-filtros-host"></div><div id="dv-results"></div>';
+    state.opcionesRendered = null;
+  }
+  return body;
+}
+
+/**
+ * Panel de filtros. Se re-arma solo cuando cambian las opciones (una vez por
+ * respuesta), al resetear por cambio de usuario o con "Limpiar filtros". Ni el
+ * "Cargando…" ni "Ver más" lo tocan, así no se pierden cambios sin aplicar.
+ */
+function renderFiltros(force) {
+  const host = document.getElementById('dv-filtros-host');
+  if (!host) return;
+  if (!force && state.opcionesRendered === state.opciones && host.innerHTML) return;
+  const prev = document.getElementById('dv-filtros');
+  const abierto = prev ? !!prev.open : window.innerWidth > 700;
+  let html = '<details class="dv-filtros" id="dv-filtros"' + (abierto ? ' open' : '') + '>';
+  html += '<summary>Filtros</summary><div class="dv-filtros-grid">';
+  html +=
+    '<div class="dv-filtro"><div class="dv-filtro-label">Mes</div><input type="month" id="dv-mes" class="dv-input" value="' +
+    _escHtml(state.mes) +
+    '"></div>';
+  for (const def of FILTROS_DEF) html += _renderFiltro(def);
+  html += '</div><div class="dv-filtros-actions">';
+  html +=
+    '<button type="button" class="dv-btn-secondary" data-dv-action="limpiar">Limpiar filtros</button>' +
+    '<button type="button" class="dv-btn-primary" id="dv-aplicar" data-dv-action="aplicar"' +
+    (state.loading ? ' disabled' : '') +
+    '>Aplicar</button>';
+  html += '</div></details>';
+  host.innerHTML = html;
+  state.opcionesRendered = state.opciones;
+}
+
+function _syncAplicarDisabled() {
+  const btn = document.getElementById('dv-aplicar');
+  if (btn) btn.disabled = !!state.loading;
+}
 
 function _card(titulo, valor) {
   return (
@@ -275,30 +360,33 @@ function _card(titulo, valor) {
 
 function _verMasTabla(tipo, rows) {
   const q = state.verMasQuery[tipo].toLowerCase().trim();
+  // Posición del ranking calculada una sola vez (sin indexOf por fila).
+  const ranked = rows.map((r, i) => ({ r, pos: i + 1 }));
   const filtered = q
-    ? rows.filter((r) => (String(r.sku) + ' ' + String(r.desc || '')).toLowerCase().includes(q))
-    : rows;
+    ? ranked.filter((x) =>
+        (String(x.r.sku) + ' ' + String(x.r.desc || '')).toLowerCase().includes(q)
+      )
+    : ranked;
   let html =
     '<div class="dv-vermas"><input type="search" class="dv-ms-search" placeholder="Buscar SKU o descripción…" data-vermas-search="' +
     tipo +
     '" value="' +
     _escHtml(state.verMasQuery[tipo]) +
     '"><div class="dv-table-wrap"><table class="dv-table"><thead><tr><th>#</th><th>SKU</th><th>Descripción</th><th class="num">Unidades</th><th class="num">Dinero</th></tr></thead><tbody>';
-  filtered.forEach((r) => {
-    const pos = rows.indexOf(r) + 1;
+  for (const { r, pos } of filtered) {
     html +=
       '<tr><td>' +
       pos +
       '</td><td class="mono">' +
       _escHtml(r.sku) +
       '</td><td>' +
-      _escHtml(r.desc || '') +
+      _escHtml(r.desc) +
       '</td><td class="num">' +
       _escHtml(_fmtUds(r.uds)) +
       '</td><td class="num">' +
       _escHtml(_fmtArs(r.ars)) +
       '</td></tr>';
-  });
+  }
   if (filtered.length === 0)
     html += '<tr><td colspan="5" class="dv-muted">Sin resultados.</td></tr>';
   html += '</tbody></table></div></div>';
@@ -316,6 +404,8 @@ function _topSection(tipo, titulo, rows) {
     (total > 0
       ? '<button type="button" class="dv-link" data-vermas="' +
         tipo +
+        '" aria-expanded="' +
+        (abierto ? 'true' : 'false') +
         '">' +
         (abierto ? 'Ver menos' : 'Ver más') +
         ' (' +
@@ -328,6 +418,8 @@ function _topSection(tipo, titulo, rows) {
         h +
         'px"><canvas id="dv-chart-top-' +
         tipo +
+        '" role="img" aria-label="' +
+        _escHtml(titulo) +
         '"></canvas></div>'
       : '<div class="dv-muted">Sin datos.</div>') +
     (abierto ? _verMasTabla(tipo, rows) : '') +
@@ -341,6 +433,8 @@ function _lineSection(id, titulo) {
     _escHtml(titulo) +
     '</h3></div><div class="dv-chart" style="height:240px"><canvas id="' +
     id +
+    '" role="img" aria-label="' +
+    _escHtml(titulo) +
     '"></canvas></div></section>'
   );
 }
@@ -355,33 +449,15 @@ function _isEmpty(d) {
   return !hayKpi && !hayTop && !haySerie;
 }
 
-function render() {
-  const body = document.getElementById('dashboard-ventas-body');
-  if (!body) return;
-  const root = body;
+/** Resultados (leyenda, tarjetas, rankings, gráficos). No toca los filtros. */
+function renderResults() {
+  const root = document.getElementById('dv-results');
+  if (!root) return;
   const d = state.data;
 
-  let html = '';
-  // Filtros (panel desplegable, mobile-first).
-  html +=
-    '<details class="dv-filtros" id="dv-filtros"' + (window.innerWidth > 700 ? ' open' : '') + '>';
-  html += '<summary>Filtros</summary><div class="dv-filtros-grid">';
-  html +=
-    '<div class="dv-filtro"><div class="dv-filtro-label">Mes</div><input type="month" id="dv-mes" class="dv-input" value="' +
-    _escHtml(state.mes) +
-    '"></div>';
-  for (const def of FILTROS_DEF) html += _renderFiltro(def);
-  html += '</div><div class="dv-filtros-actions">';
-  html +=
-    '<button type="button" class="dv-btn-secondary" data-dv-action="limpiar">Limpiar filtros</button>' +
-    '<button type="button" class="dv-btn-primary" data-dv-action="aplicar"' +
-    (state.loading ? ' disabled' : '') +
-    '>Aplicar</button>';
-  html += '</div></details>';
-
-  html +=
+  let html =
     '<div class="dv-leyenda">Montos sin IVA, con descuento aplicado y notas de crédito restadas.';
-  if (d && d.dataUpdatedAt) {
+  if (d && d.dataUpdatedAt && !state.loading) {
     const t = new Date(d.dataUpdatedAt);
     if (!Number.isNaN(t.getTime())) {
       html +=
@@ -417,9 +493,12 @@ function render() {
   _destroyCharts();
   root.innerHTML = html;
 
-  if (!state.loading && !state.error && d && !_isEmpty(d)) {
+  // Sin modal abierto no se dibuja (respuesta que llegó después de cerrar).
+  if (_isOpen() && !state.loading && !state.error && d && !_isEmpty(d)) {
     _loadChartJs()
-      .then(() => _drawCharts(d))
+      .then(() => {
+        if (_isOpen() && state.data === d) _drawCharts(d);
+      })
       .catch((e) => {
         console.warn('[dashboard-ventas] Chart.js no disponible:', e);
         root.querySelectorAll('.dv-chart').forEach((el) => {
@@ -428,6 +507,13 @@ function render() {
         });
       });
   }
+}
+
+function render() {
+  if (!_ensureSkeleton()) return;
+  renderFiltros(false);
+  _syncAplicarDisabled();
+  renderResults();
 }
 
 function _cssVar(name, fallback) {
@@ -606,6 +692,7 @@ async function cargar() {
     const res = await callable(_filtrosPayload());
     if (seq !== state.reqSeq) return;
     state.data = (res && res.data) || null;
+    if (state.data && state.data.opciones) state.opciones = state.data.opciones;
     state.verMas = { unidades: false, dinero: false };
   } catch (e) {
     if (seq !== state.reqSeq) return;
@@ -640,8 +727,9 @@ function _wire() {
         _readSelFromDom(body);
         cargar();
       } else if (a === 'limpiar') {
-        state.sel = { vendedores: [], clientes: [], provincias: [], categorias: [], skus: [] };
+        state.sel = _selVacia();
         state.mes = _mesActualArt();
+        renderFiltros(true);
         cargar();
       }
       return;
@@ -650,8 +738,8 @@ function _wire() {
     if (vm) {
       const tipo = vm.getAttribute('data-vermas');
       state.verMas[tipo] = !state.verMas[tipo];
-      _readSelFromDom(body);
-      render();
+      // Solo resultados: no se leen ni se pisan filtros sin aplicar.
+      renderResults();
       return;
     }
     const clr = t.closest('[data-ms-clear]');
@@ -728,17 +816,27 @@ window.openDashboardVentas = function () {
     alert('Tu usuario no tiene acceso al Dashboard de Ventas. Si lo necesitás, avisale a Mariano.');
     return;
   }
-  modal.classList.add('open');
-  _wire();
+  // Otro usuario en la misma pestaña (logout + login sin recargar): se
+  // descarta todo lo del anterior. Mismo usuario: se conserva su selección.
+  const uid = _currentUid();
+  if (uid !== state.uid) _resetState(uid);
   if (!state.mes) state.mes = _mesActualArt();
+  modal.classList.add('open');
+  _ensureSkeleton();
+  _wire();
+  renderFiltros(true);
   // Precarga Chart.js en paralelo a la consulta.
   _loadChartJs().catch(() => {});
-  if (!state.data && !state.loading) cargar();
-  else render();
+  // Siempre se pide de nuevo al abrir (el servidor cachea 10 min).
+  cargar();
 };
 
 window.closeDashboardVentas = function () {
   const modal = document.getElementById('dashboard-ventas-modal');
   if (modal) modal.classList.remove('open');
   _destroyCharts();
+  // Los datos no se guardan entre aperturas; se vuelven a pedir al abrir.
+  state.data = null;
+  state.loading = false;
+  state.reqSeq++;
 };
