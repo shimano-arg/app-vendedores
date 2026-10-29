@@ -6848,7 +6848,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              y "Generar Backorder" (#wcard-bo-btn) por pedido Mariano. "Pasar a Pendientes"
              cubre el flow habitual y las exportaciones Excel se hacen desde el modal
              Backorder/Stock Asignado. Flujo mas simple en este modal. -->
-        <button class="stock-action-btn publish" id="wcard-archivo-cliente-btn" onclick="waitlistExportArchivoCliente()" style="background:#0369a1;color:#fff" title="Excel para mandar al cliente: columna 'Pedido' = min(cantidad pedida, disponible SAP) — refleja lo que le vamos a entregar. Filas sin dispSap se omiten.">Exportar pedido para enviar al cliente</button>
+        <button class="stock-action-btn publish" id="wcard-export-pedido-btn" onclick="waitlistExportPedido()" style="background:#0369a1;color:#fff" title="Descargar en Excel: Pedido Stock Asignado, Pedido Original (lo que no es Stock Asignado) o Pedido Completo">Exportar pedido</button>
         <button class="stock-action-btn cancel" id="wcard-delete-btn" onclick="waitlistDeleteCurrent()" style="background:var(--color-danger);color:#fff;display:none">Borrar de espera</button>
         <button class="stock-action-btn publish" id="wcard-pass-btn" onclick="waitlistPasarAPendientes()" style="background:#1e40af;color:#fff">Pasar a Pendientes</button>
         <!-- v1162 (2026-10-06): boton "🔓 Enviar de todos modos" (bypass del gate ASIG)
@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1525';
+const APP_VERSION = 'v1526';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26727,156 +26727,155 @@ window.waitlistExportTodo = async function(){
   }
 };
 
-// v547 (2026-08-19) + v565 (2026-08-20): "Archivo cliente" — variante de
-// waitlistExportTodo pensada para mandar al cliente. Diferencias vs
-// "Exportar todo":
-// Hoja 1 (PEDIDO ACTUAL): columna "Pedido" = min(it.qty, dispSap).
-// v547 exportaba it.qty entero sin cap; v565 cambia politica y capea
-// por dispSap porque el archivo es "lo que le vamos a entregar", y si
-// el cliente pide 12 pero solo hay 8 disponibles SAP debe ver 8. Si
-// dispSap == 0 la fila se omite (nada para entregar). Subtotal =
-// qtyExport * precio.
-// Hoja 2 (CONFIRMACION BACKORDER): columna "Pedido" (= qty pendiente
-// SQ open del cliente, mismo que Exportar todo). Se filtra a
-// productos con stock disp dep 11 para no listar lineas
-// inentregables.
-// Filename: ArchivoCliente_<cliente>_ordenN.xlsx.
-window.waitlistExportArchivoCliente = async function(){
+// v1526 (2026-10-29): "Exportar pedido" con 3 variantes. Reemplaza
+// "Exportar pedido para enviar al cliente" (v547/v565), que capeaba cada fila
+// por el stock libre GENERAL (resta tambien la reserva del propio cliente) y
+// omitia las lineas STOCK ASIGNADO. Caso REBORN ORDEN 632: modal $7.021.000,
+// Excel $2.453.000. Ahora las 3 variantes usan cantidad pedida x precio del
+// modal y particionan la orden: Stock Asignado + Original = Completo.
+// Filas: src/pure/waitlist-export-rows.js.
+const _WL_EXPORT_MODES = [
+  { mode: 'asignado', label: 'Pedido Stock Asignado', detalle: 'Solo los productos con STOCK ASIGNADO.' },
+  { mode: 'original', label: 'Pedido Original', detalle: 'Todos los productos que NO son Stock Asignado.' },
+  { mode: 'completo', label: 'Pedido Completo', detalle: 'Todos los productos de la orden.' },
+];
+
+function _wlExportRows(w, mode) {
+  const getPrice = (code) => (typeof getDefaultPrice === 'function' ? getDefaultPrice(code) || 0 : 0);
+  const pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.buildWaitlistExportRows;
+  if (typeof pure === 'function') return pure(w.items || [], mode, getPrice);
+  // Fallback inline (bundle viejo cacheado por el SW): misma logica que el pure.
+  const rows = [];
+  let total = 0;
+  let unidades = 0;
+  for (const it of w.items || []) {
+    if (!it || !it.code) continue;
+    const qty = Number(it.qty) || 0;
+    if (qty <= 0) continue;
+    const asig = it.origen === 'stock-asignado';
+    if (mode === 'asignado' && !asig) continue;
+    if (mode === 'original' && asig) continue;
+    const precio = Number(getPrice(it.code)) || 0;
+    total += qty * precio;
+    unidades += qty;
+    rows.push({ code: String(it.code), desc: String(it.desc || ''), qty, precio, subtotal: qty * precio, stockAsignado: asig });
+  }
+  return { rows, total, unidades };
+}
+
+window.waitlistExportPedido = function () {
   const w = _wcardCurrent;
   if (!w) { alert('No hay pedido en espera abierto.'); return; }
-  // v679 PERF Fase 3: ExcelJS lazy on-demand
-  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo cargar ExcelJS: ' + e.message); return; }
-  const btn = document.getElementById('wcard-archivo-cliente-btn');
+  const prev = document.getElementById('wl-export-chooser');
+  if (prev) prev.remove();
+  const fmt = (n) => '$' + Math.round(n || 0).toLocaleString('es-AR');
+  const ov = document.createElement('div');
+  ov.id = 'wl-export-chooser';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#fff;color:#0f172a;border-radius:14px;max-width:440px;width:100%;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.3);font-family:inherit';
+  const h = document.createElement('div');
+  h.style.cssText = 'font-weight:800;font-size:15px;margin-bottom:4px';
+  h.textContent = '¿Qué pedido querés descargar?';
+  const sub = document.createElement('div');
+  sub.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:12px';
+  sub.textContent = 'ORDEN ' + (w.orderNumber || '-') + ' · ' + (w.clientName || 'Cliente');
+  box.appendChild(h);
+  box.appendChild(sub);
+  for (const opt of _WL_EXPORT_MODES) {
+    const r = _wlExportRows(w, opt.mode);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.mode = opt.mode;
+    b.disabled = r.rows.length === 0;
+    b.style.cssText = 'display:block;width:100%;text-align:left;margin:0 0 8px;padding:10px 12px;border-radius:10px;border:1.5px solid #0369a1;background:' + (b.disabled ? '#f1f5f9' : '#f0f9ff') + ';color:#0f172a;cursor:' + (b.disabled ? 'not-allowed' : 'pointer') + ';opacity:' + (b.disabled ? '.55' : '1') + ';font-family:inherit';
+    const t = document.createElement('div');
+    t.style.cssText = 'font-weight:800;font-size:13.5px';
+    t.textContent = opt.label;
+    const d = document.createElement('div');
+    d.style.cssText = 'font-size:11.5px;color:#475569;margin-top:2px';
+    d.textContent = opt.detalle;
+    const n = document.createElement('div');
+    n.style.cssText = 'font-size:12.5px;font-weight:700;margin-top:4px;color:#0369a1';
+    n.textContent = r.rows.length === 0
+      ? 'No hay productos para esta opción'
+      : r.rows.length + ' prod · ' + r.unidades + ' u · ' + fmt(r.total);
+    b.appendChild(t);
+    b.appendChild(d);
+    b.appendChild(n);
+    b.onclick = () => { ov.remove(); window.waitlistExportPedidoDescargar(opt.mode); };
+    box.appendChild(b);
+  }
+  const c = document.createElement('button');
+  c.type = 'button';
+  c.textContent = 'Cancelar';
+  c.className = 'stock-action-btn cancel';
+  c.style.cssText = 'margin-top:4px;width:100%';
+  c.onclick = () => ov.remove();
+  box.appendChild(c);
+  ov.appendChild(box);
+  ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+};
+
+window.waitlistExportPedidoDescargar = async function (mode) {
+  const w = _wcardCurrent;
+  if (!w) { alert('No hay pedido en espera abierto.'); return; }
+  const opt = _WL_EXPORT_MODES.find((o) => o.mode === mode) || _WL_EXPORT_MODES[2];
+  try { await window.loadExcelJS(); } catch (e) { alert('No se pudo preparar el Excel. Volvé a intentar en un minuto.'); return; }
+  const btn = document.getElementById('wcard-export-pedido-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
   try {
+    const { rows, total } = _wlExportRows(w, opt.mode);
+    const conTipo = opt.mode === 'completo';
     const wb = new ExcelJS.Workbook();
     const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF074F69' } };
     const HEADER_FONT = { color: { argb: 'FFFFFFFF' }, bold: true };
     const TOTAL_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF166534' } };
     const TOTAL_FONT = { color: { argb: 'FFFFFFFF' }, bold: true, size: 14 };
     const CENTER = { vertical: 'middle', horizontal: 'center' };
-    // v579 (2026-08-21): usar `_revisionStockFor(sku).disponible` que resta
-    // el backorder SAP (Ofertas open del sistema). Antes usaba
-    // getStockDisponibleVenta que solo devolvia stock fisico dep 11 sin
-    // restar reservas SAP. Ejemplo: stock=10, backorderSAP=8 -> disponible=2.
-    // Si el cliente pide 5, el Excel exporta min(5, 2) = 2. Coincide con la
-    // columna "Disponible SAP" (amarilla) del modal Pedido en Espera.
-    // Nota: Espera app (informativa) NO resta stock — no genera reserva SAP.
-    const stockDisp11 = (sku) => {
-      if (typeof _revisionStockFor === 'function') {
-        const stk = _revisionStockFor(sku);
-        return stk && stk.hasData ? Number(stk.disponible || 0) : 0;
-      }
-      // Fallback: si _revisionStockFor no esta disponible, usar stock fisico crudo.
-      const whs = (typeof STOCK_WAREHOUSE_BREAKDOWN === 'object' && STOCK_WAREHOUSE_BREAKDOWN)
-        ? STOCK_WAREHOUSE_BREAKDOWN[String(sku||'').toUpperCase().trim()] : null;
-      return whs ? Number(whs['11'] || 0) : 0;
-    };
-    // ============================================================
-    // Hoja 1: PEDIDO ACTUAL (columna "Pedido" = min(it.qty, dispSap)).
-    // v565: capa por dispSap porque el archivo cliente representa lo que
-    // le vamos a entregar. Ej: cliente pide 12 pero hay 8 dispSap ->
-    // exporta 8. Si dispSap == 0, la fila se omite (no hay que ofrecer
-    // algo inentregable). Subtotal = qtyExport * precio.
-    // ============================================================
-    const ws1 = wb.addWorksheet('PEDIDO ACTUAL');
-    const rows1 = [];
-    let total1 = 0;
-    (w.items || []).forEach(it => {
-      const qtyPedida = it.qty || 0;
-      const disp = stockDisp11(it.code);
-      const qtyExport = Math.max(0, Math.min(qtyPedida, disp || 0));
-      if (qtyExport <= 0) return; // sin stock disponible SAP -> no incluir
-      const precio = (typeof getDefaultPrice === 'function') ? (getDefaultPrice(it.code) || 0) : 0;
-      const subtotal = qtyExport * precio;
-      total1 += subtotal;
-      rows1.push([it.code || '', it.desc || '', qtyExport, precio || 0, subtotal || 0]);
-    });
-    ws1.columns = [
-      { width: 16 }, { width: 55 }, { width: 18 }, { width: 14 }, { width: 18 },
-    ];
-    ws1.mergeCells('A1:D1');
-    ws1.getCell('A1').value = 'TOTAL DEL PEDIDO';
-    ws1.getCell('A1').fill = TOTAL_FILL;
-    ws1.getCell('A1').font = TOTAL_FONT;
-    ws1.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
-    ws1.getCell('E1').value = total1 || 0;
-    ws1.getCell('E1').fill = TOTAL_FILL;
-    ws1.getCell('E1').font = TOTAL_FONT;
-    ws1.getCell('E1').alignment = CENTER;
-    ws1.getCell('E1').numFmt = '"$"#,##0';
-    ws1.getRow(1).height = 24;
-    const HEAD1 = ['SKU', 'Producto', 'Pedido', 'Precio', 'Subtotal'];
-    HEAD1.forEach((h, i) => { const c = ws1.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
-    rows1.forEach((r, idx) => {
-      const row = ws1.getRow(idx + 3);
-      r.forEach((v, ci) => row.getCell(ci + 1).value = v);
-      for (let c = 1; c <= 5; c++) row.getCell(c).alignment = CENTER;
+    const ws = wb.addWorksheet(opt.label.toUpperCase().slice(0, 31));
+    const HEAD = ['SKU', 'Producto', 'Unidades', 'Precio', 'Subtotal'];
+    if (conTipo) HEAD.push('Stock asignado');
+    ws.columns = HEAD.map((_h, i) => ({ width: [16, 55, 14, 14, 18, 16][i] }));
+    const nCols = HEAD.length;
+    const totalCol = 5;
+    ws.mergeCells(1, 1, 1, totalCol - 1);
+    ws.getCell(1, 1).value = 'TOTAL DEL PEDIDO';
+    ws.getCell(1, 1).alignment = { vertical: 'middle', horizontal: 'right' };
+    ws.getCell(1, totalCol).value = total || 0;
+    ws.getCell(1, totalCol).numFmt = '"$"#,##0';
+    ws.getCell(1, totalCol).alignment = CENTER;
+    for (let ci = 1; ci <= nCols; ci++) {
+      ws.getCell(1, ci).fill = TOTAL_FILL;
+      ws.getCell(1, ci).font = TOTAL_FONT;
+    }
+    ws.getRow(1).height = 24;
+    HEAD.forEach((hd, i) => { const c = ws.getCell(2, i + 1); c.value = hd; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
+    rows.forEach((r, idx) => {
+      const row = ws.getRow(idx + 3);
+      const vals = [r.code, r.desc, r.qty, r.precio, r.subtotal];
+      if (conTipo) vals.push(r.stockAsignado ? 'SI' : '');
+      vals.forEach((v, ci) => { row.getCell(ci + 1).value = v; row.getCell(ci + 1).alignment = CENTER; });
       row.getCell(4).numFmt = '"$"#,##0';
       row.getCell(5).numFmt = '"$"#,##0';
     });
-    // ============================================================
-    // Hoja 2: CONFIRMACION BACKORDER (columna "Pedido" = qty pendiente
-    // en la SQ open del cliente, mismo que "Exportar todo"). Se sigue
-    // filtrando por productos con stock disponible en dep 11 para no
-    // mandar al cliente lineas que no puede recibir.
-    // ============================================================
-    const ws2 = wb.addWorksheet('CONFIRMACION BACKORDER');
-    const rows2 = [];
-    let total2 = 0;
-    if (typeof backorderLines !== 'undefined' && backorderLines && w.clientCardCode) {
-      const target = String(w.clientCardCode).trim();
-      backorderLines.forEach(ln => {
-        if (String(ln.clienteCode || '').trim() !== target) return;
-        const pend = parseFloat(ln.pendiente) || 0;
-        if (pend <= 0) return;
-        const disp = stockDisp11(ln.sku);
-        if (disp <= 0) return;
-        const precio = parseFloat(ln.precioUnitario) || 0;
-        const subtotal = pend * precio;
-        total2 += subtotal;
-        rows2.push([ln.sku || '', ln.producto || '', 'DISPONIBLE', pend, precio || 0, subtotal || 0]);
-      });
-    }
-    ws2.columns = [
-      { width: 16 }, { width: 55 }, { width: 16 }, { width: 18 }, { width: 14 }, { width: 18 },
-    ];
-    ws2.mergeCells('A1:E1');
-    ws2.getCell('A1').value = 'TOTAL DEL PEDIDO';
-    ws2.getCell('A1').fill = TOTAL_FILL;
-    ws2.getCell('A1').font = TOTAL_FONT;
-    ws2.getCell('A1').alignment = { vertical: 'middle', horizontal: 'right' };
-    ws2.getCell('F1').value = total2 || 0;
-    ws2.getCell('F1').fill = TOTAL_FILL;
-    ws2.getCell('F1').font = TOTAL_FONT;
-    ws2.getCell('F1').alignment = CENTER;
-    ws2.getCell('F1').numFmt = '"$"#,##0';
-    ws2.getRow(1).height = 24;
-    const HEAD2 = ['SKU', 'Producto', 'Stock disponible', 'Pedido', 'Precio', 'Subtotal'];
-    HEAD2.forEach((h, i) => { const c = ws2.getCell(2, i + 1); c.value = h; c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = CENTER; });
-    rows2.forEach((r, idx) => {
-      const row = ws2.getRow(idx + 3);
-      r.forEach((v, ci) => row.getCell(ci + 1).value = v);
-      for (let c = 1; c <= 6; c++) row.getCell(c).alignment = CENTER;
-      row.getCell(5).numFmt = '"$"#,##0';
-      row.getCell(6).numFmt = '"$"#,##0';
-    });
-    // ------ Descarga ------
     const out = await wb.xlsx.writeBuffer();
     const cliSlug = (w.clientName || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40);
     const orden = w.orderNumber ? ('_orden' + w.orderNumber) : '';
-    const filename = 'ArchivoCliente_' + cliSlug + orden + '.xlsx';
+    const sufijo = { asignado: 'StockAsignado', original: 'Original', completo: 'Completo' }[opt.mode];
+    const filename = 'Pedido' + sufijo + '_' + cliSlug + orden + '.xlsx';
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename; document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
-    if (typeof showSyncTag === 'function') showSyncTag('Archivo cliente exportado');
-  } catch(e) {
-    console.error('waitlistExportArchivoCliente', e);
-    alert('Error generando el Excel: ' + (e.message || e));
+    if (typeof showSyncTag === 'function') showSyncTag(opt.label + ' exportado');
+  } catch (e) {
+    console.error('waitlistExportPedidoDescargar', e);
+    alert('No pudimos generar el Excel. Volvé a intentar; si sigue pasando, avisale a Mariano.');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Archivo cliente'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Exportar pedido'; }
   }
 };
 

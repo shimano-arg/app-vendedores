@@ -4717,6 +4717,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1526 (2026-10-29) — "Exportar pedido" con 3 opciones (Stock Asignado / Original / Completo)
+
+**Antes**: el botón "Exportar pedido para enviar al cliente" (`waitlistExportArchivoCliente`) bajaba cada producto con `min(cantidad pedida, stock libre general)` y omitía los que daban 0. Agregaba una 2da hoja con back orders SAP del cliente.
+
+**Problema**: el stock libre general resta también la reserva del propio cliente, entonces las líneas STOCK ASIGNADO daban 0 y desaparecían del Excel. REBORN SRL ORDEN 632: modal $7.021.000 (23 prod · 50 u) vs Excel $2.453.000 (13 prod).
+
+**Cambio**:
+- `src/pure/waitlist-export-rows.js` → `buildWaitlistExportRows(items, mode, getPrice)`. Modos: `asignado` (líneas con `origen='stock-asignado'`), `original` (todas las que NO son STOCK ASIGNADO), `completo` (todas). Cantidad = la pedida, precio = `getDefaultPrice` (el mismo del modal). Asignado + Original = Completo.
+- `index.html`: botón único "Exportar pedido" (`waitlistExportPedido`) abre un selector que muestra prod · u · $ de cada opción antes de descargar. El Completo agrega columna "Stock asignado" (SI/vacío). Se eliminó el export viejo y su 2da hoja de back orders SAP.
+
+**Por qué**: el total del Excel tiene que coincidir con el que ve el vendedor en el modal.
+
+**Verificación**: `tests/unit/audit/waitlist-export-pedido-v1526.test.js` (9); unit 2502 / smoke 25; typecheck + biome OK. Manual: REBORN ORDEN 632 → Pedido Completo = $7.021.000.
+
+**Rollback**: revert del commit (solo front, sin deploy de functions).
+
 ### v1525 (2026-10-29) — Reparto en una sola transacción (rápido, sin SKU trabados) + clientes al día
 
 **Antes**: `applyRepartoManualCore` marcaba el ingreso `in_progress` y aplicaba cada cliente en una transacción aparte, en serie (cada una releyendo el `stock_snapshot` entero). El modal mostraba los clientes del snapshot guardado cuando entró el stock.

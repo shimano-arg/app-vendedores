@@ -259,6 +259,8 @@ import {
   buildOrigenesBySkuFromWaitlist,
   enrichItemWithCpstOrigen,
 } from './pure/waitlist-cpst-origen.js';
+// v1526: filas del Excel "Exportar pedido" (Stock Asignado / Original / Completo).
+import { buildWaitlistExportRows, isStockAsignadoItem } from './pure/waitlist-export-rows.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import {
@@ -674,6 +676,8 @@ const phase0 = {
     STOCK_LABELS,
     buildPopupStockSkuLineas,
     renderPopupStockSkuPlainText,
+    buildWaitlistExportRows,
+    isStockAsignadoItem,
     lineReservesStock,
     computeVirtualAsigFifo,
     computeBackorderSkuMap,
