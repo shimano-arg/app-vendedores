@@ -78,7 +78,12 @@ export function buildWaitlistExportRows(items, mode, getPrice, getQtyConStock) {
         ? qty
         : Math.min(qty, Math.max(0, Math.floor(Number(raw))));
     const sinStock = qty - conStock;
-    const base = { code: String(it.code), desc: String(it.desc || ''), precio, stockAsignado: asig };
+    const base = {
+      code: String(it.code),
+      desc: String(it.desc || ''),
+      precio,
+      stockAsignado: asig,
+    };
     productos++;
     if (conStock > 0) {
       total += conStock * precio;

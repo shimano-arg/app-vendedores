@@ -121,7 +121,12 @@ describe('v1530: lo que no tiene stock va en rojo y no suma', () => {
       { code: 'X', qty: 8 },
       { code: 'Y', qty: 2 },
     ];
-    const r = buildWaitlistExportRows(items, 'completo', () => 100000, (i) => [8, 0][i]);
+    const r = buildWaitlistExportRows(
+      items,
+      'completo',
+      () => 100000,
+      (i) => [8, 0][i]
+    );
     expect(r.total).toBe(800000);
     expect(r.totalSinStock).toBe(200000);
   });
