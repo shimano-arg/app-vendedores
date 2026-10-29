@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1523 (2026-10-29) — Precios al instante al refrescar + fecha de stock del Master de Productos al día
+
+**Antes**: al refrescar la app, el Master de Productos mostraba "Cargando precios…" mucho tiempo, y la fecha de stock quedaba en la del archivo `stock.json` (ej. 28/10 08:33 un 29/10).
+
+**Problema**: la lista de precios es un único doc (`app_config/price_list`) que se pide recién después de auth + rol, en paralelo con ~28 listeners; tras un cambio de versión §100 borra el cache local y baja todo de cero. La fecha de stock solo se pintaba al abrir el modal; si el snapshot de Firestore llegaba después, la lista se repintaba pero la fecha no.
+
+**Cambio**: (1) cache local `shimano_price_cache_v1` en localStorage con la última lista de precios (SAP + temporales): se hidrata al cargar y el listener la reemplaza al llegar. Se borra al cerrar sesión y con "Recargar limpio". (2) `_renderPmMasterStockUpdatedAt()` se llama al abrir el modal y cada vez que llega el snapshot de stock.
+
+**Por qué**: los precios cambian poco; unos segundos con la lista anterior no es riesgo y evita la espera. Las reglas de stock (§99/§100) no se tocan.
+
+**Verificación**: `tests/unit/audit/precios-cache-local-v1523.test.js` (7) + unit 2484 / smoke 25.
+
+**Rollback**: revert del commit; la clave queda huérfana en localStorage sin efecto.
+
 ### v1522 (2026-10-29) — Crear Pedido Desde Stock Asignado: se quita la reversión a back order del navegador (no hacía nada)
 
 **Antes**: al confirmar CPST, `_cpstConfirmar` armaba un plan `computeCpstRevertPlan` para devolver a back order las unidades sin stock, y el mensaje decía "N unidades vuelven a back order".

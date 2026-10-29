@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1522';
+const APP_VERSION = 'v1523';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -31181,6 +31181,8 @@ window.sendEmailSignInLink = async function(){
 
 window.signOut = function(){
   if (!confirm('Cerrar sesion? Tus datos quedan guardados en la nube.')) return;
+  // v1523: no dejar la lista de precios en el equipo al cerrar sesion.
+  try { localStorage.removeItem('shimano_price_cache_v1'); } catch(_e) {}
   fbAuth.signOut();
 };
 
@@ -32856,6 +32858,21 @@ window.ensureCfHealthListener = function(){
 // precio, stock, familia. Con boton para consultar stock real-time
 // contra SAP via SL.
 
+// v1523: fecha del stock del Master de Productos. Se llama al abrir y cada vez
+// que llega el snapshot de Firestore (antes quedaba la fecha de stock.json).
+function _renderPmMasterStockUpdatedAt(){
+  const stockAtEl = document.getElementById('pm-master-stock-updated-at');
+  if (!stockAtEl) return;
+  if (STOCK_UPDATED_AT) {
+    const withSt = Object.values(STOCK_MAP).filter(v => v).length;
+    const total = Object.keys(STOCK_MAP).length;
+    const dt = new Date(STOCK_UPDATED_AT).toLocaleString('es-AR');
+    stockAtEl.innerHTML = dt + ' &middot; ' + total.toLocaleString('es-AR') + ' SKUs (' + withSt.toLocaleString('es-AR') + ' con stock)';
+  } else {
+    stockAtEl.textContent = 'Sin datos - toca sincronizar para traer stock desde SAP.';
+  }
+}
+
 window.openProductMasterModal = function(){
   document.getElementById('product-master-modal').classList.add('open');
   // Poblar dropdown de familia con las que existen en PRODUCTS.
@@ -32878,17 +32895,7 @@ window.openProductMasterModal = function(){
   const subt = document.getElementById('pm-master-subt');
   if (subt) subt.textContent = 'Buscador del catalogo SAP: ' + (PRODUCTS ? PRODUCTS.length.toLocaleString('es-AR') : 0) + ' SKUs sincronizados.';
   // Fecha del stock actual
-  const stockAtEl = document.getElementById('pm-master-stock-updated-at');
-  if (stockAtEl) {
-    if (STOCK_UPDATED_AT) {
-      const withSt = Object.values(STOCK_MAP).filter(v => v).length;
-      const total = Object.keys(STOCK_MAP).length;
-      const dt = new Date(STOCK_UPDATED_AT).toLocaleString('es-AR');
-      stockAtEl.innerHTML = dt + ' &middot; ' + total.toLocaleString('es-AR') + ' SKUs (' + withSt.toLocaleString('es-AR') + ' con stock)';
-    } else {
-      stockAtEl.textContent = 'Sin datos - toca sincronizar para traer stock desde SAP.';
-    }
-  }
+  _renderPmMasterStockUpdatedAt();
   // Solo admin ve el boton de sync
   const syncBtn = document.getElementById('pm-master-sync-stock-btn');
   if (syncBtn) syncBtn.style.display = (userRole === 'admin') ? '' : 'none';
@@ -33498,6 +33505,14 @@ function _applyStockSnapshotDoc(d, source) {
   const total = Object.keys(STOCK_MAP).length;
   const ws = Object.values(STOCK_MAP).filter(v => v).length;
   console.log('[stock] desde Firestore (' + source + '): ' + total + ' SKUs (' + ws + ' con stock). updatedAt=' + STOCK_UPDATED_AT);
+  // v1523: si el Master de Productos esta abierto, refrescar fecha + badges.
+  try {
+    const mm = document.getElementById('product-master-modal');
+    if (mm && mm.classList.contains('open')) {
+      _renderPmMasterStockUpdatedAt();
+      if (typeof renderProductMaster === 'function') renderProductMaster();
+    }
+  } catch(_ePm) {}
   if (typeof renderProductPicker === 'function' && document.getElementById('pm-products')) {
     try { renderProductPicker(); } catch(e){}
   }
@@ -33717,6 +33732,44 @@ let unsubPriceList = null;
 let TEMPORAL_PRICE_LIST_MAP = {};
 let TEMPORAL_PRICE_LIST_UPDATED_AT = null;
 let unsubTemporalPriceList = null;
+
+// v1523 (2026-10-29): cache local de la lista de precios. Post-F5 (y mas
+// despues de un cambio de version, §100) el doc app_config/price_list tarda
+// en llegar porque arranca detras de ~28 listeners; mientras tanto el Master
+// de Productos mostraba "Cargando precios..." mucho tiempo. Mostramos la
+// ultima lista guardada al instante y el listener la reemplaza al llegar.
+// Los precios cambian poco: unos segundos con la lista anterior no es riesgo.
+const PRICE_CACHE_KEY = 'shimano_price_cache_v1';
+function _savePriceCache(){
+  try {
+    localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify({
+      prices: PRICE_LIST_MAP || {},
+      currency: PRICE_LIST_CURRENCY || 'ARS',
+      updatedAt: PRICE_LIST_UPDATED_AT || null,
+      temporal: TEMPORAL_PRICE_LIST_MAP || {},
+      temporalUpdatedAt: TEMPORAL_PRICE_LIST_UPDATED_AT || null,
+    }));
+  } catch(_e) { /* storage lleno o bloqueado: seguimos sin cache */ }
+}
+function _loadPriceCache(){
+  try {
+    const raw = localStorage.getItem(PRICE_CACHE_KEY);
+    if (!raw) return;
+    const c = JSON.parse(raw);
+    if (!c || typeof c !== 'object') return;
+    // Solo hidratar si el listener todavia no trajo datos reales.
+    if (c.prices && typeof c.prices === 'object' && Object.keys(PRICE_LIST_MAP).length === 0) {
+      PRICE_LIST_MAP = c.prices;
+      PRICE_LIST_CURRENCY = c.currency || 'ARS';
+      PRICE_LIST_UPDATED_AT = c.updatedAt || null;
+    }
+    if (c.temporal && typeof c.temporal === 'object' && Object.keys(TEMPORAL_PRICE_LIST_MAP).length === 0) {
+      TEMPORAL_PRICE_LIST_MAP = c.temporal;
+      TEMPORAL_PRICE_LIST_UPDATED_AT = c.temporalUpdatedAt || null;
+    }
+  } catch(_e) { /* cache corrupto: se ignora, el listener trae la lista */ }
+}
+_loadPriceCache();
 
 // Devuelve la fuente + el precio para un SKU:
 // {source: 'sap'|'temporal'|null, price: number}
@@ -33941,6 +33994,7 @@ function ensurePriceListListener(){
     PRICE_LIST_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     const total = Object.keys(PRICE_LIST_MAP).length;
     console.log('[precios] SAP: ' + total + ' SKUs en ' + PRICE_LIST_CURRENCY + '. updatedAt=' + PRICE_LIST_UPDATED_AT);
+    _savePriceCache();
     // Si estamos viendo el modal Master de Productos, repintar para reflejar
     // cambios (ej: cuando administracion carga un precio en SAP y el sync
     // lo trae, el badge TEMPORAL debe desaparecer).
@@ -33969,12 +34023,13 @@ function ensurePriceListListener(){
 function ensureTemporalPriceListListener(){
   if (unsubTemporalPriceList || !currentUser || !fbDb) return;
   unsubTemporalPriceList = fbDb.collection('app_config').doc('price_list_temporal').onSnapshot(snap => {
-    if (!snap.exists) { TEMPORAL_PRICE_LIST_MAP = {}; return; }
+    if (!snap.exists) { TEMPORAL_PRICE_LIST_MAP = {}; _savePriceCache(); return; }
     const d = snap.data() || {};
     TEMPORAL_PRICE_LIST_MAP = d.prices || {};
     TEMPORAL_PRICE_LIST_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
     const total = Object.keys(TEMPORAL_PRICE_LIST_MAP).length;
     console.log('[precios] temporales: ' + total + ' SKUs. updatedAt=' + TEMPORAL_PRICE_LIST_UPDATED_AT);
+    _savePriceCache();
     try {
       const mm = document.getElementById('product-master-modal');
       if (mm && mm.classList.contains('open') && typeof renderProductMaster === 'function') renderProductMaster();
