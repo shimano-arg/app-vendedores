@@ -20,7 +20,7 @@ const DS = 'app-vendedores-shimano.shimano_app';
 // Back order: tablas materializadas por el sync (scripts/sync_sap_to_bigquery.py
 // sync_backorder_dashboard_tables). Las vistas tardan 1-2 min; el CF corta a 60 s.
 const T_VENTAS = `\`${DS}.v_ventas_lineas\``;
-const T_BO_VIVO = `\`${DS}.backorder_dashboard_actual\``;
+export const T_BO_VIVO = `\`${DS}.backorder_dashboard_actual\``;
 const T_BO_SNAP = `\`${DS}.backorder_daily_snapshot\``;
 const T_BO_RECON = `\`${DS}.backorder_reconstruido_mensual\``;
 
