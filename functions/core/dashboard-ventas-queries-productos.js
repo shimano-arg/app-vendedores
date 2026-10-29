@@ -69,7 +69,8 @@ SELECT
   COALESCE(b.uds_backorder, 0) AS uds_backorder
 FROM ventas v
 FULL OUTER JOIN bo b ON b.item_code = v.item_code
-LEFT JOIN ${T_ITEMS} i ON i.item_code = COALESCE(v.item_code, b.item_code)`,
+LEFT JOIN ${T_ITEMS} i ON i.item_code = COALESCE(v.item_code, b.item_code)
+ORDER BY facturado DESC, uds_backorder DESC, sku`,
     params: mesParams,
     types: mesTypes,
   };

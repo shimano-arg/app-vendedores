@@ -528,6 +528,20 @@ describe('Dashboard de Ventas — etiquetas de dato y campañas', () => {
     expect(CHUNK).toMatch(/dvDataLabels:\s*\{\s*fmt/);
   });
 
+  it('las barras horizontales reservan margen derecho para la etiqueta de dato', () => {
+    const barra = CHUNK.match(/\nfunction _barChart\([\s\S]*?\n\}\n/);
+    const cob = CHUNK.match(/\nfunction _coberturaChart\([\s\S]*?\n\}\n/);
+    expect(barra && barra[0]).toMatch(/layout:\s*\{\s*padding:\s*\{\s*right:\s*90\s*\}/);
+    expect(cob && cob[0]).toMatch(/layout:\s*\{\s*padding:\s*\{\s*right:\s*90\s*\}/);
+  });
+
+  it('cobertura: el eje Y muestra solo el vendedor; el "36 de 66" va como etiqueta de dato', () => {
+    const cob = CHUNK.match(/\nfunction _coberturaChart\([\s\S]*?\n\}\n/)[0];
+    expect(cob).toContain('labels: rows.map((r) => String(r.vendedor))');
+    expect(cob).not.toMatch(/labels:[^\n]*_coberturaEtiqueta/);
+    expect(cob).toMatch(/dvDataLabels:\s*\{\s*fmt:[^\n]*_coberturaEtiqueta/);
+  });
+
   it('la sección dv-campanias muestra "Sin campañas activas" con lista vacía', () => {
     const fn = (name) => {
       const m = CHUNK.match(new RegExp('\\nfunction ' + name + '\\([\\s\\S]*?\\n\\}\\n'));

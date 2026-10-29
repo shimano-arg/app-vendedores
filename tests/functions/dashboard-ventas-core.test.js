@@ -12,13 +12,14 @@
  * `-- dashboard:<nombre>` que lleva la primera línea del SQL.
  */
 import { createRequire } from 'node:module';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   applyRoleScope,
   buildQueries,
   dashboardVentasCore,
   normalizeFilters,
   runSeccion,
+  SECCION_TIMEOUT_MS,
 } from '../../functions/core/dashboard-ventas-core.js';
 import { monthsBetween, SERIE_DESDE } from '../../functions/core/dashboard-ventas-queries.js';
 
@@ -864,5 +865,130 @@ describe('dashboard-ventas-core: sección campañas', () => {
     expect(g.length).toBe(1);
     expect(g[0].params.vendedores).toEqual(['PACHI']);
     expect(g[0].types.vendedores).toEqual(['STRING']);
+  });
+});
+
+describe('dashboard-ventas-core: revisión final (orden, caché, timeout, log)', () => {
+  it('productos: ordena por facturado desc, uds_backorder desc, sku', async () => {
+    const mk = (sku, facturado, bo) => ({
+      sku,
+      categoria: 'C',
+      familia: 'F',
+      uds_vendidas: 1,
+      facturado,
+      uds_backorder: bo,
+    });
+    const deps = makeDeps({
+      productos: [mk('B', 10, 0), mk('A', 10, 0), mk('C', 50, 1), mk('D', 10, 5), mk('E', 0, 9)],
+    });
+    const r = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect((r.productos || []).map((p) => p.sku)).toEqual(['C', 'D', 'A', 'B', 'E']);
+  });
+
+  it('no cachea la respuesta si alguna sección falló: la 2da llamada re-corre', async () => {
+    const deps = makeDeps({});
+    let fallar = true;
+    const base = deps.runQuery;
+    deps.runQuery = async (/** @type {any} */ q) => {
+      if (fallar && queryName(q.query) === 'campanias') throw new Error('bq caído');
+      return base(q);
+    };
+    const r1 = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect(r1.secciones.campanias).toEqual({ error: true });
+    const n1 = deps.calls.length;
+    fallar = false;
+    const r2 = await dashboardVentasCore(deps, {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect(deps.calls.length).toBeGreaterThan(n1);
+    expect(r2.secciones.campanias).toBeUndefined();
+    // Y ahora que está completa sí se cachea.
+    const n2 = deps.calls.length;
+    await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    expect(deps.calls.length).toBe(n2);
+  });
+
+  it('SECCION_TIMEOUT_MS vale 25 s', () => {
+    expect(SECCION_TIMEOUT_MS).toBe(25000);
+  });
+
+  it('runSeccion: una query colgada corta por timeout → ok:false, loguea y no deja timers', async () => {
+    vi.useFakeTimers();
+    try {
+      const log = vi.fn();
+      const p = runSeccion(
+        () => new Promise(() => {}),
+        { a: { query: '-- dashboard:a' } },
+        {
+          timeoutMs: 1000,
+          log,
+          nombre: 'campanias',
+        }
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(await p).toEqual({ ok: false });
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(String(log.mock.calls[0][0])).toContain('[dashboardVentas] seccion campanias fallo:');
+      expect(String(log.mock.calls[0][0])).toContain('timeout');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runSeccion: si termina bien limpia el timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const r = await runSeccion(
+        async () => [{ x: 1 }],
+        { a: { query: '-- dashboard:a' } },
+        {
+          timeoutMs: 1000,
+        }
+      );
+      expect(r.ok).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runSeccion: loguea el mensaje del error con el nombre de la sección', async () => {
+    const log = vi.fn();
+    const r = await runSeccion(
+      async () => {
+        throw new Error('boom');
+      },
+      { a: { query: '-- dashboard:a' } },
+      { log, nombre: 'gestion' }
+    );
+    expect(r).toEqual({ ok: false });
+    expect(log).toHaveBeenCalledWith('[dashboardVentas] seccion gestion fallo: boom');
+  });
+
+  it('el core pasa deps.log con el nombre de cada sección que falla', async () => {
+    const deps = makeDeps({});
+    const log = vi.fn();
+    deps.log = log;
+    const base = deps.runQuery;
+    deps.runQuery = async (/** @type {any} */ q) => {
+      const n = queryName(q.query);
+      if (['target', 'productos', 'cobertura', 'clientes', 'campanias'].includes(n)) {
+        throw new Error('x-' + n);
+      }
+      return base(q);
+    };
+    await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    const msgs = log.mock.calls.map((c) => String(c[0]));
+    for (const s of ['gestion', 'productos', 'cobertura', 'clientes', 'campanias']) {
+      expect(msgs.some((m) => m.includes(`[dashboardVentas] seccion ${s} fallo:`))).toBe(true);
+    }
   });
 });

@@ -84,6 +84,8 @@ export { buildQueries } from './dashboard-ventas-queries.js';
 
 export const MAX_VALORES_FILTRO = 200;
 export const CACHE_TTL_MS = 10 * 60 * 1000;
+// Tope por sección opcional: la CF tiene 60 s y las 5 queries obligatorias no deben perderse.
+export const SECCION_TIMEOUT_MS = 25000;
 
 const ARRAY_KEYS = /** @type {const} */ ([
   'vendedores',
@@ -207,7 +209,13 @@ function buildSeriesBackorder(rows, meses, mesActual, mostrarEstimados) {
 function buildOpciones(rows) {
   const byName = (/** @type {string} */ a, /** @type {string} */ b) => a.localeCompare(b);
   /** @type {DashboardResponse['opciones']} */
-  const o = { vendedores: [], clientes: [], provincias: [], categorias: [], skus: [] };
+  const o = {
+    vendedores: [],
+    clientes: [],
+    provincias: [],
+    categorias: [],
+    skus: [],
+  };
   for (const r of rows || []) {
     if (!r || r.code === null || r.code === undefined || r.code === '') continue;
     const code = String(r.code);
@@ -227,24 +235,42 @@ function buildOpciones(rows) {
 }
 
 /**
- * Corre un grupo de queries de una sección. Si CUALQUIERA falla devuelve
- * { ok: false } (la sección se marca con error y el resto del dashboard sigue).
+ * Corre un grupo de queries de una sección. Si CUALQUIERA falla (o pasa el
+ * timeout) devuelve { ok: false }: la sección se marca con error y el resto
+ * del dashboard sigue. El motivo se registra en el log (Cloud Logging).
  * @param {(q: BqQuery) => Promise<any[]>} run
  * @param {Record<string, BqQuery>} queries
+ * @param {{ timeoutMs?: number, log?: Function, nombre?: string }} [opts]
  * @returns {Promise<{ ok: true, rows: Record<string, any[]> } | { ok: false }>}
  */
-export async function runSeccion(run, queries) {
+export async function runSeccion(run, queries, opts) {
+  const o = opts || {};
+  const timeoutMs = typeof o.timeoutMs === 'number' ? o.timeoutMs : SECCION_TIMEOUT_MS;
+  /** @type {any} */
+  let timer = null;
   try {
     const names = Object.keys(queries);
-    const results = await Promise.all(names.map((n) => run(queries[n])));
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timeout de ${timeoutMs} ms`)), timeoutMs);
+    });
+    const results = /** @type {any[]} */ (
+      await Promise.race([Promise.all(names.map((n) => run(queries[n]))), timeout])
+    );
     /** @type {Record<string, any[]>} */
     const rows = {};
     names.forEach((n, i) => {
       rows[n] = results[i] || [];
     });
     return { ok: true, rows };
-  } catch (_e) {
+  } catch (e) {
+    if (typeof o.log === 'function') {
+      const msg = e && /** @type {any} */ (e).message ? /** @type {any} */ (e).message : String(e);
+      o.log(`[dashboardVentas] seccion ${o.nombre || '?'} fallo: ${msg}`);
+    }
     return { ok: false };
+  } finally {
+    // Sin timers colgados: el de la carrera se limpia siempre.
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -295,15 +321,23 @@ function str(/** @type {any} */ v) {
 
 /** @param {any[]} rows */
 function buildProductos(rows) {
-  return (rows || []).map((r) => ({
-    categoria: str(r.categoria),
-    familia: str(r.familia),
-    sku: str(r.sku),
-    // SKU solo con back order: la query devuelve uds_vendidas/facturado nulos → 0.
-    udsVendidas: num(r.uds_vendidas),
-    facturado: num(r.facturado),
-    udsBackorder: num(r.uds_backorder),
-  }));
+  return (
+    (rows || [])
+      .map((r) => ({
+        categoria: str(r.categoria),
+        familia: str(r.familia),
+        sku: str(r.sku),
+        // SKU solo con back order: la query devuelve uds_vendidas/facturado nulos → 0.
+        udsVendidas: num(r.uds_vendidas),
+        facturado: num(r.facturado),
+        udsBackorder: num(r.uds_backorder),
+      }))
+      // Orden estable (la UI corta en 200 filas): facturado desc, back order desc, sku.
+      .sort(
+        (a, b) =>
+          b.facturado - a.facturado || b.udsBackorder - a.udsBackorder || a.sku.localeCompare(b.sku)
+      )
+  );
 }
 
 /** @param {any[]} rows */
@@ -378,13 +412,18 @@ export async function dashboardVentasCore(deps, params) {
 
   const qs = buildQueries(filters, now);
   const run = (/** @type {BqQuery} */ q) => deps.runQuery(q, q.params);
-  const gestionP = runSeccion(run, buildGestionQueries(filters, now));
+  const secOpts = (/** @type {string} */ nombre) => ({ log: deps.log, nombre });
+  const gestionP = runSeccion(run, buildGestionQueries(filters, now), secOpts('gestion'));
   // Cada sección corre aparte: si una falla, las demás siguen.
   const pq = buildProductosQueries(filters, now);
-  const productosP = runSeccion(run, { productos: pq.productos });
-  const coberturaP = runSeccion(run, { cobertura: pq.cobertura });
-  const clientesP = runSeccion(run, { clientes: pq.clientes });
-  const campaniasP = runSeccion(run, { campanias: buildCampaniasQuery(filters, now) });
+  const productosP = runSeccion(run, { productos: pq.productos }, secOpts('productos'));
+  const coberturaP = runSeccion(run, { cobertura: pq.cobertura }, secOpts('cobertura'));
+  const clientesP = runSeccion(run, { clientes: pq.clientes }, secOpts('clientes'));
+  const campaniasP = runSeccion(
+    run,
+    { campanias: buildCampaniasQuery(filters, now) },
+    secOpts('campanias')
+  );
   const [kpiRows, topRows, ventasRows, boRows, opcRows, config] = await Promise.all([
     run(qs.kpis),
     run(qs.topSkus),
@@ -421,7 +460,10 @@ export async function dashboardVentasCore(deps, params) {
     const mes = `${num(r.anio)}-${String(num(r.mes)).padStart(2, '0')}`;
     ventasPorMes.set(mes, num(r.valor));
   }
-  const serieVentas = meses.map((mes) => ({ mes, valor: ventasPorMes.get(mes) || 0 }));
+  const serieVentas = meses.map((mes) => ({
+    mes,
+    valor: ventasPorMes.get(mes) || 0,
+  }));
 
   const bo = buildSeriesBackorder(boRows, meses, currentMonthArt(now), mostrarEstimados);
 
@@ -458,6 +500,9 @@ export async function dashboardVentasCore(deps, params) {
     dataUpdatedAt: new Date(now).toISOString(),
   };
 
-  if (deps.cache) deps.cache.set(cacheKey, { at: now, value: structuredClone(value) });
+  // Una sección caída no se cachea: el próximo pedido la reintenta en vez de esperar 10 min.
+  if (deps.cache && Object.keys(secciones).length === 0) {
+    deps.cache.set(cacheKey, { at: now, value: structuredClone(value) });
+  }
   return value;
 }

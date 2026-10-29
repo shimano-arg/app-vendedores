@@ -980,6 +980,8 @@ function _barChart(canvasId, rows, field, fmt, color) {
       ],
     },
     options: {
+      // Margen derecho para que la etiqueta de dato (dvDataLabels) no se corte.
+      layout: { padding: { right: 90 } },
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
@@ -1118,7 +1120,7 @@ function _coberturaChart(rows) {
   charts['dv-canvas-cobertura'] = new window.Chart(el, {
     type: 'bar',
     data: {
-      labels: rows.map((r) => [String(r.vendedor), _coberturaEtiqueta(r)]),
+      labels: rows.map((r) => String(r.vendedor)),
       datasets: [
         {
           data: rows.map((r) => (r.pct == null ? 0 : Number(r.pct) || 0)),
@@ -1128,6 +1130,7 @@ function _coberturaChart(rows) {
       ],
     },
     options: {
+      layout: { padding: { right: 90 } },
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
