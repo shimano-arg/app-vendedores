@@ -8164,6 +8164,10 @@ window._renderVersionMinimaBlockingModal = _renderVersionMinimaBlockingModal;
 const CLEAN_RELOAD_PRESERVE_KEYS = Object.freeze([
   'shimano_zonas_pending_v1',  // borradores pedidos no enviados
   'shimano_theme',              // preferencia dark/light
+  // v1526: lista de precios local (v1523). Sin esto "Recargar limpio" dejaba
+  // el Master sin precios hasta que llegaba el listener (segundos largos).
+  // El listener la reemplaza igual al llegar: no queda dato viejo.
+  'shimano_price_cache_v1',
 ]);
 window.CLEAN_RELOAD_PRESERVE_KEYS = CLEAN_RELOAD_PRESERVE_KEYS;
 

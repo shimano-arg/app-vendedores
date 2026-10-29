@@ -4726,6 +4726,7 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 **Cambio**:
 - `src/pure/waitlist-export-rows.js` → `buildWaitlistExportRows(items, mode, getPrice)`. Modos: `asignado` (líneas con `origen='stock-asignado'`), `original` (todas las que NO son STOCK ASIGNADO), `completo` (todas). Cantidad = la pedida, precio = `getDefaultPrice` (el mismo del modal). Asignado + Original = Completo.
 - `index.html`: botón único "Exportar pedido" (`waitlistExportPedido`) abre un selector que muestra prod · u · $ de cada opción antes de descargar. El Completo agrega columna "Stock asignado" (SI/vacío). Se eliminó el export viejo y su 2da hoja de back orders SAP.
+- `index.html`: `CLEAN_RELOAD_PRESERVE_KEYS` suma `shimano_price_cache_v1`. El botón "Recargar limpio" borraba la lista de precios local (v1523) y el Master quedaba "Cargando precios..." hasta que llegaba el listener.
 
 **Por qué**: el total del Excel tiene que coincidir con el que ve el vendedor en el modal.
 
