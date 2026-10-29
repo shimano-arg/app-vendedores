@@ -63,6 +63,7 @@ function _resetState(uid) {
   state.verMasQuery = { unidades: '', dinero: '', clientes: '' };
   state.interQuery = '';
   state.prodQuery = '';
+  _stockMemo.clear();
   state.reqSeq++;
 }
 
@@ -569,8 +570,22 @@ function _topSection(tipo, titulo, rows) {
 // Productos, cobertura y facturación por cliente (entrega B)
 // ---------------------------------------------------------------------------
 
-/** Stock de la app para un SKU. Todo null si el stock todavía no cargó ("…"). */
+const PRODUCTOS_MAX_FILAS = 200;
+const PRODUCTOS_DEBOUNCE_MS = 200;
+// Memo del stock por SKU: se limpia al renderizar resultados y al cambiar de usuario.
+const _stockMemo = new Map();
+let _prodTimer = null;
+
+/** Stock de la app para un SKU (con memo). Todo null si el stock todavía no cargó ("…"). */
 function _stockColumnas(sku) {
+  const k = String(sku);
+  if (_stockMemo.has(k)) return _stockMemo.get(k);
+  const r = _stockColumnasCalc(sku);
+  _stockMemo.set(k, r);
+  return r;
+}
+
+function _stockColumnasCalc(sku) {
   const vacio = { reservadas: null, libre: null, stock: null };
   try {
     if (typeof window === 'undefined' || typeof window.getStockBreakdown !== 'function')
@@ -613,13 +628,14 @@ function _productosTabla(rows, query) {
     .toLowerCase()
     .trim();
   const lista = Array.isArray(rows) ? rows : [];
-  const filtered = q
+  const matches = q
     ? lista.filter((r) =>
         (String(r.categoria) + ' ' + String(r.familia) + ' ' + String(r.sku))
           .toLowerCase()
           .includes(q)
       )
     : lista;
+  const filtered = matches.slice(0, PRODUCTOS_MAX_FILAS);
   let html =
     '<div class="dv-table-wrap"><table class="dv-table"><thead><tr><th>CATEGORIA</th><th>FAMILIA</th><th>SKU</th><th class="num">UNIDADES VENDIDAS</th><th class="num">FACTURADO</th><th class="num">UNIDADES BACKORDER</th><th class="num">UNIDADES RESERVADAS</th><th class="num">UNIDADES LIBRE PARA LA VENTA</th><th class="num">UNIDADES EN STOCK</th></tr></thead><tbody>';
   for (const r of filtered) {
@@ -648,6 +664,14 @@ function _productosTabla(rows, query) {
   if (filtered.length === 0)
     html += '<tr><td colspan="9" class="dv-muted">Sin resultados.</td></tr>';
   html += '</tbody></table></div>';
+  if (matches.length > filtered.length) {
+    html +=
+      '<div class="dv-muted">Mostrando ' +
+      PRODUCTOS_MAX_FILAS +
+      ' de ' +
+      _escHtml(_fmtUds(matches.length)) +
+      '. Usá el buscador para ver el resto.</div>';
+  }
   return html;
 }
 
@@ -743,6 +767,7 @@ function _isEmpty(d) {
 
 /** Resultados (leyenda, tarjetas, rankings, gráficos). No toca los filtros. */
 function renderResults() {
+  _stockMemo.clear();
   const root = document.getElementById('dv-results');
   if (!root) return;
   const d = state.data;
@@ -1182,9 +1207,13 @@ function _wire() {
     }
     if (t.id === 'dv-productos-buscar') {
       state.prodQuery = t.value;
-      const cont = body.querySelector('#dv-productos .dv-prod-body');
-      if (cont)
-        cont.innerHTML = _productosTabla(state.data && state.data.productos, state.prodQuery);
+      if (_prodTimer) clearTimeout(_prodTimer);
+      _prodTimer = setTimeout(() => {
+        _prodTimer = null;
+        const cont = body.querySelector('#dv-productos .dv-prod-body');
+        if (cont)
+          cont.innerHTML = _productosTabla(state.data && state.data.productos, state.prodQuery);
+      }, PRODUCTOS_DEBOUNCE_MS);
       return;
     }
     const vmAttr = t.getAttribute('data-vermas-search');
