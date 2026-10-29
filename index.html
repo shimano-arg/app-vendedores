@@ -7129,7 +7129,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1519';
+const APP_VERSION = 'v1520';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -17379,8 +17379,11 @@ function _cpstBuildCache(){
         };
       }
       mapRaw[nombre].skus[skuUp].qty += qo;
+      // v1520: lineIndex para que el pre-flight no re-busque por SKU (caía en
+      // ASIG zombie qtyOpen=0 anterior — REBORN CLC66H2PY 2026-10-29).
       mapRaw[nombre].skus[skuUp].entries.push({
         pedidoId: pedidoId,
+        lineIndex: idx,
         qty: qo,
         state: 'ASIG',
       });
@@ -18738,83 +18741,89 @@ window._cpstConfirmar = async function(){
     // El idx de la linea se calcula aca con lookup para que doConfirmPedido
     // no tenga que hacer un findIndex por string match (mas robusto si el
     // array lines cambia su orden por otros flows).
-    /** @type {Array<{pedidoId: string, lineIndex: number, sku: string, qtyAsignada: number}>} */
-    const pedidosOrigenes = [];
     /** @type {string[]} */
     const errors = [];
     // Cache de pedidos para no fetchear 2 veces el mismo.
     /** @type {Map<string, any>} */
     const pedidosCache = new Map();
+    // v1520 (2026-10-29): PASO A — leer los pedidos origen. Solo un fallo de
+    // lectura (red/permisos) bloquea; un pedido inexistente o una linea ASIG
+    // huerfana (qtyOpen=0) ya NO bloquea: se omite y se avisa (PASO B).
+    // Antes: findIndex(code+state) caia en una ASIG zombie qtyOpen=0 anterior a
+    // la viva y abortaba todo el pedido — REBORN SRL CLC66H2PY 2026-10-29.
     for (const sk of c.skus) {
-      const qtyAjustadaTotal = Number(sk.qtyAjustada) || 0;
-      if (qtyAjustadaTotal <= 0) continue;
-      let restantePorAsignar = qtyAjustadaTotal;
+      if ((Number(sk.qtyAjustada) || 0) <= 0) continue;
       for (const entry of (sk.entries || [])) {
-        if (restantePorAsignar <= 0) break;
         const pid = entry.pedidoId;
-        if (!pid) {
-          errors.push(sk.sku + ': pedidoId vacio');
-          continue;
+        if (!pid || pedidosCache.has(pid)) continue;
+        let p = null;
+        if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
+          p = globalPedidos.find(pp => pp && pp._fsId === pid) || null;
         }
-        // Fetch del pedido (cache local -> Firestore fallback).
-        let p = pedidosCache.get(pid);
-        if (!p) {
-          if (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) {
-            p = globalPedidos.find(pp => pp && pp._fsId === pid);
+        if (!p || !Array.isArray(p.lines)) {
+          try {
+            // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
+            const _frpOpts2 = (window.__phase0 && window.__phase0.pure
+              && window.__phase0.pure.firestoreReadPolicy
+              && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
+            const snap = await fbDb.collection('pedidos').doc(pid).get(_frpOpts2);
+            p = snap.exists ? Object.assign({ _fsId: pid }, snap.data() || {}) : null;
+          } catch (e) {
+            errors.push(sk.sku + ' (pedido ' + pid + '): fetch fallo ' + (e.message || e));
+            continue;
           }
-          if (!p || !Array.isArray(p.lines)) {
-            try {
-              // v1500 §102 (2026-10-27): política lectura server para `pedidos` (§99).
-              const _frpOpts2 = (window.__phase0 && window.__phase0.pure
-                && window.__phase0.pure.firestoreReadPolicy
-                && window.__phase0.pure.firestoreReadPolicy.getReadOptionsForPath('pedidos')) || undefined;
-              const snap = await fbDb.collection('pedidos').doc(pid).get(_frpOpts2);
-              if (!snap.exists) {
-                errors.push(sk.sku + ' (pedido ' + pid + '): pedido no encontrado');
-                continue;
-              }
-              p = Object.assign({ _fsId: pid }, snap.data() || {});
-            } catch (e) {
-              errors.push(sk.sku + ' (pedido ' + pid + '): fetch fallo ' + (e.message || e));
-              continue;
-            }
-          }
-          pedidosCache.set(pid, p);
         }
-        if (!Array.isArray(p.lines)) {
-          errors.push(sk.sku + ' (pedido ' + pid + '): pedido sin lineas');
-          continue;
-        }
-        const st = entry.state || 'ASIG';
-        const idx = p.lines.findIndex(l =>
-          l && String(l.code).toUpperCase() === String(sk.sku).toUpperCase() && l.state === st,
-        );
-        if (idx < 0) {
-          errors.push(sk.sku + ' (pedido ' + pid + '): linea no encontrada state=' + st);
-          break;
-        }
-        const qo = Number(p.lines[idx].qtyOpen) || 0;
-        if (qo <= 0) {
-          errors.push(sk.sku + ' (pedido ' + pid + '): linea con qtyOpen=0, state=' + st);
-          break;
-        }
-        const toAssign = Math.min(qo, restantePorAsignar);
-        pedidosOrigenes.push({
-          pedidoId: pid,
-          lineIndex: idx,
-          sku: sk.sku,
-          qtyAsignada: toAssign,
-        });
-        restantePorAsignar -= toAssign;
-      }
-      if (restantePorAsignar > 0) {
-        errors.push(sk.sku + ': faltaron ' + restantePorAsignar + 'u para cubrir qtyAjustada');
+        if (p) pedidosCache.set(pid, p);
       }
     }
     if (errors.length > 0) {
       throw new Error('Pre-flight check fallo (' + errors.length + ' errores). Nada se escribio.\n\n' +
                       errors.slice(0, 10).join('\n') +
                       (errors.length > 10 ? '\n...y ' + (errors.length - 10) + ' mas' : ''));
+    }
+    // v1520: PASO B — resolver lineas origen por entry.lineIndex (pure fn).
+    const _cpstPlanMod = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.cpstOrigenesPlan) || null;
+    if (!_cpstPlanMod) {
+      throw new Error('La app no terminó de cargar. Recargá la página y volvé a intentar.');
+    }
+    const _origenesPlan = _cpstPlanMod.planCpstOrigenes(c.skus, pedidosCache);
+    /** @type {Array<{pedidoId: string, lineIndex: number, sku: string, qtyAsignada: number}>} */
+    const pedidosOrigenes = _origenesPlan.pedidosOrigenes;
+    const _avisoHuerfanas = _cpstPlanMod.formatAsigHuerfanaAviso(_origenesPlan.faltantePorSku);
+    /** Cantidad final por SKU = lo realmente cubierto por lineas ASIG vivas. */
+    const _qtyFinal = (sk) => {
+      const aj = Number(sk.qtyAjustada) || 0;
+      const cub = _origenesPlan.cubiertoPorSku[sk.sku];
+      return typeof cub === 'number' ? Math.min(aj, cub) : 0;
+    };
+    // v1520: log asig_huerfana (fire-and-forget, §70 shape userUid).
+    if (_origenesPlan.huerfanas.length > 0) {
+      console.warn('[asig_huerfana]', c.nombre, _origenesPlan.huerfanas);
+      try {
+        const _uid = (typeof currentUser !== 'undefined' && currentUser && currentUser.uid) || '';
+        if (_uid) {
+          for (const h of _origenesPlan.huerfanas) {
+            fbDb.collection('operations_log').add({
+              type: 'asig_huerfana',
+              via: 'cpst_confirmar',
+              sku: h.sku,
+              pedidoId: h.pedidoId,
+              lineIndex: h.lineIndex === null ? null : h.lineIndex,
+              motivo: h.motivo,
+              lineState: h.lineState,
+              lineQtyOpen: h.lineQtyOpen,
+              qtyEsperada: h.qtyEsperada,
+              qtyFaltanteSku: _origenesPlan.faltantePorSku[h.sku] || 0,
+              clientName: c.nombre || '',
+              clientCardCode: r.cardCode || '',
+              userUid: _uid,
+              userEmail: (currentUser && currentUser.email) || '',
+              clientVersion: (typeof APP_VERSION === 'string') ? APP_VERSION : '',
+              timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            }).catch((e) => console.warn('asig_huerfana log fallo', (e && e.message) || e));
+          }
+        }
+      } catch (_e) { /* non-fatal */ }
     }
     // v1397 §40.5: computar plan de reversión por SKU. Las ASIG que no entran
     // al waitlist (porque el entregable total es menor que la nominal) revierten
@@ -18827,7 +18836,7 @@ window._cpstConfirmar = async function(){
     const revertActions = [];
     if (_computeRevertPlan) {
       for (const sk of c.skus) {
-        const qtyAjustadaTotal = Number(sk.qtyAjustada) || 0;
+        const qtyAjustadaTotal = _qtyFinal(sk);
         const plan = _computeRevertPlan(sk.entries || [], qtyAjustadaTotal);
         for (const a of plan) {
           if (!a || a.action === 'keep') continue;
@@ -18847,6 +18856,8 @@ window._cpstConfirmar = async function(){
     const totalRevertUnits = revertActions.reduce((s, a) => s + a.qtyRevert, 0);
     // Nada que hacer? abort temprano.
     if (pedidosOrigenes.length === 0 && totalRevertUnits === 0) {
+      // v1520: si todo era huerfano, aviso simple en vez de error tecnico.
+      if (_avisoHuerfanas) throw new Error(_avisoHuerfanas);
       throw new Error('No hay unidades para procesar. Nada tildado o todas las entries con qty=0.');
     }
     // v1397 §40.5: construir items[] (puede quedar vacío si recorte 100%).
@@ -18854,7 +18865,7 @@ window._cpstConfirmar = async function(){
     const _buildAsigRefsFn =
       (window.__phase0 && window.__phase0.pure && window.__phase0.pure.buildAsigRefsForLine) || null;
     const items = c.skus
-      .filter(sk => (sk.qtyAjustada || 0) > 0)
+      .filter(sk => _qtyFinal(sk) > 0)
       .map(sk => {
         const stk = (typeof _revisionStockFor === 'function')
           ? _revisionStockFor(sk.sku)
@@ -18863,9 +18874,11 @@ window._cpstConfirmar = async function(){
         return {
           code: sk.sku,
           desc: sk.desc || '',
-          qty: sk.qtyAjustada,
+          qty: _qtyFinal(sk),
           qtyOriginal: sk.qty,
           qtyRecorte: sk.qtyRecorte || 0,
+          ...((Number(sk.qtyAjustada) || 0) > _qtyFinal(sk)
+            ? { qtyHuerfana: (Number(sk.qtyAjustada) || 0) - _qtyFinal(sk) } : {}),
           firstStockTotal: stk.hasData ? stk.stockTotal : null,
           firstBackorder: stk.backorder || 0,
           firstDisponible: stk.hasData ? stk.disponible : null,
@@ -19002,7 +19015,9 @@ window._cpstConfirmar = async function(){
     let msg;
     if (createsWaitlist) {
       msg = 'Pedido ORDEN ' + ordenNum + ' creado en LISTA DE ESPERA.\n\n' +
-            c.nombre + '\n' + items.length + ' SKU(s) · ' + totalAjustado + ' unidades.\n\n' +
+            c.nombre + '\n' + items.length + ' SKU(s) · ' +
+            items.reduce((s2, it) => s2 + (Number(it.qty) || 0), 0) + ' unidades.\n\n' +
+            (_avisoHuerfanas ? _avisoHuerfanas + '\n\n' : '') +
             (totalRevertUnits > 0
               ? totalRevertUnits + ' unidades volvieron a back order (sin stock físico hoy); el SKU va a aparecer en Reparto cuando ingrese mercadería.\n\n'
               : '') +
@@ -19010,6 +19025,7 @@ window._cpstConfirmar = async function(){
     } else {
       msg = 'No se creó pedido en Lista de Espera (nada entregable).\n\n' +
             c.nombre + '\n' +
+            (_avisoHuerfanas ? _avisoHuerfanas + '\n' : '') +
             totalRevertUnits + ' unidades volvieron a back order; el SKU va a aparecer en Reparto cuando ingrese mercadería.';
     }
     alert(msg);
@@ -19019,7 +19035,8 @@ window._cpstConfirmar = async function(){
     } catch (_e) {}
   } catch (e) {
     console.error('_cpstConfirmar', e);
-    alert('Error creando el pedido (nada se escribio en Firestore):\n\n' + (e.message || e));
+    // v1520 §68: sin jerga técnica en el texto visible.
+    alert('No se pudo crear el pedido. Nada se guardó.\n\n' + (e.message || e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Confirmar y pasar a Lista de Espera'; }
   }
