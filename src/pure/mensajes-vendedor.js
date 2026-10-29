@@ -42,6 +42,12 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto: 'No pudimos guardar los cambios. Volvé a intentar; si sigue pasando, avisale a Mariano.',
   },
 
+  // Dashboard de Ventas (2026-10-29).
+  DASHBOARD_VENTAS_FAILED: {
+    texto:
+      'No pudimos cargar el tablero de ventas. Volvé a intentar en un minuto; si sigue pasando, avisale a Mariano.',
+  },
+
   // PR 2 §72 — SKU que no existe en SAP catalog.
   SKU_NOT_IN_SAP_CATALOG: {
     texto:
