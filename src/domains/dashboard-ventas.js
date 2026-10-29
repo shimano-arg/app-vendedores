@@ -357,7 +357,8 @@ function _card(titulo, valor) {
   );
 }
 
-function _verMasTabla(tipo, rows) {
+function _verMasTabla(tipoIn, rows) {
+  const tipo = tipoIn === 'dinero' ? 'dinero' : 'unidades';
   const q = state.verMasQuery[tipo].toLowerCase().trim();
   // Posición del ranking calculada una sola vez (sin indexOf por fila).
   const ranked = rows.map((r, i) => ({ r, pos: i + 1 }));
@@ -739,7 +740,7 @@ function _wire() {
     }
     const vm = t.closest('[data-vermas]');
     if (vm) {
-      const tipo = vm.getAttribute('data-vermas');
+      const tipo = vm.getAttribute('data-vermas') === 'dinero' ? 'dinero' : 'unidades';
       state.verMas[tipo] = !state.verMas[tipo];
       // Solo resultados: no se leen ni se pisan filtros sin aplicar.
       renderResults();
@@ -776,8 +777,10 @@ function _wire() {
       });
       return;
     }
-    const vmKey = t.getAttribute('data-vermas-search');
-    if (vmKey) {
+    const vmAttr = t.getAttribute('data-vermas-search');
+    if (vmAttr) {
+      // Solo dos rankings posibles: nunca reusar el texto del atributo en el HTML.
+      const vmKey = vmAttr === 'dinero' ? 'dinero' : 'unidades';
       state.verMasQuery[vmKey] = t.value;
       const sec = t.closest('.dv-vermas');
       const rows =
