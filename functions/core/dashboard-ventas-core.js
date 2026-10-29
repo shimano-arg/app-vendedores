@@ -28,6 +28,7 @@ import {
   SERIE_MESES,
 } from './dashboard-ventas-queries.js';
 
+import { buildCampaniasQuery } from './dashboard-ventas-queries-campanias.js';
 import { buildGestionQueries } from './dashboard-ventas-queries-gestion.js';
 import { buildProductosQueries } from './dashboard-ventas-queries-productos.js';
 
@@ -52,6 +53,9 @@ export { buildQueries } from './dashboard-ventas-queries.js';
  *   facturado: number, udsBackorder: number }} FilaProducto
  * @typedef {{ vendedor: string, dadosAlta: number, compraron: number, pct: number|null }} FilaCobertura
  * @typedef {{ code: string, nombre: string, facturado: number }} FilaCliente
+ * @typedef {{ id: string, nombre: string, desde: string, hasta: string,
+ *   objetivoTipo: string, objetivo: number|null, uds: number, ars: number,
+ *   pct: number|null }} FilaCampania
  * @typedef {{
  *   kpis: { facturado: number, backorderArs: number, pedidos: number, pedidosUnicos: number },
  *   topUnidades: TopSku[], topDinero: TopSku[],
@@ -62,8 +66,10 @@ export { buildQueries } from './dashboard-ventas-queries.js';
  *   productos: FilaProducto[]|null,
  *   cobertura: FilaCobertura[]|null,
  *   clientes: FilaCliente[]|null,
+ *   campanias: FilaCampania[]|null,
  *   secciones: { gestion?: { error: true }, productos?: { error: true },
- *     cobertura?: { error: true }, clientes?: { error: true } },
+ *     cobertura?: { error: true }, clientes?: { error: true },
+ *     campanias?: { error: true } },
  *   dataUpdatedAt: string,
  * }} DashboardResponse
  * @typedef {{
@@ -326,6 +332,31 @@ function buildClientes(rows) {
   }));
 }
 
+/** @param {any[]} rows */
+function buildCampanias(rows) {
+  // Se mantiene el orden del servidor (fin de campaña asc, nombre).
+  return (rows || []).map((r) => {
+    const tipo = str(r.target_type);
+    const objetivo =
+      r.target_amount === null || r.target_amount === undefined ? null : num(r.target_amount);
+    const uds = num(r.realizado_qty);
+    const ars = num(r.realizado_ars);
+    // units → unidades / objetivo, money → pesos / objetivo; objetivo 0 o vacío → sin %.
+    const avance = tipo === 'money' ? ars : uds;
+    return {
+      id: str(r.campaign_id),
+      nombre: str(r.nombre),
+      desde: str(r.start_date),
+      hasta: str(r.end_date),
+      objetivoTipo: tipo,
+      objetivo,
+      uds,
+      ars,
+      pct: objetivo ? Math.round((avance / objetivo) * 100 * 100) / 100 : null,
+    };
+  });
+}
+
 /**
  * @param {DashboardDeps} deps
  * @param {{ auth: any, data: any }} params
@@ -353,6 +384,7 @@ export async function dashboardVentasCore(deps, params) {
   const productosP = runSeccion(run, { productos: pq.productos });
   const coberturaP = runSeccion(run, { cobertura: pq.cobertura });
   const clientesP = runSeccion(run, { clientes: pq.clientes });
+  const campaniasP = runSeccion(run, { campanias: buildCampaniasQuery(filters, now) });
   const [kpiRows, topRows, ventasRows, boRows, opcRows, config] = await Promise.all([
     run(qs.kpis),
     run(qs.topSkus),
@@ -393,13 +425,20 @@ export async function dashboardVentasCore(deps, params) {
 
   const bo = buildSeriesBackorder(boRows, meses, currentMonthArt(now), mostrarEstimados);
 
-  const [g, pr, co, cl] = await Promise.all([gestionP, productosP, coberturaP, clientesP]);
+  const [g, pr, co, cl, ca] = await Promise.all([
+    gestionP,
+    productosP,
+    coberturaP,
+    clientesP,
+    campaniasP,
+  ]);
   /** @type {DashboardResponse['secciones']} */
   const secciones = {};
   if (!g.ok) secciones.gestion = { error: true };
   if (!pr.ok) secciones.productos = { error: true };
   if (!co.ok) secciones.cobertura = { error: true };
   if (!cl.ok) secciones.clientes = { error: true };
+  if (!ca.ok) secciones.campanias = { error: true };
 
   /** @type {DashboardResponse} */
   const value = {
@@ -414,6 +453,7 @@ export async function dashboardVentasCore(deps, params) {
     productos: pr.ok ? buildProductos(pr.rows.productos) : null,
     cobertura: co.ok ? buildCobertura(co.rows.cobertura) : null,
     clientes: cl.ok ? buildClientes(cl.rows.clientes) : null,
+    campanias: ca.ok ? buildCampanias(ca.rows.campanias) : null,
     secciones,
     dataUpdatedAt: new Date(now).toISOString(),
   };

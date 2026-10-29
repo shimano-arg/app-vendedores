@@ -62,7 +62,7 @@ describe('dashboard-ventas-core', () => {
   it('vendedor_forzado: el vendedor solo ve lo suyo aunque pida otro', async () => {
     const deps = makeDeps({}, { role: 'vendedor', vendor: 'MAURICIO GIL' });
     await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['PACHI'] } });
-    expect(deps.calls.length).toBe(13);
+    expect(deps.calls.length).toBe(14);
     for (const q of deps.calls) {
       if (queryName(q.query) === 'opciones') {
         expect(q.params.scopeVendedores).toEqual(['MAURICIO GIL']);
@@ -341,14 +341,14 @@ describe('dashboard-ventas-core', () => {
     await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
     t += 5 * 60 * 1000;
     await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
-    expect(deps.calls.length).toBe(13);
+    expect(deps.calls.length).toBe(14);
     // otro uid no comparte caché.
     await dashboardVentasCore(deps, { auth: { uid: 'u2' }, data: { mes: '2026-10' } });
-    expect(deps.calls.length).toBe(26);
+    expect(deps.calls.length).toBe(28);
     // vencido el TTL se vuelve a consultar.
     t += 6 * 60 * 1000;
     await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
-    expect(deps.calls.length).toBe(39);
+    expect(deps.calls.length).toBe(42);
   });
 
   it('buildQueries: params de mes y ventana de 12 meses', () => {
@@ -395,7 +395,7 @@ describe('dashboard-ventas-core', () => {
     r1.topDinero.length = 0;
     r1.kpis.facturado = 999;
     const r2 = await dashboardVentasCore(deps, { auth: AUTH, data: { skus: ['A', 'B'] } });
-    expect(deps.calls.length).toBe(13);
+    expect(deps.calls.length).toBe(14);
     expect(r2.topDinero.length).toBe(1);
     expect(r2.kpis.facturado).toBe(0);
     r2.topDinero.length = 0;
@@ -660,5 +660,90 @@ describe('dashboard-ventas-core: secciones productos, cobertura y clientes', () 
       expect(q.params.vendedores).toEqual(['PACHI']);
       expect(q.types.vendedores).toEqual(['STRING']);
     }
+  });
+});
+
+describe('dashboard-ventas-core: sección campañas', () => {
+  const fila = (/** @type {any} */ o) => ({
+    campaign_id: 'c1',
+    nombre: 'Camp',
+    start_date: '2026-10-01',
+    end_date: '2026-10-31',
+    target_type: 'units',
+    target_amount: 200,
+    realizado_qty: 50,
+    realizado_ars: 1000,
+    ...o,
+  });
+
+  it('pct por tipo: units usa unidades, money usa pesos, redondeo a 2 decimales', async () => {
+    const deps = makeDeps({
+      campanias: [
+        fila({}),
+        fila({ campaign_id: 'c2', target_type: 'money', target_amount: 3000, realizado_ars: 1000 }),
+      ],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.campanias).toEqual([
+      {
+        id: 'c1',
+        nombre: 'Camp',
+        desde: '2026-10-01',
+        hasta: '2026-10-31',
+        objetivoTipo: 'units',
+        objetivo: 200,
+        uds: 50,
+        ars: 1000,
+        pct: 25,
+      },
+      {
+        id: 'c2',
+        nombre: 'Camp',
+        desde: '2026-10-01',
+        hasta: '2026-10-31',
+        objetivoTipo: 'money',
+        objetivo: 3000,
+        uds: 50,
+        ars: 1000,
+        pct: 33.33,
+      },
+    ]);
+  });
+
+  it('objetivo 0 o nulo → pct null', async () => {
+    const deps = makeDeps({
+      campanias: [fila({ target_amount: 0 }), fila({ campaign_id: 'c2', target_amount: null })],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.campanias?.map((c) => c.pct)).toEqual([null, null]);
+  });
+
+  it('sin campañas activas → []', async () => {
+    const r = await dashboardVentasCore(makeDeps({}), { auth: AUTH, data: {} });
+    expect(r.campanias).toEqual([]);
+  });
+
+  it('falla de campañas no afecta el resto', async () => {
+    const deps = makeDeps({});
+    const base = deps.runQuery;
+    deps.runQuery = async (/** @type {any} */ q) => {
+      if (queryName(q.query) === 'campanias') throw new Error('bq caído');
+      return base(q);
+    };
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.campanias).toBeNull();
+    expect(r.secciones.campanias).toEqual({ error: true });
+    expect(r.productos).toEqual([]);
+    expect(r.gestion).not.toBeNull();
+    expect(r.secciones.productos).toBeUndefined();
+  });
+
+  it('rol vendedor: la query recibe solo su vendor', async () => {
+    const deps = makeDeps({}, { role: 'vendedor', vendor: 'PACHI' });
+    await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['GONZALO DE LA ROSA'] } });
+    const g = deps.calls.filter((q) => queryName(q.query) === 'campanias');
+    expect(g.length).toBe(1);
+    expect(g[0].params.vendedores).toEqual(['PACHI']);
+    expect(g[0].types.vendedores).toEqual(['STRING']);
   });
 });
