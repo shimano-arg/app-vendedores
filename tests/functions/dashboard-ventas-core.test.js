@@ -1,0 +1,303 @@
+// @ts-check
+/**
+ * Dashboard de Ventas (2026-10-29) — tests del core puro.
+ *
+ * Cubre (plan Task 3):
+ *   vendedor_forzado, vendedor_sin_vendor_rechaza, rol_desconocido_rechaza,
+ *   admin_sin_filtros, comillas_como_param, mes_invalido_default,
+ *   top_neto_negativo_al_final, sin_datos, mes_sin_dato_es_null,
+ *   estimado_flag, cache_hit.
+ *
+ * El mock de runQuery identifica cada query por el marcador
+ * `-- dashboard:<nombre>` que lleva la primera línea del SQL.
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  applyRoleScope,
+  buildQueries,
+  dashboardVentasCore,
+  normalizeFilters,
+} from '../../functions/core/dashboard-ventas-core.js';
+
+// 2026-10-29 15:00 ART = 18:00 UTC.
+const NOW = Date.parse('2026-10-29T18:00:00Z');
+
+/** @param {string} sql */
+function queryName(sql) {
+  const m = /--\s*dashboard:(\w+)/.exec(sql);
+  return m ? m[1] : '';
+}
+
+/**
+ * @param {Record<string, any[]>} [rowsByName]
+ * @param {{ role?: string, vendor?: string, mostrarEstimados?: boolean }} [opts]
+ */
+function makeDeps(rowsByName, opts) {
+  const o = opts || {};
+  /** @type {any[]} */
+  const calls = [];
+  const deps = {
+    calls,
+    cache: new Map(),
+    now: () => NOW,
+    getConfig: async () => ({ mostrarEstimados: o.mostrarEstimados !== false }),
+    getUserRole: async () => ({
+      role: o.role === undefined ? 'admin' : o.role,
+      vendor: o.vendor === undefined ? '' : o.vendor,
+    }),
+    runQuery: async (/** @type {any} */ q) => {
+      calls.push(q);
+      const name = queryName(q.query);
+      return (rowsByName && rowsByName[name]) || [];
+    },
+  };
+  return deps;
+}
+
+const AUTH = { uid: 'u1' };
+
+describe('dashboard-ventas-core', () => {
+  it('vendedor_forzado: el vendedor solo ve lo suyo aunque pida otro', async () => {
+    const deps = makeDeps({}, { role: 'vendedor', vendor: 'MAURICIO GIL' });
+    await dashboardVentasCore(deps, { auth: AUTH, data: { vendedores: ['PACHI'] } });
+    expect(deps.calls.length).toBe(5);
+    for (const q of deps.calls) {
+      expect(q.params.vendedores).toEqual(['MAURICIO GIL']);
+      expect(q.types.vendedores).toEqual(['STRING']);
+    }
+  });
+
+  it('vendedor_sin_vendor_rechaza', async () => {
+    const deps = makeDeps({}, { role: 'vendedor', vendor: '' });
+    await expect(dashboardVentasCore(deps, { auth: AUTH, data: {} })).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+    expect(deps.calls.length).toBe(0);
+    expect(() => applyRoleScope(normalizeFilters({}, NOW), { role: 'vendedor' })).toThrow();
+  });
+
+  it('rol_desconocido_rechaza', async () => {
+    const deps = makeDeps({}, { role: 'interno', vendor: 'X' });
+    await expect(dashboardVentasCore(deps, { auth: AUTH, data: {} })).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+    const deps2 = makeDeps({}, { role: '' });
+    await expect(dashboardVentasCore(deps2, { auth: AUTH, data: {} })).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+  });
+
+  it('sin auth rechaza unauthenticated', async () => {
+    const deps = makeDeps({});
+    await expect(dashboardVentasCore(deps, { auth: null, data: {} })).rejects.toMatchObject({
+      code: 'unauthenticated',
+    });
+  });
+
+  it('admin_sin_filtros: arrays vacíos en params', async () => {
+    const deps = makeDeps({}, { role: 'admin' });
+    await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    const kpis = deps.calls.find((q) => queryName(q.query) === 'kpis');
+    for (const k of ['vendedores', 'clientes', 'provincias', 'categorias', 'skus']) {
+      expect(kpis.params[k]).toEqual([]);
+      expect(kpis.types[k]).toEqual(['STRING']);
+    }
+    // gerente tampoco se restringe.
+    const f = normalizeFilters({ vendedores: ['PACHI'] }, NOW);
+    expect(applyRoleScope(f, { role: 'gerente', vendor: '' }).vendedores).toEqual(['PACHI']);
+  });
+
+  it("comillas_como_param: O'HIGGINS va en params, nunca en el texto", () => {
+    const f = normalizeFilters({ provincias: ["O'HIGGINS"], mes: '2026-10' }, NOW);
+    const qs = buildQueries(f, NOW);
+    for (const name of ['kpis', 'topSkus', 'serieVentas', 'serieBackorder']) {
+      const q = /** @type {any} */ (qs)[name];
+      expect(q.params.provincias).toEqual(["O'HIGGINS"]);
+      expect(q.query).not.toContain('HIGGINS');
+      expect(q.query).toContain('(ARRAY_LENGTH(@provincias) = 0 OR');
+    }
+    expect(qs.opciones.query).not.toContain('HIGGINS');
+  });
+
+  it('mes_invalido_default: mes inválido cae al mes en curso ART', () => {
+    expect(normalizeFilters({ mes: '2026-13' }, NOW).mes).toBe('2026-10');
+    expect(normalizeFilters({ mes: 'hola' }, NOW).mes).toBe('2026-10');
+    expect(normalizeFilters({}, NOW).mes).toBe('2026-10');
+    expect(normalizeFilters({ mes: '2026-03' }, NOW).mes).toBe('2026-03');
+    // 2026-11-01 01:00 UTC = 2026-10-31 22:00 ART → sigue octubre.
+    expect(normalizeFilters({}, Date.parse('2026-11-01T01:00:00Z')).mes).toBe('2026-10');
+  });
+
+  it('normalizeFilters: trim, sin vacíos, sin duplicados; >200 → invalid-argument', () => {
+    const f = normalizeFilters({ skus: [' A ', '', 'A', 'B', null, 7] }, NOW);
+    expect(f.skus).toEqual(['A', 'B', '7']);
+    const muchos = Array.from({ length: 201 }, (_, i) => 'S' + i);
+    expect(() => normalizeFilters({ skus: muchos }, NOW)).toThrow();
+    try {
+      normalizeFilters({ skus: muchos }, NOW);
+    } catch (e) {
+      expect(/** @type {any} */ (e).code).toBe('invalid-argument');
+    }
+  });
+
+  it('top_neto_negativo_al_final: SKU con ars < 0 queda último en topDinero', async () => {
+    const deps = makeDeps({
+      topSkus: [
+        { sku: 'NEG', descr: 'Devuelto', uds: -2, ars: -5000 },
+        { sku: 'A', descr: 'Reel A', uds: 3, ars: 1000 },
+        { sku: 'B', descr: 'Reel B', uds: 10, ars: 9000 },
+      ],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.topDinero.map((x) => x.sku)).toEqual(['B', 'A', 'NEG']);
+    expect(r.topUnidades.map((x) => x.sku)).toEqual(['B', 'A', 'NEG']);
+    expect(r.topDinero[0]).toEqual({ sku: 'B', desc: 'Reel B', uds: 10, ars: 9000 });
+  });
+
+  it('sin_datos: runQuery vacío → kpis en 0, listas vacías', async () => {
+    const deps = makeDeps({});
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    expect(r.kpis).toEqual({ facturado: 0, backorderArs: 0, pedidos: 0, pedidosUnicos: 0 });
+    expect(r.topUnidades).toEqual([]);
+    expect(r.topDinero).toEqual([]);
+    expect(r.serieVentas.length).toBe(12);
+    expect(r.serieVentas[0]).toEqual({ mes: '2025-11', valor: 0 });
+    expect(r.serieVentas[11]).toEqual({ mes: '2026-10', valor: 0 });
+    expect(r.serieBoUds.length).toBe(12);
+    expect(r.serieBoUds.every((p) => p.valor === null)).toBe(true);
+    expect(r.opciones).toEqual({
+      vendedores: [],
+      clientes: [],
+      provincias: [],
+      categorias: [],
+      skus: [],
+    });
+    expect(typeof r.dataUpdatedAt).toBe('string');
+  });
+
+  it('kpis y opciones toman forma desde las filas', async () => {
+    const deps = makeDeps({
+      kpis: [{ facturado: '123.5', pedidos: 4, pedidos_unicos: 2, backorder_ars: 77 }],
+      opciones: [
+        { tipo: 'vendedor', code: 'PACHI', name: null },
+        { tipo: 'cliente', code: 'C2', name: 'Bravo' },
+        { tipo: 'cliente', code: 'C1', name: 'Alfa' },
+        { tipo: 'provincia', code: 'CORDOBA', name: null },
+        { tipo: 'categoria', code: 'REEL', name: null },
+        { tipo: 'sku', code: 'S1', name: 'Reel 1' },
+      ],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: {} });
+    expect(r.kpis).toEqual({ facturado: 123.5, backorderArs: 77, pedidos: 4, pedidosUnicos: 2 });
+    expect(r.opciones.vendedores).toEqual(['PACHI']);
+    expect(r.opciones.clientes).toEqual([
+      { code: 'C1', name: 'Alfa' },
+      { code: 'C2', name: 'Bravo' },
+    ]);
+    expect(r.opciones.skus).toEqual([{ code: 'S1', desc: 'Reel 1' }]);
+    expect(r.opciones.provincias).toEqual(['CORDOBA']);
+    expect(r.opciones.categorias).toEqual(['REEL']);
+  });
+
+  it('mes_sin_dato_es_null + foto real + vivo del mes en curso', async () => {
+    const deps = makeDeps({
+      serieBackorder: [
+        { fuente: 'snapshot', mes: '2026-09', uds: 10, ars: 1000 },
+        { fuente: 'vivo', mes: '2026-10', uds: 12, ars: 1200 },
+      ],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    const sep = r.serieBoUds.find((p) => p.mes === '2026-09');
+    expect(sep).toEqual({ mes: '2026-09', valor: 10, estimado: false });
+    const oct = r.serieBoArs.find((p) => p.mes === '2026-10');
+    expect(oct).toEqual({ mes: '2026-10', valor: 1200, estimado: false });
+    const ago = r.serieBoUds.find((p) => p.mes === '2026-08');
+    expect(ago).toEqual({ mes: '2026-08', valor: null, estimado: false });
+  });
+
+  it('mes en curso con foto del día: gana la foto sobre el vivo', async () => {
+    const deps = makeDeps({
+      serieBackorder: [
+        { fuente: 'snapshot', mes: '2026-10', uds: 5, ars: 500 },
+        { fuente: 'vivo', mes: '2026-10', uds: 99, ars: 9900 },
+      ],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    expect(r.serieBoUds[11]).toEqual({ mes: '2026-10', valor: 5, estimado: false });
+  });
+
+  it('estimado_flag: mes reconstruido → estimado:true; mostrarEstimados=false → null', async () => {
+    const rows = {
+      serieBackorder: [
+        { fuente: 'reconstruido', mes: '2026-07', uds: 8, ars: 800 },
+        { fuente: 'snapshot', mes: '2026-09', uds: 10, ars: 1000 },
+      ],
+    };
+    const r = await dashboardVentasCore(makeDeps(rows, { mostrarEstimados: true }), {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect(r.serieBoUds.find((p) => p.mes === '2026-07')).toEqual({
+      mes: '2026-07',
+      valor: 8,
+      estimado: true,
+    });
+    const r2 = await dashboardVentasCore(makeDeps(rows, { mostrarEstimados: false }), {
+      auth: AUTH,
+      data: { mes: '2026-10' },
+    });
+    expect(r2.serieBoArs.find((p) => p.mes === '2026-07')).toEqual({
+      mes: '2026-07',
+      valor: null,
+      estimado: true,
+    });
+    expect(r2.serieBoArs.find((p) => p.mes === '2026-09')).toEqual({
+      mes: '2026-09',
+      valor: 1000,
+      estimado: false,
+    });
+  });
+
+  it('serieVentas llena 12 meses con los valores de BQ', async () => {
+    const deps = makeDeps({
+      serieVentas: [
+        { anio: 2026, mes: 9, valor: 300 },
+        { anio: 2025, mes: 11, valor: 100 },
+      ],
+    });
+    const r = await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    expect(r.serieVentas[0]).toEqual({ mes: '2025-11', valor: 100 });
+    expect(r.serieVentas[10]).toEqual({ mes: '2026-09', valor: 300 });
+    expect(r.serieVentas[11]).toEqual({ mes: '2026-10', valor: 0 });
+  });
+
+  it('cache_hit: dos llamadas iguales dentro de 10 min → una sola corrida', async () => {
+    const deps = makeDeps({});
+    let t = NOW;
+    deps.now = () => t;
+    await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    t += 5 * 60 * 1000;
+    await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    expect(deps.calls.length).toBe(5);
+    // otro uid no comparte caché.
+    await dashboardVentasCore(deps, { auth: { uid: 'u2' }, data: { mes: '2026-10' } });
+    expect(deps.calls.length).toBe(10);
+    // vencido el TTL se vuelve a consultar.
+    t += 6 * 60 * 1000;
+    await dashboardVentasCore(deps, { auth: AUTH, data: { mes: '2026-10' } });
+    expect(deps.calls.length).toBe(15);
+  });
+
+  it('buildQueries: params de mes y ventana de 12 meses', () => {
+    const f = normalizeFilters({ mes: '2026-03' }, NOW);
+    const qs = buildQueries(f, NOW);
+    expect(qs.kpis.params.anio).toBe(2026);
+    expect(qs.kpis.params.mesNum).toBe(3);
+    expect(qs.serieVentas.params.desde).toBe('2025-04-01');
+    expect(qs.serieVentas.params.hasta).toBe('2026-03-01');
+    expect(qs.serieBackorder.params.mesActual).toBe('2026-10');
+    expect(qs.serieVentas.types.desde).toBe('DATE');
+    expect(qs.kpis.query).toContain('is_pesca = TRUE');
+    expect(qs.kpis.query).toContain("doc_kind = 'INVOICE'");
+  });
+});
