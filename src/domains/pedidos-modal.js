@@ -1176,7 +1176,9 @@ function renderReviewLines() {
       const _cli = window.currentOrderClient || {};
       const _cc =
         _cli.cardCode ||
-        (typeof window.sapGetClienteCode === 'function' ? window.sapGetClienteCode(_cli.name) : '') ||
+        (typeof window.sapGetClienteCode === 'function'
+          ? window.sapGetClienteCode(_cli.name)
+          : '') ||
         '';
       const _getUtil =
         typeof window.getStockUtilizableParaClienteExAsig === 'function'

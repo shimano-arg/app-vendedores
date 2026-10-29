@@ -216,6 +216,8 @@ import {
 // client_master por cardCode. Usada por renderPendientesList +
 // renderConfirmadosList en index.html.
 import { resolveOrphanPedidoLocation } from './pure/resolve-orphan-pedido-location.js';
+// v1528: disponible por línea en Revisá tu pedido (STOCK ASIGNADO usa utilizable del cliente).
+import { dispParaLineaReview } from './pure/review-disp-linea.js';
 // v1416 §42.2 (2026-10-22): guard "Revisá tu pedido" ofrece unificación en vez
 // de bloqueo seco. Reusa helpers §42 (findOpenWaitlistsForClient) + pure helpers
 // propios de merge (mergeWaitlistIntoOrderLines, buildUnifiedAtReviewUpdate,
@@ -262,8 +264,6 @@ import {
 // v1526: filas del Excel "Exportar pedido" (Stock Asignado / Original / Completo).
 import { buildWaitlistExportRows, isStockAsignadoItem } from './pure/waitlist-export-rows.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
-// v1528: disponible por línea en Revisá tu pedido (STOCK ASIGNADO usa utilizable del cliente).
-import { dispParaLineaReview } from './pure/review-disp-linea.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import {
   buildExcludedPedidoIdsForRepetido,

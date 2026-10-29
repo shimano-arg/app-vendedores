@@ -10,7 +10,12 @@ const deps = {
   getLibre: (s) => (s in LIBRE ? LIBRE[s] : null),
   getUtilizable: (s) => (s in UTIL ? UTIL[s] : 0),
 };
-const asig = { code: '597144', qty: 1, origen: 'stock-asignado', asigRefs: [{ pedidoId: 'p', lineIndex: 0, qtyAsignada: 1 }] };
+const asig = {
+  code: '597144',
+  qty: 1,
+  origen: 'stock-asignado',
+  asigRefs: [{ pedidoId: 'p', lineIndex: 0, qtyAsignada: 1 }],
+};
 
 describe('dispParaLineaReview', () => {
   it('línea STOCK ASIGNADO usa el utilizable del cliente, no el libre general', () => {
@@ -40,7 +45,9 @@ describe('contrato v1528', () => {
     expect(modal).toContain('dispParaLineaReview');
   });
   it('el cliente del review lleva cardCode al venir de lista de espera', () => {
-    expect(html).toMatch(/currentOrderClient = \{name: w\.clientName, tipo: 'C', province: provNorm, locName, cardCode:/);
+    expect(html).toMatch(
+      /currentOrderClient = \{name: w\.clientName, tipo: 'C', province: provNorm, locName, cardCode:/
+    );
   });
   it('main.js expone el pure', () => {
     expect(readFileSync('src/main.js', 'utf8')).toContain("from './pure/review-disp-linea.js'");
