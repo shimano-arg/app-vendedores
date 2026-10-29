@@ -4741,6 +4741,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Rollback**: revert del commit y no deployar la CF (o borrarla con `firebase functions:delete dashboardVentasCF`; si queda deployada no tiene consumidores). Las vistas y la tabla nuevas de BigQuery se pueden dejar: no las lee nada más.
 
+### Hotfix functions (2026-10-29) — VENDOR_UID_MISSING en clientes de VDI o gerente
+
+**Antes**: `resolveClientVendorServerSide` (`functions/core/resolve-client-vendor-core.js`), que `commitPedidoCF` usa antes del gate `VENDOR_UID_MISSING` (§89), buscaba el usuario del vendedor solo entre `roles` con `role='vendedor'`.
+
+**Problema**: el navegador del vendedor no puede leer `roles` de otros usuarios, así que el UID lo resuelve el servidor. Si el vendedor del cliente es un VDI (`role='interno'`, ej. IOANNIS PALKOUDAKIS) o un gerente, el servidor no lo encontraba y rechazaba con "Este cliente tiene vendedor asignado pero no pudimos encontrar su usuario". La pantalla (§46) sí busca en los 4 roles; admin pasaba porque su navegador arma el UID.
+
+**Cambio**: el servidor busca en `vendedor`, `interno`, `gerente` y `admin`, en ese orden de precedencia (mismo criterio que la pantalla).
+
+**Por qué**: §89 — lo que un gate del servidor exige lo resuelve el servidor, con la misma regla que el cliente.
+
+**Verificación**: `tests/functions/resolve-vendor-uid-roles.test.js` (3: VDI, gerente, precedencia vendedor); v1491 + gate PR3 siguen verdes (21); unit 2512; typecheck + lint OK. Las 11 fallas preexistentes de `tests/functions/commit-pedido-*` siguen igual que en main.
+
+**Deploy**: `firebase deploy --only functions:commitPedidoCF --project app-vendedores-shimano`. No cambia el front.
+
+**Rollback**: revert del commit + redeploy de `commitPedidoCF`.
+
 ### v1528 (2026-10-29) — "Revisá tu pedido" deja de marcar sin stock lo que es STOCK ASIGNADO del cliente
 
 **Antes**: el modal "Revisá tu pedido" (`renderReviewLines`, `src/domains/pedidos-modal.js`) calculaba el disponible de cada línea con el libre general (`_revisionStockFor(sku).disponible`).
