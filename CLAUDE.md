@@ -3759,5 +3759,7 @@ Expuestos en `window.__phase0.pure.{buildPopupStockSkuLineas, renderPopupStockSk
 
 **Precedente**: REBORN SRL CLC66H2PY 2026-10-29. `revertSobreAsignadas` con entregable 0 dejaba ASIG `qty=0/qtyOpen=0` + BO apendeada; el CPST re-buscaba la línea por producto, caía en la zombie y bloqueaba el pedido entero.
 
+**Derivada 2 (v1522)**: un proceso automático que reescribe `lines` de un pedido lo hace en `runTransaction`, re-leyendo el doc; si cambió desde que lo leyó, no escribe en esa vuelta. Nunca `update({lines})` con una copia leída antes (pisa repartos concurrentes).
+
 **Derivada**: quien referencia una línea de pedido guarda y usa su `lineIndex`; nunca la re-busca con `findIndex(code+state)` (puede haber varias líneas del mismo producto y estado). Limpieza de datos viejos: `scripts/audit/AS_asig_huerfanas.cjs`.
 

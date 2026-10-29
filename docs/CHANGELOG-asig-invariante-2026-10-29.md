@@ -18,3 +18,21 @@
 **Rollback**: revertir el commit y redeployar las dos funciones. Las líneas BO revertidas en su lugar son estado válido; no hay que deshacerlas.
 
 **Pendiente (no incluido)**: `revertSobreAsignadas` hace read-modify-write de `lines` fuera de transacción; un `applyRepartoManualCF` concurrente puede perder su asignación. Lo detecta `scripts/audit/AS_asig_huerfanas.cjs` (tipo R). Pasarlo a transacción por pedido es el siguiente paso.
+
+---
+
+## v1522 — revertSobreAsignadas no pisa repartos concurrentes (2026-10-29)
+
+**Antes**: leía todos los pedidos abiertos, calculaba el recorte y escribía el array `lines` completo con `update()` fuera de transacción.
+
+**Problema**: si entre la lectura y la escritura alguien escribía el mismo pedido (Pablo aplicando un reparto, un vendedor confirmando), la escritura del reconcile, calculada sobre datos viejos, pisaba el cambio. La asignación se perdía sin error visible. En prod 29/10 no se encontró ningún caso (script AS, tipo R = 0), pero el camino existía; el test T2 lo reproduce con el código viejo.
+
+**Cambio** (`functions/core/reparto-core.js:revertSobreAsignadas`): cada pedido se escribe en una `runTransaction` que re-lee el doc. Si las líneas cambiaron desde la lectura masiva, o el pedido fue borrado o cerrado, no se escribe y se devuelve en `skipped[]` con el motivo (`pedido_cambio_durante_reconcile`, `pedido_no_existe`, `pedido_cerrado`). La próxima corrida, que corre con cada escritura de `app_config/stock_snapshot` (~5 min), lo recalcula con datos frescos. `onDep11IncreaseCreateReparto` loguea `sobreAsignadasSkipped`.
+
+**Por qué**: preferimos demorar un recorte 5 minutos antes que perder una asignación hecha por una persona.
+
+**Verificación**: `tests/functions/revert-sobre-asignadas-concurrencia.test.js` (5): T1 sin concurrencia aplica; T2 reparto concurrente no se pisa (falla con el código anterior); T3 la vuelta siguiente aplica; T4 pedido borrado no se resucita; T5 dryRun no escribe. Reparto + invariante + scan: 73/73. Suite functions: 800 pass / 11 fail preexistentes (`commit-pedido-*`, idénticos en `main`).
+
+**Deploy**: `firebase deploy --only functions:onDep11IncreaseCreateReparto`.
+
+**Rollback**: revertir el commit y redeployar esa función.

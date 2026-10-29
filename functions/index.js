@@ -1081,6 +1081,9 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
       reconcileAutoCerrados: (r2.autoCerrados && r2.autoCerrados.length) || 0,
       sobreAsignadasRevertidas: r3.revertidas.length,
       sobreAsignadasErrors: r3.errors.length,
+      // v1522: pedidos que cambiaron durante el cálculo (ej. reparto de Pablo
+      // en el medio) — no se escriben en esta vuelta para no pisarlos.
+      sobreAsignadasSkipped: (r3.skipped && r3.skipped.length) || 0,
     });
   }
 );

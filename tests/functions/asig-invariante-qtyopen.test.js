@@ -35,6 +35,15 @@ function fakeDbPedidos(pedidos) {
   const updates = [];
   return {
     _updates: updates,
+    // v1522: revertSobreAsignadas escribe en transacción con re-lectura.
+    runTransaction: async (fn) =>
+      fn({
+        get: async (ref) => {
+          const p = pedidos.find((d) => d.id === ref.id);
+          return { exists: !!p, data: () => (p ? p.data() : undefined) };
+        },
+        update: (ref, data) => updates.push({ id: ref.id, data }),
+      }),
     collection(name) {
       return {
         where() {
@@ -48,11 +57,7 @@ function fakeDbPedidos(pedidos) {
             },
           };
         },
-        doc: (id) => ({
-          update: async (data) => {
-            updates.push({ id, data });
-          },
-        }),
+        doc: (id) => ({ id }),
       };
     },
   };
