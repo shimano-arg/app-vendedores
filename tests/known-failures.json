@@ -1,0 +1,122 @@
+{
+  "_comment": "Fallas PREEXISTENTES conocidas (2026-10-29; idénticas en main ef1b8dd v1528 y 3b0bf2c). No son regresiones de P0; se corrigen en una rama aparte. El gate scripts/ci/check-known-failures.mjs falla si: aparece una falla nueva, una conocida pasa, una conocida falla con otra firma, aparece un skip nuevo, un skip conocido corre, un archivo no carga o se ejecutan menos tests que minExecuted. Al corregir una falla o borrar tests, actualizar este archivo en el mismo PR.",
+  "version": 2,
+  "rules": [
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/roles vendor NO puede leer role de otro vendor",
+      "signature": "Error: Expected request to fail, but it succeeded."
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* interno crea nota con authorUid propio",
+      "signature": "FirebaseError: # PERMISSION_DENIED: No matching allow statements"
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* interno solo edita/borra sus propias notas",
+      "signature": "FirebaseError: # PERMISSION_DENIED: No matching allow statements"
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* interno/gerente/admin leen",
+      "signature": "FirebaseError: No matching allow statements"
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* seguimiento_status: mismo patrón, cada VDI ve/edita el suyo por cliente",
+      "signature": "FirebaseError: # PERMISSION_DENIED: No matching allow statements"
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "anon (no auth) permite crear client_applications via submittedByPublicForm (alta pública)",
+      "signature": "FirebaseError: # PERMISSION_DENIED:"
+    }
+  ],
+  "functions": [
+    {
+      "file": "tests/functions/commit-pedido-draft-lock-concurrent.test.js",
+      "test": "§64.3 draft lock atómico — prevención de doble-click concurrente T6 — lock existe pero pedido NO (edge: rollback parcial) → crea nuevo pedido",
+      "signature": "AssertionError: expected undefined to be true // Object.is equality"
+    },
+    {
+      "file": "tests/functions/commit-pedido-logging-all-paths.test.js",
+      "test": "§64.2 — TODO rechazo loguea en operations_log AWAIT: el log existe ANTES de que commitPedidoCore retorne (no fire-and-forget)",
+      "signature": "AssertionError: expected # to be # // Object.is equality"
+    },
+    {
+      "file": "tests/functions/commit-pedido-logging-all-paths.test.js",
+      "test": "§64.2 — TODO rechazo loguea en operations_log response al cliente NO expone _logExtra (metadata server-side scrubbed)",
+      "signature": "AssertionError: expected undefined to be truthy"
+    },
+    {
+      "file": "tests/functions/commit-pedido-logging-all-paths.test.js",
+      "test": "§64.2 — TODO rechazo loguea en operations_log SNAPSHOT_TOO_OLD → log entry con snapshotAgeMinutes (desde _logExtra)",
+      "signature": "AssertionError: expected # to be # // Object.is equality"
+    },
+    {
+      "file": "tests/functions/commit-pedido-logging-all-paths.test.js",
+      "test": "§64.2 — TODO rechazo loguea en operations_log STOCK_CHANGED → log entry con skuDetails (desde err._data._logExtra)",
+      "signature": "AssertionError: expected # to be # // Object.is equality"
+    },
+    {
+      "file": "tests/functions/commit-pedido-logging-no-functions.test.js",
+      "test": "§64 regresión v1453 — operations_log entries SIN funciones STOCK_CHANGED log entry.skuDetails[].server.utilizablePara es NUMBER, no función",
+      "signature": "AssertionError: expected undefined to be truthy"
+    },
+    {
+      "file": "tests/functions/commit-pedido-snapshot-too-old.test.js",
+      "test": "SNAPSHOT_TOO_OLD threshold v1456 §60 UPDATE (30 min, 2026-10-25) T6 — 24 h: SNAPSHOT_TOO_OLD + log en operations_log",
+      "signature": "AssertionError: expected 'commit_pedido_warning' to be 'commit_pedido_rejected' // Object.is equality"
+    },
+    {
+      "file": "tests/functions/commit-pedido-stock-changed-logging.test.js",
+      "test": "§64 STOCK_CHANGED logging T1 — dispara STOCK_CHANGED + escribe log entry en operations_log",
+      "signature": "AssertionError: expected 'commit_pedido_warning' to be 'commit_pedido_rejected' // Object.is equality"
+    },
+    {
+      "file": "tests/functions/commit-pedido-stock-changed-logging.test.js",
+      "test": "§64 STOCK_CHANGED logging T2 — log incluye valores server (libre, utilizablePara, qtyBO, _version)",
+      "signature": "AssertionError: expected undefined to be truthy"
+    },
+    {
+      "file": "tests/functions/commit-pedido-stock-changed-logging.test.js",
+      "test": "§64 STOCK_CHANGED logging T3 — si payload trae clientStock, log incluye client + flags mismatch",
+      "signature": "AssertionError: expected undefined to be true // Object.is equality"
+    },
+    {
+      "file": "tests/functions/commit-pedido-stock-changed-logging.test.js",
+      "test": "§64 STOCK_CHANGED logging T4 — sin clientStock: clientSnapshotProvided=false, sd.client=null",
+      "signature": "AssertionError: expected undefined to be false // Object.is equality"
+    }
+  ],
+  "skipped": {
+    "rules": [
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) admin NO puede crear pedido sin _commitVersion (sin excepción para admin)"
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) interno NO puede crear pedido sin _commitVersion"
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) vendor NO puede crear pedido con _commitVersion inválido"
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) vendor NO puede crear pedido sin _commitVersion"
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) vendor puede crear pedido con _commitVersion=commitPedidoCore_v1"
+      }
+    ],
+    "functions": []
+  },
+  "minExecuted": {
+    "rules": 204,
+    "functions": 818
+  }
+}

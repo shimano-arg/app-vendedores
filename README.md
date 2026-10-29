@@ -4717,6 +4717,24 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix CI (2026-10-29) — suites de seguridad (Rules con emulador + Functions) en cada PR
+
+**Antes**: CI corría solo unit + smoke. `tests/rules/setup.js` hacía pasar en vacío las reglas si no había emulador.
+
+**Problema**: las pruebas de seguridad (roles, proxy SAP, reglas) nunca corrían en CI; una regresión podía pasar verde.
+
+**Cambio**:
+- Job `security-tests` en `test-and-lint.yml`: Java 21, `firebase-tools@14.27.0`, proyecto `demo-ci`.
+- `setup.js`: falla si `CI=true` o `REQUIRE_EMULATOR=1` y no hay emulador.
+- `tests/known-failures.json` (v2): las 6 fallas preexistentes de Rules y las 11 de Functions, con su firma de error, los 5 skips conocidos y un piso `minExecuted`.
+- `scripts/ci/check-known-failures.mjs`: falla ante una falla nueva, una conocida que pasa o que falla por **otra causa** (firma normalizada), un `.skip`/`todo` nuevo, un skip conocido que corre, un archivo que no carga, o menos tests que el piso (tests borrados).
+
+**Por qué**: que las pruebas de seguridad sean evidencia real y que una regresión no se esconda detrás de una falla vieja.
+
+**Verificación**: local con el mismo comando del workflow: Rules 198/209 + 6 conocidas, Functions 807/818 + 11 conocidas, gate `exit 0`; sin emulador, gate `exit 1`. `tests/unit/audit/check-known-failures.test.js`: 13 casos sintéticos. Gate `exit 0` también sobre `main` 3b0bf2c.
+
+**Rollback**: revert del PR (sin impacto en producción).
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.
