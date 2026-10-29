@@ -1206,6 +1206,9 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     tx.update(waitlistOrigenSnap.ref, {
       stage: 'consumed',
       consumedByPedidoId: pedidoRef.id,
+      // Rescatado del PR #1284 (SEC-AUTH-001, trazabilidad): UID de quien
+      // consumió la waitlist. Permite auditar consumos cruzados entre VDEs.
+      consumedBy: payload.ownerUid || null,
       consumedAt: nowIso,
       closedAt: nowIso,
       closedReason: 'consumed_by_commitPedidoCF',

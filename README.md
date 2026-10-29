@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1532 (2026-10-29) — trazabilidad de quién consume cada lista de espera + mensajes de login por cuenta deshabilitada
+
+**Antes**: al confirmar un pedido desde una lista de espera, `commitPedidoCF` marcaba la waitlist `consumed` sin registrar quién lo hizo. El login por email/contraseña mostraba el error crudo de Firebase para `auth/user-disabled` y `auth/admin-restricted-operation`.
+
+**Problema**: no se podía auditar qué usuario consumió una lista de espera ajena (residual VDE↔VDE, SEC-AUTH-002). Los mensajes de error no decían qué hacer.
+
+**Cambio**: `functions/core/commit-pedido-core.js` agrega `consumedBy: payload.ownerUid || null` al marcar la waitlist `consumed`. `index.html` (`doInlineLogin`): mensajes para `auth/admin-restricted-operation` y `auth/user-disabled` con el código técnico al final en línea aparte (§68). Rescatado del PR #1284 **sin** quitar el login con Google.
+
+**Por qué**: trazabilidad de consumos cruzados y mensajes accionables.
+
+**Verificación**: 11 tests (5 de functions que fallan sin el cambio + 6 de contrato, incluido que el login con Google se conserva). Unit 2518/2518, functions 812/823 (+11 conocidas).
+
+**Rollback**: revert del PR (frontend + redeploy de commitPedidoCF).
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.
