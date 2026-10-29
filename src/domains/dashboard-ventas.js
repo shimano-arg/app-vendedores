@@ -45,6 +45,7 @@ const state = {
   error: '',
   verMas: { unidades: false, dinero: false },
   verMasQuery: { unidades: '', dinero: '' },
+  interQuery: '',
   reqSeq: 0,
 };
 
@@ -59,6 +60,7 @@ function _resetState(uid) {
   state.error = '';
   state.verMas = { unidades: false, dinero: false };
   state.verMasQuery = { unidades: '', dinero: '' };
+  state.interQuery = '';
   state.reqSeq++;
 }
 
@@ -357,6 +359,114 @@ function _card(titulo, valor) {
   );
 }
 
+// Porcentaje con coma decimal (es-AR): 80,5%
+function _fmtPct(n) {
+  return (
+    (Number(n) || 0).toLocaleString('es-AR', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    }) + '%'
+  );
+}
+
+// AAAA-MM-DD -> DD/MM/AAAA (si no tiene ese formato, se devuelve tal cual)
+function _fmtFecha(f) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(f == null ? '' : f));
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : String(f == null ? '' : f);
+}
+
+function _tipoLabel(t) {
+  return t === 'visita' ? 'Visita' : 'Contacto';
+}
+
+// Tabla de interacciones (solo el contenedor con scroll; se reemplaza al buscar).
+function _interaccionesTabla(rows, total, query) {
+  const q = String(query || '')
+    .toLowerCase()
+    .trim();
+  const lista = Array.isArray(rows) ? rows : [];
+  const filtered = q
+    ? lista.filter((r) =>
+        (
+          String(r.cliente) +
+          ' ' +
+          _fmtFecha(r.fecha) +
+          ' ' +
+          String(r.vendedor) +
+          ' ' +
+          _tipoLabel(r.tipo)
+        )
+          .toLowerCase()
+          .includes(q)
+      )
+    : lista;
+  let html =
+    '<div class="dv-table-wrap dv-inter-wrap"><table class="dv-table"><thead><tr><th>Cliente</th><th>Fecha</th><th>Vendedor</th><th>Tipo</th></tr></thead><tbody>';
+  for (const r of filtered) {
+    html +=
+      '<tr><td>' +
+      _escHtml(r.cliente) +
+      '</td><td>' +
+      _escHtml(_fmtFecha(r.fecha)) +
+      '</td><td>' +
+      _escHtml(r.vendedor) +
+      '</td><td>' +
+      _escHtml(_tipoLabel(r.tipo)) +
+      '</td></tr>';
+  }
+  if (filtered.length === 0)
+    html += '<tr><td colspan="4" class="dv-muted">Sin resultados.</td></tr>';
+  html += '</tbody></table></div>';
+  const totalN = Number(total) || 0;
+  if (totalN > lista.length) {
+    html +=
+      '<div class="dv-muted">Mostrando ' +
+      _escHtml(_fmtUds(lista.length)) +
+      ' de ' +
+      _escHtml(_fmtUds(totalN)) +
+      '</div>';
+  }
+  return html;
+}
+
+/** Tabla de interacciones con buscador. El texto buscado se pone por DOM. */
+function _interaccionesSection(t, query) {
+  const rows = (t && t.rows) || [];
+  return (
+    '<section class="dv-section" id="dv-interacciones"><div class="dv-section-head"><h3>Interacciones</h3></div>' +
+    '<input type="search" class="dv-ms-search" id="dv-interacciones-buscar" placeholder="Buscar cliente, vendedor o tipo…">' +
+    '<div class="dv-inter-body">' +
+    _interaccionesTabla(rows, t && t.total, query) +
+    '</div></section>'
+  );
+}
+
+/** Bloque de gestión: tarjetas + nota + tabla de interacciones. */
+function _gestionSection(g, secciones, query) {
+  if (!g || (secciones && secciones.gestion && secciones.gestion.error)) {
+    return '<div class="dv-cards" id="dv-gestion">' + _card('Gestión', 'No disponible') + '</div>';
+  }
+  let html = '<div class="dv-cards" id="dv-gestion">';
+  html += _card('Target', g.target == null ? 'Sin target' : _fmtArs(g.target));
+  html += _card(
+    '% cumplimiento',
+    g.cumplimientoPct == null ? 'Sin target' : _fmtPct(g.cumplimientoPct)
+  );
+  html += _card('Rendiciones – monto', _fmtArs(g.rendicionesArs));
+  html += _card('Base activa', _fmtUds(g.baseActiva));
+  html += _card('Ticket promedio', _fmtArs(g.ticketPromedio));
+  html += _card('N° visitas', _fmtUds(g.visitas));
+  html += _card('N° contactados', _fmtUds(g.contactados));
+  html += _card('N° interacciones', _fmtUds(g.interacciones));
+  html += '</div>';
+  if (g.filtrosNoAplican) {
+    html +=
+      '<div class="dv-leyenda dv-muted">Target y rendiciones no se filtran por cliente ni producto; visitas y contactos no se filtran por producto.</div>';
+  }
+  html += _interaccionesSection(g.tablaInteracciones, query);
+  return html;
+}
+
 function _verMasTabla(tipoIn, rows) {
   const tipo = tipoIn === 'dinero' ? 'dinero' : 'unidades';
   const q = state.verMasQuery[tipo].toLowerCase().trim();
@@ -481,6 +591,7 @@ function renderResults() {
     html += _card('Cant. de pedidos del mes', _fmtUds(k.pedidos));
     html += _card('Cant. pedidos únicos', _fmtUds(k.pedidosUnicos));
     html += '</div>';
+    html += _gestionSection(d.gestion, d.secciones, state.interQuery);
     html += _topSection('unidades', 'Top 20 SKU - Unidades', d.topUnidades || []);
     html += _topSection('dinero', 'Top 20 SKU - Dinero', d.topDinero || []);
     html += _lineSection('dv-chart-ventas', 'Evolución de ventas');
@@ -495,6 +606,9 @@ function renderResults() {
     const k = inp.getAttribute('data-vermas-search');
     if (k) /** @type {HTMLInputElement} */ (inp).value = state.verMasQuery[k] || '';
   });
+
+  const interInp = root.querySelector('#dv-interacciones-buscar');
+  if (interInp) /** @type {HTMLInputElement} */ (interInp).value = state.interQuery || '';
 
   // Sin modal abierto no se dibuja (respuesta que llegó después de cerrar).
   if (_isOpen() && !state.loading && !state.error && d && !_isEmpty(d)) {
@@ -775,6 +889,14 @@ function _wire() {
         const s = opt.getAttribute('data-search') || '';
         opt.style.display = !q || s.includes(q) ? '' : 'none';
       });
+      return;
+    }
+    if (t.id === 'dv-interacciones-buscar') {
+      state.interQuery = t.value;
+      const g = state.data && state.data.gestion;
+      const ti = (g && g.tablaInteracciones) || { rows: [], total: 0 };
+      const cont = body.querySelector('#dv-interacciones .dv-inter-body');
+      if (cont) cont.innerHTML = _interaccionesTabla(ti.rows, ti.total, state.interQuery);
       return;
     }
     const vmAttr = t.getAttribute('data-vermas-search');

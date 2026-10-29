@@ -148,3 +148,135 @@ describe('Dashboard de Ventas — Top 20', () => {
     );
   });
 });
+
+describe('Dashboard de Ventas — gestión e interacciones', () => {
+  // Los helpers viven dentro del chunk (no se exportan): se evalúan desde el fuente.
+  function fn(name) {
+    const m = CHUNK.match(new RegExp('\\nfunction ' + name + '\\([\\s\\S]*?\\n\\}\\n'));
+    expect(m, 'función ' + name).toBeTruthy();
+    return m[0];
+  }
+  const nombres = [
+    '_escHtml',
+    '_fmtArs',
+    '_fmtUds',
+    '_fmtPct',
+    '_fmtFecha',
+    '_tipoLabel',
+    '_card',
+    '_interaccionesTabla',
+    '_interaccionesSection',
+    '_gestionSection',
+  ];
+  const fabrica = new Function(
+    nombres.map(fn).join('\n') + '\nreturn { _gestionSection, _interaccionesSection };'
+  );
+  const { _gestionSection, _interaccionesSection } = fabrica();
+
+  const g = {
+    target: 1000000,
+    cumplimientoPct: 80.5,
+    rendicionesArs: 500,
+    baseActiva: 12,
+    ticketPromedio: 250,
+    visitas: 3,
+    contactados: 4,
+    interacciones: 7,
+    tablaInteracciones: {
+      rows: [{ cliente: 'ACME', fecha: '2026-10-05', vendedor: 'PACHI', tipo: 'visita' }],
+      total: 1,
+    },
+    filtrosNoAplican: false,
+  };
+
+  it('ids y textos del contrato', () => {
+    expect(CHUNK).toContain('dv-gestion');
+    expect(CHUNK).toContain('dv-interacciones');
+    expect(CHUNK).toContain('dv-interacciones-buscar');
+    expect(CHUNK).toContain('Sin target');
+    expect(CHUNK).toContain('No disponible');
+    expect(CHUNK).toContain('Mostrando ');
+  });
+
+  it('tarjetas en orden, % con coma y fecha DD/MM/AAAA', () => {
+    const h = _gestionSection(g, {});
+    const orden = [
+      'Target',
+      '% cumplimiento',
+      'Rendiciones – monto',
+      'Base activa',
+      'Ticket promedio',
+      'N° visitas',
+      'N° contactados',
+      'N° interacciones',
+    ].map((t) => h.indexOf('>' + t + '<'));
+    expect(orden.every((i) => i >= 0)).toBe(true);
+    expect([...orden].sort((a, b) => a - b)).toEqual(orden);
+    expect(h).toContain('80,5%');
+    expect(h).toContain('05/10/2026');
+    expect(h).not.toContain('Mostrando ');
+    expect(h).not.toContain('no se filtran');
+  });
+
+  it('target null -> "Sin target"', () => {
+    const h = _gestionSection({ ...g, target: null, cumplimientoPct: null }, {});
+    expect(h).toContain('Sin target');
+  });
+
+  it('gestion null o con error -> "No disponible"', () => {
+    expect(_gestionSection(null, {})).toContain('No disponible');
+    expect(_gestionSection(g, { gestion: { error: true } })).toContain('No disponible');
+    expect(_gestionSection(null, {})).not.toContain('dv-interacciones');
+  });
+
+  it('filtrosNoAplican muestra la nota', () => {
+    const h = _gestionSection({ ...g, filtrosNoAplican: true }, {});
+    expect(h).toContain(
+      'Target y rendiciones no se filtran por cliente ni producto; visitas y contactos no se filtran por producto.'
+    );
+  });
+
+  it('total > rows -> "Mostrando N de M"', () => {
+    const h = _interaccionesSection({ rows: g.tablaInteracciones.rows, total: 800 });
+    expect(h).toContain('Mostrando 1 de 800');
+  });
+
+  it('escapa el cliente (sin <img)', () => {
+    const h = _interaccionesSection({
+      rows: [{ cliente: '<img src=x>', fecha: '2026-10-05', vendedor: 'V', tipo: 'contacto' }],
+      total: 1,
+    });
+    expect(h).not.toContain('<img');
+    expect(h).toContain('&lt;img');
+  });
+
+  it('el buscador filtra y el texto buscado nunca va al HTML', () => {
+    const h = _interaccionesSection(
+      {
+        rows: [
+          { cliente: 'ACME', fecha: '2026-10-05', vendedor: 'V', tipo: 'visita' },
+          { cliente: 'OTRO', fecha: '2026-10-06', vendedor: 'V', tipo: 'visita' },
+        ],
+        total: 2,
+      },
+      '<b>acme'
+    );
+    expect(h).not.toContain('<b>acme');
+    const h2 = _interaccionesSection(
+      {
+        rows: [
+          { cliente: 'ACME', fecha: '2026-10-05', vendedor: 'V', tipo: 'visita' },
+          { cliente: 'OTRO', fecha: '2026-10-06', vendedor: 'V', tipo: 'visita' },
+        ],
+        total: 2,
+      },
+      'acme'
+    );
+    expect(h2).toContain('ACME');
+    expect(h2).not.toContain('OTRO');
+  });
+
+  it('scroll interno con max-height + overflow-y (§49)', () => {
+    expect(INDEX_HTML).toMatch(/\.dv-inter-wrap\{max-height:\d+px;overflow-y:auto\}/);
+  });
+});
