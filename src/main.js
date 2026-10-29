@@ -262,6 +262,8 @@ import {
 // v1526: filas del Excel "Exportar pedido" (Stock Asignado / Original / Completo).
 import { buildWaitlistExportRows, isStockAsignadoItem } from './pure/waitlist-export-rows.js';
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
+// v1528: disponible por línea en Revisá tu pedido (STOCK ASIGNADO usa utilizable del cliente).
+import { dispParaLineaReview } from './pure/review-disp-linea.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import {
   buildExcludedPedidoIdsForRepetido,
@@ -678,6 +680,7 @@ const phase0 = {
     renderPopupStockSkuPlainText,
     buildWaitlistExportRows,
     isStockAsignadoItem,
+    dispParaLineaReview,
     lineReservesStock,
     computeVirtualAsigFifo,
     computeBackorderSkuMap,

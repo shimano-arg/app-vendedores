@@ -1167,6 +1167,34 @@ function renderReviewLines() {
         dispReal = Math.max(Number(stk.disponible || 0), 0);
       }
     }
+    // v1528: en líneas STOCK ASIGNADO el libre general resta la reserva del
+    // propio cliente y da 0 ("SIN STOCK" falso). Misma regla que la CF
+    // (§33/§35): esas líneas usan el utilizable para el cliente.
+    // Caso BENGOCHEA ORDEN 653 (29/10).
+    if (dispReal != null && l.origen === 'stock-asignado') {
+      const _p0 = (typeof window !== 'undefined' && window.__phase0 && window.__phase0.pure) || {};
+      const _cli = window.currentOrderClient || {};
+      const _cc =
+        _cli.cardCode ||
+        (typeof window.sapGetClienteCode === 'function' ? window.sapGetClienteCode(_cli.name) : '') ||
+        '';
+      const _getUtil =
+        typeof window.getStockUtilizableParaClienteExAsig === 'function'
+          ? window.getStockUtilizableParaClienteExAsig
+          : null;
+      const _libre = dispReal;
+      if (typeof _p0.dispParaLineaReview === 'function') {
+        const _d = _p0.dispParaLineaReview(l, _cc, {
+          getLibre: () => _libre,
+          getUtilizable: _getUtil,
+        });
+        if (_d != null) dispReal = _d;
+      } else if (_getUtil && _cc && Array.isArray(l.asigRefs) && l.asigRefs.length > 0) {
+        // Fallback si el bundle no cargó (SW viejo): misma regla inline.
+        const _u = Number(_getUtil(l.code, _cc));
+        if (Number.isFinite(_u)) dispReal = Math.max(_u, 0);
+      }
+    }
     // v408 (2026-08-05): si la linea tiene faltantesQty (v407+ Excel import),
     // el "Sin stock" cuenta SOLO las unidades sin cobertura, no la linea
     // entera. Se mantiene por compat, pero si tenemos dispReal, ese gana.
