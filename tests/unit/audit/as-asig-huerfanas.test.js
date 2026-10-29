@@ -19,7 +19,14 @@ function fixture() {
       closedAt: null,
       lines: [
         { code: 'CLC66H2PY', state: 'ASIG', qty: 0, qtyOpen: 0, asigAt, asigFromReparto: 'ING1' },
-        { code: 'CLC66H2PY', state: 'BO', qty: 2, qtyOpen: 0, splitFromLineIndex: 0, asigRevertidaReason: 'asig_sin_stock_revertida_a_bo' },
+        {
+          code: 'CLC66H2PY',
+          state: 'BO',
+          qty: 2,
+          qtyOpen: 0,
+          splitFromLineIndex: 0,
+          asigRevertidaReason: 'asig_sin_stock_revertida_a_bo',
+        },
         { code: 'CLC66H2PY', state: 'ASIG', qty: 2, qtyOpen: 2, asigAt, asigFromReparto: 'ING2' },
         { code: 'TRX301B', state: 'ASIG', qty: 1, qtyOpen: 1, asigAt, asigFromReparto: 'ING3' },
       ],
@@ -34,12 +41,29 @@ function fixture() {
       closedAt: null,
       stage: 'review',
       pedidosOrigenes: [{ pedidoId: 'PED_REBORN', lineIndex: 0, sku: 'CLC66H2PY', qtyAsignada: 2 }],
-      items: [{ code: 'CLC66H2PY', qty: 2, origen: 'stock-asignado', asigRefs: [{ pedidoId: 'PED_REBORN', lineIndex: 0, sku: 'CLC66H2PY', qtyAsignada: 2 }] }],
+      items: [
+        {
+          code: 'CLC66H2PY',
+          qty: 2,
+          origen: 'stock-asignado',
+          asigRefs: [{ pedidoId: 'PED_REBORN', lineIndex: 0, sku: 'CLC66H2PY', qtyAsignada: 2 }],
+        },
+      ],
     },
   ];
   const ingresos = [
-    { _id: 'ING2', sku: 'CLC66H2PY', appliedAt: asigAt, assignments: [{ pedidoId: 'PED_REBORN', lineIndex: 1, qtyAsignada: 2 }] },
-    { _id: 'ING9', sku: 'TRX301B', appliedAt: asigAt, assignments: [{ pedidoId: 'PED_REBORN', lineIndex: 3, qtyAsignada: 7 }] },
+    {
+      _id: 'ING2',
+      sku: 'CLC66H2PY',
+      appliedAt: asigAt,
+      assignments: [{ pedidoId: 'PED_REBORN', lineIndex: 1, qtyAsignada: 2 }],
+    },
+    {
+      _id: 'ING9',
+      sku: 'TRX301B',
+      appliedAt: asigAt,
+      assignments: [{ pedidoId: 'PED_REBORN', lineIndex: 3, qtyAsignada: 7 }],
+    },
   ];
   const perSkuSnap = {
     TRX301B: { asignadas: { total: 8, byClient: { C30710852762: 1, C_VIEJO: 7 } } },
@@ -51,7 +75,14 @@ describe('AS analizar', () => {
   it('Z: detecta la zombie CLC66H2PY y que la referencia la waitlist', () => {
     const r = analizar(fixture());
     expect(r.Z).toHaveLength(1);
-    expect(r.Z[0]).toMatchObject({ pedidoId: 'PED_REBORN', lineIndex: 0, sku: 'CLC66H2PY', revertida: true, refsWaitlist: ['WL1'], fantasma: 2 });
+    expect(r.Z[0]).toMatchObject({
+      pedidoId: 'PED_REBORN',
+      lineIndex: 0,
+      sku: 'CLC66H2PY',
+      revertida: true,
+      refsWaitlist: ['WL1'],
+      fantasma: 2,
+    });
   });
 
   it('W: waitlist apuntando a la zombie = 2u fantasma', () => {
@@ -63,12 +94,22 @@ describe('AS analizar', () => {
   it('R: asignación de reparto sin línea con asigFromReparto=ingreso', () => {
     const r = analizar(fixture());
     const sinLinea = r.R.filter((x) => x.tipo === 'asignacion_sin_linea');
-    expect(sinLinea).toEqual([expect.objectContaining({ ingresoId: 'ING9', sku: 'TRX301B', fantasma: 7 })]);
+    expect(sinLinea).toEqual([
+      expect.objectContaining({ ingresoId: 'ING9', sku: 'TRX301B', fantasma: 7 }),
+    ]);
   });
 
   it('S: clave vieja en stock_snapshot/{SKU}.byClient (merge:true no la borra)', () => {
     const r = analizar(fixture());
-    expect(r.S).toEqual([expect.objectContaining({ sku: 'TRX301B', cardCode: 'C_VIEJO', snapshot: 7, real: 0, fantasma: 7 })]);
+    expect(r.S).toEqual([
+      expect.objectContaining({
+        sku: 'TRX301B',
+        cardCode: 'C_VIEJO',
+        snapshot: 7,
+        real: 0,
+        fantasma: 7,
+      }),
+    ]);
   });
 
   it('filtro por SKU', () => {
@@ -84,7 +125,12 @@ describe('AS planLimpieza', () => {
     const acciones = planLimpieza(analizar(f), f.pedidos);
     expect(acciones).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ accion: 'corregir_ref', waitlistId: 'WL1', deLineIndex: 0, aLineIndex: 2 }),
+        expect.objectContaining({
+          accion: 'corregir_ref',
+          waitlistId: 'WL1',
+          deLineIndex: 0,
+          aLineIndex: 2,
+        }),
         expect.objectContaining({ accion: 'cerrar_zombie', pedidoId: 'PED_REBORN', lineIndex: 0 }),
         expect.objectContaining({ accion: 'manual', ingresoId: 'ING9' }),
       ])
@@ -95,6 +141,10 @@ describe('AS planLimpieza', () => {
     const f = fixture();
     f.pedidos[0].lines[2] = { code: 'CLC66H2PY', state: 'BO', qty: 2, qtyOpen: 2 };
     const acciones = planLimpieza(analizar(f), f.pedidos);
-    expect(acciones).toEqual(expect.arrayContaining([expect.objectContaining({ accion: 'liberar_ref', waitlistId: 'WL1' })]));
+    expect(acciones).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ accion: 'liberar_ref', waitlistId: 'WL1' }),
+      ])
+    );
   });
 });
