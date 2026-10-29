@@ -40,6 +40,7 @@ import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.j
 import { runDailyBackup } from './core/backup-core.js';
 // Cache en memoria acotada (Dashboard de Ventas, v1529).
 import { createBoundedCache } from './core/bounded-cache.js';
+import { withCallerRole } from './core/caller-role.js';
 import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
 // E2 §stock-servidor-atomico (2026-10-23)
 import { commitPedidoCore } from './core/commit-pedido-core.js';
@@ -3515,95 +3516,90 @@ export const commitPedidoCF = onCall(
     // cuando el flag app_config/live_sl.enabled=true.
     secrets: [SAP_SL_PASSWORD],
   },
-  async (req) => {
-    const auth = req.auth;
-    if (!auth || !auth.uid) {
-      throw new HttpsError('unauthenticated', 'login requerido');
-    }
-    const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    // Dominios permitidos (igual que applyRepartoManualCF).
-    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
-    if (!ALLOWED_DOMAINS.has(domain)) {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
-    const db = getFirestore();
-    const data = req.data || {};
-    // Payload shape validado dentro del core. Inyectamos owner info del request.
-    const payload = {
-      ...data,
-      ownerUid: auth.uid,
-      ownerEmail: email,
-    };
+  // SEC-02 (P0): autorización por rol leído en el servidor. Reemplaza el
+  // gate por dominio de email (aceptaba cualquier @gmail.com sin rol).
+  // D9: withCallerRole garantiza que el handler no corre sin rol válido.
+  withCallerRole(
+    { via: 'commit_pedido', getDb: getFirestore, HttpsError },
+    async (req, { db, email }) => {
+      const auth = req.auth;
+      const data = req.data || {};
+      // Payload shape validado dentro del core. Inyectamos owner info del request.
+      const payload = {
+        ...data,
+        ownerUid: auth.uid,
+        ownerEmail: email,
+      };
 
-    // §63 Fase 3 Capa 2 (v1445): lee flag `app_config/live_sl.enabled`.
-    // Si true, arma `deps.fetchStockLive` que invoca `fetchStockLiveCore`
-    // sin pasar por otra callable (menos latencia + atomicidad). Flag=false:
-    // undefined → core cae al snapshot (comportamiento histórico).
-    /** @type {any} */
-    let fetchStockLiveFn;
-    try {
-      const flagSnap = await db.doc('app_config/live_sl').get();
-      const flagData = flagSnap.exists ? flagSnap.data() || {} : {};
-      if (flagData.enabled) {
-        const sapCfgSnap = await db.doc('app_config/sap_integration').get();
-        const sapCfg = sapCfgSnap.data() || {};
-        const sl = sapCfg.serviceLayer || {};
-        if (sl.enabled && sl.url && sl.companyDB) {
-          const sapConfig = {
-            url: sl.url,
-            companyDB: sl.companyDB,
-            userName: sl.username || sl.userName,
-            password: SAP_SL_PASSWORD.value(),
-            fetch: globalThis.fetch,
-          };
-          fetchStockLiveFn = async (/** @type {any} */ params) => {
-            /** @type {any} */
-            let session = null;
-            return fetchStockLiveCore(
-              {
-                sapConfig,
-                fbDb: db,
-                acquireSlCookie: async () => {
-                  session = await acquireSession(sapConfig);
-                  return session.cookie;
+      // §63 Fase 3 Capa 2 (v1445): lee flag `app_config/live_sl.enabled`.
+      // Si true, arma `deps.fetchStockLive` que invoca `fetchStockLiveCore`
+      // sin pasar por otra callable (menos latencia + atomicidad). Flag=false:
+      // undefined → core cae al snapshot (comportamiento histórico).
+      /** @type {any} */
+      let fetchStockLiveFn;
+      try {
+        const flagSnap = await db.doc('app_config/live_sl').get();
+        const flagData = flagSnap.exists ? flagSnap.data() || {} : {};
+        if (flagData.enabled) {
+          const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+          const sapCfg = sapCfgSnap.data() || {};
+          const sl = sapCfg.serviceLayer || {};
+          if (sl.enabled && sl.url && sl.companyDB) {
+            const sapConfig = {
+              url: sl.url,
+              companyDB: sl.companyDB,
+              userName: sl.username || sl.userName,
+              password: SAP_SL_PASSWORD.value(),
+              fetch: globalThis.fetch,
+            };
+            fetchStockLiveFn = async (/** @type {any} */ params) => {
+              /** @type {any} */
+              let session = null;
+              return fetchStockLiveCore(
+                {
+                  sapConfig,
+                  fbDb: db,
+                  acquireSlCookie: async () => {
+                    session = await acquireSession(sapConfig);
+                    return session.cookie;
+                  },
+                  releaseSlCookie: (_c, ok) => {
+                    if (session) releaseSession(session, ok);
+                  },
+                  log: (msg, extra) => console.log('[commit live_sl]', msg, extra || {}),
+                  now: () => Date.now(),
                 },
-                releaseSlCookie: (_c, ok) => {
-                  if (session) releaseSession(session, ok);
-                },
-                log: (msg, extra) => console.log('[commit live_sl]', msg, extra || {}),
-                now: () => Date.now(),
-              },
-              params
-            );
-          };
+                params
+              );
+            };
+          }
         }
+      } catch (eFlag) {
+        // Flag read fallo → cae al snapshot. No bloquea.
+        console.warn('commitPedidoCF flag live_sl read fallo', (eFlag && eFlag.message) || eFlag);
       }
-    } catch (eFlag) {
-      // Flag read fallo → cae al snapshot. No bloquea.
-      console.warn('commitPedidoCF flag live_sl read fallo', (eFlag && eFlag.message) || eFlag);
-    }
 
-    try {
-      const r = await commitPedidoCore(
-        {
-          fbDb: db,
-          log: (msg, extra) => console.log(msg, extra || {}),
-          reportError: (err, ctx) => console.error('commitPedidoCore error', err, ctx || {}),
-          FieldValue,
-          fetchStockLive: fetchStockLiveFn,
-        },
-        payload
-      );
-      // Si el core devuelve ok:false, retornarlo como data (no throw).
-      // El cliente lo interpreta por `errorCode`.
-      return r;
-    } catch (e) {
-      // Error inesperado (no de negocio). Log + throw.
-      console.error('commitPedidoCF unexpected', e);
-      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      try {
+        const r = await commitPedidoCore(
+          {
+            fbDb: db,
+            log: (msg, extra) => console.log(msg, extra || {}),
+            reportError: (err, ctx) => console.error('commitPedidoCore error', err, ctx || {}),
+            FieldValue,
+            fetchStockLive: fetchStockLiveFn,
+          },
+          payload
+        );
+        // Si el core devuelve ok:false, retornarlo como data (no throw).
+        // El cliente lo interpreta por `errorCode`.
+        return r;
+      } catch (e) {
+        // Error inesperado (no de negocio). Log + throw.
+        console.error('commitPedidoCF unexpected', e);
+        throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      }
     }
-  }
+  )
 );
 
 // =============================================================================
@@ -3621,37 +3617,26 @@ export const updatePedidoLinesCF = onCall(
     memory: '256MiB',
     timeoutSeconds: 30,
   },
-  async (req) => {
-    const auth = req.auth;
-    if (!auth || !auth.uid) {
-      throw new HttpsError('unauthenticated', 'login requerido');
+  // SEC-02 (P0): autorización por rol leído en el servidor (falla cerrada).
+  // Antes: gate por dominio + lectura de rol "non-fatal" (sin rol pasaba
+  // como VDE). El core sigue chequeando dueño del pedido vs privilegiados.
+  // D9: withCallerRole garantiza que el handler no corre sin rol válido.
+  withCallerRole(
+    { via: 'update_pedido_lines', getDb: getFirestore, HttpsError },
+    async (req, { db, email, role }) => {
+      const auth = req.auth;
+      const data = req.data || {};
+      try {
+        const r = await updatePedidoLinesCore(
+          { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
+          data,
+          { uid: auth.uid, email, role }
+        );
+        return r;
+      } catch (e) {
+        console.error('updatePedidoLinesCF unexpected', e);
+        throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      }
     }
-    const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
-    if (!ALLOWED_DOMAINS.has(domain)) {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
-    const db = getFirestore();
-    // Lee role del user para auth check.
-    let role = '';
-    try {
-      const roleDoc = await db.collection('roles').doc(auth.uid).get();
-      role = String((roleDoc.data() || {}).role || '').toLowerCase();
-    } catch (_e) {
-      /* non-fatal, VDE queda sin role */
-    }
-    const data = req.data || {};
-    try {
-      const r = await updatePedidoLinesCore(
-        { fbDb: db, log: (msg, extra) => console.log(msg, extra || {}) },
-        data,
-        { uid: auth.uid, email, role }
-      );
-      return r;
-    } catch (e) {
-      console.error('updatePedidoLinesCF unexpected', e);
-      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
-    }
-  }
+  )
 );

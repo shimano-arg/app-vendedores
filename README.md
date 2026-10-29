@@ -4717,6 +4717,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Hotfix functions (2026-10-29) — commitPedidoCF/updatePedidoLinesCF exigen rol (no dominio de email)
+
+**Antes:** el gate era por dominio de email; aceptaba cualquier `@gmail.com` sin rol.
+
+**Cambio:**
+- `withCallerRole` lee `roles/{uid}` en el servidor;
+- falla cerrada;
+- devuelve `permission-denied` con `details.errorCode='ROLE_REQUIRED'`;
+- registra el rechazo en `operations_log`.
+
+Además, script de solo lectura `scripts/audit/AT_auth_vs_roles_readonly.cjs`, para usar antes del deploy.
+
+**Verificación:** 25 tests del control de rol (el envoltorio se ejecuta, no es un grep) + 3 del script.
+
+**Rollback:** redeploy de las 2 CFs anteriores.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.
