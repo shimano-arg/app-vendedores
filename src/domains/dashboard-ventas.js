@@ -43,9 +43,10 @@ const state = {
   opcionesRendered: null,
   loading: false,
   error: '',
-  verMas: { unidades: false, dinero: false },
-  verMasQuery: { unidades: '', dinero: '' },
+  verMas: { unidades: false, dinero: false, clientes: false },
+  verMasQuery: { unidades: '', dinero: '', clientes: '' },
   interQuery: '',
+  prodQuery: '',
   reqSeq: 0,
 };
 
@@ -58,9 +59,10 @@ function _resetState(uid) {
   state.opcionesRendered = null;
   state.loading = false;
   state.error = '';
-  state.verMas = { unidades: false, dinero: false };
-  state.verMasQuery = { unidades: '', dinero: '' };
+  state.verMas = { unidades: false, dinero: false, clientes: false };
+  state.verMasQuery = { unidades: '', dinero: '', clientes: '' };
   state.interQuery = '';
+  state.prodQuery = '';
   state.reqSeq++;
 }
 
@@ -467,21 +469,49 @@ function _gestionSection(g, secciones, query) {
   return html;
 }
 
+// Tipos permitidos del "Ver más": lista blanca (el atributo del DOM nunca se reusa en el HTML).
+function _tipoVerMas(tipoIn) {
+  return tipoIn === 'dinero' ? 'dinero' : tipoIn === 'clientes' ? 'clientes' : 'unidades';
+}
+
 function _verMasTabla(tipoIn, rows) {
-  const tipo = tipoIn === 'dinero' ? 'dinero' : 'unidades';
+  const tipo = _tipoVerMas(tipoIn);
   const q = state.verMasQuery[tipo].toLowerCase().trim();
+  const esCli = tipo === 'clientes';
   // Posición del ranking calculada una sola vez (sin indexOf por fila).
   const ranked = rows.map((r, i) => ({ r, pos: i + 1 }));
   const filtered = q
     ? ranked.filter((x) =>
-        (String(x.r.sku) + ' ' + String(x.r.desc || '')).toLowerCase().includes(q)
+        (esCli
+          ? String(x.r.nombre) + ' ' + String(x.r.code)
+          : String(x.r.sku) + ' ' + String(x.r.desc || '')
+        )
+          .toLowerCase()
+          .includes(q)
       )
     : ranked;
   let html =
-    '<div class="dv-vermas"><input type="search" class="dv-ms-search" placeholder="Buscar SKU o descripción…" data-vermas-search="' +
+    '<div class="dv-vermas"><input type="search" class="dv-ms-search" placeholder="' +
+    (esCli ? 'Buscar cliente…' : 'Buscar SKU o descripción…') +
+    '" data-vermas-search="' +
     tipo +
-    '"><div class="dv-table-wrap"><table class="dv-table"><thead><tr><th>#</th><th>SKU</th><th>Descripción</th><th class="num">Unidades</th><th class="num">Dinero</th></tr></thead><tbody>';
+    '"><div class="dv-table-wrap"><table class="dv-table"><thead><tr>' +
+    (esCli
+      ? '<th>#</th><th>Cliente</th><th class="num">Facturado</th>'
+      : '<th>#</th><th>SKU</th><th>Descripción</th><th class="num">Unidades</th><th class="num">Dinero</th>') +
+    '</tr></thead><tbody>';
   for (const { r, pos } of filtered) {
+    if (esCli) {
+      html +=
+        '<tr><td>' +
+        pos +
+        '</td><td>' +
+        _escHtml(r.nombre) +
+        '</td><td class="num">' +
+        _escHtml(_fmtArs(r.facturado)) +
+        '</td></tr>';
+      continue;
+    }
     html +=
       '<tr><td>' +
       pos +
@@ -496,7 +526,7 @@ function _verMasTabla(tipoIn, rows) {
       '</td></tr>';
   }
   if (filtered.length === 0)
-    html += '<tr><td colspan="5" class="dv-muted">Sin resultados.</td></tr>';
+    html += '<tr><td colspan="' + (esCli ? 3 : 5) + '" class="dv-muted">Sin resultados.</td></tr>';
   html += '</tbody></table></div></div>';
   return html;
 }
@@ -531,6 +561,160 @@ function _topSection(tipo, titulo, rows) {
         '"></canvas></div>'
       : '<div class="dv-muted">Sin datos.</div>') +
     (abierto ? _verMasTabla(tipo, rows) : '') +
+    '</section>'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Productos, cobertura y facturación por cliente (entrega B)
+// ---------------------------------------------------------------------------
+
+/** Stock de la app para un SKU. Todo null si el stock todavía no cargó ("…"). */
+function _stockColumnas(sku) {
+  const vacio = { reservadas: null, libre: null, stock: null };
+  try {
+    if (typeof window === 'undefined' || typeof window.getStockBreakdown !== 'function')
+      return vacio;
+    // getStockDisponibleVenta devuelve null mientras el stock no está cargado.
+    if (typeof window.getStockDisponibleVenta === 'function') {
+      if (window.getStockDisponibleVenta(sku) === null) return vacio;
+    }
+    const b = window.getStockBreakdown(sku);
+    if (!b) return vacio;
+    return {
+      reservadas: Number(b.reservadasTotal) || 0,
+      libre: Number(b.libre) || 0,
+      stock: Number(b.fisicoDep11) || 0,
+    };
+  } catch (_e) {
+    return vacio;
+  }
+}
+
+function _fmtStockCol(n) {
+  return n == null ? '…' : _fmtUds(n);
+}
+
+/** Etiqueta de cobertura: "36 de 66 · 54,55%" (coma decimal); sin porcentaje: "36 de 0 · —". */
+function _coberturaEtiqueta(r) {
+  const pct =
+    r.pct == null
+      ? '—'
+      : (Number(r.pct) || 0).toLocaleString('es-AR', {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        }) + '%';
+  return (Number(r.compraron) || 0) + ' de ' + (Number(r.dadosAlta) || 0) + ' · ' + pct;
+}
+
+/** Tabla de productos (solo el contenedor con scroll; se reemplaza al buscar). */
+function _productosTabla(rows, query) {
+  const q = String(query || '')
+    .toLowerCase()
+    .trim();
+  const lista = Array.isArray(rows) ? rows : [];
+  const filtered = q
+    ? lista.filter((r) =>
+        (String(r.categoria) + ' ' + String(r.familia) + ' ' + String(r.sku))
+          .toLowerCase()
+          .includes(q)
+      )
+    : lista;
+  let html =
+    '<div class="dv-table-wrap"><table class="dv-table"><thead><tr><th>CATEGORIA</th><th>FAMILIA</th><th>SKU</th><th class="num">UNIDADES VENDIDAS</th><th class="num">FACTURADO</th><th class="num">UNIDADES BACKORDER</th><th class="num">UNIDADES RESERVADAS</th><th class="num">UNIDADES LIBRE PARA LA VENTA</th><th class="num">UNIDADES EN STOCK</th></tr></thead><tbody>';
+  for (const r of filtered) {
+    const st = _stockColumnas(r.sku);
+    html +=
+      '<tr><td>' +
+      _escHtml(r.categoria) +
+      '</td><td>' +
+      _escHtml(r.familia) +
+      '</td><td class="mono">' +
+      _escHtml(r.sku) +
+      '</td><td class="num">' +
+      _escHtml(_fmtUds(r.udsVendidas)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtArs(r.facturado)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtUds(r.udsBackorder)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtStockCol(st.reservadas)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtStockCol(st.libre)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtStockCol(st.stock)) +
+      '</td></tr>';
+  }
+  if (filtered.length === 0)
+    html += '<tr><td colspan="9" class="dv-muted">Sin resultados.</td></tr>';
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function _noDisponible(id, titulo) {
+  return (
+    '<section class="dv-section" id="' +
+    id +
+    '"><div class="dv-section-head"><h3>' +
+    _escHtml(titulo) +
+    '</h3></div><div class="dv-muted">No disponible</div></section>'
+  );
+}
+
+function _productosSection(rows, secciones, query) {
+  if (!Array.isArray(rows) || (secciones && secciones.productos && secciones.productos.error)) {
+    return _noDisponible('dv-productos', 'Productos');
+  }
+  return (
+    '<section class="dv-section" id="dv-productos"><div class="dv-section-head"><h3>Productos</h3></div>' +
+    '<input type="search" class="dv-ms-search" id="dv-productos-buscar" placeholder="Buscar categoría, familia o SKU…">' +
+    '<div class="dv-prod-body">' +
+    _productosTabla(rows, query) +
+    '</div></section>'
+  );
+}
+
+function _coberturaSection(rows, secciones) {
+  if (!Array.isArray(rows) || (secciones && secciones.cobertura && secciones.cobertura.error)) {
+    return _noDisponible('dv-cobertura-chart', 'Cobertura de clientes');
+  }
+  const h = Math.max(120, rows.length * 44 + 40);
+  return (
+    '<section class="dv-section" id="dv-cobertura-chart"><div class="dv-section-head"><h3>Cobertura de clientes</h3></div>' +
+    (rows.length > 0
+      ? '<div class="dv-chart" style="height:' +
+        h +
+        'px"><canvas id="dv-canvas-cobertura" role="img" aria-label="Cobertura de clientes"></canvas></div>'
+      : '<div class="dv-muted">Sin datos.</div>') +
+    '</section>'
+  );
+}
+
+function _clientesSection(rows, secciones) {
+  if (!Array.isArray(rows) || (secciones && secciones.clientes && secciones.clientes.error)) {
+    return _noDisponible('dv-clientes-chart', 'Facturación por cliente');
+  }
+  const abierto = state.verMas.clientes;
+  const total = rows.length;
+  const h = Math.max(120, Math.min(TOP_N, total) * 22 + 40);
+  return (
+    '<section class="dv-section" id="dv-clientes-chart"><div class="dv-section-head"><h3>Facturación por cliente - Top 20</h3>' +
+    (total > 0
+      ? '<button type="button" class="dv-link" data-vermas="clientes" aria-expanded="' +
+        (abierto ? 'true' : 'false') +
+        '">' +
+        (abierto ? 'Ver menos' : 'Ver más') +
+        ' (' +
+        total +
+        ')</button>'
+      : '') +
+    '</div>' +
+    (total > 0
+      ? '<div class="dv-chart" style="height:' +
+        h +
+        'px"><canvas id="dv-chart-top-clientes" role="img" aria-label="Facturación por cliente"></canvas></div>'
+      : '<div class="dv-muted">Sin datos.</div>') +
+    (abierto ? _verMasTabla('clientes', rows) : '') +
     '</section>'
   );
 }
@@ -597,6 +781,9 @@ function renderResults() {
     html += _lineSection('dv-chart-ventas', 'Evolución de ventas');
     html += _lineSection('dv-chart-bo-uds', 'Evolución del backorder - Unidades');
     html += _lineSection('dv-chart-bo-ars', 'Evolución del backorder - Dinero');
+    html += _productosSection(d.productos, d.secciones, state.prodQuery);
+    html += _coberturaSection(d.cobertura, d.secciones);
+    html += _clientesSection(d.clientes, d.secciones);
   }
 
   _destroyCharts();
@@ -609,6 +796,8 @@ function renderResults() {
 
   const interInp = root.querySelector('#dv-interacciones-buscar');
   if (interInp) /** @type {HTMLInputElement} */ (interInp).value = state.interQuery || '';
+  const prodInp = root.querySelector('#dv-productos-buscar');
+  if (prodInp) /** @type {HTMLInputElement} */ (prodInp).value = state.prodQuery || '';
 
   // Sin modal abierto no se dibuja (respuesta que llegó después de cerrar).
   if (_isOpen() && !state.loading && !state.error && d && !_isEmpty(d)) {
@@ -797,6 +986,69 @@ function _lineChart(canvasId, serie, fmt, color, conEstimado) {
   });
 }
 
+/** Barras horizontales de cobertura: una por vendedor, 0-100%. */
+function _coberturaChart(rows) {
+  const el = document.getElementById('dv-canvas-cobertura');
+  if (!el || !window.Chart) return;
+  charts['dv-canvas-cobertura'] = new window.Chart(el, {
+    type: 'bar',
+    data: {
+      labels: rows.map((r) => [String(r.vendedor), _coberturaEtiqueta(r)]),
+      datasets: [
+        {
+          data: rows.map((r) => (r.pct == null ? 0 : Number(r.pct) || 0)),
+          backgroundColor: '#0284a0',
+          borderRadius: 3,
+        },
+      ],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const r = rows[items[0].dataIndex];
+              return r ? String(r.vendedor) : '';
+            },
+            label: (item) => {
+              const r = rows[item.dataIndex];
+              return r ? _coberturaEtiqueta(r) : '';
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          min: 0,
+          max: 100,
+          grid: _chartGrid(),
+          border: { display: false },
+          ticks: {
+            font: { family: CHART_FONT },
+            callback: (v) => v + '%',
+            maxTicksLimit: 5,
+            color: _cssVar('--text-muted', '#64748b'),
+          },
+        },
+        y: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: {
+            autoSkip: false,
+            font: { size: 10, family: CHART_FONT },
+            color: _cssVar('--text-secondary', '#334155'),
+          },
+        },
+      },
+    },
+  });
+}
+
 function _drawCharts(d) {
   // Puede que el usuario haya re-renderizado mientras cargaba Chart.js.
   _destroyCharts();
@@ -805,6 +1057,12 @@ function _drawCharts(d) {
   _lineChart('dv-chart-ventas', d.serieVentas || [], _fmtArs, '#1e40af', false);
   _lineChart('dv-chart-bo-uds', d.serieBoUds || [], _fmtUds, '#c2410c', true);
   _lineChart('dv-chart-bo-ars', d.serieBoArs || [], _fmtArs, '#9f1239', true);
+  if (Array.isArray(d.cobertura)) _coberturaChart(d.cobertura);
+  if (Array.isArray(d.clientes)) {
+    // _barChart usa sku/desc: se adaptan nombre y código del cliente.
+    const filas = d.clientes.map((c) => ({ sku: c.nombre, desc: c.code, facturado: c.facturado }));
+    _barChart('dv-chart-top-clientes', filas, 'facturado', _fmtArs, '#7c3aed');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -877,7 +1135,7 @@ function _wire() {
     }
     const vm = t.closest('[data-vermas]');
     if (vm) {
-      const tipo = vm.getAttribute('data-vermas') === 'dinero' ? 'dinero' : 'unidades';
+      const tipo = _tipoVerMas(vm.getAttribute('data-vermas'));
       state.verMas[tipo] = !state.verMas[tipo];
       // Solo resultados: no se leen ni se pisan filtros sin aplicar.
       renderResults();
@@ -922,14 +1180,27 @@ function _wire() {
       if (cont) cont.innerHTML = _interaccionesTabla(ti.rows, ti.total, state.interQuery);
       return;
     }
+    if (t.id === 'dv-productos-buscar') {
+      state.prodQuery = t.value;
+      const cont = body.querySelector('#dv-productos .dv-prod-body');
+      if (cont)
+        cont.innerHTML = _productosTabla(state.data && state.data.productos, state.prodQuery);
+      return;
+    }
     const vmAttr = t.getAttribute('data-vermas-search');
     if (vmAttr) {
-      // Solo dos rankings posibles: nunca reusar el texto del atributo en el HTML.
-      const vmKey = vmAttr === 'dinero' ? 'dinero' : 'unidades';
+      // Solo tres rankings posibles: nunca reusar el texto del atributo en el HTML.
+      const vmKey = _tipoVerMas(vmAttr);
       state.verMasQuery[vmKey] = t.value;
       const sec = t.closest('.dv-vermas');
+      const dd = state.data;
       const rows =
-        (state.data && (vmKey === 'unidades' ? state.data.topUnidades : state.data.topDinero)) ||
+        (dd &&
+          (vmKey === 'unidades'
+            ? dd.topUnidades
+            : vmKey === 'dinero'
+              ? dd.topDinero
+              : dd.clientes)) ||
         [];
       if (sec) {
         const tmp = document.createElement('div');

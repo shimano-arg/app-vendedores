@@ -280,3 +280,130 @@ describe('Dashboard de Ventas — gestión e interacciones', () => {
     expect(INDEX_HTML).toMatch(/\.dv-inter-wrap\{max-height:\d+px;overflow-y:auto\}/);
   });
 });
+
+describe('Dashboard de Ventas — productos, cobertura y clientes (entrega B)', () => {
+  function fn(name) {
+    const m = CHUNK.match(new RegExp('\\nfunction ' + name + '\\([\\s\\S]*?\\n\\}\\n'));
+    expect(m, 'función ' + name).toBeTruthy();
+    return m[0];
+  }
+  const nombres = [
+    '_escHtml',
+    '_fmtArs',
+    '_fmtUds',
+    '_stockColumnas',
+    '_fmtStockCol',
+    '_coberturaEtiqueta',
+    '_productosTabla',
+    '_noDisponible',
+    '_productosSection',
+    '_coberturaSection',
+  ];
+  const fabrica = new Function(
+    nombres.map(fn).join('\n') +
+      '\nreturn { _stockColumnas, _coberturaEtiqueta, _productosTabla, _productosSection, _coberturaSection };'
+  );
+  const api = fabrica();
+  const prev = /** @type {any} */ (globalThis).window;
+  const setWin = (w) => {
+    /** @type {any} */ (globalThis).window = w;
+  };
+  const restore = () => {
+    /** @type {any} */ (globalThis).window = prev;
+  };
+
+  it('_stockColumnas con breakdown -> reservadas/libre/stock', () => {
+    setWin({
+      getStockDisponibleVenta: () => 5,
+      getStockBreakdown: () => ({ reservadasTotal: 3, libre: 2, fisicoDep11: 5 }),
+    });
+    expect(api._stockColumnas('X')).toEqual({ reservadas: 3, libre: 2, stock: 5 });
+    restore();
+  });
+
+  it('_stockColumnas sin breakdown o sin stock cargado -> nulls', () => {
+    setWin({});
+    const vacio = { reservadas: null, libre: null, stock: null };
+    expect(api._stockColumnas('X')).toEqual(vacio);
+    setWin({
+      getStockDisponibleVenta: () => null,
+      getStockBreakdown: () => ({ reservadasTotal: 3, libre: 2, fisicoDep11: 5 }),
+    });
+    expect(api._stockColumnas('X')).toEqual(vacio);
+    restore();
+  });
+
+  it('etiqueta de cobertura con coma decimal y guion si no hay porcentaje', () => {
+    expect(api._coberturaEtiqueta({ compraron: 36, dadosAlta: 66, pct: 54.55 })).toBe(
+      '36 de 66 · 54,55%'
+    );
+    expect(api._coberturaEtiqueta({ compraron: 36, dadosAlta: 0, pct: null })).toBe('36 de 0 · —');
+  });
+
+  const prod = [
+    {
+      categoria: 'CAÑAS',
+      familia: 'ALIVIO',
+      sku: 'ALV1',
+      udsVendidas: 4,
+      facturado: 1000,
+      udsBackorder: 2,
+    },
+    {
+      categoria: 'REELS',
+      familia: 'STELLA',
+      sku: 'STL<b>',
+      udsVendidas: 1,
+      facturado: 5,
+      udsBackorder: 0,
+    },
+  ];
+
+  it('tabla de productos: headers exactos en orden y "…" sin stock', () => {
+    setWin({});
+    const h = api._productosTabla(prod, '');
+    const heads = [
+      'CATEGORIA',
+      'FAMILIA',
+      'SKU',
+      'UNIDADES VENDIDAS',
+      'FACTURADO',
+      'UNIDADES BACKORDER',
+      'UNIDADES RESERVADAS',
+      'UNIDADES LIBRE PARA LA VENTA',
+      'UNIDADES EN STOCK',
+    ];
+    const ths = Array.from(h.matchAll(/<th[^>]*>([^<]*)<\/th>/g)).map((m) => m[1]);
+    expect(ths).toEqual(heads);
+    expect(h).toContain('…');
+    expect(h).not.toContain('STL<b>');
+    expect(h).toContain('STL&lt;b&gt;');
+    restore();
+  });
+
+  it('el buscador filtra por categoría/familia/SKU', () => {
+    setWin({});
+    const h = api._productosTabla(prod, 'stella');
+    expect(h).toContain('REELS');
+    expect(h).not.toContain('CAÑAS');
+    restore();
+  });
+
+  it('productos null o con error -> "No disponible"; cobertura y ids', () => {
+    expect(api._productosSection(null, {}, '')).toContain('No disponible');
+    expect(api._productosSection(prod, { productos: { error: true } }, '')).toContain(
+      'No disponible'
+    );
+    expect(api._productosSection(prod, {}, '')).toContain('id="dv-productos"');
+    expect(api._coberturaSection(null, {})).toContain('No disponible');
+    expect(
+      api._coberturaSection([{ vendedor: 'A', dadosAlta: 1, compraron: 1, pct: 100 }], {})
+    ).toContain('id="dv-cobertura-chart"');
+    expect(CHUNK).toContain('dv-clientes-chart');
+  });
+
+  it('"Ver más" admite solo tipos de la lista blanca', () => {
+    expect(CHUNK).toMatch(/function _tipoVerMas\(/);
+    expect(CHUNK).not.toMatch(/state\.verMasQuery\[vmAttr\]/);
+  });
+});
