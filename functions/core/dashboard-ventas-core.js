@@ -29,6 +29,7 @@ import {
 } from './dashboard-ventas-queries.js';
 
 import { buildGestionQueries } from './dashboard-ventas-queries-gestion.js';
+import { buildProductosQueries } from './dashboard-ventas-queries-productos.js';
 
 export { buildQueries } from './dashboard-ventas-queries.js';
 
@@ -47,6 +48,10 @@ export { buildQueries } from './dashboard-ventas-queries.js';
  *   tablaInteracciones: { rows: FilaInteraccion[], total: number },
  *   filtrosNoAplican: boolean,
  * }} Gestion
+ * @typedef {{ categoria: string, familia: string, sku: string, udsVendidas: number,
+ *   facturado: number, udsBackorder: number }} FilaProducto
+ * @typedef {{ vendedor: string, dadosAlta: number, compraron: number, pct: number|null }} FilaCobertura
+ * @typedef {{ code: string, nombre: string, facturado: number }} FilaCliente
  * @typedef {{
  *   kpis: { facturado: number, backorderArs: number, pedidos: number, pedidosUnicos: number },
  *   topUnidades: TopSku[], topDinero: TopSku[],
@@ -54,7 +59,11 @@ export { buildQueries } from './dashboard-ventas-queries.js';
  *   opciones: { vendedores: string[], clientes: {code: string, name: string}[],
  *     provincias: string[], categorias: string[], skus: {code: string, desc: string}[] },
  *   gestion: Gestion|null,
- *   secciones: { gestion?: { error: true } },
+ *   productos: FilaProducto[]|null,
+ *   cobertura: FilaCobertura[]|null,
+ *   clientes: FilaCliente[]|null,
+ *   secciones: { gestion?: { error: true }, productos?: { error: true },
+ *     cobertura?: { error: true }, clientes?: { error: true } },
  *   dataUpdatedAt: string,
  * }} DashboardResponse
  * @typedef {{
@@ -273,6 +282,50 @@ function buildGestion(rows, kpis, filters) {
   };
 }
 
+/** Texto seguro desde una celda de BigQuery. */
+function str(/** @type {any} */ v) {
+  return String(v ?? '');
+}
+
+/** @param {any[]} rows */
+function buildProductos(rows) {
+  return (rows || []).map((r) => ({
+    categoria: str(r.categoria),
+    familia: str(r.familia),
+    sku: str(r.sku),
+    // SKU solo con back order: la query devuelve uds_vendidas/facturado nulos → 0.
+    udsVendidas: num(r.uds_vendidas),
+    facturado: num(r.facturado),
+    udsBackorder: num(r.uds_backorder),
+  }));
+}
+
+/** @param {any[]} rows */
+function buildCobertura(rows) {
+  return (rows || [])
+    .map((r) => {
+      const dadosAlta = num(r.dados_alta);
+      const compraron = num(r.compraron);
+      return {
+        vendedor: str(r.vendedor),
+        dadosAlta,
+        compraron,
+        pct: dadosAlta > 0 ? Math.round((compraron / dadosAlta) * 100 * 100) / 100 : null,
+      };
+    })
+    .sort((a, b) => a.vendedor.localeCompare(b.vendedor));
+}
+
+/** @param {any[]} rows */
+function buildClientes(rows) {
+  // Se mantiene el orden del servidor (facturado desc).
+  return (rows || []).map((r) => ({
+    code: str(r.card_code),
+    nombre: str(r.nombre),
+    facturado: num(r.facturado),
+  }));
+}
+
 /**
  * @param {DashboardDeps} deps
  * @param {{ auth: any, data: any }} params
@@ -295,6 +348,11 @@ export async function dashboardVentasCore(deps, params) {
   const qs = buildQueries(filters, now);
   const run = (/** @type {BqQuery} */ q) => deps.runQuery(q, q.params);
   const gestionP = runSeccion(run, buildGestionQueries(filters, now));
+  // Cada sección corre aparte: si una falla, las demás siguen.
+  const pq = buildProductosQueries(filters, now);
+  const productosP = runSeccion(run, { productos: pq.productos });
+  const coberturaP = runSeccion(run, { cobertura: pq.cobertura });
+  const clientesP = runSeccion(run, { clientes: pq.clientes });
   const [kpiRows, topRows, ventasRows, boRows, opcRows, config] = await Promise.all([
     run(qs.kpis),
     run(qs.topSkus),
@@ -335,7 +393,13 @@ export async function dashboardVentasCore(deps, params) {
 
   const bo = buildSeriesBackorder(boRows, meses, currentMonthArt(now), mostrarEstimados);
 
-  const g = await gestionP;
+  const [g, pr, co, cl] = await Promise.all([gestionP, productosP, coberturaP, clientesP]);
+  /** @type {DashboardResponse['secciones']} */
+  const secciones = {};
+  if (!g.ok) secciones.gestion = { error: true };
+  if (!pr.ok) secciones.productos = { error: true };
+  if (!co.ok) secciones.cobertura = { error: true };
+  if (!cl.ok) secciones.clientes = { error: true };
 
   /** @type {DashboardResponse} */
   const value = {
@@ -347,7 +411,10 @@ export async function dashboardVentasCore(deps, params) {
     serieBoArs: bo.ars,
     opciones: buildOpciones(opcRows),
     gestion: g.ok ? buildGestion(g.rows, kpis, filters) : null,
-    secciones: g.ok ? {} : { gestion: { error: true } },
+    productos: pr.ok ? buildProductos(pr.rows.productos) : null,
+    cobertura: co.ok ? buildCobertura(co.rows.cobertura) : null,
+    clientes: cl.ok ? buildClientes(cl.rows.clientes) : null,
+    secciones,
     dataUpdatedAt: new Date(now).toISOString(),
   };
 
