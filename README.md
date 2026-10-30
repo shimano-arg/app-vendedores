@@ -4717,6 +4717,29 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1533 (2026-10-29) — Dashboard de Ventas fase 2, entrega C: campañas activas, etiquetas de dato y evolución desde junio 2026
+
+**Antes**: el Dashboard de Ventas (v1532) no mostraba las campañas, los gráficos de barras no tenían el valor escrito sobre cada barra y las series de evolución (ventas y back order) no tenían un inicio fijo.
+
+**Problema**: no se podía ver el avance de las campañas activas contra su objetivo, había que pasar el cursor para leer cada valor de un gráfico, y la evolución mensual no arrancaba en un punto común.
+
+**Cambio**:
+- Campañas activas (`activa = TRUE`) en `v_campanias_progreso`. Sin filtro de vendedor se muestra el total de la campaña; con vendedor se muestran las campañas que lo alcanzan y lo vendido a sus clientes (desde `v_campanias_ventas_detalle`). El porcentaje se calcula por unidades o por dinero según el tipo de objetivo. Una campaña sin objetivo (vacío o 0) muestra "Sin objetivo" en vez de "0 u" / "$0".
+- Etiquetas de dato en todas las barras, con un plugin propio de Chart.js (`dvDataLabels`) y el formateador de cada gráfico.
+- Evolución de ventas y de back order desde junio 2026 (`SERIE_DESDE = '2026-06'`) hasta el mes elegido.
+- Fix de estilo: la primera campaña pierde el borde superior (`.dv-section-head + .dv-camp`; el selector anterior con `:first-of-type` nunca coincidía).
+- Script de apoyo `scripts/audit/BQ_dashboard_fase2_queries.cjs`: imprime todas las consultas del dashboard como scripts de BigQuery (DECLARE por parámetro + consulta con variables `p_*`) para probarlas en la consola. No forma parte de la app.
+- Revisión final: la tabla de productos sale ordenada por facturado (luego back order y SKU) desde la consulta y desde el servidor, así el tope de 200 filas muestra los más vendidos; una sección que falló no se guarda en la caché de 10 minutos (se reintenta en la próxima consulta); cada sección opcional tiene un tope de 25 s (`SECCION_TIMEOUT_MS`) para no perder las 5 consultas obligatorias, y el motivo de la falla queda en Cloud Logging (`[dashboardVentas] seccion <nombre> fallo: ...`); las etiquetas de las barras horizontales ya no se cortan y en cobertura el eje muestra solo el vendedor.
+- Archivos: `functions/core/dashboard-ventas-queries-campanias.js` (nuevo), `functions/core/dashboard-ventas-queries.js`, `functions/core/dashboard-ventas-core.js`, `src/domains/dashboard-ventas.js`, `chunks/dashboard-ventas.js` (regenerado), `styles/apple-design.css`, `scripts/audit/BQ_dashboard_fase2_queries.cjs`, `index.html` y `sw.js` (versión), tests.
+
+**Por qué**: completar el dashboard con el seguimiento de campañas y gráficos legibles de un vistazo, con una serie histórica comparable entre meses.
+
+**Verificación**: tests `tests/functions/dashboard-ventas-campanias.test.js`, `dashboard-ventas-core.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`, `dashboard-ventas-apple.test.js`, `dashboard-ventas-bq-script.test.js`; lint 0 errores, typecheck limpio, unit 2586 tests (181 archivos), smoke 25, functions dashboard-ventas + bounded-cache 147 (junto con los tests de auditoría del dashboard), todo en verde. Antes del deploy, correr `node scripts/audit/BQ_dashboard_fase2_queries.cjs` y probar las consultas en BigQuery. Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
+
+**Deploy**: requiere las entregas A (v1531) y B (v1532) ya mergeadas. `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
+
+**Rollback**: revert del commit/PR + redeploy de `dashboardVentasCF`.
+
 ### v1532 (2026-10-29) — Dashboard de Ventas fase 2, entrega B: tabla de productos, cobertura de cartera y facturación por cliente
 
 **Antes**: el Dashboard de Ventas (v1531) mostraba tarjetas de gestión e interacciones, pero no el detalle por producto, ni qué parte de la cartera compró, ni la facturación por cliente.

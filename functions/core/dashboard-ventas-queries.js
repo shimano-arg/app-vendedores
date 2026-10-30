@@ -26,8 +26,8 @@ const T_BO_RECON = `\`${DS}.backorder_reconstruido_mensual\``;
 
 export const TZ_ART = 'America/Argentina/Buenos_Aires';
 
-/** Meses de la serie de evolución (terminando en el mes elegido). */
-export const SERIE_MESES = 12;
+/** Primer mes de la serie de evolución (hasta el mes elegido). */
+export const SERIE_DESDE = '2026-06';
 /** Ventana de meses para las opciones de los filtros. */
 export const OPCIONES_MESES = 24;
 
@@ -80,14 +80,16 @@ export function shiftMonth(mes, delta) {
 }
 
 /**
- * Lista de `n` meses AAAA-MM que terminan en `mes` (orden ascendente).
- * @param {string} mes
- * @param {number} n
+ * Meses AAAA-MM de `desde` a `hasta`, ambos inclusive (ascendente).
+ * Si `hasta` es anterior a `desde`, devuelve solo [hasta].
+ * @param {string} desde
+ * @param {string} hasta
  * @returns {string[]}
  */
-export function monthsEndingAt(mes, n) {
+export function monthsBetween(desde, hasta) {
+  if (hasta < desde) return [hasta];
   const out = [];
-  for (let i = n - 1; i >= 0; i--) out.push(shiftMonth(mes, -i));
+  for (let m = desde; m <= hasta; m = shiftMonth(m, 1)) out.push(m);
   return out;
 }
 
@@ -151,8 +153,8 @@ export function buildQueries(f, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const [anio, mesNum] = f.mes.split('-').map(Number);
   const mesActual = currentMonthArt(now);
-  const desdeMes = shiftMonth(f.mes, -(SERIE_MESES - 1));
-  const desde = `${desdeMes}-01`;
+  // Mismo primer mes que el eje del core (monthsBetween): min(SERIE_DESDE, mes).
+  const desde = `${f.mes < SERIE_DESDE ? f.mes : SERIE_DESDE}-01`;
   const hasta = `${f.mes}-01`;
   const desdeOpciones = `${shiftMonth(mesActual, -(OPCIONES_MESES - 1))}-01`;
   const filt = filterPredicate();

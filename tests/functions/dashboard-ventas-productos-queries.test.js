@@ -88,6 +88,11 @@ describe('buildProductosQueries', () => {
     }
   });
 
+  it('productos ordena por facturado desc, back order desc y sku', () => {
+    const q = buildProductosQueries(f(), NOW).productos;
+    expect(q.query).toMatch(/ORDER BY facturado DESC, uds_backorder DESC, sku\s*$/);
+  });
+
   it('clientes agrupa por card_code, mes + todos los filtros, orden desc', () => {
     const q = buildProductosQueries(f(), NOW).clientes;
     expect(q.query).toContain('GROUP BY card_code');
