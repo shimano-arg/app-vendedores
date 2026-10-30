@@ -5320,6 +5320,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         #dashboard-ventas-body .dv-chart{position:relative;width:100%}
         #dashboard-ventas-body .dv-vermas{margin-top:10px}
         #dashboard-ventas-body .dv-table-wrap{max-height:360px;overflow:auto;margin-top:6px}
+        #dashboard-ventas-body .dv-inter-wrap{max-height:360px;overflow-y:auto}
         #dashboard-ventas-body .dv-table{width:100%;border-collapse:collapse;font-size:12px}
         #dashboard-ventas-body .dv-table th,#dashboard-ventas-body .dv-table td{padding:5px 6px;border-bottom:1px solid var(--border-subtle);text-align:left;color:var(--text-primary)}
         #dashboard-ventas-body .dv-table th{position:sticky;top:0;background:var(--bg-secondary);font-size:11px}
@@ -7197,7 +7198,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1530';
+const APP_VERSION = 'v1531';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

@@ -28,6 +28,8 @@ import {
   SERIE_MESES,
 } from './dashboard-ventas-queries.js';
 
+import { buildGestionQueries } from './dashboard-ventas-queries-gestion.js';
+
 export { buildQueries } from './dashboard-ventas-queries.js';
 
 /** @typedef {import('./dashboard-ventas-queries.js').DashboardFilters} DashboardFilters */
@@ -37,12 +39,22 @@ export { buildQueries } from './dashboard-ventas-queries.js';
  * @typedef {{ sku: string, desc: string, uds: number, ars: number }} TopSku
  * @typedef {{ mes: string, valor: number }} PuntoVentas
  * @typedef {{ mes: string, valor: number|null, estimado: boolean }} PuntoBackorder
+ * @typedef {{ cliente: string, fecha: string, vendedor: string, tipo: string }} FilaInteraccion
+ * @typedef {{
+ *   target: number|null, cumplimientoPct: number|null, rendicionesArs: number,
+ *   baseActiva: number, ticketPromedio: number, visitas: number, contactados: number,
+ *   interacciones: number,
+ *   tablaInteracciones: { rows: FilaInteraccion[], total: number },
+ *   filtrosNoAplican: boolean,
+ * }} Gestion
  * @typedef {{
  *   kpis: { facturado: number, backorderArs: number, pedidos: number, pedidosUnicos: number },
  *   topUnidades: TopSku[], topDinero: TopSku[],
  *   serieVentas: PuntoVentas[], serieBoUds: PuntoBackorder[], serieBoArs: PuntoBackorder[],
  *   opciones: { vendedores: string[], clientes: {code: string, name: string}[],
  *     provincias: string[], categorias: string[], skus: {code: string, desc: string}[] },
+ *   gestion: Gestion|null,
+ *   secciones: { gestion?: { error: true } },
  *   dataUpdatedAt: string,
  * }} DashboardResponse
  * @typedef {{
@@ -200,6 +212,68 @@ function buildOpciones(rows) {
 }
 
 /**
+ * Corre un grupo de queries de una sección. Si CUALQUIERA falla devuelve
+ * { ok: false } (la sección se marca con error y el resto del dashboard sigue).
+ * @param {(q: BqQuery) => Promise<any[]>} run
+ * @param {Record<string, BqQuery>} queries
+ * @returns {Promise<{ ok: true, rows: Record<string, any[]> } | { ok: false }>}
+ */
+export async function runSeccion(run, queries) {
+  try {
+    const names = Object.keys(queries);
+    const results = await Promise.all(names.map((n) => run(queries[n])));
+    /** @type {Record<string, any[]>} */
+    const rows = {};
+    names.forEach((n, i) => {
+      rows[n] = results[i] || [];
+    });
+    return { ok: true, rows };
+  } catch (_e) {
+    return { ok: false };
+  }
+}
+
+/**
+ * @param {Record<string, any[]>} rows
+ * @param {{ facturado: number, pedidos: number }} kpis
+ * @param {DashboardFilters} filters
+ * @returns {Gestion}
+ */
+function buildGestion(rows, kpis, filters) {
+  const t = rows.target && rows.target[0] ? num(rows.target[0].target_ars) : 0;
+  const target = t > 0 ? t : null;
+  const cumplimientoPct =
+    target === null ? null : Math.round((kpis.facturado / target) * 100 * 100) / 100;
+  const act = (rows.actividad && rows.actividad[0]) || {};
+  const visitas = num(act.visitas);
+  const contactados = num(act.contactados);
+  const inter = rows.interacciones || [];
+  return {
+    target,
+    cumplimientoPct,
+    rendicionesArs: num(rows.rendiciones && rows.rendiciones[0] && rows.rendiciones[0].monto_ars),
+    baseActiva: num(rows.baseActiva && rows.baseActiva[0] && rows.baseActiva[0].clientes),
+    ticketPromedio: kpis.pedidos > 0 ? kpis.facturado / kpis.pedidos : 0,
+    visitas,
+    contactados,
+    interacciones: visitas + contactados,
+    tablaInteracciones: {
+      rows: inter.map((r) => ({
+        cliente: r.cliente === null || r.cliente === undefined ? '' : String(r.cliente),
+        fecha: r.fecha === null || r.fecha === undefined ? '' : String(r.fecha),
+        vendedor: r.vendedor === null || r.vendedor === undefined ? '' : String(r.vendedor),
+        tipo: r.tipo === null || r.tipo === undefined ? '' : String(r.tipo),
+      })),
+      total: inter.length ? num(inter[0].total) : 0,
+    },
+    // Target y rendiciones no se filtran por cliente/producto (la UI aclara el texto).
+    filtrosNoAplican: ['clientes', 'skus', 'categorias', 'provincias'].some(
+      (k) => /** @type {any} */ (filters)[k].length > 0
+    ),
+  };
+}
+
+/**
  * @param {DashboardDeps} deps
  * @param {{ auth: any, data: any }} params
  * @returns {Promise<DashboardResponse>}
@@ -220,6 +294,7 @@ export async function dashboardVentasCore(deps, params) {
 
   const qs = buildQueries(filters, now);
   const run = (/** @type {BqQuery} */ q) => deps.runQuery(q, q.params);
+  const gestionP = runSeccion(run, buildGestionQueries(filters, now));
   const [kpiRows, topRows, ventasRows, boRows, opcRows, config] = await Promise.all([
     run(qs.kpis),
     run(qs.topSkus),
@@ -260,6 +335,8 @@ export async function dashboardVentasCore(deps, params) {
 
   const bo = buildSeriesBackorder(boRows, meses, currentMonthArt(now), mostrarEstimados);
 
+  const g = await gestionP;
+
   /** @type {DashboardResponse} */
   const value = {
     kpis,
@@ -269,6 +346,8 @@ export async function dashboardVentasCore(deps, params) {
     serieBoUds: bo.uds,
     serieBoArs: bo.ars,
     opciones: buildOpciones(opcRows),
+    gestion: g.ok ? buildGestion(g.rows, kpis, filters) : null,
+    secciones: g.ok ? {} : { gestion: { error: true } },
     dataUpdatedAt: new Date(now).toISOString(),
   };
 

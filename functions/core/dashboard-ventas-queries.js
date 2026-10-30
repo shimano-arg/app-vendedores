@@ -108,7 +108,7 @@ function colExpr(p, colRef) {
  * @param {string} param
  * @param {string} colSql
  */
-function arrayPredicate(param, colSql) {
+export function arrayPredicate(param, colSql) {
   return `(COALESCE(ARRAY_LENGTH(@${param}), 0) = 0 OR ${colSql} IN UNNEST(@${param}))`;
 }
 
@@ -118,7 +118,7 @@ function arrayPredicate(param, colSql) {
  * @param {ReadonlyArray<string>} [only] limitar a estos filtros.
  * @returns {string}
  */
-function filterPredicate(alias, only) {
+export function filterPredicate(alias, only) {
   const a = alias || '';
   return FILTER_COLS.filter(([p]) => !only || only.includes(p))
     .map(([p, col]) => arrayPredicate(p, colExpr(p, `${a}${col}`)))
@@ -126,7 +126,7 @@ function filterPredicate(alias, only) {
 }
 
 /** @param {DashboardFilters} f */
-function filterParams(f) {
+export function filterParams(f) {
   /** @type {Record<string, any>} */
   const params = {};
   /** @type {Record<string, any>} */
@@ -138,7 +138,7 @@ function filterParams(f) {
   return { params, types };
 }
 
-const VENTAS_BASE = 'is_pesca = TRUE AND assigned_vendor IS NOT NULL';
+export const VENTAS_BASE = 'is_pesca = TRUE AND assigned_vendor IS NOT NULL';
 
 /**
  * Arma las 5 queries del dashboard.
