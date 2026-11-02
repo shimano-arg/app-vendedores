@@ -1637,6 +1637,44 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .mc-table th{position:sticky;top:0;background:var(--bg-muted);padding:8px 10px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);border-bottom:2px solid var(--border-default);z-index:2;white-space:nowrap}
 .mc-table td{padding:6px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
 .mc-table tr:hover td{background:#fafafa}
+/* v1540 APP-06: Pedidos del mes. Botón solo en desktop (>=1025px con mouse):
+   en tablet y mobile queda oculto aunque el rol lo habilite. */
+@media (max-width:1024px),(hover:none),(pointer:coarse){#pedidos-mes-btn{display:none !important}}
+#pedidos-mes-modal .modal-box{height:90vh !important;max-height:90vh !important;display:flex !important;flex-direction:column !important;overflow:hidden !important}
+#pedidos-mes-modal .modal-head{flex-shrink:0}
+.pdm-filtros{flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px 6px}
+.pdm-input{padding:8px 10px;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);font-size:13px;min-height:36px}
+.pdm-q{flex:1 1 240px}
+.pdm-kpis{flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;padding:4px 16px 10px}
+.pdm-kpi{background:var(--bg-muted);border:1px solid var(--border-subtle);border-radius:999px;padding:4px 12px;font-size:11.5px;color:var(--text-secondary)}
+.pdm-kpi b{color:var(--text-primary)}
+.pdm-kpi-ars b{color:#0f4c81}
+.pdm-kpi-scope{margin-left:auto}
+.pdm-list{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px 16px}
+.pdm-msg{text-align:center;color:var(--text-muted);font-size:12px;padding:24px 12px}
+.pdm-err{color:var(--color-danger-strong,#b91c1c)}
+.pdm-table{width:100%;border-collapse:collapse;font-size:12px}
+.pdm-table th{position:sticky;top:0;z-index:1;background:var(--bg-elevated);border-bottom:2px solid var(--border-strong,#cbd5e1);padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);text-align:left}
+.pdm-table th.num,.pdm-table td.num,.pdm-det th.num,.pdm-det td.num{text-align:right;white-space:nowrap}
+.pdm-row{cursor:pointer;background:var(--bg-elevated);border-bottom:1px solid var(--border-subtle)}
+.pdm-row > td{padding:10px;vertical-align:top}
+.pdm-row:hover > td,.pdm-row.open > td{background:var(--bg-muted)}
+.pdm-row:focus-visible{outline:2px solid #0f4c81;outline-offset:-2px}
+.pdm-cli{display:flex;align-items:flex-start;gap:8px}
+.pdm-caret{color:var(--text-muted);font-size:10px;margin-top:3px;flex-shrink:0}
+.pdm-nombre{font-size:13px;font-weight:800;color:var(--text-primary)}
+.pdm-code{font-size:10.5px;color:var(--text-muted);margin-top:2px}
+.pdm-ars{font-size:14px;font-weight:800;color:#0f4c81}
+.pdm-det-row > td{background:var(--bg-base);padding:0 10px 10px 36px}
+.pdm-det{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:4px;table-layout:fixed}
+.pdm-det th:nth-child(1){width:16%}.pdm-det th:nth-child(2){width:28%}.pdm-det th:nth-child(3){width:10%}.pdm-det th:nth-child(4){width:14%}.pdm-det th:nth-child(5){width:14%}.pdm-det th:nth-child(6){width:18%}
+.pdm-det td{overflow-wrap:anywhere}
+.pdm-det th{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-subtle)}
+.pdm-det td{padding:6px 8px;border-bottom:1px solid #f1f5f9;color:var(--text-primary);vertical-align:top}
+.pdm-det td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
+.pdm-det tfoot td{font-weight:800;border-top:2px solid var(--border-subtle);border-bottom:none}
+.pdm-doc{display:inline-block;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;margin:1px 2px 1px 0;white-space:nowrap}
+.pdm-doc.nc{background:#fef2f2;color:#991b1b;border-color:#fecaca}
 /* v1539 APP-04: ficha desplegable del cliente (clic en el nombre). */
 .mc-ficha-toggle{cursor:pointer;user-select:none}
 .mc-name.mc-ficha-toggle:hover{color:var(--color-accent,#0071e3)}
@@ -4124,6 +4162,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
          Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
          cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
     <button class="btn-zonas" id="forecast-btn" onclick="openForecastModal()" title="FORECAST: proyeccion de necesidad vs pedidos Sales Plan (admin-only)" style="background:var(--color-accent-violet);color:#fff;display:none">Forecast</button>
+    <!-- v1540 (2026-11-02) APP-06: PEDIDOS DEL MES. Facturación efectivamente
+         emitida por cliente y SKU (callable pedidosDelMesCF / BigQuery).
+         Visible para admin, gerente y vendedor (applyRolePermissions); solo
+         desktop: el CSS #pedidos-mes-btn lo oculta en tablet y mobile. -->
+    <button class="btn-zonas" id="pedidos-mes-btn" onclick="openPedidosDelMes()" title="Pedidos del mes: lo facturado a cada cliente, por SKU" style="background:#0f4c81;color:#fff;display:none">Pedidos del mes</button>
     <!-- v451 (2026-08-11): boton REVISION Excel. Cargar Excel del cliente y ver
          backorder + disponible + pedido por SKU. Solo lectura, no persiste. CSS
          .revision-btn oculto por default; body.can-revision lo muestra
@@ -5313,6 +5356,20 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
   <!-- v1529 (2026-10-29): DASHBOARD DE VENTAS. Contenido lo arma el chunk lazy
        src/domains/dashboard-ventas.js (callable dashboardVentasCF + Chart.js).
        Altura fija + scroll interno por el bloque CSS §49. -->
+  <!-- v1540 (2026-11-02) APP-06: PEDIDOS DEL MES. Chunk lazy
+       src/domains/pedidos-del-mes.js (callable pedidosDelMesCF). Mismo
+       despliegue que Stock Asignado: fila por cliente con ▶ y detalle de SKU. -->
+  <div class="modal-overlay" id="pedidos-mes-modal" onclick="if(event.target===this)closePedidosDelMes()">
+    <div class="modal-box" style="width:min(1180px,98vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f4c81,#1e6fb5)">
+        <div><h2>PEDIDOS DEL MES</h2><div class="subt">Lo efectivamente facturado a cada cliente (facturas menos notas de crédito, sin IVA, solo pesca). Fuente: SAP, se actualiza cada 30 min.</div></div>
+        <button class="modal-close" onclick="closePedidosDelMes()">&times;</button>
+      </div>
+      <div id="pdm-filtros" class="pdm-filtros"></div>
+      <div id="pdm-kpis" class="pdm-kpis"></div>
+      <div id="pdm-list" class="pdm-list"></div>
+    </div>
+  </div>
   <div class="modal-overlay" id="dashboard-ventas-modal" onclick="if(event.target===this)closeDashboardVentas()">
     <div class="modal-box" style="width:min(1000px,98vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
@@ -7237,7 +7294,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1539';
+const APP_VERSION = 'v1540';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -32391,6 +32448,13 @@ function applyRolePermissions(){
     const em = (currentUser && (currentUser.email || '').toLowerCase()) || '';
     const isForecastUser = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
     forecastBtnEl.style.display = isForecastUser ? '' : 'none';
+  }
+  // v1540 APP-06: Pedidos del mes para admin, gerente y vendedor. El alcance
+  // real lo fuerza el servidor (pedidosDelMesCF). Desktop-only por CSS.
+  const pedidosMesBtnEl = document.getElementById('pedidos-mes-btn');
+  if (pedidosMesBtnEl) {
+    const _pdmOk = userRole === 'admin' || userRole === 'gerente' || userRole === 'vendedor';
+    pedidosMesBtnEl.style.display = _pdmOk ? '' : 'none';
   }
   document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';
   document.getElementById('master-cli-btn').style.display = isAdminOrGerente ? '' : 'none';

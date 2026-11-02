@@ -58,6 +58,7 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
+import { pedidosDelMesCore } from './core/pedidos-del-mes-core.js';
 import { handleResendPlannerEmail } from './core/planner-resend-email-core.js';
 // v1005 (2026-09-22): Planner Kanban — trigger email on column transition.
 import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
@@ -1402,6 +1403,83 @@ export const dashboardVentasCF = onCall(
       }
       console.error('dashboardVentasCF unexpected error', e);
       throw new HttpsError('internal', 'dashboard ventas fallo');
+    }
+  }
+);
+
+/**
+ * v1540 (2026-11-02, APP-06) — pedidosDelMesCF
+ *
+ * Facturación efectivamente emitida por cliente y SKU de un mes (BigQuery
+ * v_ventas_lineas). Wrapper fino (CLAUDE.md §7): la lógica y el alcance por
+ * rol viven en core/pedidos-del-mes-core.js. El vendedor ve solo sus clientes
+ * (roles/{uid}.vendor, leído acá en el servidor); admin/gerente, todo el país.
+ */
+const _pedidosDelMesCache = createBoundedCache(200);
+
+export const pedidosDelMesCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '512MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    // Mismos dominios que dashboardVentasCF (PACHI usa gmail.com). El gate
+    // real es roles/{uid} dentro del core.
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    try {
+      const db = getFirestore();
+      /** @type {any} */
+      let bq = null;
+      return await pedidosDelMesCore(
+        {
+          runQuery: async (/** @type {any} */ q) => {
+            if (!bq) {
+              const { BigQuery } = await import('@google-cloud/bigquery');
+              bq = new BigQuery({ projectId: 'app-vendedores-shimano' });
+            }
+            const [rows] = await bq.query({
+              query: q.query,
+              params: q.params,
+              types: q.types,
+              location: 'southamerica-east1',
+            });
+            return rows;
+          },
+          getUserRole: async (/** @type {string} */ uid) => {
+            const snap = await db.collection('roles').doc(uid).get();
+            const d = snap.exists ? snap.data() || {} : {};
+            return { role: d.role, vendor: d.vendor };
+          },
+          cache: _pedidosDelMesCache,
+          now: () => Date.now(),
+          log: (/** @type {string} */ m, /** @type {any} */ extra) => console.log(m, extra || {}),
+        },
+        { auth, data: req.data || {} }
+      );
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      const code = e && /** @type {any} */ (e).code;
+      if (
+        code === 'unauthenticated' ||
+        code === 'permission-denied' ||
+        code === 'invalid-argument'
+      ) {
+        throw new HttpsError(code, e.message || 'pedidos del mes rechazado');
+      }
+      console.error('pedidosDelMesCF unexpected error', e);
+      throw new HttpsError('internal', 'pedidos del mes fallo');
     }
   }
 );

@@ -4717,6 +4717,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1540 (2026-11-02) — APP-06: módulo «Pedidos del mes» (facturación por cliente y SKU)
+
+- **Antes**: no había una pantalla para ver qué se le facturó a cada cliente en un mes. El Dashboard de Ventas muestra totales y rankings, pero no el detalle por cliente y SKU.
+- **Problema**: Mariano pidió consultar solo lo efectivamente facturado (sin pedidos pendientes, en espera ni backorder), con el despliegue de Stock Asignado y con cada vendedor viendo solo sus clientes.
+- **Cambio**:
+  - Callable nueva `pedidosDelMesCF` (core `functions/core/pedidos-del-mes-core.js`). Lee las facturas y notas de crédito de SAP desde BigQuery `v_ventas_lineas`; el servidor fuerza el alcance por rol.
+  - Chunk lazy `src/domains/pedidos-del-mes.js`, con los helpers en `src/pure/pedidos-del-mes-view.js`. Sincronizado en los 3 lugares de §18.
+  - Botón "Pedidos del mes" debajo de Forecast: solo en desktop y solo para admin, gerente y vendedor.
+- **Criterios**: los mismos del Dashboard de Ventas. Mes contable (la NC resta en el mes de la factura), solo pesca, importe neto sin IVA y vendedor asignado.
+- **Verificación**:
+  - 23 tests del core y 13 de pantalla y contrato.
+  - Suites: unit 2717, smoke 25, typecheck limpio.
+  - Prueba en navegador con la callable simulada: desktop, tablet, pantalla táctil ancha y mobile.
+- **Deploy necesario**: `firebase deploy --only functions:pedidosDelMesCF --project app-vendedores-shimano`. El front se publica al mergear.
+- **Informe**: `docs/auditoria/49_PEDIDOS_DEL_MES.md`.
+- **Rollback**: revertir el commit. La función nueva solo lee BigQuery.
+
 ### v1539 (2026-11-02) — APP-04: ficha desplegable del cliente en Master de Clientes
 
 - **Antes**: el Master de Clientes mostraba solo tienda, localidad, provincia, vendedor y dirección. El resto de los datos del cliente estaba repartido en varias colecciones y no había un lugar donde verlos juntos.
