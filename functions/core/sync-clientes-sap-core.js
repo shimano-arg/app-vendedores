@@ -55,7 +55,7 @@ function authError(code, message) {
 /**
  * @param {SyncClientesSapDeps} deps
  * @param {{auth?: {uid?: string, token?: {email?: string}}|null, data?: any}} req
- * @returns {Promise<{ok: boolean, code?: string, message?: string, nuevos?: number, actualizados?: number, total?: number, durationMs?: number}>}
+ * @returns {Promise<{ok: boolean, code?: string, message?: string, nuevos?: number, actualizados?: number, confirmados?: number, total?: number, durationMs?: number}>}
  */
 export async function syncClientesSapCore(deps, req) {
   const auth = req && req.auth;
@@ -140,6 +140,10 @@ async function runSync(p) {
       forceWrite: true,
       log: p.log,
     });
+    // syncBpPesca informa los errores de SL (ej. 401 de cookie vencida) en
+    // fetchError, sin tirar. Descartamos la sesion para no devolver al pool
+    // una cookie muerta que se reusaria hasta 25 min.
+    if (r && r.fetchError) sessionOk = false;
     return mapResult(r);
   } catch (e) {
     const msg = (e && /** @type {any} */ (e).message) || String(e);
@@ -157,13 +161,15 @@ async function runSync(p) {
 /**
  * Traduce el resultado de syncBpPesca a la respuesta del callable.
  * nuevos = clientes creados; actualizados = existentes refrescados (incluye
- * provisorios confirmados con su codigo SAP); total = nuevos + actualizados.
+ * provisorios confirmados con su codigo SAP); confirmados = solo los provisorios
+ * que se confirmaron con su codigo SAP; total = nuevos + actualizados.
  * @param {any} r
  */
 function mapResult(r) {
   const st = (r && r.stats) || {};
   const nuevos = Number(st.created) || 0;
-  const actualizados = (Number(st.updated_prov_to_conf) || 0) + (Number(st.updated_existing) || 0);
+  const confirmados = Number(st.updated_prov_to_conf) || 0;
+  const actualizados = confirmados + (Number(st.updated_existing) || 0);
   const total = nuevos + actualizados;
   if (!r || r.ok !== true) {
     return { ok: false, code: 'SYNC_FALLO', message: String((r && r.error) || 'sync fallo') };
@@ -180,10 +186,11 @@ function mapResult(r) {
       message: String(r.fetchError),
       nuevos,
       actualizados,
+      confirmados,
       total,
     };
   }
-  return { ok: true, nuevos, actualizados, total };
+  return { ok: true, nuevos, actualizados, confirmados, total };
 }
 
 /**
@@ -203,6 +210,7 @@ async function writeLog(deps, x) {
       message: x.result.message || null,
       nuevos: typeof x.result.nuevos === 'number' ? x.result.nuevos : null,
       actualizados: typeof x.result.actualizados === 'number' ? x.result.actualizados : null,
+      confirmados: typeof x.result.confirmados === 'number' ? x.result.confirmados : null,
       total: typeof x.result.total === 'number' ? x.result.total : null,
       durationMs: typeof x.result.durationMs === 'number' ? x.result.durationMs : null,
       lockHeldBy: x.heldBy,

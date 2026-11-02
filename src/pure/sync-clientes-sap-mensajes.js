@@ -13,7 +13,23 @@ export const SYNC_CLIENTES_SAP_TEXTOS = Object.freeze({
   /** @param {number} n */
   nuevos: (n) =>
     n === 1 ? 'Se incorporó 1 cliente nuevo' : 'Se incorporaron ' + n + ' clientes nuevos',
+  /** @param {number} n */
+  actualizadosSinNuevos: (n) =>
+    n === 1
+      ? 'Se actualizó 1 cliente existente; no hay clientes nuevos'
+      : 'Se actualizaron ' + n + ' clientes existentes; no hay clientes nuevos',
+  /** @param {number} n */
+  parcial: (n) =>
+    n === 1
+      ? 'Antes del corte se incorporó 1 cliente nuevo.'
+      : 'Antes del corte se incorporaron ' + n + ' clientes nuevos.',
 });
+
+/** @param {any} v */
+function entero(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
 
 /** @type {Readonly<Record<string, string>>} */
 const ERRORES = Object.freeze({
@@ -35,16 +51,21 @@ const ERROR_GENERICO =
  */
 export function mensajeSyncClientesSap(res) {
   if (res && res.ok === true) {
-    const n = Number(res.nuevos);
-    const nuevos = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-    return {
-      tipo: 'ok',
-      texto:
-        nuevos > 0 ? SYNC_CLIENTES_SAP_TEXTOS.nuevos(nuevos) : SYNC_CLIENTES_SAP_TEXTOS.sinNuevos,
-    };
+    const nuevos = entero(res.nuevos);
+    // "confirmados" = provisorios que se confirmaron con su codigo SAP. Los
+    // existentes que solo se refrescaron no se mencionan (son casi todos).
+    const confirmados = entero(res.confirmados);
+    /** @type {string} */
+    let texto = SYNC_CLIENTES_SAP_TEXTOS.sinNuevos;
+    if (nuevos > 0) texto = SYNC_CLIENTES_SAP_TEXTOS.nuevos(nuevos);
+    else if (confirmados > 0) texto = SYNC_CLIENTES_SAP_TEXTOS.actualizadosSinNuevos(confirmados);
+    return { tipo: 'ok', texto };
   }
   const code = String((res && res.code) || 'UNKNOWN');
   if (code === 'EN_CURSO') return { tipo: 'info', texto: SYNC_CLIENTES_SAP_TEXTOS.enCurso };
-  const base = ERRORES[code] || ERROR_GENERICO;
+  let base = ERRORES[code] || ERROR_GENERICO;
+  if (code === 'SAP_INCOMPLETO' && entero(res && res.nuevos) > 0) {
+    base += ' ' + SYNC_CLIENTES_SAP_TEXTOS.parcial(entero(res.nuevos));
+  }
   return { tipo: 'error', texto: base + '\nCódigo técnico: ' + code };
 }

@@ -100,7 +100,14 @@ describe('v1535 APP-02 — syncClientesSapCore', () => {
     expect(params.forceDryRun).toBeUndefined();
     expect(params.cookie).toBe('B1SESSION=RAWCOOKIE');
     expect(params.sapConfig).toEqual(SAP_CFG);
-    expect(r).toEqual({ ok: true, nuevos: 3, actualizados: 41, total: 44, durationMs: 0 });
+    expect(r).toEqual({
+      ok: true,
+      nuevos: 3,
+      actualizados: 41,
+      confirmados: 1,
+      total: 44,
+      durationMs: 0,
+    });
     expect(deps.releaseSession).toHaveBeenCalledWith(expect.anything(), true);
   });
 
@@ -225,5 +232,30 @@ describe('v1535 APP-02 — syncClientesSapCore', () => {
     const deps = makeDeps(db);
     const r = await syncClientesSapCore(deps, REQ);
     expect(r.ok).toBe(true);
+  });
+  it('C16 fetchError (401 de SL sin excepcion) → la sesion se descarta del pool', async () => {
+    const { db } = makeDb();
+    const deps = makeDeps(db, {
+      syncBpPesca: vi.fn(async () => ({ ...OK_RESULT, fetchError: '[FATAL/BP] HTTP 401 - x' })),
+    });
+    const r = await syncClientesSapCore(deps, REQ);
+    expect(r.code).toBe('SAP_INCOMPLETO');
+    expect(deps.releaseSession).toHaveBeenCalledWith(expect.anything(), false);
+  });
+
+  it('C17 sin fetchError → la sesion vuelve al pool', async () => {
+    const { db } = makeDb();
+    const deps = makeDeps(db);
+    await syncClientesSapCore(deps, REQ);
+    expect(deps.releaseSession).toHaveBeenCalledWith(expect.anything(), true);
+  });
+
+  it('C18 SAP_INCOMPLETO informa lo que ya se incorporo (nuevos/confirmados)', async () => {
+    const { db } = makeDb();
+    const deps = makeDeps(db, {
+      syncBpPesca: vi.fn(async () => ({ ...OK_RESULT, fetchError: 'HTTP 500' })),
+    });
+    const r = await syncClientesSapCore(deps, REQ);
+    expect(r).toMatchObject({ ok: false, code: 'SAP_INCOMPLETO', nuevos: 3, confirmados: 1 });
   });
 });

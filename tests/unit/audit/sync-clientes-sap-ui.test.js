@@ -92,4 +92,9 @@ describe('v1535 APP-02 — boton Sincronizar con SAP', () => {
     const lf = (css.match(/(?<!\r)\n/g) || []).length;
     expect(lf).toBe(0);
   });
+  it('U12 deshabilitado no escala en :active (pisa el :active base de .mc-prov-btn)', () => {
+    expect(css).toMatch(
+      /#master-cli-modal #mc-sync-sap-btn:disabled:active\s*\{[^}]*transform:\s*none/
+    );
+  });
 });

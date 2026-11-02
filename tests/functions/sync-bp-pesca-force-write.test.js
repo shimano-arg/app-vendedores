@@ -54,11 +54,14 @@ function makeDb(flag) {
   return { db, added };
 }
 
-function stubSlFetch(/** @type {{error?: boolean}} */ opts = {}) {
+function stubSlFetch(/** @type {{error?: boolean, statesError?: boolean}} */ opts = {}) {
   /** @type {string[]} */
   const cookies = [];
   const fn = vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => {
     cookies.push(init?.headers?.Cookie);
+    if (String(url).includes('/States') && opts.statesError) {
+      return { ok: false, status: 401, json: async () => ({}) };
+    }
     if (String(url).includes('/States')) {
       return {
         ok: true,
@@ -186,5 +189,18 @@ describe('v1535 APP-02 — syncBpPesca forceWrite', () => {
       forceWrite: true,
     });
     expect(res.fetchError).toBe(null);
+  });
+  it('F8 falla /States (provincias) → fetchError expuesto (no se informa exito)', async () => {
+    stubSlFetch({ statesError: true });
+    const { db } = makeDb(false);
+    const res = await syncBpPesca({
+      fbDb: db,
+      FieldValue,
+      sapConfig: { url: 'https://sl.test' },
+      cookie: 'B1SESSION=abc',
+      forceWrite: true,
+    });
+    expect(typeof res.fetchError).toBe('string');
+    expect(res.fetchError).toContain('States');
   });
 });

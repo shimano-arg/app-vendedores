@@ -862,9 +862,10 @@ export async function syncBpPesca(params) {
         slRequests,
         bpSyncByCFFlag,
         dryRun,
-        // v1535: error al traer BPs (ej. 401). Antes se perdia y el resultado
-        // parecia "0 clientes" exitoso. Informativo: no cambia el flujo.
-        fetchError: bpRes.error || null,
+        // v1535: error al traer provincias o BPs (ej. 401). Antes se perdia y
+        // el resultado parecia "0 clientes" exitoso. Informativo: no cambia el
+        // flujo (la corrida programada sigue igual).
+        fetchError: bpRes.error || provRes.error || null,
       };
     }
     const stats = await upsertBpPescaToFirestore({
@@ -894,7 +895,9 @@ export async function syncBpPesca(params) {
       slRequests,
       bpSyncByCFFlag,
       dryRun,
-      fetchError: bpRes.error || null,
+      // v1535: si /States fallo, los clientes nuevos quedan sin provincia;
+      // el boton manual lo informa como incompleto.
+      fetchError: bpRes.error || provRes.error || null,
     };
   } catch (e) {
     const msg = (e && /** @type {any} */ (e).message) || String(e);

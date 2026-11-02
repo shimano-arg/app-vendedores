@@ -535,6 +535,7 @@
 #master-cli-modal #mc-sync-sap-btn:hover:not(:disabled) { background: #f5f5f7 !important; border-color: #c7c7cc !important; }
 #master-cli-modal #mc-sync-sap-btn:active:not(:disabled) { transform: scale(0.97); transition: transform 100ms ease-out; }
 #master-cli-modal #mc-sync-sap-btn:disabled { cursor: progress; opacity: 0.75; }
+#master-cli-modal #mc-sync-sap-btn:disabled:active { transform: none !important; }
 #master-cli-modal #mc-sync-sap-btn .mc-sync-sap-icon { flex-shrink: 0; color: #49A2DA; }
 #master-cli-modal #mc-sync-sap-btn.is-syncing .mc-sync-sap-icon { animation: mc-sync-sap-spin 900ms linear infinite; }
 @keyframes mc-sync-sap-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
