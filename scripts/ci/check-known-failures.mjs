@@ -17,8 +17,18 @@
  *   - se ejecutaron menos tests que el piso `minExecuted` (tests borrados o
  *     suite que no se recolectó),
  *   - el reporte no tiene tests (suite vacía = evidencia nula).
+ *
+ * v3 (2026-11-02, ciclo 1 Security & Stabilization) — informativo, NO cambia
+ * el exit code:
+ *   - entradas con `securityRelevant: true` (+ `hallazgo`) que siguen fallando
+ *     se listan SIEMPRE en un bloque "Fallas conocidas de SEGURIDAD abiertas",
+ *     para que un hueco de seguridad documentado por un test no quede tapado
+ *     como "falla conocida";
+ *   - entradas con `revisarAntesDe` (YYYY-MM-DD) vencido se listan como aviso;
+ *   - si existe GITHUB_STEP_SUMMARY, se agrega un resumen en markdown.
+ * `--today=YYYY-MM-DD` fija la fecha (tests).
  */
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,17 +42,45 @@ export function failureSignature(failureMessages) {
   return first.replace(/[0-9a-f]{8,}|\d+/gi, '#').trim();
 }
 
+const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+/**
+ * Ruta del archivo de test relativa a la raíz del repo ("tests/...").
+ * v3 fix: la versión anterior usaba `replace(/.*?(tests\/)/, '$1')` (no greedy),
+ * que corta en la PRIMERA aparición de "tests/" del path absoluto: si el repo
+ * está clonado en un directorio cuyo nombre termina en "tests" (p. ej.
+ * `/x/ciclo1-tests/tests/functions/a.test.js`) devolvía `tests/tests/functions/...`,
+ * ninguna clave coincidía y el gate dejaba de detectar fallas conocidas que
+ * pasan (y marcaba como "nuevas" las conocidas).
+ * @param {string} name path absoluto o relativo que reporta vitest
+ * @param {string} [root] raíz del repo (tests)
+ */
+export function toRepoRelative(name, root = REPO_ROOT) {
+  const norm = name.replace(/\\/g, '/');
+  const r = root.replace(/\\/g, '/').replace(/\/?$/, '/');
+  if (norm.startsWith(r)) return norm.slice(r.length);
+  const i = norm.lastIndexOf('/tests/');
+  if (i >= 0) return norm.slice(i + 1);
+  return norm;
+}
+
 /**
  * @param {any} known contenido de tests/known-failures.json
  * @param {string} suite
  * @param {any} report reporte JSON de vitest
- * @returns {{ok: boolean, lines: string[]}}
+ * @param {{today?: string}} [opts] fecha de referencia YYYY-MM-DD (default: hoy UTC)
+ * @returns {{ok: boolean, lines: string[], security: string[], overdue: string[]}}
  */
-export function evaluate(known, suite, report) {
+export function evaluate(known, suite, report, opts = {}) {
   const lines = [];
-  /** @type {{file: string, test: string, signature?: string}[]} */
+  /** @type {string[]} */
+  const security = [];
+  /** @type {string[]} */
+  const overdue = [];
+  const today = opts.today || new Date().toISOString().slice(0, 10);
+  /** @type {{file: string, test: string, signature?: string, securityRelevant?: boolean, hallazgo?: string, revisarAntesDe?: string}[]} */
   const knownList = known[suite];
-  if (!Array.isArray(knownList)) return { ok: false, lines: [`Suite desconocida: ${suite}`] };
+  if (!Array.isArray(knownList)) return { ok: false, lines: [`Suite desconocida: ${suite}`], security, overdue };
   /** @type {{file: string, test: string}[]} */
   const knownSkips = (known.skipped && known.skipped[suite]) || [];
   const minExecuted = (known.minExecuted && known.minExecuted[suite]) || 0;
@@ -56,7 +94,7 @@ export function evaluate(known, suite, report) {
   const skippedNow = new Set();
   const suiteErrors = [];
   for (const f of report.testResults || []) {
-    const file = String(f.name).replace(/.*?(tests\/)/, '$1');
+    const file = toRepoRelative(String(f.name));
     const asserts = f.assertionResults || [];
     if (f.status === 'failed' && !asserts.some((/** @type {any} */ t) => t.status === 'failed')) {
       suiteErrors.push(`${file}: ${String(f.message || '').split('\n')[0]}`);
@@ -98,19 +136,58 @@ export function evaluate(known, suite, report) {
   if (skipsNuevos.length) fail('Tests skipped/todo NUEVOS (no pueden esconder fallas; agregarlos a skipped si son legítimos)', skipsNuevos);
   if (arregladas.length) fail('Fallas conocidas que ahora PASAN (sacarlas de tests/known-failures.json)', arregladas);
   if (skipsQueCorren.length) fail('Skips conocidos que ahora CORREN (sacarlos de skipped)', skipsQueCorren);
-  return { ok: !bad, lines };
+
+  // v3: informativo (no cambia `ok`).
+  for (const kn of [...knownList, ...knownSkips]) {
+    const k = key(kn);
+    const sigueAbierta = failed.has(k) || skippedNow.has(k);
+    const meta = /** @type {{securityRelevant?: boolean, hallazgo?: string, revisarAntesDe?: string}} */ (kn);
+    if (meta.securityRelevant && sigueAbierta) security.push(`${meta.hallazgo || 'sin-hallazgo'} · ${k}`);
+    if (meta.revisarAntesDe && meta.revisarAntesDe < today && sigueAbierta) {
+      overdue.push(`${k} (revisar antes de ${meta.revisarAntesDe})`);
+    }
+  }
+  if (security.length) {
+    lines.push(`[${suite}] ⚠️  Fallas conocidas de SEGURIDAD abiertas (${security.length}):\n  - ${security.join('\n  - ')}`);
+  }
+  if (overdue.length) {
+    lines.push(`[${suite}] ⏰ Fallas/skips conocidos con revisión VENCIDA (${overdue.length}):\n  - ${overdue.join('\n  - ')}`);
+  }
+  return { ok: !bad, lines, security, overdue };
+}
+
+/**
+ * Resumen markdown para $GITHUB_STEP_SUMMARY.
+ * @param {string} suite
+ * @param {{ok: boolean, lines: string[], security: string[], overdue: string[]}} r
+ */
+export function summaryMarkdown(suite, r) {
+  const out = [`### Gate de fallas conocidas · ${suite}: ${r.ok ? '✅ OK' : '❌ FALLA'}`, '', '```', ...r.lines, '```'];
+  if (r.security.length) {
+    out.push('', `**⚠️ ${r.security.length} falla(s) conocida(s) de seguridad abierta(s):**`, ...r.security.map((x) => `- ${x}`));
+  }
+  return out.join('\n') + '\n';
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
-  const [, , suite, reportPath] = process.argv;
+  const args = process.argv.slice(2);
+  const todayArg = args.find((a) => a.startsWith('--today='));
+  const [suite, reportPath] = args.filter((a) => !a.startsWith('--'));
   if (!suite || !reportPath) {
     console.error('Uso: check-known-failures.mjs <suite> <reporte.json>');
     process.exit(2);
   }
   const known = JSON.parse(readFileSync(new URL('../../tests/known-failures.json', import.meta.url), 'utf8'));
   const report = JSON.parse(readFileSync(reportPath, 'utf8'));
-  const r = evaluate(known, suite, report);
+  const r = evaluate(known, suite, report, { today: todayArg ? todayArg.split('=')[1] : undefined });
   for (const l of r.lines) (r.ok ? console.log : console.error)(l);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    try {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryMarkdown(suite, r));
+    } catch (_e) {
+      // El resumen es informativo; nunca cambia el resultado del gate.
+    }
+  }
   process.exit(r.ok ? 0 : 1);
 }

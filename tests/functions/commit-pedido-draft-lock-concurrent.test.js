@@ -251,19 +251,25 @@ describe('§64.3 draft lock atómico — prevención de doble-click concurrente'
   it('T6 — lock existe pero pedido NO (edge: rollback parcial) → crea nuevo pedido', async () => {
     const state = baseState();
     // Lock huérfano: pedidoId apunta a un pedido inexistente (edge borde raro).
-    // Nuestra lógica actual: si lockSnap.exists Y lock.pedidoId → return idempotent
-    // con lo que haya en pedidoRef (que puede ser {}). Edge aceptable: el cliente
-    // recibe idempotent hit con lines=[]. Es inconsistencia que debería no ocurrir;
-    // documenta el comportamiento. Mejoría futura: validar pedidoSnap.exists.
+    // Comportamiento vigente desde v1469 (5f4c3d88, 2026-10-26, "T6 lock
+    // huérfano: pedidoSnap.exists check + fall-through"): implementa la
+    // "mejoría futura" que documentaba CLAUDE.md §64.3. Si el pedido del lock
+    // NO existe, el lock se trata como huérfano, se sigue el flow normal y el
+    // tx.set final sobre-escribe el lock con el pedidoId nuevo. Antes de v1469
+    // devolvía idempotentHit=true con lines=[] (y los retries morían contra un
+    // lock dejado por una tx que crasheó mid-write).
     state.pedido_draft_locks[BASE_PAYLOAD.draftId] = {
       pedidoId: 'ghostPedido',
       draftId: BASE_PAYLOAD.draftId,
     };
-    const { fbDb } = makeMockDb(state);
-    const r = await commitPedidoCore({ fbDb, now: () => nowRef }, BASE_PAYLOAD);
-    // Idempotent via lock (documenta comportamiento actual).
+    const mock = makeMockDb(state);
+    const r = await commitPedidoCore({ fbDb: mock.fbDb, now: () => nowRef }, BASE_PAYLOAD);
     expect(r.ok).toBe(true);
-    expect(r.idempotentHit).toBe(true);
-    expect(r.pedidoId).toBe('ghostPedido');
+    expect(r.idempotentHit).toBeFalsy();
+    expect(r.pedidoId).toBeTruthy();
+    expect(r.pedidoId).not.toBe('ghostPedido');
+    // Se creó un pedido nuevo y el lock ahora apunta a él.
+    expect(mock._state.pedidos[r.pedidoId]).toBeTruthy();
+    expect(mock._state.pedido_draft_locks[BASE_PAYLOAD.draftId].pedidoId).toBe(r.pedidoId);
   });
 });

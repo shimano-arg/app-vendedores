@@ -32,7 +32,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
       - name: Checkout
@@ -65,11 +65,21 @@ jobs:
       - name: Lint (Biome)
         run: npm run lint
 
-      - name: Unit tests (168 assertions)
-        run: npm run test:unit
+      # v3 (2026-11-02): unit/smoke con reporte JSON + gate. `|| true` deja que
+      # el gate decida: falla ante cualquier falla (no hay conocidas en unit ni
+      # smoke) y también si se ejecutan menos tests que el piso (minExecuted),
+      # cosa que `npm run test:unit` solo no detecta.
+      - name: Unit tests
+        run: npx vitest run tests/unit/ --reporter=default --reporter=json --outputFile=unit-report.json || true
 
-      - name: Smoke tests (25 assertions)
-        run: npm run test:smoke
+      - name: Gate unit (sin fallas + piso de ejecutados)
+        run: node scripts/ci/check-known-failures.mjs unit unit-report.json
+
+      - name: Smoke tests
+        run: npx vitest run tests/smoke/ --reporter=default --reporter=json --outputFile=smoke-report.json || true
+
+      - name: Gate smoke (sin fallas + piso de ejecutados)
+        run: node scripts/ci/check-known-failures.mjs smoke smoke-report.json
 
       # test:rules y test:functions corren en el job `security-tests` (abajo).
 

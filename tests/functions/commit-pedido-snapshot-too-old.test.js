@@ -76,6 +76,13 @@ function makeMockDb(updatedAtMs, operationsLogSink) {
 
   return {
     collection,
+    // v1480 §79: sku-catalog-check-core lee `fbDb.doc('app_config/stock_snapshot')`.
+    // Sin este método la lectura tira, cae en fail-open §77 y el core escribe
+    // primero un `commit_pedido_warning/catalog_check_skipped` en operations_log.
+    doc: (path) => {
+      const [c, ...rest] = path.split('/');
+      return makeDocRef(c, rest.join('/'));
+    },
     runTransaction: async (fn) => {
       const tx = {
         get: (ref) => {

@@ -4717,21 +4717,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
-### Hotfix CI (2026-10-29) — suites de seguridad (Rules con emulador + Functions) en cada PR
+### Hotfix CI (2026-11-02) — suites de seguridad (Rules con emulador + Functions) en cada PR + gate de fallas conocidas v3
 
-**Antes**: CI corría solo unit + smoke. `tests/rules/setup.js` hacía pasar en vacío las reglas si no había emulador.
+**Antes**: CI corría solo unit + smoke. `tests/rules/setup.js` hacía pasar en vacío las reglas si no había emulador. Unit y smoke no tenían piso de tests ejecutados.
 
-**Problema**: las pruebas de seguridad (roles, proxy SAP, reglas) nunca corrían en CI; una regresión podía pasar verde.
+**Problema**: las pruebas de seguridad (roles, proxy SAP, reglas) nunca corrían en CI; una regresión podía pasar verde. Además, una falla "conocida" que documenta un hueco de seguridad (S04: lectura de `roles` de vendedores) quedaba tapada sin aviso.
 
 **Cambio**:
-- Job `security-tests` en `test-and-lint.yml`: Java 21, `firebase-tools@14.27.0`, proyecto `demo-ci`.
+- Job `security-tests` en `test-and-lint.yml`: Java 21, `firebase-tools@14.27.0`, proyecto `demo-ci`, `REQUIRE_EMULATOR=1`.
 - `setup.js`: falla si `CI=true` o `REQUIRE_EMULATOR=1` y no hay emulador.
-- `tests/known-failures.json` (v2): las 6 fallas preexistentes de Rules y las 11 de Functions, con su firma de error, los 5 skips conocidos y un piso `minExecuted`.
-- `scripts/ci/check-known-failures.mjs`: falla ante una falla nueva, una conocida que pasa o que falla por **otra causa** (firma normalizada), un `.skip`/`todo` nuevo, un skip conocido que corre, un archivo que no carga, o menos tests que el piso (tests borrados).
+- Job `test`: unit y smoke con reporte JSON + gate (sin fallas conocidas y con piso de ejecutados); timeout 8 min.
+- `tests/known-failures.json` (v3): 6 fallas preexistentes de Rules (S04, F17 y 4 tests obsoletos de `seguimiento_*`, eliminadas en v1283) + 5 skips (deny-legacy de `/pedidos`), con `hallazgo`, `securityRelevant`, `revisarAntesDe` y `nota`. Functions, unit y smoke: **sin fallas conocidas** (las 11 de functions se corrigen en este mismo PR: mocks y fixtures desactualizados por v1469 y v1480, sin tocar el producto). Pisos: rules 204, functions 975, unit 2765, smoke 25.
+- `scripts/ci/check-known-failures.mjs`: falla ante una falla nueva, una conocida que pasa o que falla por **otra causa** (firma normalizada), un `.skip`/`todo` nuevo, un skip conocido que corre, un archivo que no carga, o menos tests que el piso. v3 (informativo, no cambia el exit code): bloque **"Fallas conocidas de SEGURIDAD abiertas"**, aviso de revisión vencida y resumen en `$GITHUB_STEP_SUMMARY`. **Fix**: la ruta del test se normaliza relativa a la raíz del repo (antes `replace(/.*?(tests\/)/)` rompía la detección si el clon estaba en un directorio con "tests" en el nombre).
 
-**Por qué**: que las pruebas de seguridad sean evidencia real y que una regresión no se esconda detrás de una falla vieja.
+**Por qué**: que las pruebas de seguridad sean evidencia real, que una regresión no se esconda detrás de una falla vieja y que los huecos de seguridad conocidos queden visibles en cada corrida.
 
-**Verificación**: local con el mismo comando del workflow: Rules 198/209 + 6 conocidas, Functions 807/818 + 11 conocidas, gate `exit 0`; sin emulador, gate `exit 1`. `tests/unit/audit/check-known-failures.test.js`: 13 casos sintéticos. Gate `exit 0` también sobre `main` 3b0bf2c.
+**Verificación**: local con los mismos comandos del workflow sobre `main` 6b33da1 + PR de tests: unit 2765, smoke 25, functions 975/975, rules 198/209 + 6 conocidas y 5 skips, los cuatro gates `exit 0`; 6 pruebas negativas (sin emulador, falla inyectada, skip nuevo, piso, conocida que pasa, path con "tests") dan `exit 1`. `tests/unit/audit/check-known-failures.test.js`: 19 casos.
 
 **Rollback**: revert del PR (sin impacto en producción).
 

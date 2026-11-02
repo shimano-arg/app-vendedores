@@ -4,7 +4,12 @@
  * regresión nueva. Reportes vitest sintéticos (sin red ni emulador).
  */
 import { describe, expect, it } from 'vitest';
-import { evaluate, failureSignature } from '../../../scripts/ci/check-known-failures.mjs';
+import {
+  evaluate,
+  failureSignature,
+  summaryMarkdown,
+  toRepoRelative,
+} from '../../../scripts/ci/check-known-failures.mjs';
 
 const KNOWN = {
   version: 2,
@@ -122,5 +127,92 @@ describe('check-known-failures — no oculta regresiones', () => {
       'FirebaseError: # PERMISSION_DENIED: x'
     );
     expect(failureSignature(undefined)).toBe('');
+  });
+});
+
+describe('check-known-failures v3 — rutas, seguridad y revisión vencida', () => {
+  const KNOWN_V3 = {
+    version: 3,
+    rules: [
+      {
+        file: 'tests/rules/a.test.js',
+        test: 'A conocida',
+        signature: 'AssertionError: expected # to be # // Object.is equality',
+        hallazgo: 'S04',
+        securityRelevant: true,
+        revisarAntesDe: '2026-11-30',
+      },
+    ],
+    skipped: {
+      rules: [
+        { file: 'tests/rules/a.test.js', test: 'A skip legítimo', revisarAntesDe: '2026-11-15' },
+      ],
+    },
+    minExecuted: { rules: 3 },
+  };
+
+  it('G12: el path absoluto se normaliza aunque el directorio del clon contenga "tests"', () => {
+    expect(toRepoRelative('/x/ciclo1-tests/tests/functions/a.test.js', '/x/ciclo1-tests/')).toBe(
+      'tests/functions/a.test.js'
+    );
+    expect(toRepoRelative('/x/ciclo1-tests/tests/functions/a.test.js', '/otra/raiz/')).toBe(
+      'tests/functions/a.test.js'
+    );
+    expect(toRepoRelative('C:\\repo\\tests\\rules\\r.test.js', 'C:\\repo\\')).toBe(
+      'tests/rules/r.test.js'
+    );
+  });
+
+  it('G13: con un clon en ".../algo-tests/" una falla conocida que pasa SIGUE detectándose', () => {
+    const rep = report(BASE());
+    rep.testResults[0].name = '/x/ciclo1-tests/tests/rules/a.test.js';
+    rep.testResults[0].assertionResults[0] = {
+      fullName: 'A conocida',
+      status: 'passed',
+      failureMessages: [],
+    };
+    rep.testResults[0].status = 'passed';
+    const r = evaluate(KNOWN_V3, 'rules', rep, { today: '2026-11-02' });
+    expect(r.ok).toBe(false);
+    expect(r.lines.join('\n')).toMatch(/ahora PASAN/);
+  });
+
+  it('G14: falla conocida de seguridad abierta → se lista, pero NO cambia el resultado', () => {
+    const r = evaluate(KNOWN_V3, 'rules', report(BASE()), { today: '2026-11-02' });
+    expect(r.ok).toBe(true);
+    expect(r.security).toHaveLength(1);
+    expect(r.security[0]).toMatch(/^S04 · tests\/rules\/a\.test\.js :: A conocida$/);
+    expect(r.lines.join('\n')).toMatch(/SEGURIDAD abiertas \(1\)/);
+  });
+
+  it('G15: revisión vencida → aviso (no cambia el resultado); sin vencer → sin aviso', () => {
+    const vencida = evaluate(KNOWN_V3, 'rules', report(BASE()), { today: '2026-12-01' });
+    expect(vencida.ok).toBe(true);
+    expect(vencida.overdue).toHaveLength(2);
+    const enFecha = evaluate(KNOWN_V3, 'rules', report(BASE()), { today: '2026-11-02' });
+    expect(enFecha.overdue).toHaveLength(0);
+  });
+
+  it('G16: suite sin fallas conocidas (unit/smoke) aplica el piso de ejecutados', () => {
+    const known = { version: 3, unit: [], skipped: { unit: [] }, minExecuted: { unit: 5 } };
+    const pocos = {
+      testResults: [
+        {
+          name: '/repo/tests/unit/u.test.js',
+          status: 'passed',
+          assertionResults: [{ fullName: 'U1', status: 'passed', failureMessages: [] }],
+        },
+      ],
+    };
+    const r = evaluate(known, 'unit', pocos, { today: '2026-11-02' });
+    expect(r.ok).toBe(false);
+    expect(r.lines.join('\n')).toMatch(/menos que el piso 5/);
+  });
+
+  it('G17: el resumen markdown incluye el estado y el bloque de seguridad', () => {
+    const r = evaluate(KNOWN_V3, 'rules', report(BASE()), { today: '2026-11-02' });
+    const md = summaryMarkdown('rules', r);
+    expect(md).toMatch(/Gate de fallas conocidas · rules: ✅ OK/);
+    expect(md).toMatch(/falla\(s\) conocida\(s\) de seguridad/);
   });
 });
