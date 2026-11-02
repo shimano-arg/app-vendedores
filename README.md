@@ -4717,6 +4717,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1539 (2026-11-02) — APP-04: ficha desplegable del cliente en Master de Clientes
+
+- **Antes**: el Master de Clientes mostraba solo tienda, localidad, provincia, vendedor y dirección. El resto de los datos del cliente estaba repartido en varias colecciones y no había un lugar donde verlos juntos.
+- **Problema**: Mariano pidió ver toda la información del cliente debajo de su fila, con el mismo despliegue que tiene Stock Asignado para los SKU.
+- **Cambio**: clic en el nombre (o en el botón "Ficha" de las filas provisorias) → se inserta una fila con la ficha en 6 bloques:
+  - Identificación;
+  - Comercial (incluye ventas de 12 meses y deuda);
+  - Ubicación;
+  - Contacto;
+  - Logística (forma de entrega del último pedido);
+  - Adicional.
+
+  La armó la función pura `src/pure/ficha-cliente-master.js`; el despliegue está en `src/domains/master-clientes.js` y el CSS `.mc-ficha*` en `index.html`.
+- **Por qué**: tener la información en un solo lugar sin abrir modales.
+- **Solo lectura**: no escribe en Firestore. Casi todo sale de memoria. Hace como máximo 3 lecturas puntuales cacheadas por sesión: `client_locations`, `client_buyer_stats`, `cartera_vendor`.
+- **Verificación**: tests unitarios y de contrato nuevos; suite unit 2704 / smoke 25 / typecheck limpios; prueba en navegador con Firestore simulado (detalle en el informe).
+- **Inventario e informe**: `docs/auditoria/47_FICHA_CLIENTE_MASTER.md`.
+- **Rollback**: revertir el commit. Solo frontend.
+
 ### v1538 (2026-11-02) — APP-03: Pedido original con control [−][n][+]
 
 - **Antes**: en el modal "Pedido en espera" (Lista de espera → abrir pedido), la columna Pedido original era un campo numérico suelto de 60px.

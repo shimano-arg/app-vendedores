@@ -21,6 +21,7 @@
 // approvedAltasList, escapeHtml, titleCase, showSyncTag, matchesAllTokens
 // (bundle __phase0.pure), findSapDuplicateForProvisorio (bundle), clientLocId,
 // normClientName (bundle __phase0.pure).
+import { buildFichaClienteMaster, findCarteraCliente } from '../pure/ficha-cliente-master.js';
 import {
   mensajeSyncClientesSap,
   SYNC_CLIENTES_SAP_TEXTOS,
@@ -2364,9 +2365,13 @@ window.renderMasterClientesTable = function () {
   html += '<th style="width:12%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
+  // v1539 APP-04: id → entry de las filas visibles (para armar la ficha).
+  const _fichaEntries = new Map();
+  window._mcFichaEntries = _fichaEntries;
   entries.slice(0, MAX).forEach((e) => {
     const isSap = e.tipo === 'sap_alta';
     const id = entryDocId(e);
+    _fichaEntries.set(id, { entry: e, vendLabel: '' });
     const cur = getCurrent(id, e.provincia, e.localidad, e.nombre, e.tipo);
     // Para POINTS usamos clientMasterCache; para SAP altas usamos el doc en
     // approvedAltasList (savedAddr es la calle/address actual guardada).
@@ -2434,6 +2439,11 @@ window.renderMasterClientesTable = function () {
       : e.vendor
         ? titleCase(e.vendor)
         : '-';
+    _fichaEntries.get(id).vendLabel = vendInfo
+      ? vendInfo.zone + ' - ' + titleCase(e.vendor)
+      : e.vendor
+        ? titleCase(e.vendor)
+        : '';
     // Aplicar customName de clientMeta si un vendedor renombro la tienda
     // desde el modal "Dar de alta". Como admin/viewer reciben los
     // clientMeta de todos los users mergeados, vemos los renombres aca.
@@ -2566,12 +2576,19 @@ window.renderMasterClientesTable = function () {
         'title="Editar nombre del comercio (autosave al salir del campo o Enter)" />' +
         '<div class="mc-meta" style="margin-top:4px">' +
         tagHtml +
+        ' <button type="button" class="mc-ficha-toggle mc-ficha-btn" data-ficha-id="' +
+        escapeAttr(id) +
+        '" aria-expanded="false" title="Ver ficha del cliente"><span class="mc-ficha-caret">&#9654;</span> Ficha</button>' +
         '</div>' +
         deliveryBadge +
         '</td>';
     } else {
+      // v1539 APP-04: el nombre despliega la ficha del cliente debajo de la
+      // fila (mismo concepto que el SKU en Stock Asignado).
       html +=
-        '<td><div class="mc-name">' +
+        '<td><div class="mc-name mc-ficha-toggle" role="button" tabindex="0" aria-expanded="false" data-ficha-id="' +
+        escapeAttr(id) +
+        '" title="Ver ficha del cliente"><span class="mc-ficha-caret">&#9654;</span> ' +
         escapeHtml(displayName) +
         '</div>' +
         renamedHint +
@@ -2768,6 +2785,9 @@ window.renderMasterClientesTable = function () {
       entries.length +
       '. Usa filtros / buscador para refinar.</div>';
   cont.innerHTML = html;
+  // v1539 APP-04: ficha desplegable por cliente.
+  _mcFichaBind(cont);
+  _mcFichaReopen(cont);
 };
 
 window.onMcAddrInput = function (input, docId, originalSaved) {
@@ -3501,3 +3521,214 @@ window.getProvisoriosList = getProvisoriosList;
 window.updateMcProvisorioCount = updateMcProvisorioCount;
 // E6 hotfix 3: cross-module bug — pedidos-modal llama getCurrentOrderClientData en renderReviewLines.
 window.getCurrentOrderClientData = getCurrentOrderClientData;
+
+// =====================================================================
+// v1539 APP-04 (2026-11-02): ficha desplegable del cliente en el Master.
+// Inventario de datos: docs/auditoria/47_FICHA_CLIENTE_MASTER.md.
+// SOLO LECTURA: este bloque no escribe nada en Firestore. Lee de memoria
+// (POINTS, approvedAltasList, clientMasterCache, clientMeta) y hace a lo
+// sumo 3 lecturas puntuales (.get) que quedan cacheadas por sesión:
+// client_locations/{slug}, client_buyer_stats/{cardCode},
+// cartera_vendor/{vendorKey}.
+// =====================================================================
+if (typeof window._mcFichaOpen === 'undefined') window._mcFichaOpen = new Set();
+/** @type {Map<string, any>} clave → doc (null = no existe / sin permiso). */
+const _mcFichaReadCache = new Map();
+/** @type {Map<string, Promise<any>>} lecturas en curso (evita duplicadas). */
+const _mcFichaInflight = new Map();
+
+/**
+ * Lectura puntual cacheada. Devuelve undefined si todavía no llegó.
+ * @param {string} col
+ * @param {string} docId
+ * @param {() => void} onReady
+ */
+function _mcFichaGet(col, docId, onReady) {
+  if (!docId) return null;
+  const k = col + '/' + docId;
+  if (_mcFichaReadCache.has(k)) return _mcFichaReadCache.get(k);
+  if (!_mcFichaInflight.has(k)) {
+    let p;
+    try {
+      p = fbDb
+        .collection(col)
+        .doc(docId)
+        .get()
+        .then((snap) => (snap && snap.exists ? snap.data() : null))
+        .catch(() => null);
+    } catch (_e) {
+      p = Promise.resolve(null);
+    }
+    _mcFichaInflight.set(
+      k,
+      p.then((d) => {
+        _mcFichaReadCache.set(k, d);
+        _mcFichaInflight.delete(k);
+        return d;
+      })
+    );
+  }
+  _mcFichaInflight.get(k).then(() => onReady());
+  return undefined;
+}
+
+/** @param {string} id */
+function _mcFichaInput(id, onReady) {
+  const ent = window._mcFichaEntries && window._mcFichaEntries.get(id);
+  if (!ent) return null;
+  const e = ent.entry;
+  const isSap = e.tipo === 'sap_alta';
+  const altas = typeof approvedAltasList !== 'undefined' ? approvedAltasList : [];
+  const alta = isSap ? altas.find((x) => x && x._fsId === e.sapFsId) || null : null;
+  let slug = '';
+  try {
+    if (isSap && alta) {
+      const pv = alta.provincia || '';
+      const lc = alta.localidadFinal || alta.localidad || '';
+      const nm = alta.comercio || '';
+      if (pv && lc && nm) slug = clientLocId(pv, lc, nm);
+    } else if (!isSap) {
+      slug = clientLocId(e.provincia, e.localidad, e.nombre);
+    }
+  } catch (_e) {
+    slug = '';
+  }
+  const cm = slug ? clientMasterCache.get(slug) || null : null;
+  let meta = null;
+  if (!isSap && typeof clientMeta === 'object' && clientMeta) {
+    const t = e.tipo === 'cliente' ? 'C' : 'P';
+    meta = clientMeta[t + '|' + e.provincia + '|' + e.localidad + '|' + e.nombre] || null;
+  }
+  let fallback = '';
+  try {
+    if (typeof sapGetClienteCode === 'function') fallback = sapGetClienteCode(e.nombre) || '';
+  } catch (_e) {
+    fallback = '';
+  }
+  const cardCode = String(
+    (alta && alta.cardCodeSap) || (cm && cm.sapCardCode) || e.sapCardCode || fallback || ''
+  ).trim();
+  const loc = slug ? _mcFichaGet('client_locations', slug, onReady) : null;
+  const buyer = cardCode ? _mcFichaGet('client_buyer_stats', cardCode, onReady) : null;
+  let cartera = null;
+  if (e.vendor) {
+    const doc = _mcFichaGet('cartera_vendor', e.vendor, onReady);
+    if (doc === undefined) cartera = undefined;
+    else
+      cartera = findCarteraCliente(doc && doc.clientes, {
+        cardCode,
+        nombre: (alta && alta.comercio) || e.nombre,
+        provincia: e.provincia,
+      });
+  }
+  const custom = meta && meta.customName ? String(meta.customName).trim() : '';
+  return {
+    entry: e,
+    displayName: custom || e.nombre,
+    vendorLabel: ent.vendLabel,
+    alta,
+    cm,
+    meta,
+    cardCode,
+    sapCodeFallback: fallback,
+    loc,
+    buyer,
+    cartera,
+  };
+}
+
+/** @param {any[]} sections */
+function _mcFichaHtml(sections) {
+  let h = '<div class="mc-ficha" role="region" aria-label="Ficha del cliente">';
+  for (const sec of sections) {
+    h += '<section class="mc-ficha-sec mc-ficha-' + escapeAttr(sec.key) + '">';
+    h += '<h4>' + escapeHtml(sec.title) + '</h4><dl>';
+    for (const r of sec.rows) {
+      const cls = r.state === 'empty' ? ' is-empty' : r.state === 'loading' ? ' is-loading' : '';
+      h +=
+        '<div class="mc-ficha-item' +
+        cls +
+        '"><dt>' +
+        escapeHtml(r.label) +
+        '</dt><dd>' +
+        escapeHtml(r.value) +
+        '</dd></div>';
+    }
+    h += '</dl>';
+    if (sec.note) h += '<p class="mc-ficha-note">' + escapeHtml(sec.note) + '</p>';
+    h += '</section>';
+  }
+  return h + '</div>';
+}
+
+/** @param {HTMLElement} cont @param {string} id */
+function _mcFichaFillRow(cont, id) {
+  const row = /** @type {HTMLElement|null} */ (
+    Array.from(cont.querySelectorAll('tr.mc-ficha-row')).find(
+      (r) => /** @type {HTMLElement} */ (r).dataset.fichaFor === id
+    ) || null
+  );
+  if (!row) return;
+  const input = _mcFichaInput(id, () => _mcFichaFillRow(cont, id));
+  const td = row.querySelector('td');
+  if (!td) return;
+  td.innerHTML = input
+    ? _mcFichaHtml(buildFichaClienteMaster(input))
+    : '<div class="mc-ficha"><p class="mc-ficha-note">No se encontró el cliente.</p></div>';
+}
+
+/** @param {HTMLElement} cont @param {HTMLElement} toggle @param {boolean} open */
+function _mcFichaSet(cont, toggle, open) {
+  const id = toggle.dataset.fichaId || '';
+  const tr = toggle.closest('tr');
+  if (!id || !tr) return;
+  const next = tr.nextElementSibling;
+  const existing =
+    next && next.classList.contains('mc-ficha-row') && next.dataset.fichaFor === id ? next : null;
+  const caret = toggle.querySelector('.mc-ficha-caret');
+  if (open) {
+    window._mcFichaOpen.add(id);
+    if (!existing) {
+      const fr = document.createElement('tr');
+      fr.className = 'mc-ficha-row';
+      fr.dataset.fichaFor = id;
+      const td = document.createElement('td');
+      td.colSpan = tr.children.length || 6;
+      fr.appendChild(td);
+      tr.parentNode.insertBefore(fr, tr.nextSibling);
+    }
+    _mcFichaFillRow(cont, id);
+    tr.classList.add('mc-ficha-open');
+  } else {
+    window._mcFichaOpen.delete(id);
+    if (existing) existing.remove();
+    tr.classList.remove('mc-ficha-open');
+  }
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (caret) caret.innerHTML = open ? '&#9660;' : '&#9654;';
+}
+
+/** @param {HTMLElement} cont */
+function _mcFichaBind(cont) {
+  if (!cont || cont.dataset.mcFichaBound === '1') return;
+  cont.dataset.mcFichaBound = '1';
+  const handler = (ev) => {
+    const t = ev.target && ev.target.closest ? ev.target.closest('.mc-ficha-toggle') : null;
+    if (!t || !cont.contains(t)) return;
+    if (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ') return;
+    ev.preventDefault();
+    const id = t.dataset.fichaId || '';
+    _mcFichaSet(cont, t, !window._mcFichaOpen.has(id));
+  };
+  cont.addEventListener('click', handler);
+  cont.addEventListener('keydown', handler);
+}
+
+/** Reabre las fichas que estaban abiertas antes de re-renderizar. */
+function _mcFichaReopen(cont) {
+  if (!cont || !window._mcFichaOpen.size) return;
+  cont.querySelectorAll('.mc-ficha-toggle').forEach((t) => {
+    const el = /** @type {HTMLElement} */ (t);
+    if (window._mcFichaOpen.has(el.dataset.fichaId || '')) _mcFichaSet(cont, el, true);
+  });
+}
