@@ -25,6 +25,7 @@
  *   El último que escribe gana (rollout paralelo 2 días hábiles).
  */
 
+import { acquireBpSyncLock, releaseBpSyncLock } from './bp-sync-lock.js';
 import {
   collectBackorderFromSqs,
   fetchOpenSqsFromServiceLayer,
@@ -466,22 +467,48 @@ export async function syncSapCatalogStockCore(deps) {
     // hasta que Mariano confirme paridad y flip the flag.
     /** @type {{ok: boolean, stats?: any, error?: string, slRequests: number, bpSyncByCFFlag: boolean, dryRun: boolean}} */
     let bpSyncResult = { ok: false, slRequests: 0, bpSyncByCFFlag: false, dryRun: true };
+    // v1535 (APP-02): mismo lock que el boton manual "Sincronizar con SAP"
+    // (syncClientesSapCF). Dos syncs de clientes a la vez pueden crear el mismo
+    // cliente dos veces. Si el lock esta tomado (o no se pudo leer), se saltea
+    // SOLO el sync de clientes de este ciclo; el resto del sync sigue igual.
+    /** @type {string|null} */
+    let bpSyncSkipped = null;
+    /** @type {string|null} */
+    let bpLockId = null;
     try {
-      bpSyncResult = await syncBpPesca({
-        fbDb: deps.fbDb,
-        FieldValue: deps.FieldValue,
-        sapConfig: deps.sapConfig,
-        cookie: sess.cookie,
-        log,
-      });
-      slRequests += bpSyncResult.slRequests;
-      if (!bpSyncResult.ok && bpSyncResult.error) {
-        errors.push('bp-sync: ' + bpSyncResult.error);
-      }
+      const lock = await acquireBpSyncLock(deps.fbDb, { owner: 'cf-scheduled', nowMs: Date.now() });
+      if (lock.acquired) bpLockId = lock.lockId || null;
+      else bpSyncSkipped = 'lock_held';
     } catch (e) {
-      const bpErr = (e && /** @type {any} */ (e).message) || String(e);
-      errors.push('bp-sync-wrapper: ' + bpErr);
-      log('[sync] BP sync wrapper error (no bloqueante): ' + bpErr);
+      bpSyncSkipped = 'lock_error';
+      log('[sync] BP lock error (salteo sync clientes): ' + ((e && e.message) || String(e)));
+    }
+    if (bpSyncSkipped) {
+      log('[sync] BP sync salteado este ciclo: ' + bpSyncSkipped);
+    } else {
+      try {
+        bpSyncResult = await syncBpPesca({
+          fbDb: deps.fbDb,
+          FieldValue: deps.FieldValue,
+          sapConfig: deps.sapConfig,
+          cookie: sess.cookie,
+          log,
+        });
+        slRequests += bpSyncResult.slRequests;
+        if (!bpSyncResult.ok && bpSyncResult.error) {
+          errors.push('bp-sync: ' + bpSyncResult.error);
+        }
+      } catch (e) {
+        const bpErr = (e && /** @type {any} */ (e).message) || String(e);
+        errors.push('bp-sync-wrapper: ' + bpErr);
+        log('[sync] BP sync wrapper error (no bloqueante): ' + bpErr);
+      } finally {
+        try {
+          await releaseBpSyncLock(deps.fbDb, /** @type {string} */ (bpLockId));
+        } catch (_e) {
+          // El TTL del lock (10 min) lo libera solo.
+        }
+      }
     }
     // operations_log entry
     try {
@@ -508,6 +535,7 @@ export async function syncSapCatalogStockCore(deps) {
           stats: bpSyncResult.stats || null,
           slRequests: bpSyncResult.slRequests,
           error: bpSyncResult.error || null,
+          skipped: bpSyncSkipped,
         },
         errors: errors.slice(),
         ok: true,

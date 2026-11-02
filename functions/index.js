@@ -91,6 +91,7 @@ import { runSqCancelExpired, runSqCancelManualBulk } from './core/sq-cancel-core
 import { checkStockSyncStale } from './core/stock-sync-alert-core.js';
 // §63 Fase 3 Capa 1 (2026-10-23 v1444): sync stock scheduled nativo
 // (Cloud Scheduler via onSchedule, confiable vs GHA cron que saltea).
+import { syncClientesSapCore } from './core/sync-clientes-sap-core.js';
 import { syncSapCatalogStockCore } from './core/sync-sap-catalog-stock-core.js';
 import { handleSyncSapDocTotals } from './core/sync-sap-doc-totals-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
@@ -541,6 +542,73 @@ export const syncSapCatalogStockCF = onSchedule(
       });
     } catch (e) {
       console.warn('syncSapCatalogStockCF alert check fallo', (e && e.message) || e);
+    }
+  }
+);
+
+/**
+ * v1535 (APP-02) — syncClientesSapCF: boton "Sincronizar con SAP" del Master
+ * de Clientes. Corre a pedido el sync de clientes SAP → app que ya existe
+ * (syncBpPesca) para que un cliente recien creado en SAP aparezca en el master
+ * sin esperar la corrida programada.
+ *
+ * Wrapper fino (CLAUDE.md §7): la logica vive en core/sync-clientes-sap-core.js
+ * (rol admin/gerente leido de roles/{uid}, lock compartido con
+ * syncSapCatalogStockCF, forceWrite=true, operations_log). Las credenciales SAP
+ * quedan del lado servidor (secret SAP_SL_PASSWORD).
+ *
+ * Respuesta: {ok, nuevos, actualizados, total, durationMs} | {ok:false, code}.
+ * Rollback: borrar este export + redeploy (el resto del sync no depende).
+ */
+export const syncClientesSapCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const db = getFirestore();
+    try {
+      return await syncClientesSapCore(
+        {
+          fbDb: db,
+          FieldValue,
+          getUserRole: async (/** @type {string} */ uid) => {
+            const snap = await db.collection('roles').doc(uid).get();
+            const d = snap.exists ? snap.data() || {} : {};
+            return { role: d.role };
+          },
+          loadSapConfig: async () => {
+            const snap = await db.doc('app_config/sap_integration').get();
+            const sl = (snap.data() || {}).serviceLayer || {};
+            if (!sl.enabled || !sl.url || !sl.companyDB) return null;
+            return {
+              url: sl.url,
+              companyDB: sl.companyDB,
+              userName: sl.username || sl.userName || '',
+              password: SAP_SL_PASSWORD.value(),
+              fetch: globalThis.fetch,
+            };
+          },
+          log: (/** @type {string} */ m, /** @type {any} */ extra) => console.log(m, extra || {}),
+        },
+        { auth, data: req.data || {} }
+      );
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      const code = e && /** @type {any} */ (e).code;
+      if (code === 'unauthenticated' || code === 'permission-denied') {
+        throw new HttpsError(code, /** @type {any} */ (e).message || 'sin permiso');
+      }
+      console.error('syncClientesSapCF unexpected error', e);
+      throw new HttpsError('internal', 'sincronizacion de clientes fallo');
     }
   }
 );

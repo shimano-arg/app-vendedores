@@ -5664,6 +5664,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              su UI/logica). Antes: 2 botones en el header (Master Clientes +
              Zonas); ahora 1 solo (Master Clientes) + subboton para reasignacion. -->
         <button id="mc-reasignar-zonas-btn" class="mc-prov-btn" onclick="closeMasterClientesPanel();openZonasModal();" style="background:var(--color-accent-violet);box-shadow:0 1px 3px rgba(124,58,237,.3)" title="Reasignar tiendas / localidades / provincias a otro vendedor. Abre el panel Zonas con las 4 pestanas (Por tienda, Por localidad, Por provincia, Historial).">Reasignar Zonas</button>
+        <!-- v1535 (APP-02): trae ya los clientes nuevos de SAP (sin esperar la
+             corrida programada). Solo admin/gerente (updateMcSyncSapBtnVisibility). -->
+        <button id="mc-sync-sap-btn" class="mc-prov-btn" onclick="syncClientesSap()" style="display:none" title="Trae ahora los clientes nuevos creados en SAP para poder asignarles vendedor."><svg class="mc-sync-sap-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/></svg><span id="mc-sync-sap-label">Sincronizar con SAP</span></button>
+        <span id="mc-sync-sap-msg" class="mc-sync-sap-msg" role="status" aria-live="polite" style="display:none"></span>
         <!-- v799 (2026-09-04): boton para vincular un LEAD provisorio con
              su alta SAP. Fix del problema reportado por Mariano: cuando el
              sync SAP no matchea auto (nombre/CUIT distintos), aparece un
@@ -7198,7 +7202,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1534';
+const APP_VERSION = 'v1535';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
