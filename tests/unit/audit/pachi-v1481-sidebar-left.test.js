@@ -30,13 +30,14 @@ const INDEX_HTML = readFileSync('index.html', 'utf8');
 const MAIN_JS = readFileSync('src/main.js', 'utf8');
 
 describe('v1481 §81 — pure fn PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS', () => {
-  it('T1 lista contiene exactamente los 6 IDs del reporte Mariano', () => {
+  // v1545: 'backorders-btn' sale de la lista (PACHI ve Backorder, solo lectura).
+  it('T1 lista contiene exactamente los 5 IDs (v1545: sin backorders-btn)', () => {
     expect(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS).toBeDefined();
     expect(Array.isArray(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS)).toBe(true);
-    expect(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.length).toBe(6);
+    expect(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.length).toBe(5);
+    expect(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.includes('backorders-btn')).toBe(false);
     const expected = [
       'seguimiento-btn',
-      'backorders-btn',
       'asignacion-backorder-btn',
       'forecast-btn',
       'revision-btn',
@@ -74,12 +75,12 @@ describe('v1481 §81 — pure fn PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS', () => {
 });
 
 describe('v1481 §81 — pure fn PACHI_BLOCKED_OPEN_FNS (defense-in-depth)', () => {
-  it('T10 lista contiene las 7 funciones globales que PACHI no puede abrir', () => {
+  it('T10 lista contiene las 6 funciones globales que PACHI no puede abrir (v1545: Backorder habilitado)', () => {
     expect(PACHI_BLOCKED_OPEN_FNS).toBeDefined();
     expect(Array.isArray(PACHI_BLOCKED_OPEN_FNS)).toBe(true);
-    expect(PACHI_BLOCKED_OPEN_FNS.length).toBe(7);
+    expect(PACHI_BLOCKED_OPEN_FNS.length).toBe(6);
+    expect(PACHI_BLOCKED_OPEN_FNS.includes('openBackordersModal')).toBe(false);
     const expected = [
-      'openBackordersModal',
       'openAsignacionBackorderModal',
       'openForecastModal',
       'openRepartoModal',
@@ -159,7 +160,7 @@ describe('v1481 §81 — contrato index.html consulta la lista del pure', () => 
 });
 
 describe('v1481 §81 — simulación renderer: PACHI SOLO Campañas + Dashboard + Exportar', () => {
-  it('T40 filtra la lista `orden` del renderer eliminando los 6 IDs ocultos', () => {
+  it('T40 filtra la lista `orden` del renderer eliminando los IDs ocultos (v1545: Backorder queda)', () => {
     // Replica el array `orden` de _moveButtonsToSidebarLeft (v1481) y aplica
     // el filtro §81. El resultado debe ser exactamente Campañas + Dashboard + Exportar.
     const orden = [
@@ -175,7 +176,7 @@ describe('v1481 §81 — simulación renderer: PACHI SOLO Campañas + Dashboard 
     ];
     const filtered = orden.filter((b) => !PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.includes(b.id));
     const labels = filtered.map((b) => b.label);
-    expect(labels).toEqual(['Campañas', 'Dashboard', 'Exportar']);
+    expect(labels).toEqual(['Campañas', 'Dashboard', 'Exportar', 'Backorder']);
   });
 });
 

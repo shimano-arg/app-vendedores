@@ -300,20 +300,19 @@ test.describe('PACHI perfil operativo', () => {
       1
     );
 
-    // Totales: 3 proxies visibles (Campañas, Dashboard, Exportar).
+    // Totales: 4 proxies visibles (Campañas, Dashboard, Exportar y, desde
+    // v1545, Backorder en solo lectura).
     const totalBtns = await page.locator('#sidebar-left-buttons button').count();
-    expect(totalBtns, 'v1481 §81: sidebar-left debe tener exactamente 3 botones para PACHI').toBe(
-      3
-    );
+    expect(totalBtns, 'v1545: sidebar-left debe tener exactamente 4 botones para PACHI').toBe(4);
 
     await screen(page, 'v1481_sidebar_left_3_botones');
 
     // Defense in depth: las open*Modal fns están envueltas con pachiGuard.
-    // Verificar que invocar window.openBackordersModal() no abre el modal.
+    // Verificar que invocar window.openAsignacionBackorderModal() no abre el
+    // modal. (v1545: openBackordersModal ya no está bloqueado para PACHI.)
     page.on('dialog', (d) => d.accept().catch(() => null));
     const guardResult = await page.evaluate(() => {
       const fnNames = [
-        'openBackordersModal',
         'openAsignacionBackorderModal',
         'openForecastModal',
         'openRepartoModal',
