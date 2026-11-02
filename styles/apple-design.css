@@ -5344,6 +5344,28 @@
 #waitlist-card-modal tbody tr:hover td button:hover {
   color: #ff6b6b !important;
 }
+/* v1538 APP-03: el control [−][n][+] de Pedido original mantiene sus colores
+   en hover de fila (la regla de arriba pone los botones transparentes).
+   Specificity 1,3,3+ > 1,2,3 de "tr:hover td button". */
+#waitlist-card-modal tbody tr td .qty-stepper button.minus,
+#waitlist-card-modal tbody tr:hover td .qty-stepper button.minus {
+  background: var(--color-danger) !important;
+  color: #ffffff !important;
+}
+#waitlist-card-modal tbody tr td .qty-stepper button.plus,
+#waitlist-card-modal tbody tr:hover td .qty-stepper button.plus {
+  background: var(--color-success) !important;
+  color: #ffffff !important;
+}
+#waitlist-card-modal tbody tr:hover td .qty-stepper {
+  border-color: #ffffff !important;
+}
+#waitlist-card-modal tbody tr td .qty-stepper input[type="number"],
+#waitlist-card-modal tbody tr:hover td .qty-stepper input[type="number"] {
+  background: #ffffff !important;
+  color: #1d1d1f !important;
+  border: none !important;
+}
 /* Botones bottom (Cerrar / Editar orden / etc) */
 #waitlist-card-modal .stock-action-btn {
   border-radius: 999px !important;
