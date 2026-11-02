@@ -45,22 +45,24 @@ function _exportScope() {
     partnerUids = [];
   }
   // Resolver del master con memo por cliente (una pasada por export).
+  // Devuelve {vendorKey, reason} para que el alcance distinga prospecto sin
+  // CardCode (cae a vendorAssigned) de CardCode no resuelto (afuera).
   const memo = new Map();
   const resolveVendorForClient = (cardCode, clientName) => {
     const k = String(cardCode || '') + '|' + String(clientName || '');
     if (memo.has(k)) return memo.get(k);
-    let vk = '';
+    let out = { vendorKey: '', reason: 'sin_resolver' };
     try {
       const r =
         typeof w._resolveClientVendorFromMaster === 'function'
           ? w._resolveClientVendorFromMaster({ cardCode, clientName })
           : null;
-      vk = (r && r.vendorKey) || '';
+      if (r) out = { vendorKey: r.vendorKey || '', reason: r.reason || '' };
     } catch (_e) {
-      vk = '';
+      out = { vendorKey: '', reason: 'error' };
     }
-    memo.set(k, vk);
-    return vk;
+    memo.set(k, out);
+    return out;
   };
   return buildExportScope({
     role,
@@ -1624,8 +1626,8 @@ function _iteratePedidosMes(anio, monthIdx, scope) {
   const arr =
     typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
   // v1534: alcance por rol (vendedor = clientes de su master; interno = parejas).
-  const sc = scope || _exportScope();
-  return sc.filterPedidos(arr).filter((p) => {
+  // Primero el mes (barato) y después el alcance (resuelve el master por cliente).
+  const delMes = arr.filter((p) => {
     if (!p) return false;
     const { y, m } = _pedidoMonthYear(p);
     if (y == null) return false;
@@ -1633,6 +1635,8 @@ function _iteratePedidosMes(anio, monthIdx, scope) {
     if (monthIdx !== null && m !== monthIdx) return false;
     return true;
   });
+  const sc = scope || _exportScope();
+  return sc.filterPedidos(delMes);
 }
 
 async function exportBackorderForMonth(anio, monthIdx) {

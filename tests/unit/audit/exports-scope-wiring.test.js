@@ -32,6 +32,14 @@ describe('exports-core usa el alcance por rol', () => {
   it('_iteratePedidosMes filtra con el alcance (PEDIDOS_MES + variantes por mes)', () => {
     expect(bodyOf('function _iteratePedidosMes(')).toMatch(/filterPedidos\(/);
   });
+  it('_iteratePedidosMes aplica el mes ANTES del alcance (menos resoluciones del master)', () => {
+    const b = bodyOf('function _iteratePedidosMes(');
+    expect(b.indexOf('_pedidoMonthYear')).toBeGreaterThan(-1);
+    expect(b.indexOf('_pedidoMonthYear')).toBeLessThan(b.indexOf('filterPedidos('));
+  });
+  it('el resolver del alcance devuelve vendorKey + reason', () => {
+    expect(bodyOf('function _exportScope(')).toMatch(/reason:/);
+  });
   it('exportBackorderAll y exportStockAsigAll filtran con el alcance', () => {
     expect(bodyOf('window.exportBackorderAll = ')).toMatch(/filterPedidos\(/);
     expect(bodyOf('window.exportStockAsigAll = ')).toMatch(/filterPedidos\(/);

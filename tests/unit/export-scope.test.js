@@ -36,10 +36,11 @@ const pedidos = [
   },
   // Propio por master pero con UID de otro (no lo trae la consulta; defensa).
   { _fsId: 'P3', clientCardCode: 'C_PACHI_2', assignedVendorUid: UID_GONZA },
-  // Cliente fuera del master: cae a vendorAssigned del pedido.
+  // Prospecto sin CardCode SAP: cae a vendorAssigned del pedido.
   {
     _fsId: 'P4',
-    clientCardCode: 'C_NUEVO',
+    clientCardCode: '',
+    clientName: 'PROSPECTO NUEVO',
     assignedVendorUid: UID_PACHI,
     vendorAssigned: 'PACHI',
   },
@@ -95,7 +96,7 @@ describe('buildExportScope — pedidos', () => {
     const out = ids(s.filterPedidos(pedidos));
     expect(out).toContain('P1');
     expect(out).not.toContain('P2'); // ajeno por master
-    expect(out).toContain('P4'); // fuera del master, vendorAssigned propio
+    expect(out).toContain('P4'); // prospecto sin CardCode, vendorAssigned propio
   });
   it('vendedor: no ve un pedido cuyo assignedVendorUid es de otro (aunque el master sea suyo)', () => {
     const s = buildExportScope({
@@ -181,5 +182,86 @@ describe('buildExportScope — visitas', () => {
     const s = buildExportScope({ role: 'admin' });
     expect(s.filterVisits(visits)).toHaveLength(visits.length);
     expect(s.visitsQueryByOwnerUid).toBe(false);
+  });
+});
+
+// Fix ronda 1: el resolver devuelve {vendorKey, reason}. Solo los prospectos
+// sin CardCode SAP caen al vendorAssigned del pedido; un CardCode que el
+// master no resuelve queda afuera (falla cerrado).
+describe('fallback a vendorAssigned acotado (fix ronda 1)', () => {
+  /** @type {Record<string, {vendorKey: string, reason: string}>} */
+  const R = {
+    C_ALTA_PROPIA: { vendorKey: 'PACHI', reason: 'ok' },
+    // Alta reasignada a otro vendedor: desaparece del approvedAltasList del VDE.
+    C_ALTA_REASIG: { vendorKey: '', reason: 'cliente_no_en_master' },
+    C_SIN_ZONA: { vendorKey: '', reason: 'zona_sin_vendedor' },
+    C_DISTRIB: { vendorKey: '', reason: 'zona_sin_vendedor' }, // __DISTRIBUTOR__
+  };
+  /** @param {string} cc */
+  const resolveObj = (cc) =>
+    R[cc] || { vendorKey: '', reason: cc ? 'cliente_no_en_master' : 'input_vacio' };
+  const vde = () =>
+    buildExportScope({
+      role: 'vendedor',
+      myUid: UID_PACHI,
+      myVendorKey: 'PACHI',
+      resolveVendorForClient: resolveObj,
+    });
+  const base = { assignedVendorUid: UID_PACHI, vendorAssigned: 'PACHI' };
+
+  it('alta reasignada + pedido con UID/vendorAssigned viejos → afuera; alta propia adentro', () => {
+    const out = ids(
+      vde().filterPedidos([
+        { _fsId: 'A1', clientCardCode: 'C_ALTA_REASIG', ...base },
+        { _fsId: 'A2', clientCardCode: 'C_ALTA_PROPIA', ...base },
+      ])
+    );
+    expect(out).toEqual(['A2']);
+  });
+  it('prospecto sin CardCode cae al vendorAssigned', () => {
+    expect(ids(vde().filterPedidos([{ _fsId: 'PR', clientName: 'NUEVO', ...base }]))).toEqual([
+      'PR',
+    ]);
+  });
+  it('zona sin vendedor (incluido distribuidor): afuera para vendedor e interno', () => {
+    const peds = [
+      { _fsId: 'Z1', clientCardCode: 'C_SIN_ZONA', ...base },
+      { _fsId: 'Z2', clientCardCode: 'C_DISTRIB', ...base },
+    ];
+    expect(vde().filterPedidos(peds)).toEqual([]);
+    const vdi = buildExportScope({
+      role: 'interno',
+      myUid: 'uid-santi',
+      effectiveVendorSet: new Set(['PACHI', 'SANTIAGO ESTEBAN']),
+      resolveVendorForClient: resolveObj,
+    });
+    expect(vdi.filterPedidos(peds)).toEqual([]);
+    expect(vdi.filterPedidos([{ _fsId: 'A1', clientCardCode: 'C_ALTA_REASIG', ...base }])).toEqual(
+      []
+    );
+  });
+  it('columna Vendedor: zona sin vendedor queda vacía (no cae a lo guardado)', () => {
+    expect(
+      vendorColumnForPedido(
+        { clientCardCode: 'C_SIN_ZONA', vendorAssigned: 'PACHI', ownerVendor: 'X' },
+        resolveObj
+      )
+    ).toBe('');
+  });
+});
+
+describe('rol desconocido o vacío: no exporta nada (fix ronda 1)', () => {
+  for (const role of [null, undefined, '', 'unassigned', 'otro']) {
+    it(String(role), () => {
+      const s = buildExportScope({ role, myUid: 'x', resolveVendorForClient });
+      expect(s.isGlobal).toBe(false);
+      expect(s.filterPedidos(pedidos)).toEqual([]);
+      expect(s.filterVisits([{ ownerUid: 'x' }])).toEqual([]);
+    });
+  }
+  it('viewer sigue global', () => {
+    expect(buildExportScope({ role: 'viewer' }).filterPedidos(pedidos)).toHaveLength(
+      pedidos.length
+    );
   });
 });

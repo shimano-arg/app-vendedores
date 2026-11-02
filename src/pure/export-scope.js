@@ -14,19 +14,20 @@
  *   - Interno (VDI): un pedido entra si el vendedor del master de su cliente
  *     está en su conjunto de vendedores (su zona + sus parejas, el mismo que
  *     usa el mapa: getMyAllowedVendorKeys / getEffectiveVendorSet('ALL')).
- *   - Admin / gerente / viewer / otros: sin cambio (global).
+ *   - Admin / gerente / viewer: sin cambio (global). Otro rol o sin rol: nada.
  *   - Visitas: el vendedor ve solo las que cargó él (`ownerUid === myUid`);
  *     el interno ve las suyas + las de sus parejas (por `ownerUid` de una
  *     pareja, por `createdByUid` propio o por `vendor` ∈ su conjunto).
  *
- * Si el master no resuelve al cliente (cliente nuevo / prospecto sin zona),
- * se usa el `vendorAssigned` guardado en el pedido. `ownerVendor` (= quién lo
+ * Solo un prospecto sin CardCode SAP cae al `vendorAssigned` guardado en el
+ * pedido. Un CardCode que el master no resuelve, o una zona sin vendedor,
+ * queda fuera del alcance de vendedor e interno. `ownerVendor` (= quién lo
  * cargó, legacy) NO se usa para decidir el alcance; solo como último recurso
  * para la columna "Vendedor" del Excel.
  */
 
 /**
- * @typedef {(cardCode: string, clientName: string) => string} ResolveVendorForClient
+ * @typedef {(cardCode: string, clientName: string) => (string|{vendorKey?: string, reason?: string})} ResolveVendorForClient
  */
 
 /**
@@ -60,30 +61,44 @@ export function normVendorKey(k) {
 }
 
 /**
- * Vendedor del master actual para el cliente del pedido. '' si no resuelve.
+ * Resultado del master para el cliente del pedido. Acepta un resolver que
+ * devuelve string (vendorKey) o {vendorKey, reason}.
  * @param {any} p
  * @param {ResolveVendorForClient|undefined} resolve
- * @returns {string}
+ * @returns {{vendorKey: string, reason: string}}
  */
-function masterVendorKey(p, resolve) {
-  if (!p || typeof resolve !== 'function') return '';
+function masterLookup(p, resolve) {
+  if (!p || typeof resolve !== 'function') return { vendorKey: '', reason: 'sin_resolver' };
   try {
-    return normVendorKey(resolve(String(p.clientCardCode || ''), String(p.clientName || '')));
+    const r = resolve(String(p.clientCardCode || ''), String(p.clientName || ''));
+    if (r && typeof r === 'object') {
+      return { vendorKey: normVendorKey(r.vendorKey), reason: String(r.reason || '') };
+    }
+    return { vendorKey: normVendorKey(r), reason: '' };
   } catch (_e) {
-    return '';
+    return { vendorKey: '', reason: 'error' };
   }
 }
 
 /**
- * Vendedor que define el alcance del pedido: master actual; si el master no
- * resuelve, el `vendorAssigned` guardado en el pedido.
+ * Vendedor que define el alcance del pedido:
+ *   - el del master actual, si resuelve;
+ *   - zona sin vendedor (incluido distribuidor): '' (el master manda);
+ *   - prospecto sin CardCode SAP: el `vendorAssigned` guardado en el pedido;
+ *   - CardCode SAP que el master no resuelve: '' (falla cerrado). Ej.: un alta
+ *     reasignada a otro vendedor desaparece del approvedAltasList del VDE y
+ *     el `vendorAssigned` viejo no tiene que volver a meterla.
  * @param {any} p
  * @param {ResolveVendorForClient} [resolve]
  * @returns {string}
  */
 export function resolvePedidoVendorKey(p, resolve) {
   if (!p) return '';
-  return masterVendorKey(p, resolve) || normVendorKey(p.vendorAssigned);
+  const m = masterLookup(p, resolve);
+  if (m.vendorKey) return m.vendorKey;
+  if (m.reason === 'zona_sin_vendedor') return '';
+  if (!String(p.clientCardCode || '').trim()) return normVendorKey(p.vendorAssigned);
+  return '';
 }
 
 /**
@@ -95,11 +110,11 @@ export function resolvePedidoVendorKey(p, resolve) {
  */
 export function vendorColumnForPedido(p, resolve) {
   if (!p) return '';
-  return (
-    masterVendorKey(p, resolve) ||
-    String(p.vendorAssigned || '').trim() ||
-    String(p.ownerVendor || '').trim()
-  );
+  const m = masterLookup(p, resolve);
+  if (m.vendorKey) return m.vendorKey;
+  // Zona sin vendedor: la columna queda vacía (no se muestra el vendedor viejo).
+  if (m.reason === 'zona_sin_vendedor') return '';
+  return String(p.vendorAssigned || '').trim() || String(p.ownerVendor || '').trim();
 }
 
 /**
@@ -182,7 +197,18 @@ export function buildExportScope(args) {
     };
   }
 
-  // Admin / gerente / viewer / otros: sin cambio.
+  if (role !== 'admin' && role !== 'gerente' && role !== 'viewer') {
+    // Rol vacío, 'unassigned' o desconocido: no exporta nada (falla cerrado).
+    return {
+      isGlobal: false,
+      visitsQueryByOwnerUid: false,
+      vendorColumnForPedido: vendorColumn,
+      filterPedidos: () => [],
+      filterVisits: () => [],
+    };
+  }
+
+  // Admin / gerente / viewer: sin cambio (global).
   return {
     isGlobal: true,
     visitsQueryByOwnerUid: false,
