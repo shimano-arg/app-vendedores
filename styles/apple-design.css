@@ -6899,6 +6899,25 @@ html[data-theme="dark"] #pane-locs h3 {
 #reclamos-header-btn.btn-zonas:hover { background: #0862c7 !important; }
 #reclamos-header-btn.btn-zonas:active { transform: scale(0.97) !important; }
 
+/* ==== #pedidos-mes-btn (pill Apple azul) v1546 ====
+   Faltaba: el boton v1540 quedaba como rectangulo uppercase de .btn-zonas.
+   Mismo pattern que #planner-header-btn / #reclamos-header-btn (CLAUDE.md §106). */
+#pedidos-mes-btn.btn-zonas {
+  background: #0f4c81 !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#pedidos-mes-btn.btn-zonas:hover { background: #1e6fb5 !important; }
+#pedidos-mes-btn.btn-zonas:active { transform: scale(0.97) !important; }
+
 /* ==== #planner-board-modal (Mariano-only Kanban modal) ==== */
 #planner-board-modal.modal-overlay {
   background: rgba(0, 0, 0, 0.35);

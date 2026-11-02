@@ -3790,3 +3790,31 @@ Expuestos en `window.__phase0.pure.{buildPopupStockSkuLineas, renderPopupStockSk
 2. Antes de devolver el PDF, el backend valida que el usuario pueda ver ese documento: rol más cliente asignado, con el mismo alcance que Pedidos del mes (§ v1540) y el Dashboard de Ventas.
 3. La API Key vive en Secret Manager. **Nunca** en el navegador, en el repositorio, en los logs ni en un correo.
 4. Pasa por el mismo protocolo que el resto: plan aprobado, tests, deploy autorizado por Mariano y verificación real. Primero en testing; producción requiere una autorización aparte.
+
+## 106. Todo botón nuevo nace con estilo Apple (2026-11-02, v1546)
+
+**Regla fuerte** (pedido de Mariano: "siempre todos los botones con estilo Apple"): ningún botón nuevo se mergea con el estilo por defecto de `.btn-zonas` (rectángulo, mayúsculas, sombra). Cada botón visible lleva su bloque en `styles/apple-design.css` con el patrón pill:
+
+```css
+#mi-boton.btn-zonas {
+  background: <color> !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#mi-boton.btn-zonas:hover { background: <color más claro> !important; }
+#mi-boton.btn-zonas:active { transform: scale(0.97) !important; }
+```
+
+Referencias: `#planner-header-btn`, `#reclamos-header-btn`, `#panel-control-btn`, `#pedidos-mes-btn`. Los botones dentro de modales siguen el mismo criterio (pill, sin mayúsculas, `:active` con `scale(0.97)`), y lo gestual pasa además por §21.
+
+**Precedente**: v1540 agregó «Pedidos del mes» al header sin su bloque pill; quedó como rectángulo en mayúsculas al lado de botones pill. Mariano lo marcó el 2026-11-02 (v1546).
+
+**Cómo verificar**: antes de cerrar un PR que agrega un botón, abrir la app en el navegador y compararlo con los vecinos; agregar un test de contrato que exija el bloque pill en `apple-design.css` (ver `tests/unit/audit/pedidos-mes-btn-apple-v1546.test.js`). Recordar que `apple-design.css` usa CRLF.
