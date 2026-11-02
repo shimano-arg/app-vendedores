@@ -4717,6 +4717,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1536 (2026-11-02) — Hotfix: exportaciones vacías para el rol vendedor
+
+**Antes**: la v1534 filtra Pedidos del mes, Backorder y Stock Asignado del vendedor comparando `assignedVendorUid` del pedido con su usuario de Firebase Auth (`src/pure/export-scope.js`).
+
+**Problema**: la copia en memoria de cada pedido (`globalPedidos`, listener de pedidos en `index.html`) no traía `assignedVendorUid`. El filtro descartaba todos los pedidos: PACHI exportaba Pedidos del mes vacío teniendo 33 pedidos en septiembre (verificado en consola, 2026-11-02). Los tests de la v1534 armaban los pedidos con el campo, por eso no lo detectaron.
+
+**Cambio**: la proyección de `globalPedidos` copia `assignedVendorUid`. Test nuevo `tests/unit/audit/global-pedidos-assigned-vendor-uid.test.js` (falla sin el arreglo).
+
+**Por qué**: sin el campo, la v1534 deja al vendedor sin sus exportaciones.
+
+**Verificación**: test nuevo (rojo sin el arreglo, verde con él), unit, smoke, lint y typecheck. Pendiente: exportar como PACHI.
+
+**Deploy**: solo frontend (se publica con el merge) + "Recargar limpio".
+
+**Rollback**: revert del commit.
+
 ### v1535 (2026-11-02) — Master de Clientes: botón "Sincronizar con SAP" (APP-02)
 
 **Antes**: un cliente recién creado en SAP llegaba al Master de Clientes solo cuando corría el sync de clientes (`syncBpPesca`). En la corrida programada (`syncSapCatalogStockCF`, cada 5 min) ese sync está en modo prueba mientras `app_config/sap_integration.bpSyncByCF` sea `false`: no escribe nada. En la práctica había que esperar al workflow manual de Python para poder asignarle vendedor al cliente nuevo.
