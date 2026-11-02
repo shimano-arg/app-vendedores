@@ -71,3 +71,43 @@ WHERE card_code = 'C30710893981';
 | Marca vieja en `userData` (caso A) | Tocar Habilitado en el modal del cliente | Ninguno |
 
 **¿Afecta a otros clientes de Pesca/Bici?** Por código, no hay ninguna regla que trate distinto a la División 3. El script (punto 4) muestra si otros clientes de División 3 están en la misma situación por los motivos comunes: sin geolocalización, sin dirección, sin aprobar o duplicados.
+
+---
+
+## 7. Resultado del script (2026-11-02, corrida de Mariano)
+
+**Causa raíz: escenario 7, otra causa.** El «Pendiente» es la **marca comercial manual por usuario** (Habilitado / Cancelado / Pendiente) de la tarjeta del cliente. No tiene relación con SAP, la división ni datos faltantes.
+
+Datos de FOLCA:
+
+- **Un solo doc** en `client_applications` (`nAxifGJNa9UEULi30KHO`). El duplicado de septiembre ya se había fusionado el 2026-09-15 (`mergedFromSapFsId: LDMfaxfj1PMYzqUyt4WV`, por mariano.erbino). Hoy hay **0 CardCodes duplicados** en toda la colección.
+- El alta está completa: `status: approved`, CardCode `C30710893981`, `sapDivision: "3"`, `sapValid: tYES`, `sapFrozen: tNO`, dirección, CP, lat/lng, vendedor. **Ningún motivo de pendiente.**
+- Por qué aparece igual como «Pendiente»:
+  1. El alta queda en la localidad Arroyito, que existe en el padrón. `altasForPoint` (`index.html`) la suma a la lista de clientes de ese punto con el nombre `FOLCA S.R.L`.
+  2. Esa tarjeta usa `getClientState("C|CORDOBA|Arroyito|FOLCA S.R.L")`, que devuelve «pendiente» si nadie la marcó Habilitado ni Cancelado (`index.html:9233`).
+  3. La única marca que existe es **CANCELADO de mariano.erbino sobre la clave vieja `C|CORDOBA|Arroyito|Folca`**, de cuando el cliente se llamaba "Folca". Como cambió el nombre, la marca quedó en otra clave y no se aplica.
+- Además, las marcas son **por usuario**: un vendedor solo ve las suyas y admin/viewer ven la suma de todos. Para PACHI o Santiago, FOLCA es «Pendiente» mientras ellos no lo marquen.
+
+Comparación por división (altas SAP):
+
+| División | Altas | Sin ningún motivo de pendiente |
+|---|---|---|
+| 2 | 340 | 311 (29 sin geolocalizar, 7 sin vendedor, 1 sin dirección) |
+| 3 | 4 | 4 |
+| (vacía) | 500 | 0 (498 son provisorios sin CardCode) |
+
+**No hay ningún problema con la División 3**: sus 4 altas están completas.
+
+Otros datos encontrados:
+
+- Hay **dos docs en `client_master`**: `cordoba__arroyito__folca` (entrega por transportista CAROSSIO Y VAIROLATTI y visita de julio) y `cordoba__arroyito__folca_s_r_l` (visita de septiembre). Es el riesgo 5.1 del informe 47: el cambio de nombre partió los datos.
+- `assignedVendor: PACHI` y `coverageBy: PACHI`. El historial registra un pase PACHI → SANTIAGO ESTEBAN el 2026-09-11, pero el 2026-09-17 se reasignó (`reassignedBy: mariano.erbino`) y hoy figura PACHI.
+
+## 8. Solución
+
+- **Inmediata, sin código**: abrir FOLCA S.R.L en la lista de clientes y tocar **Habilitado**. Cada vendedor que lo vea como «Pendiente» tiene que hacerlo desde su usuario, porque la marca es por usuario.
+- **De fondo (propuesta, requiere autorización)**:
+  - No mostrar «Pendiente» en clientes con CardCode SAP aprobado. Mostrar «Cliente SAP», o usar el estado del alta en lugar de la marca manual.
+  - Opcional: migrar las marcas viejas cuando cambia el nombre del cliente.
+  - Riesgo: cambia lo que ven todos los vendedores en la lista y el orden (pendientes primero).
+- **Afecta a otros**: sí, a **cualquier alta SAP ubicada en una localidad del padrón** que nadie marcó, sin importar la división. No es exclusivo de Pesca/Bici.
