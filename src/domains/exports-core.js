@@ -5,6 +5,73 @@
 // Fragmentos restantes del dominio exports: advanced (~10302-11451) y SAP
 // (~18123-19812) requerirán E2.n.2 y E2.n.3 (regla #14 CLAUDE.md).
 // Cross-scope state: NONE. Sin listeners.
+import { buildExportScope } from '../pure/export-scope.js';
+
+// v1534 (2026-11-02) — alcance por rol de las exportaciones (auditoría 46,
+// Etapa 1). Regla en src/pure/export-scope.js: el vendedor ve solo pedidos de
+// clientes que HOY son suyos en el master (POINTS + vendor_overrides +
+// approvedAltas, §46/§50) y además con assignedVendorUid = su usuario; el
+// interno ve los clientes de su zona + sus parejas (getMyAllowedVendorKeys,
+// el mismo alcance del mapa); admin/gerente sin cambio. El uid sale de
+// Firebase Auth (no de userRole, que es una variable global editable).
+function _exportScope() {
+  const w = /** @type {any} */ (typeof window !== 'undefined' ? window : {});
+  const role = typeof userRole !== 'undefined' ? userRole : null;
+  let myUid = '';
+  try {
+    const u = w.firebase && w.firebase.auth && w.firebase.auth().currentUser;
+    myUid = (u && u.uid) || '';
+  } catch (_e) {
+    myUid = '';
+  }
+  const myVendorKey = typeof assignedVendor !== 'undefined' ? assignedVendor : '';
+  let effectiveVendorSet = null;
+  try {
+    effectiveVendorSet =
+      typeof getMyAllowedVendorKeys === 'function' ? getMyAllowedVendorKeys() : null;
+  } catch (_e) {
+    effectiveVendorSet = null;
+  }
+  let partnerUids = [];
+  try {
+    partnerUids = (
+      (typeof myExternalPartners !== 'undefined' && Array.isArray(myExternalPartners)
+        ? myExternalPartners
+        : []) || []
+    )
+      .map((x) => x && x.uid)
+      .filter(Boolean);
+  } catch (_e) {
+    partnerUids = [];
+  }
+  // Resolver del master con memo por cliente (una pasada por export).
+  const memo = new Map();
+  const resolveVendorForClient = (cardCode, clientName) => {
+    const k = String(cardCode || '') + '|' + String(clientName || '');
+    if (memo.has(k)) return memo.get(k);
+    let vk = '';
+    try {
+      const r =
+        typeof w._resolveClientVendorFromMaster === 'function'
+          ? w._resolveClientVendorFromMaster({ cardCode, clientName })
+          : null;
+      vk = (r && r.vendorKey) || '';
+    } catch (_e) {
+      vk = '';
+    }
+    memo.set(k, vk);
+    return vk;
+  };
+  return buildExportScope({
+    role,
+    myUid,
+    myVendorKey,
+    effectiveVendorSet,
+    partnerUids,
+    resolveVendorForClient,
+  });
+}
+
 // ======================================================
 // EXPORT MASTERFILE DE CLIENTES
 // ======================================================
@@ -1031,21 +1098,30 @@ function lookupVendorForClient(prov, locName, _clientName) {
 // ============================================================
 async function exportVisitasForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Visitas + Contactos...');
+  // v1534: el vendedor consulta solo sus visitas (las reglas no le dejan
+  // listar todas); el interno ve las suyas + las de sus parejas.
+  const scope = _exportScope();
   let snap;
   try {
-    snap = await fbDb.collection('visits').get();
+    let q = fbDb.collection('visits');
+    if (scope.visitsQueryByOwnerUid) {
+      const u = window.firebase && window.firebase.auth && window.firebase.auth().currentUser;
+      q = q.where('ownerUid', '==', (u && u.uid) || '__sin_usuario__');
+    }
+    snap = await q.get();
   } catch (e) {
     alert('Error leyendo visitas: ' + (e.message || e));
     return;
   }
   const targetMes = monthIdx !== null ? MESES[monthIdx].toUpperCase() : null;
-  const items = [];
+  const all = [];
   snap.forEach((d) => {
     const v = d.data() || {};
     if (parseInt(v.anio, 10) !== anio) return;
     if (targetMes && (v.mes || '').toUpperCase() !== targetMes) return;
-    items.push(v);
+    all.push(v);
   });
+  const items = scope.filterVisits(all);
   if (!items.length) {
     alert('No hay visitas ni contactos en el periodo seleccionado.');
     return;
@@ -1544,10 +1620,12 @@ function _pedidoMonthYear(p) {
   return { y: dt.getFullYear(), m: dt.getMonth() };
 }
 
-function _iteratePedidosMes(anio, monthIdx) {
+function _iteratePedidosMes(anio, monthIdx, scope) {
   const arr =
     typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
-  return arr.filter((p) => {
+  // v1534: alcance por rol (vendedor = clientes de su master; interno = parejas).
+  const sc = scope || _exportScope();
+  return sc.filterPedidos(arr).filter((p) => {
     if (!p) return false;
     const { y, m } = _pedidoMonthYear(p);
     if (y == null) return false;
@@ -1783,8 +1861,10 @@ window.exportBackorderAll = async function () {
   // incluía. Delta medido en prod: 222 unidades (modal 7696 vs panel 7474).
   // Fix: pure fn única con default `includeExpired=true` (alineado con §40.1
   // y getStockBreakdown.backorderApp.total — la cola completa).
-  const arr =
-    typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
+  // v1534: alcance por rol (vendedor = clientes de su master; interno = parejas).
+  const arr = _exportScope().filterPedidos(
+    typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : []
+  );
   const totalPedidosOpen = arr.filter((p) => p && !p.closedAt).length;
   /** @type {(p: any) => string} */
   const _resolveVendorFallback = (p) => {
@@ -1989,8 +2069,10 @@ window.exportStockAsigAll = async function () {
   // asignacion. Ahora el reporte coincide con el modal: FIFO cap por dispSap,
   // filtro vencidas (ASIG >15d fuera, ASIG sin reserva vigente adentro),
   // confirmed incluido, sin líneas "virtual_ASIG" fantasma.
-  const arr =
-    typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
+  // v1534: alcance por rol (vendedor = clientes de su master; interno = parejas).
+  const arr = _exportScope().filterPedidos(
+    typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : []
+  );
   const totalPedidosOpen = arr.filter((p) => p && !p.closedAt).length;
   /** @type {(p: any) => string} */
   const _resolveVendorFallback = (p) => {
@@ -2368,7 +2450,8 @@ async function exportVentasArtCliForMonth(anio, monthIdx) {
 async function exportPedidosMesForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Pedidos del mes...');
   const rows = [];
-  const pedidos = _iteratePedidosMes(anio, monthIdx);
+  const scope = _exportScope();
+  const pedidos = _iteratePedidosMes(anio, monthIdx, scope);
   for (const p of pedidos) {
     const lines = Array.isArray(p.lines) ? p.lines : [];
     if (!lines.length) continue;
@@ -2395,7 +2478,8 @@ async function exportPedidosMesForMonth(anio, monthIdx) {
         CardCode: p.clientCardCode || '',
         Provincia: p.province || '',
         Localidad: p.locName || '',
-        Vendedor: p.ownerVendor || '',
+        // v1534: vendedor del master actual (fallback vendorAssigned, después ownerVendor).
+        Vendedor: scope.vendorColumnForPedido(p),
         SKU: l.code || '',
         Producto: l.desc || l.name || '',
         Cantidad: qty,

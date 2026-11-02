@@ -4717,6 +4717,34 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1534 (2026-11-02) — Exportaciones por vendedor: cada vendedor exporta solo los pedidos de sus clientes del master (Etapas 0 y 1)
+
+**Antes**: en el modal "Reportes Excel", Pedidos del mes, Backorder y Stock Asignado - líneas traían para el vendedor todos los pedidos con `assignedVendorUid` = su usuario, aunque el cliente hoy fuera de otro vendedor en el master. La columna "Vendedor" de Pedidos del mes salía de `ownerVendor` (quién cargó el pedido). Los internos (VDI) exportaban pedidos y visitas de todos los vendedores del país. Visitas y Contactos le fallaba al vendedor (la consulta pedía todas las visitas y las reglas no se lo permiten).
+
+**Problema**: `assignedVendorUid` se graba al crear el pedido y no se actualiza cuando el cliente cambia de vendedor en el master. Un vendedor (caso PACHI) podía bajar pedidos de clientes ajenos, y la columna Vendedor mostraba nombres de otros. Detalle completo con archivo:línea en `docs/auditoria/46_EXPORTS_SEGMENTACION_VENDEDOR.md`.
+
+**Cambio**:
+- Alcance único en `src/pure/export-scope.js` (`buildExportScope`), expuesto en `window.__phase0.pure.exportScope` y usado por `src/domains/exports-core.js` (`_exportScope`):
+  - Vendedor: un pedido entra solo si el vendedor ACTUAL del master de su cliente (POINTS + vendor_overrides + approvedAltas, el mismo resolver `window._resolveClientVendorFromMaster`) es el suyo, y además `assignedVendorUid` = su usuario de Firebase Auth (no se toma de `userRole`). Si el master no resuelve al cliente (cliente nuevo sin zona) se usa el `vendorAssigned` del pedido.
+  - Interno: un pedido entra si el vendedor del master de su cliente está en su zona + sus parejas (`getMyAllowedVendorKeys`, el mismo alcance que el mapa y el Masterfile).
+  - Admin / gerente: sin cambio.
+- Aplicado a Pedidos del mes, Backorder (snapshot actual y por mes) y Stock Asignado - líneas (snapshot actual y por mes).
+- Pedidos del mes: la columna "Vendedor" muestra el vendedor del master (si no resuelve, `vendorAssigned`; `ownerVendor` solo si no hay otra cosa). Mismas columnas y formato.
+- Visitas y Contactos: el vendedor consulta `where('ownerUid','==',uid)` y exporta solo las que cargó él. El interno exporta las suyas (`ownerUid` o `createdByUid` = él), las de sus parejas (`ownerUid` de una pareja) y las que tienen `vendor` dentro de su zona + parejas. Las visitas que el interno cargó en nombre de un vendedor (con `ownerUid` del vendedor) también le aparecen al vendedor. Filtro por mes igual que antes.
+- Masterfile Clientes: revisado, ya filtra por `getEffectiveVendorSet` con el vendedor del master (vendedor = su zona; interno = parejas). Sin cambio.
+- Etapa 0: script de solo lectura `scripts/audit/AT_pedidos_vendor_vs_master.cjs` (no escribe nada, no tiene `--apply`). Para pedidos abiertos + cerrados de los últimos 90 días (o `--desde=YYYY-MM-DD`), compara el vendedor del pedido con el del master y muestra por vendedor: pedidos que ve hoy, pedidos ajenos que ve, pedidos propios que no ve y pedidos sin master; más el detalle (`--limit`, por defecto 50; `--vendor=PACHI` para filtrar).
+- Archivos: `src/pure/export-scope.js` (nuevo), `src/domains/exports-core.js`, `src/main.js`, `scripts/audit/AT_pedidos_vendor_vs_master.cjs` (nuevo), `app.bundle.js` + `chunks/` (regenerados), `index.html` y `sw.js` (versión), tests.
+
+**Por qué**: decisión de Mariano: "los clientes de un vendedor" son los del master actual, no el vendedor que quedó guardado en el pedido. El interno ve lo mismo que en el mapa (sus parejas).
+
+**Pendiente (Etapa 2)**: realineación de `assignedVendorUid` / `vendorAssigned` de los pedidos contra el master (dry-run + snapshot `_backfill` §55, con OK de Mariano) y un mantenimiento que lo re-propague cuando cambia el master. Hasta entonces, un vendedor puede NO ver en sus exportaciones algunos pedidos de clientes suyos cuyo `assignedVendorUid` quedó apuntando a otro usuario (la consulta del servidor solo le trae los que tienen su UID). El script de la Etapa 0 mide cuántos son ("propios que no ve"). Esta entrega no endurece las reglas de Firestore: el filtro nuevo corre en el navegador.
+
+**Verificación**: tests `tests/unit/export-scope.test.js` (vendedor ve solo clientes de su master aunque un pedido ajeno tenga su UID; no ve un pedido con UID de otro; interno solo parejas; admin todo; columna Vendedor desde el master; visitas por rol), `tests/unit/audit/exports-scope-wiring.test.js` (las exportaciones usan el alcance), `tests/unit/audit/AT-pedidos-vendor-vs-master.test.js` (lógica del script). `npm run lint`, `npm run typecheck`, `npm run test:unit`, `npm run test:smoke` en verde. Pendiente manual (§90): exportar Pedidos del mes, Backorder, Stock Asignado y Visitas con PACHI, con otro vendedor, con un interno y con admin; correr `node scripts/audit/AT_pedidos_vendor_vs_master.cjs --vendor=PACHI` (solo lectura) con OK de Mariano.
+
+**Deploy**: solo front (sin functions ni reglas). Publica con el merge; hacer "Recargar limpio".
+
+**Rollback**: revert del commit/PR. Vuelve el comportamiento anterior (filtro solo por `assignedVendorUid`, columna Vendedor desde `ownerVendor`).
+
 ### v1533 (2026-10-29) — Dashboard de Ventas fase 2, entrega C: campañas activas, etiquetas de dato y evolución desde junio 2026
 
 **Antes**: el Dashboard de Ventas (v1532) no mostraba las campañas, los gráficos de barras no tenían el valor escrito sobre cada barra y las series de evolución (ventas y back order) no tenían un inicio fijo.
