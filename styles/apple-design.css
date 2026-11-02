@@ -528,6 +528,24 @@
 /* Reasignar Zonas - purple accent (no active state) */
 #master-cli-modal #mc-reasignar-zonas-btn { border-color: #af52de !important; color: #7c2fb3 !important; background: #ffffff !important; }
 #master-cli-modal #mc-reasignar-zonas-btn:hover { background: #f5f0f9 !important; }
+/* v1535 (APP-02) - Sincronizar con SAP: pill blanca, borde fino neutro, mismo
+   alto que Reasignar Zonas (hereda .mc-prov-btn). Icono gira mientras corre.
+   §21: feedback :active scale(.97) 100ms; reduced-motion sin giro. */
+#master-cli-modal #mc-sync-sap-btn { background: #ffffff !important; color: #1d1d1f !important; border-color: #d2d2d7 !important; }
+#master-cli-modal #mc-sync-sap-btn:hover:not(:disabled) { background: #f5f5f7 !important; border-color: #c7c7cc !important; }
+#master-cli-modal #mc-sync-sap-btn:active:not(:disabled) { transform: scale(0.97); transition: transform 100ms ease-out; }
+#master-cli-modal #mc-sync-sap-btn:disabled { cursor: progress; opacity: 0.75; }
+#master-cli-modal #mc-sync-sap-btn .mc-sync-sap-icon { flex-shrink: 0; color: #49A2DA; }
+#master-cli-modal #mc-sync-sap-btn.is-syncing .mc-sync-sap-icon { animation: mc-sync-sap-spin 900ms linear infinite; }
+@keyframes mc-sync-sap-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+#master-cli-modal .mc-sync-sap-msg { font-size: 12px; font-weight: 500; line-height: 1.35; padding: 6px 12px; border-radius: 12px; white-space: pre-line; max-width: 100%; grid-column: 1 / -1; }
+#master-cli-modal .mc-sync-sap-msg.is-ok { background: #e8f8ee; color: #1b7a36; }
+#master-cli-modal .mc-sync-sap-msg.is-info { background: #f5f5f7; color: #3a3a3c; }
+#master-cli-modal .mc-sync-sap-msg.is-error { background: #fdecec; color: #b42318; }
+@media (prefers-reduced-motion: reduce) {
+  #master-cli-modal #mc-sync-sap-btn.is-syncing .mc-sync-sap-icon { animation: none; }
+  #master-cli-modal #mc-sync-sap-btn:active:not(:disabled) { transform: none; }
+}
 /* Counter pill dentro del boton */
 #master-cli-modal .mc-prov-count {
   background: rgba(0, 0, 0, 0.08) !important;

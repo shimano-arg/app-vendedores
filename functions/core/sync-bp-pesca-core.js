@@ -811,8 +811,12 @@ export async function upsertBpPescaToFirestore(params) {
  * @param {{url: string}} params.sapConfig
  * @param {string} params.cookie - cookie SL ya logueada.
  * @param {boolean} [params.forceDryRun] - override del flag (para testing).
+ * @param {boolean} [params.forceWrite] - v1535 (APP-02): SOLO `true` estricto
+ *   saltea el gate dry-run del flag `bpSyncByCF` (boton manual "Sincronizar con
+ *   SAP" del Master de Clientes, siempre escribe). No toca el flag ni la corrida
+ *   programada (que no lo pasa). `forceDryRun=true` sigue ganando.
  * @param {(msg: string, ctx?: any) => void} [params.log]
- * @returns {Promise<{ok: boolean, stats?: any, error?: string, slRequests: number, bpSyncByCFFlag: boolean, dryRun: boolean}>}
+ * @returns {Promise<{ok: boolean, stats?: any, error?: string, slRequests: number, bpSyncByCFFlag: boolean, dryRun: boolean, fetchError?: string|null}>}
  */
 export async function syncBpPesca(params) {
   const { fbDb, FieldValue, sapConfig, cookie } = params;
@@ -829,8 +833,15 @@ export async function syncBpPesca(params) {
         ((e && /** @type {any} */ (e).message) || String(e))
     );
   }
-  const dryRun = params.forceDryRun === true || !bpSyncByCFFlag;
-  _log('[bp] bpSyncByCF=' + bpSyncByCFFlag + ' → dryRun=' + dryRun);
+  const forceWrite = params.forceWrite === true;
+  const dryRun = params.forceDryRun === true || (!bpSyncByCFFlag && !forceWrite);
+  _log(
+    '[bp] bpSyncByCF=' +
+      bpSyncByCFFlag +
+      (forceWrite ? ' forceWrite=true' : '') +
+      ' → dryRun=' +
+      dryRun
+  );
   let slRequests = 0;
   try {
     const provRes = await loadArProvincesMap({ sapConfig, cookie, log: _log });
@@ -851,6 +862,9 @@ export async function syncBpPesca(params) {
         slRequests,
         bpSyncByCFFlag,
         dryRun,
+        // v1535: error al traer BPs (ej. 401). Antes se perdia y el resultado
+        // parecia "0 clientes" exitoso. Informativo: no cambia el flujo.
+        fetchError: bpRes.error || null,
       };
     }
     const stats = await upsertBpPescaToFirestore({
@@ -874,7 +888,14 @@ export async function syncBpPesca(params) {
         stats.skipped_not_pesca +
         ' ==='
     );
-    return { ok: true, stats, slRequests, bpSyncByCFFlag, dryRun };
+    return {
+      ok: true,
+      stats,
+      slRequests,
+      bpSyncByCFFlag,
+      dryRun,
+      fetchError: bpRes.error || null,
+    };
   } catch (e) {
     const msg = (e && /** @type {any} */ (e).message) || String(e);
     _log('[bp] FATAL sync BPs pesca: ' + msg + '. Sigo sin abortar el sync general.');

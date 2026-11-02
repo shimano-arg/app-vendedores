@@ -21,6 +21,11 @@
 // approvedAltasList, escapeHtml, titleCase, showSyncTag, matchesAllTokens
 // (bundle __phase0.pure), findSapDuplicateForProvisorio (bundle), clientLocId,
 // normClientName (bundle __phase0.pure).
+import {
+  mensajeSyncClientesSap,
+  SYNC_CLIENTES_SAP_TEXTOS,
+} from '../pure/sync-clientes-sap-mensajes.js';
+
 // ============================================================
 // MASTER CLIENTES - direcciones exactas por tienda (admin)
 // ============================================================
@@ -277,6 +282,7 @@ window.openMasterClientesPanel = function () {
   }
   ensureClientMasterListener();
   if (typeof ensureApprovedAltasListener === 'function') ensureApprovedAltasListener();
+  updateMcSyncSapBtnVisibility();
   updateMcProvisorioCount();
   mcPendingChanges = {};
   mcProvisorioMode = false;
@@ -311,6 +317,82 @@ window.openMasterClientesPanel = function () {
   document.getElementById('master-cli-modal').classList.add('open');
   renderMasterClientesTable();
 };
+// =====================================================================
+// v1535 (APP-02) — boton "Sincronizar con SAP" (al lado de Reasignar Zonas)
+// =====================================================================
+// Corre a pedido el sync de clientes SAP -> app (callable syncClientesSapCF,
+// que reusa syncBpPesca del servidor). Un cliente recien creado en SAP aparece
+// en el master sin esperar la corrida programada y se le puede asignar
+// vendedor. Solo admin/gerente (el servidor vuelve a validar el rol).
+function updateMcSyncSapBtnVisibility() {
+  const btn = document.getElementById('mc-sync-sap-btn');
+  if (!btn) return;
+  const _puede = userRole === 'admin' || userRole === 'gerente';
+  btn.style.display = _puede ? '' : 'none';
+}
+window.updateMcSyncSapBtnVisibility = updateMcSyncSapBtnVisibility;
+
+/** @param {{tipo: string, texto: string}|null} m */
+function setMcSyncSapMsg(m) {
+  const el = document.getElementById('mc-sync-sap-msg');
+  if (!el) return;
+  if (!m) {
+    el.textContent = '';
+    el.style.display = 'none';
+    el.className = 'mc-sync-sap-msg';
+    return;
+  }
+  el.textContent = m.texto;
+  el.className = 'mc-sync-sap-msg is-' + m.tipo;
+  el.style.display = '';
+}
+
+let _mcSyncSapRunning = false;
+window.syncClientesSap = async function () {
+  if (userRole !== 'admin' && userRole !== 'gerente') return;
+  if (_mcSyncSapRunning) return;
+  const btn = document.getElementById('mc-sync-sap-btn');
+  const label = document.getElementById('mc-sync-sap-label');
+  if (!btn) return;
+  _mcSyncSapRunning = true;
+  btn.disabled = true;
+  btn.classList.add('is-syncing');
+  btn.setAttribute('aria-busy', 'true');
+  if (label) label.textContent = SYNC_CLIENTES_SAP_TEXTOS.sincronizando;
+  setMcSyncSapMsg(null);
+  /** @type {any} */
+  let res = null;
+  try {
+    const callable = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('syncClientesSapCF', { timeout: 320000 });
+    const r = await callable({});
+    res = (r && r.data) || null;
+  } catch (e) {
+    console.warn('[syncClientesSap] fallo', e);
+    // Errores HttpsError: code tipo 'functions/permission-denied'.
+    const raw = String((e && e.code) || 'INTERNAL');
+    res = { ok: false, code: raw.replace(/^functions\//, '') };
+  } finally {
+    _mcSyncSapRunning = false;
+    btn.disabled = false;
+    btn.classList.remove('is-syncing');
+    btn.removeAttribute('aria-busy');
+    if (label) label.textContent = SYNC_CLIENTES_SAP_TEXTOS.boton;
+  }
+  const m = mensajeSyncClientesSap(res);
+  setMcSyncSapMsg(m);
+  if (m.tipo === 'ok' && typeof showSyncTag === 'function') showSyncTag(m.texto, 4000);
+  // El listener de client_applications (approvedAltas) ya trae los clientes
+  // nuevos; igual re-renderizamos para que la lista visible quede al dia.
+  try {
+    updateMcProvisorioCount();
+    const modal = document.getElementById('master-cli-modal');
+    if (modal && modal.classList.contains('open')) renderMasterClientesTable();
+  } catch (_e) {}
+};
+
 window.closeMasterClientesPanel = function () {
   const dirty =
     Object.keys(mcPendingChanges).length > 0 ||
