@@ -63,7 +63,7 @@ describe('commitPedidoCore: línea con asigRefs qty=2, cantidad=5 (contrato §33
         ],
       },
     ];
-    const b = getStockBreakdown(SKU, makeDeps({ fisico: 5, pedidos }), { nowMs });
+    const b = getStockBreakdown(SKU, makeDeps({ fisico: 5, pedidos }), { now: nowMs });
     // Para el cliente A: 2 propias + 3 libres restantes = 5 utilizables.
     const utilizableA = b.utilizablePara(CLIENTE_A);
     expect(utilizableA).toBe(5);
@@ -95,7 +95,7 @@ describe('commitPedidoCore: línea con asigRefs qty=2, cantidad=5 (contrato §33
       SKU,
       CLIENTE_A,
       makeDeps({ fisico: 2, pedidos }),
-      { nowMs }
+      { now: nowMs }
     );
     expect(utilizable).toBe(2);
     const confirmed = Math.min(2, utilizable);
@@ -125,7 +125,7 @@ describe('commitPedidoCore: línea con asigRefs qty=2, cantidad=5 (contrato §33
         ],
       },
     ];
-    const b = getStockBreakdown(SKU, makeDeps({ fisico: 2, pedidos }), { nowMs });
+    const b = getStockBreakdown(SKU, makeDeps({ fisico: 2, pedidos }), { now: nowMs });
     const utilizable = b.utilizablePara(CLIENTE_A);
     // utilizablePara = min(fisico, libre + reservasPropias). libre=0, reservas=2 → 2.
     expect(utilizable).toBe(2);
@@ -159,7 +159,7 @@ describe('commitPedidoCore: línea con asigRefs qty=2, cantidad=5 (contrato §33
       SKU,
       CLIENTE_A,
       makeDeps({ fisico: 5, pedidos }),
-      { nowMs }
+      { now: nowMs }
     );
     expect(utilizable).toBe(5); // 2 propias + 3 libres
     const cantidad = 5;
@@ -191,7 +191,7 @@ describe('commitPedidoCore: línea con asigRefs qty=2, cantidad=5 (contrato §33
       SKU,
       CLIENTE_B,
       makeDeps({ fisico: 5, pedidos }),
-      { nowMs }
+      { now: nowMs }
     );
     // Cliente B no es dueño de la ASIG — solo ve libre = físico - reservas ajenas = 5 - 2 = 3.
     expect(utilizableB).toBe(3);
