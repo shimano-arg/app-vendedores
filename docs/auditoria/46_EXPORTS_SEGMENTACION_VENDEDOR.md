@@ -136,6 +136,12 @@ Tests automáticos sugeridos: rules-unit-testing para `pedidos.list`/`visits.lis
 7. ¿Autorizás correr el script read-only de la etapa 0 contra prod para confirmar la causa del caso PACHI?
 8. `revision_waitlist` y `pedidos.get` son legibles por cualquier vendedor (necesario para §42 y CPST). ¿Se acepta como riesgo residual o se planifica pasarlos a CF?
 
+## Respuestas y pendientes (2026-11-02)
+
+- **Pregunta 5 (PACHI y Lista de precios)**: Mariano respondió que PACHI SÍ la ve. Aplicado en v1537 (CSS + `exportToExcel`); solo PACHI, el resto de los vendedores sigue sin verla.
+- **Pendiente para más adelante (pedido de Mariano)**: el filtro por master de las exportaciones vive solo en el navegador (`src/pure/export-scope.js`). Sirve para el uso normal, pero un usuario con conocimientos técnicos podría saltearlo leyendo Firestore directo. Pasarlo al servidor (etapa 3/4 de la propuesta) queda anotado, sin fecha.
+- **Pendiente para más adelante (pedido de Mariano)**: el sync automático de clientes (`syncSapCatalogStockCF` → fase BP) falla en cada corrida con 401 de SAP porque arma la cookie sin el prefijo `B1SESSION=`. El botón manual "Sincronizar con SAP" (v1535) no tiene el problema. Arreglarlo en un PR aparte cuando Mariano lo pida.
+
 ## Lo que no pude verificar
 
 - Datos de prod: si los pedidos que vio PACHI tienen `assignedVendorUid` = su UID con un master de otro vendedor (etapa 0).

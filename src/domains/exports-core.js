@@ -847,7 +847,17 @@ window.exportToExcel = function () {
     vendedor: new Set(['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES']),
     interno: new Set(['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES']),
   };
-  const allowed = allowedByRole[userRole] || null; // null = ver todo
+  let allowed = allowedByRole[userRole] || null; // null = ver todo
+  // v1537 (2026-11-02): PACHI (perfil restringido) también ve "Precios + Stock"
+  // (lista de precios). Autorizado por Mariano. Solo PACHI, no todos los VDE.
+  if (
+    allowed &&
+    typeof document !== 'undefined' &&
+    document.body &&
+    document.body.classList.contains('is-pachi-restricted')
+  ) {
+    allowed = new Set([...allowed, 'PRECIOS_STOCK']);
+  }
   // v1413 §51 + v1414 §51.1 (2026-10-22): INFRACCIONES_MELI whitelist por
   // email. Mantener sincronizado con canReadInfraccionesMeli() de
   // firestore.rules. Readers: Mariano (2 emails) + Diego Valsi.

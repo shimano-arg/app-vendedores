@@ -4717,6 +4717,16 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1537 (2026-11-02) — PACHI ve "Precios + Stock" en Reportes Excel
+
+- **Antes**: PACHI veía en Reportes Excel solo "Pedidos del mes" y "Masterfile Clientes". "Precios + Stock" (lista de precios) quedaba oculta por la regla CSS v1478 y por la lista de permitidos del rol vendedor en `exportToExcel`.
+- **Problema**: el código v986 decía que PACHI la veía y el CSS v1478 la ocultaba; Mariano confirmó que sí la tiene que ver.
+- **Cambio**: `index.html` agrega `:not([data-exp-kind="PRECIOS_STOCK"])` a la regla `body.is-pachi-restricted #export-modal .exp-opt`. `src/domains/exports-core.js:exportToExcel` suma `PRECIOS_STOCK` a lo permitido solo cuando el body tiene `is-pachi-restricted`. El resto de los vendedores no cambia.
+- **Por qué**: la lista de precios no tiene datos de clientes; no rompe el alcance por vendedor de v1534.
+- **Verificación**: `tests/unit/audit/pachi-v1478-restricciones.test.js` actualizado (17 tests). Suite unit completa verde.
+- **Pendientes anotados**: filtro por master en el servidor y cookie del sync automático de clientes (ver `docs/auditoria/46_EXPORTS_SEGMENTACION_VENDEDOR.md`, sección "Respuestas y pendientes").
+- **Rollback**: revertir el commit. Solo frontend.
+
 ### v1536 (2026-11-02) — Hotfix: exportaciones vacías para el rol vendedor
 
 **Antes**: la v1534 filtra Pedidos del mes, Backorder y Stock Asignado del vendedor comparando `assignedVendorUid` del pedido con su usuario de Firebase Auth (`src/pure/export-scope.js`).

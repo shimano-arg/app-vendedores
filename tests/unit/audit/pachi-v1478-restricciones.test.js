@@ -47,15 +47,27 @@ describe('v1478 §PACHI iter 2 — CSS gates nuevos', () => {
 });
 
 describe('v1478 §PACHI iter 2 — modal Reportes Excel', () => {
-  it('oculta todas las .exp-opt del modal excepto PEDIDOS_MES y MASTER', () => {
+  it('oculta todas las .exp-opt del modal excepto PEDIDOS_MES, MASTER y PRECIOS_STOCK (v1537)', () => {
     expect(INDEX_HTML).toMatch(
-      /body\.is-pachi-restricted #export-modal \.exp-opt:not\(\[data-exp-kind="PEDIDOS_MES"\]\):not\(\[data-exp-kind="MASTER"\]\)\{display:none !important\}/
+      /body\.is-pachi-restricted #export-modal \.exp-opt:not\(\[data-exp-kind="PEDIDOS_MES"\]\):not\(\[data-exp-kind="MASTER"\]\):not\(\[data-exp-kind="PRECIOS_STOCK"\]\)\{display:none !important\}/
     );
   });
 
   it('las 2 opciones permitidas siguen en el DOM del modal', () => {
     expect(INDEX_HTML).toMatch(/data-exp-kind="PEDIDOS_MES"/);
     expect(INDEX_HTML).toMatch(/data-exp-kind="MASTER"/);
+    expect(INDEX_HTML).toMatch(/data-exp-kind="PRECIOS_STOCK"/);
+  });
+
+  it('v1537: exportToExcel suma PRECIOS_STOCK al permitido solo con is-pachi-restricted', () => {
+    const EXPORTS = readFileSync('src/domains/exports-core.js', 'utf8');
+    expect(EXPORTS).toMatch(
+      /classList\.contains\('is-pachi-restricted'\)[\s\S]{0,80}allowed = new Set\(\[\.\.\.allowed, 'PRECIOS_STOCK'\]\)/
+    );
+    // El resto de los vendedores no la ve: el set base de vendedor no la incluye.
+    expect(EXPORTS).toMatch(
+      /vendedor: new Set\(\['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES'\]\)/
+    );
   });
 });
 
