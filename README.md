@@ -4717,6 +4717,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1543 (2026-11-02) — PACHI puede mirar y exportar Backorder (solo lectura)
+
+- **Antes**: PACHI no veía el botón Backorder del encabezado. El código lo mostraba solo al administrador, y la regla CSS de v1478 se lo ocultaba entero. En Reportes Excel tampoco tenía la opción "Backorder".
+- **Problema**: Mariano pidió que PACHI pueda mirar el backorder de sus clientes y exportarlo, también cliente por cliente.
+- **Cambio**:
+  - `index.html` `applyRolePermissions`: `#backorders-btn` visible para admin **o** PACHI (`isPachiRestricted(uid)`). Para los demás vendedores no cambia nada.
+  - CSS `body.is-pachi-restricted`:
+    - se saca `#backorders-btn` de la lista de botones ocultos de v1478;
+    - en `#backorders-modal` siguen desactivados las casillas, "Generar Backorder" y "Crear Pedido Desde Stock Asignado", pero ahora quedan habilitados "Exportar" (`#btn-export-stock-asig`) y "Gráficos" (`#btn-backorders-graficos`).
+  - Reportes Excel: se suma `BACKORDER` a lo permitido para PACHI en tres lugares: la regla CSS, `_pachiAllowedKinds` y `exportToExcel` (`src/domains/exports-core.js`).
+  - Stock Asignado sigue oculto para PACHI.
+- **Por qué no ve clientes ajenos**:
+  - la pantalla y los exports salen de `globalPedidos`, y para el rol vendedor (el de PACHI según `firestore.rules`) ese listener trae solo `assignedVendorUid == uid`;
+  - las reglas de Firestore no dejan a un vendedor listar pedidos ajenos;
+  - `exportBackorderAll` además filtra por el alcance `export-scope` (v1534).
+  - "De cada cliente": se busca el cliente en el filtro Tienda del modal y se toca Exportar; el Excel respeta ese filtro.
+- **Verificación**:
+  - tests `tests/unit/audit/pachi-backorder-v1543.test.js` (nuevo) y `tests/unit/audit/pachi-v1478-restricciones.test.js` (actualizado);
+  - `npm run test:unit`, `npm run test:smoke`, lint y typecheck en verde.
+  - Pendiente manual (§90): entrar con PACHI y abrir Backorder; comprobar que solo aparecen sus clientes, que "Generar Backorder" no responde, y exportar uno filtrado por cliente.
+- **Rollback**: revertir el PR. No hay cambios de servidor ni de reglas.
+
 ### v1541 (2026-11-02) — Master de Clientes con el estilo visual de «Pedidos del mes»
 
 - **Antes**: Master de Clientes usaba el tratamiento v656 (encabezado blanco, barra de filtros gris, tabla en tarjeta).

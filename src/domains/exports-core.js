@@ -856,7 +856,9 @@ window.exportToExcel = function () {
     document.body &&
     document.body.classList.contains('is-pachi-restricted')
   ) {
-    allowed = new Set([...allowed, 'PRECIOS_STOCK']);
+    // v1543: + BACKORDER (ya está en vendedor; se explicita por si PACHI
+    // tuviera otro rol). El export filtra a sus clientes vía export-scope.
+    allowed = new Set([...allowed, 'PRECIOS_STOCK', 'BACKORDER']);
   }
   // v1413 §51 + v1414 §51.1 (2026-10-22): INFRACCIONES_MELI whitelist por
   // email. Mantener sincronizado con canReadInfraccionesMeli() de
