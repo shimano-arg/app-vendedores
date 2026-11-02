@@ -1637,6 +1637,28 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .mc-table th{position:sticky;top:0;background:var(--bg-muted);padding:8px 10px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);border-bottom:2px solid var(--border-default);z-index:2;white-space:nowrap}
 .mc-table td{padding:6px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
 .mc-table tr:hover td{background:#fafafa}
+/* v1539 APP-04: ficha desplegable del cliente (clic en el nombre). */
+.mc-ficha-toggle{cursor:pointer;user-select:none}
+.mc-name.mc-ficha-toggle:hover{color:var(--color-accent,#0071e3)}
+.mc-name.mc-ficha-toggle:focus-visible,.mc-ficha-btn:focus-visible{outline:2px solid var(--color-accent,#0071e3);outline-offset:2px;border-radius:4px}
+.mc-ficha-caret{display:inline-block;width:12px;font-size:10px;color:var(--text-muted)}
+.mc-ficha-btn{background:transparent;border:1px solid var(--border-default);border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;color:var(--text-secondary);cursor:pointer;vertical-align:middle}
+.mc-table tr.mc-ficha-open > td{background:var(--bg-muted)}
+.mc-table tbody tr.mc-ficha-row{content-visibility:visible}
+.mc-table tr.mc-ficha-row > td{padding:0 10px 12px 28px;background:var(--bg-base);border-bottom:2px solid var(--border-default)}
+.mc-table tr.mc-ficha-row:hover > td{background:var(--bg-base)}
+.mc-ficha{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;padding-top:10px}
+.mc-ficha-sec{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:10px;padding:10px 12px}
+.mc-ficha-sec h4{margin:0 0 6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)}
+.mc-ficha-sec dl{margin:0}
+.mc-ficha-item{display:grid;grid-template-columns:42% 58%;gap:6px;padding:3px 0;border-top:1px solid var(--border-subtle)}
+.mc-ficha-item:first-child{border-top:none}
+.mc-ficha-item dt{font-size:10.5px;color:var(--text-muted);font-weight:600}
+.mc-ficha-item dd{margin:0;font-size:11.5px;color:var(--text-primary);font-weight:600;word-break:break-word}
+.mc-ficha-item.is-empty dd{color:var(--text-muted);font-weight:400;font-style:italic}
+.mc-ficha-item.is-loading dd{color:var(--text-muted);font-weight:400}
+.mc-ficha-note{margin:6px 0 0;font-size:10px;color:var(--text-muted)}
+@media (max-width:520px){.mc-ficha{grid-template-columns:1fr}.mc-table tr.mc-ficha-row > td{padding-left:10px}}
 @media (max-width:520px){
   .mc-table{font-size:11px;min-width:560px}
   .mc-table th,.mc-table td{padding:6px 8px}
@@ -7215,7 +7237,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1538';
+const APP_VERSION = 'v1539';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:

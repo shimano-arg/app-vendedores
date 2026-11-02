@@ -56,6 +56,7 @@ import {
   findCmDataByCardCode,
   labelForFichaField,
 } from './pure/ficha-cliente-labels.js';
+import { buildFichaClienteMaster } from './pure/ficha-cliente-master.js';
 import { passesTypeFilter } from './pure/filters.js';
 // v1499 §98 (2026-10-27): política de lectura Firestore server vs cache.
 // Fuente única de qué colecciones críticas siempre van a server.
@@ -575,6 +576,8 @@ const phase0 = {
     },
     // v1482 §82 (2026-10-27) — Ficha Cliente labels fuente única. Reusado por
     // exportMasterClientes + cartera-vendor columna TIPO + tests.
+    // v1539 APP-04: ficha desplegable del Master de Clientes.
+    fichaClienteMaster: { buildFichaClienteMaster },
     fichaClienteLabels: {
       FICHA_CLASIF_LABELS,
       labelForFichaField,
