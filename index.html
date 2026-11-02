@@ -7202,7 +7202,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1535';
+const APP_VERSION = 'v1536';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -37966,6 +37966,11 @@ function attachFirebaseListeners(){
         // con 777 lineas mal categorizadas en Backorders_2026-09-25.xlsx.
         vendedor: d.vendedor || '',
         vendorAssigned: d.vendorAssigned || '',
+        // v1536: el alcance de las exportaciones por vendedor (v1534) compara
+        // assignedVendorUid con el usuario logueado; sin este campo en la
+        // proyección, Pedidos del mes / Backorder / Stock Asignado salían vacíos
+        // para el rol vendedor.
+        assignedVendorUid: d.assignedVendorUid || '',
         vendor: d.vendor || '',
         closedAt: d.closedAt || null,
         migrationSource: d.migrationSource || null,
