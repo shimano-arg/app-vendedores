@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1541 (2026-11-02) — Master de Clientes con el estilo visual de «Pedidos del mes»
+
+- **Antes**: Master de Clientes usaba el tratamiento v656 (encabezado blanco, barra de filtros gris, tabla en tarjeta).
+- **Problema**: Mariano pidió que se viera igual que Pedidos del mes (v1540).
+- **Cambio**: bloque CSS v1541 en `styles/apple-design.css`, ubicado después del v656 para que lo pise, y gradiente del encabezado en `index.html`.
+  - Encabezado azul `#0f4c81 → #1e6fb5` con título en mayúsculas.
+  - Filtros y totales en pastillas.
+  - Tabla plana con encabezado subrayado.
+  - Fila resaltada al pasar el mouse o con la ficha abierta.
+  - El nombre se pone azul al pasar el mouse.
+- **Solo visual**: no cambian los filtros, la edición de direcciones, el vendedor, Guardar/Eliminar, Reasignar zonas, Sincronizar con SAP ni la ficha.
+- **Verificación**: `tests/unit/audit/master-estilo-pedidos-mes-v1541.test.js`; unit 2721 / smoke 25. En el navegador, la ficha abre y cierra igual y no hay escrituras.
+- **Rollback**: revertir el commit.
+
 ### v1540 (2026-11-02) — APP-06: módulo «Pedidos del mes» (facturación por cliente y SKU)
 
 - **Antes**: no había una pantalla para ver qué se le facturó a cada cliente en un mes. El Dashboard de Ventas muestra totales y rankings, pero no el detalle por cliente y SKU.
