@@ -2632,13 +2632,15 @@ body.is-pachi-restricted [data-drawer-action="sap"],
 body.is-pachi-restricted [data-drawer-action="rutas"]{display:none !important}
 /* Backorder "solo lectura": todos los botones de acción dentro del modal.
    La escritura server-side se bloquea en rules Firestore + CF (defense in depth). */
-body.is-pachi-restricted #backorders-modal button.bo-btn:not(.bo-btn-cancel):not(.bo-btn-close),
+/* v1543: "Exportar" y "Gráficos" quedan habilitados (solo leen datos). */
+body.is-pachi-restricted #backorders-modal button.bo-btn:not(.bo-btn-cancel):not(.bo-btn-close):not(#btn-export-stock-asig):not(#btn-backorders-graficos),
 body.is-pachi-restricted #backorders-modal input[type="checkbox"]:not(.bo-read-only-checkbox),
 body.is-pachi-restricted #btn-crear-pedido-st{pointer-events:none !important;opacity:0.5 !important}
 /* v1478 (2026-10-27): ampliación perfil PACHI — ocultar botones de header que
    no corresponden a su alcance (asesoría de cobranza, no de ventas tradicional).
-   Backorder pasa de "solo lectura" (v1460) a oculto completo. */
-body.is-pachi-restricted #backorders-btn,
+   Backorder pasa de "solo lectura" (v1460) a oculto completo.
+   v1543 (2026-11-02): Backorder vuelve a estar visible para PACHI en solo
+   lectura (autorizado por Mariano): puede mirarlo y exportarlo. */
 body.is-pachi-restricted #deposito-home-btn,
 body.is-pachi-restricted #revision-btn,
 body.is-pachi-restricted #forecast-btn,
@@ -2651,8 +2653,9 @@ body.is-pachi-restricted #seguimiento-btn{display:none !important}
    filtrada por su UID) SIGUE visible — el listener alimenta ambos. */
 body.is-pachi-restricted #waitlist-btn{display:none !important}
 /* v1478: Reportes Excel — PACHI ve solo "Pedidos del mes" + "Masterfile Clientes".
-   v1537: + "Precios + Stock" (lista de precios), autorizado por Mariano 2026-11-02. */
-body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]):not([data-exp-kind="PRECIOS_STOCK"]){display:none !important}
+   v1537: + "Precios + Stock" (lista de precios), autorizado por Mariano 2026-11-02.
+   v1543: + "Backorder" (solo sus clientes, vía export-scope), autorizado por Mariano. */
+body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]):not([data-exp-kind="PRECIOS_STOCK"]):not([data-exp-kind="BACKORDER"]){display:none !important}
 /* v1478: Campañas — PACHI NO ve el botón "Gráficos" (métricas de progreso).
    El filtro por zona también se saltea para que vea TODAS las activas (ver
    renderMisCamps + _misCampsGraficosData). */
@@ -7294,7 +7297,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1542';
+const APP_VERSION = 'v1544';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -32322,7 +32325,7 @@ function applyRolePermissions(){
     // Ocultamos el resto (RENDICIONES/ALTAS/MASTER/BACKORDER/STOCK_ASIG).
     // Filtro por email (no por rol) porque otros VDE pueden necesitar el resto.
     const _isPachi986 = _em === 'pachinaba@gmail.com';
-    const _pachiAllowedKinds = new Set(['VISITAS', 'PEDIDOS_MES', 'PRECIOS_STOCK']);
+    const _pachiAllowedKinds = new Set(['VISITAS', 'PEDIDOS_MES', 'PRECIOS_STOCK', 'BACKORDER']);
     document.querySelectorAll('#export-modal .exp-opt[data-exp-kind]').forEach((el) => {
       const kind = el.getAttribute('data-exp-kind') || '';
       if (_isPachi986) {
@@ -32424,7 +32427,13 @@ function applyRolePermissions(){
   // v420 (2026-08-06): Backorders + Asignacion Backorder ambos gated a
   // admin-only (probamos con Mariano, si va bien lo abrimos a vendedores).
   const bkBtn = document.getElementById('backorders-btn');
-  if (bkBtn) bkBtn.style.display = (userRole === 'admin') ? '' : 'none';
+  // v1543 (2026-11-02): PACHI también ve Backorder, en solo lectura (los
+  // botones de acción quedan desactivados por CSS is-pachi-restricted y sus
+  // datos ya vienen filtrados a sus clientes por el listener de pedidos).
+  const _pachiMod1543 = window.__phase0 && window.__phase0.pure && window.__phase0.pure.pachiRestrictions;
+  const _isPachi1543 = !!(_pachiMod1543 && _pachiMod1543.isPachiRestricted && currentUser
+    && _pachiMod1543.isPachiRestricted(currentUser.uid));
+  if (bkBtn) bkBtn.style.display = (userRole === 'admin' || _isPachi1543) ? '' : 'none';
   const asigBkBtn = document.getElementById('asignacion-backorder-btn');
   if (asigBkBtn) asigBkBtn.style.display = (userRole === 'admin') ? '' : 'none';
   // v416 (2026-08-06): boton Zonas del header fue unificado con Master Clientes.
