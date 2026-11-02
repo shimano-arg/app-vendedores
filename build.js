@@ -129,6 +129,9 @@ const LAZY_CHUNKS = {
   // v1529 (2026-10-29): DASHBOARD DE VENTAS (admin/gerente/vendedor). Lee la
   // callable dashboardVentasCF (BigQuery) + Chart.js on-demand desde cdnjs.
   'dashboard-ventas': ['openDashboardVentas', 'closeDashboardVentas'],
+  // v1540 (2026-11-02) APP-06: PEDIDOS DEL MES (facturación por cliente/SKU).
+  // Lee la callable pedidosDelMesCF (BigQuery v_ventas_lineas). Solo desktop.
+  'pedidos-del-mes': ['openPedidosDelMes', 'closePedidosDelMes'],
   // v1283 (2026-10-20): reemplazo de 'seguimiento' por 'cartera-vendor'.
   // El modal viejo (6 tabs visitas/pedidos/pendientes/oportunidades/duplas) fue
   // tirado completo. El nuevo chunk es un dashboard de analisis de cartera por
