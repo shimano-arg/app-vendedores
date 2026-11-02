@@ -58,6 +58,7 @@ import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
+import { pedidosDelMesCore } from './core/pedidos-del-mes-core.js';
 import { handleResendPlannerEmail } from './core/planner-resend-email-core.js';
 // v1005 (2026-09-22): Planner Kanban — trigger email on column transition.
 import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
@@ -91,6 +92,7 @@ import { runSqCancelExpired, runSqCancelManualBulk } from './core/sq-cancel-core
 import { checkStockSyncStale } from './core/stock-sync-alert-core.js';
 // §63 Fase 3 Capa 1 (2026-10-23 v1444): sync stock scheduled nativo
 // (Cloud Scheduler via onSchedule, confiable vs GHA cron que saltea).
+import { syncClientesSapCore } from './core/sync-clientes-sap-core.js';
 import { syncSapCatalogStockCore } from './core/sync-sap-catalog-stock-core.js';
 import { handleSyncSapDocTotals } from './core/sync-sap-doc-totals-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
@@ -541,6 +543,73 @@ export const syncSapCatalogStockCF = onSchedule(
       });
     } catch (e) {
       console.warn('syncSapCatalogStockCF alert check fallo', (e && e.message) || e);
+    }
+  }
+);
+
+/**
+ * v1535 (APP-02) — syncClientesSapCF: boton "Sincronizar con SAP" del Master
+ * de Clientes. Corre a pedido el sync de clientes SAP → app que ya existe
+ * (syncBpPesca) para que un cliente recien creado en SAP aparezca en el master
+ * sin esperar la corrida programada.
+ *
+ * Wrapper fino (CLAUDE.md §7): la logica vive en core/sync-clientes-sap-core.js
+ * (rol admin/gerente leido de roles/{uid}, lock compartido con
+ * syncSapCatalogStockCF, forceWrite=true, operations_log). Las credenciales SAP
+ * quedan del lado servidor (secret SAP_SL_PASSWORD).
+ *
+ * Respuesta: {ok, nuevos, actualizados, total, durationMs} | {ok:false, code}.
+ * Rollback: borrar este export + redeploy (el resto del sync no depende).
+ */
+export const syncClientesSapCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '512MiB',
+    timeoutSeconds: 300,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const db = getFirestore();
+    try {
+      return await syncClientesSapCore(
+        {
+          fbDb: db,
+          FieldValue,
+          getUserRole: async (/** @type {string} */ uid) => {
+            const snap = await db.collection('roles').doc(uid).get();
+            const d = snap.exists ? snap.data() || {} : {};
+            return { role: d.role };
+          },
+          loadSapConfig: async () => {
+            const snap = await db.doc('app_config/sap_integration').get();
+            const sl = (snap.data() || {}).serviceLayer || {};
+            if (!sl.enabled || !sl.url || !sl.companyDB) return null;
+            return {
+              url: sl.url,
+              companyDB: sl.companyDB,
+              userName: sl.username || sl.userName || '',
+              password: SAP_SL_PASSWORD.value(),
+              fetch: globalThis.fetch,
+            };
+          },
+          log: (/** @type {string} */ m, /** @type {any} */ extra) => console.log(m, extra || {}),
+        },
+        { auth, data: req.data || {} }
+      );
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      const code = e && /** @type {any} */ (e).code;
+      if (code === 'unauthenticated' || code === 'permission-denied') {
+        throw new HttpsError(code, /** @type {any} */ (e).message || 'sin permiso');
+      }
+      console.error('syncClientesSapCF unexpected error', e);
+      throw new HttpsError('internal', 'sincronizacion de clientes fallo');
     }
   }
 );
@@ -1334,6 +1403,83 @@ export const dashboardVentasCF = onCall(
       }
       console.error('dashboardVentasCF unexpected error', e);
       throw new HttpsError('internal', 'dashboard ventas fallo');
+    }
+  }
+);
+
+/**
+ * v1540 (2026-11-02, APP-06) — pedidosDelMesCF
+ *
+ * Facturación efectivamente emitida por cliente y SKU de un mes (BigQuery
+ * v_ventas_lineas). Wrapper fino (CLAUDE.md §7): la lógica y el alcance por
+ * rol viven en core/pedidos-del-mes-core.js. El vendedor ve solo sus clientes
+ * (roles/{uid}.vendor, leído acá en el servidor); admin/gerente, todo el país.
+ */
+const _pedidosDelMesCache = createBoundedCache(200);
+
+export const pedidosDelMesCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '512MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    // Mismos dominios que dashboardVentasCF (PACHI usa gmail.com). El gate
+    // real es roles/{uid} dentro del core.
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    try {
+      const db = getFirestore();
+      /** @type {any} */
+      let bq = null;
+      return await pedidosDelMesCore(
+        {
+          runQuery: async (/** @type {any} */ q) => {
+            if (!bq) {
+              const { BigQuery } = await import('@google-cloud/bigquery');
+              bq = new BigQuery({ projectId: 'app-vendedores-shimano' });
+            }
+            const [rows] = await bq.query({
+              query: q.query,
+              params: q.params,
+              types: q.types,
+              location: 'southamerica-east1',
+            });
+            return rows;
+          },
+          getUserRole: async (/** @type {string} */ uid) => {
+            const snap = await db.collection('roles').doc(uid).get();
+            const d = snap.exists ? snap.data() || {} : {};
+            return { role: d.role, vendor: d.vendor };
+          },
+          cache: _pedidosDelMesCache,
+          now: () => Date.now(),
+          log: (/** @type {string} */ m, /** @type {any} */ extra) => console.log(m, extra || {}),
+        },
+        { auth, data: req.data || {} }
+      );
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      const code = e && /** @type {any} */ (e).code;
+      if (
+        code === 'unauthenticated' ||
+        code === 'permission-denied' ||
+        code === 'invalid-argument'
+      ) {
+        throw new HttpsError(code, e.message || 'pedidos del mes rechazado');
+      }
+      console.error('pedidosDelMesCF unexpected error', e);
+      throw new HttpsError('internal', 'pedidos del mes fallo');
     }
   }
 );

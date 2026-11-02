@@ -43,8 +43,10 @@ const state = {
   opcionesRendered: null,
   loading: false,
   error: '',
-  verMas: { unidades: false, dinero: false },
-  verMasQuery: { unidades: '', dinero: '' },
+  verMas: { unidades: false, dinero: false, clientes: false },
+  verMasQuery: { unidades: '', dinero: '', clientes: '' },
+  interQuery: '',
+  prodQuery: '',
   reqSeq: 0,
 };
 
@@ -57,8 +59,11 @@ function _resetState(uid) {
   state.opcionesRendered = null;
   state.loading = false;
   state.error = '';
-  state.verMas = { unidades: false, dinero: false };
-  state.verMasQuery = { unidades: '', dinero: '' };
+  state.verMas = { unidades: false, dinero: false, clientes: false };
+  state.verMasQuery = { unidades: '', dinero: '', clientes: '' };
+  state.interQuery = '';
+  state.prodQuery = '';
+  _stockMemo.clear();
   state.reqSeq++;
 }
 
@@ -177,15 +182,62 @@ function _errorMessage() {
   );
 }
 
+// Plugin propio (sin librería nueva): dibuja el valor al final de cada barra.
+// El formateador viene en options.plugins.dvDataLabels.fmt; solo actúa en 'bar'.
+let dvPluginRegistrado = false;
+const dvDataLabels = {
+  id: 'dvDataLabels',
+  afterDatasetsDraw(chart) {
+    if (chart.config.type !== 'bar') return;
+    const opts = (chart.options.plugins && chart.options.plugins.dvDataLabels) || {};
+    if (typeof opts.fmt !== 'function') return;
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = '11px ' + CHART_FONT;
+    ctx.fillStyle = dark ? '#e5e7eb' : '#1f2937';
+    ctx.textBaseline = 'middle';
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((bar, i) => {
+        const v = ds.data[i];
+        if (v == null) return;
+        const txt = String(opts.fmt(v, i));
+        const horizontal = chart.options.indexAxis === 'y';
+        if (horizontal) {
+          ctx.textAlign = 'left';
+          ctx.fillText(txt, bar.x + 4, bar.y);
+        } else {
+          ctx.textAlign = 'center';
+          ctx.fillText(txt, bar.x, bar.y - 8);
+        }
+      });
+    });
+    ctx.restore();
+  },
+};
+
+function _registrarPlugins(Chart) {
+  if (dvPluginRegistrado || !Chart || typeof Chart.register !== 'function') return;
+  Chart.register(dvDataLabels);
+  dvPluginRegistrado = true;
+}
+
 function _loadChartJs() {
-  if (window.Chart) return Promise.resolve(window.Chart);
+  if (window.Chart) {
+    _registrarPlugins(window.Chart);
+    return Promise.resolve(window.Chart);
+  }
   if (chartJsPromise) return chartJsPromise;
   chartJsPromise = new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = CHART_JS_URL;
     s.async = true;
-    s.onload = () =>
-      window.Chart ? resolve(window.Chart) : reject(new Error('Chart.js sin global'));
+    s.onload = () => {
+      if (!window.Chart) return reject(new Error('Chart.js sin global'));
+      _registrarPlugins(window.Chart);
+      resolve(window.Chart);
+    };
     s.onerror = () => {
       chartJsPromise = null;
       reject(new Error('no se pudo cargar Chart.js'));
@@ -357,21 +409,157 @@ function _card(titulo, valor) {
   );
 }
 
+// Porcentaje con coma decimal (es-AR): 80,5%
+function _fmtPct(n) {
+  return (
+    (Number(n) || 0).toLocaleString('es-AR', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    }) + '%'
+  );
+}
+
+// AAAA-MM-DD -> DD/MM/AAAA (si no tiene ese formato, se devuelve tal cual)
+function _fmtFecha(f) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(f == null ? '' : f));
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : String(f == null ? '' : f);
+}
+
+function _tipoLabel(t) {
+  return t === 'visita' ? 'Visita' : 'Contacto';
+}
+
+// Tabla de interacciones (solo el contenedor con scroll; se reemplaza al buscar).
+function _interaccionesTabla(rows, total, query) {
+  const q = String(query || '')
+    .toLowerCase()
+    .trim();
+  const lista = Array.isArray(rows) ? rows : [];
+  const filtered = q
+    ? lista.filter((r) =>
+        (
+          String(r.cliente) +
+          ' ' +
+          _fmtFecha(r.fecha) +
+          ' ' +
+          String(r.vendedor) +
+          ' ' +
+          _tipoLabel(r.tipo)
+        )
+          .toLowerCase()
+          .includes(q)
+      )
+    : lista;
+  let html =
+    '<div class="dv-table-wrap dv-inter-wrap"><table class="dv-table"><thead><tr><th>Cliente</th><th>Fecha</th><th>Vendedor</th><th>Tipo</th></tr></thead><tbody>';
+  for (const r of filtered) {
+    html +=
+      '<tr><td>' +
+      _escHtml(r.cliente) +
+      '</td><td>' +
+      _escHtml(_fmtFecha(r.fecha)) +
+      '</td><td>' +
+      _escHtml(r.vendedor) +
+      '</td><td>' +
+      _escHtml(_tipoLabel(r.tipo)) +
+      '</td></tr>';
+  }
+  if (filtered.length === 0)
+    html += '<tr><td colspan="4" class="dv-muted">Sin resultados.</td></tr>';
+  html += '</tbody></table></div>';
+  const totalN = Number(total) || 0;
+  if (totalN > lista.length) {
+    html +=
+      '<div class="dv-muted">Mostrando ' +
+      _escHtml(_fmtUds(lista.length)) +
+      ' de ' +
+      _escHtml(_fmtUds(totalN)) +
+      '</div>';
+  }
+  return html;
+}
+
+/** Tabla de interacciones con buscador. El texto buscado se pone por DOM. */
+function _interaccionesSection(t, query) {
+  const rows = (t && t.rows) || [];
+  return (
+    '<section class="dv-section" id="dv-interacciones"><div class="dv-section-head"><h3>Interacciones</h3></div>' +
+    '<input type="search" class="dv-ms-search" id="dv-interacciones-buscar" placeholder="Buscar cliente, vendedor o tipo…">' +
+    '<div class="dv-inter-body">' +
+    _interaccionesTabla(rows, t && t.total, query) +
+    '</div></section>'
+  );
+}
+
+/** Bloque de gestión: tarjetas + nota + tabla de interacciones. */
+function _gestionSection(g, secciones, query) {
+  if (!g || (secciones && secciones.gestion && secciones.gestion.error)) {
+    return '<div class="dv-cards" id="dv-gestion">' + _card('Gestión', 'No disponible') + '</div>';
+  }
+  let html = '<div class="dv-cards" id="dv-gestion">';
+  html += _card('Target', g.target == null ? 'Sin target' : _fmtArs(g.target));
+  html += _card(
+    '% cumplimiento',
+    g.cumplimientoPct == null ? 'Sin target' : _fmtPct(g.cumplimientoPct)
+  );
+  html += _card('Rendiciones – monto', _fmtArs(g.rendicionesArs));
+  html += _card('Base activa', _fmtUds(g.baseActiva));
+  html += _card('Ticket promedio', _fmtArs(g.ticketPromedio));
+  html += _card('N° visitas', _fmtUds(g.visitas));
+  html += _card('N° contactados', _fmtUds(g.contactados));
+  html += _card('N° interacciones', _fmtUds(g.interacciones));
+  html += '</div>';
+  if (g.filtrosNoAplican) {
+    html +=
+      '<div class="dv-leyenda dv-muted">Target y rendiciones no se filtran por cliente ni producto; visitas y contactos no se filtran por producto.</div>';
+  }
+  html += _interaccionesSection(g.tablaInteracciones, query);
+  return html;
+}
+
+// Tipos permitidos del "Ver más": lista blanca (el atributo del DOM nunca se reusa en el HTML).
+function _tipoVerMas(tipoIn) {
+  return tipoIn === 'dinero' ? 'dinero' : tipoIn === 'clientes' ? 'clientes' : 'unidades';
+}
+
 function _verMasTabla(tipoIn, rows) {
-  const tipo = tipoIn === 'dinero' ? 'dinero' : 'unidades';
+  const tipo = _tipoVerMas(tipoIn);
   const q = state.verMasQuery[tipo].toLowerCase().trim();
+  const esCli = tipo === 'clientes';
   // Posición del ranking calculada una sola vez (sin indexOf por fila).
   const ranked = rows.map((r, i) => ({ r, pos: i + 1 }));
   const filtered = q
     ? ranked.filter((x) =>
-        (String(x.r.sku) + ' ' + String(x.r.desc || '')).toLowerCase().includes(q)
+        (esCli
+          ? String(x.r.nombre) + ' ' + String(x.r.code)
+          : String(x.r.sku) + ' ' + String(x.r.desc || '')
+        )
+          .toLowerCase()
+          .includes(q)
       )
     : ranked;
   let html =
-    '<div class="dv-vermas"><input type="search" class="dv-ms-search" placeholder="Buscar SKU o descripción…" data-vermas-search="' +
+    '<div class="dv-vermas"><input type="search" class="dv-ms-search" placeholder="' +
+    (esCli ? 'Buscar cliente…' : 'Buscar SKU o descripción…') +
+    '" data-vermas-search="' +
     tipo +
-    '"><div class="dv-table-wrap"><table class="dv-table"><thead><tr><th>#</th><th>SKU</th><th>Descripción</th><th class="num">Unidades</th><th class="num">Dinero</th></tr></thead><tbody>';
+    '"><div class="dv-table-wrap"><table class="dv-table"><thead><tr>' +
+    (esCli
+      ? '<th>#</th><th>Cliente</th><th class="num">Facturado</th>'
+      : '<th>#</th><th>SKU</th><th>Descripción</th><th class="num">Unidades</th><th class="num">Dinero</th>') +
+    '</tr></thead><tbody>';
   for (const { r, pos } of filtered) {
+    if (esCli) {
+      html +=
+        '<tr><td>' +
+        pos +
+        '</td><td>' +
+        _escHtml(r.nombre) +
+        '</td><td class="num">' +
+        _escHtml(_fmtArs(r.facturado)) +
+        '</td></tr>';
+      continue;
+    }
     html +=
       '<tr><td>' +
       pos +
@@ -386,7 +574,7 @@ function _verMasTabla(tipoIn, rows) {
       '</td></tr>';
   }
   if (filtered.length === 0)
-    html += '<tr><td colspan="5" class="dv-muted">Sin resultados.</td></tr>';
+    html += '<tr><td colspan="' + (esCli ? 3 : 5) + '" class="dv-muted">Sin resultados.</td></tr>';
   html += '</tbody></table></div></div>';
   return html;
 }
@@ -425,6 +613,234 @@ function _topSection(tipo, titulo, rows) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Productos, cobertura y facturación por cliente (entrega B)
+// ---------------------------------------------------------------------------
+
+const PRODUCTOS_MAX_FILAS = 200;
+const PRODUCTOS_DEBOUNCE_MS = 200;
+// Memo del stock por SKU: se limpia al renderizar resultados y al cambiar de usuario.
+const _stockMemo = new Map();
+let _prodTimer = null;
+
+/** Stock de la app para un SKU (con memo). Todo null si el stock todavía no cargó ("…"). */
+function _stockColumnas(sku) {
+  const k = String(sku);
+  if (_stockMemo.has(k)) return _stockMemo.get(k);
+  const r = _stockColumnasCalc(sku);
+  _stockMemo.set(k, r);
+  return r;
+}
+
+function _stockColumnasCalc(sku) {
+  const vacio = { reservadas: null, libre: null, stock: null };
+  try {
+    if (typeof window === 'undefined' || typeof window.getStockBreakdown !== 'function')
+      return vacio;
+    // getStockDisponibleVenta devuelve null mientras el stock no está cargado.
+    if (typeof window.getStockDisponibleVenta === 'function') {
+      if (window.getStockDisponibleVenta(sku) === null) return vacio;
+    }
+    const b = window.getStockBreakdown(sku);
+    if (!b) return vacio;
+    return {
+      reservadas: Number(b.reservadasTotal) || 0,
+      libre: Number(b.libre) || 0,
+      stock: Number(b.fisicoDep11) || 0,
+    };
+  } catch (_e) {
+    return vacio;
+  }
+}
+
+function _fmtStockCol(n) {
+  return n == null ? '…' : _fmtUds(n);
+}
+
+/** Etiqueta de cobertura: "36 de 66 · 54,55%" (coma decimal); sin porcentaje: "36 de 0 · —". */
+function _coberturaEtiqueta(r) {
+  const pct =
+    r.pct == null
+      ? '—'
+      : (Number(r.pct) || 0).toLocaleString('es-AR', {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        }) + '%';
+  return (Number(r.compraron) || 0) + ' de ' + (Number(r.dadosAlta) || 0) + ' · ' + pct;
+}
+
+/** Tabla de productos (solo el contenedor con scroll; se reemplaza al buscar). */
+function _productosTabla(rows, query) {
+  const q = String(query || '')
+    .toLowerCase()
+    .trim();
+  const lista = Array.isArray(rows) ? rows : [];
+  const matches = q
+    ? lista.filter((r) =>
+        (String(r.categoria) + ' ' + String(r.familia) + ' ' + String(r.sku))
+          .toLowerCase()
+          .includes(q)
+      )
+    : lista;
+  const filtered = matches.slice(0, PRODUCTOS_MAX_FILAS);
+  let html =
+    '<div class="dv-table-wrap"><table class="dv-table"><thead><tr><th>CATEGORIA</th><th>FAMILIA</th><th>SKU</th><th class="num">UNIDADES VENDIDAS</th><th class="num">FACTURADO</th><th class="num">UNIDADES BACKORDER</th><th class="num">UNIDADES RESERVADAS</th><th class="num">UNIDADES LIBRE PARA LA VENTA</th><th class="num">UNIDADES EN STOCK</th></tr></thead><tbody>';
+  for (const r of filtered) {
+    const st = _stockColumnas(r.sku);
+    html +=
+      '<tr><td>' +
+      _escHtml(r.categoria) +
+      '</td><td>' +
+      _escHtml(r.familia) +
+      '</td><td class="mono">' +
+      _escHtml(r.sku) +
+      '</td><td class="num">' +
+      _escHtml(_fmtUds(r.udsVendidas)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtArs(r.facturado)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtUds(r.udsBackorder)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtStockCol(st.reservadas)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtStockCol(st.libre)) +
+      '</td><td class="num">' +
+      _escHtml(_fmtStockCol(st.stock)) +
+      '</td></tr>';
+  }
+  if (filtered.length === 0)
+    html += '<tr><td colspan="9" class="dv-muted">Sin resultados.</td></tr>';
+  html += '</tbody></table></div>';
+  if (matches.length > filtered.length) {
+    html +=
+      '<div class="dv-muted">Mostrando ' +
+      PRODUCTOS_MAX_FILAS +
+      ' de ' +
+      _escHtml(_fmtUds(matches.length)) +
+      '. Usá el buscador para ver el resto.</div>';
+  }
+  return html;
+}
+
+function _noDisponible(id, titulo) {
+  return (
+    '<section class="dv-section" id="' +
+    id +
+    '"><div class="dv-section-head"><h3>' +
+    _escHtml(titulo) +
+    '</h3></div><div class="dv-muted">No disponible</div></section>'
+  );
+}
+
+function _productosSection(rows, secciones, query) {
+  if (!Array.isArray(rows) || (secciones && secciones.productos && secciones.productos.error)) {
+    return _noDisponible('dv-productos', 'Productos');
+  }
+  return (
+    '<section class="dv-section" id="dv-productos"><div class="dv-section-head"><h3>Productos</h3></div>' +
+    '<input type="search" class="dv-ms-search" id="dv-productos-buscar" placeholder="Buscar categoría, familia o SKU…">' +
+    '<div class="dv-prod-body">' +
+    _productosTabla(rows, query) +
+    '</div></section>'
+  );
+}
+
+function _coberturaSection(rows, secciones) {
+  if (!Array.isArray(rows) || (secciones && secciones.cobertura && secciones.cobertura.error)) {
+    return _noDisponible('dv-cobertura-chart', 'Cobertura de clientes');
+  }
+  const h = Math.max(120, rows.length * 44 + 40);
+  return (
+    '<section class="dv-section" id="dv-cobertura-chart"><div class="dv-section-head"><h3>Cobertura de clientes</h3></div>' +
+    (rows.length > 0
+      ? '<div class="dv-chart" style="height:' +
+        h +
+        'px"><canvas id="dv-canvas-cobertura" role="img" aria-label="Cobertura de clientes"></canvas></div>'
+      : '<div class="dv-muted">Sin datos.</div>') +
+    '</section>'
+  );
+}
+
+// Campañas: una tarjeta por campaña con ventas, objetivo y avance.
+function _campaniasSection(rows, secciones) {
+  if (!Array.isArray(rows) || (secciones && secciones.campanias && secciones.campanias.error)) {
+    return _noDisponible('dv-campanias', 'Campañas');
+  }
+  let cuerpo = '';
+  if (rows.length === 0) {
+    cuerpo = '<div class="dv-muted">Sin campañas activas</div>';
+  } else {
+    for (const c of rows) {
+      // Sin objetivo cargado (null o 0) no se muestra "0 u" / "$0".
+      const sinObjetivo = c.objetivo == null || Number(c.objetivo) === 0;
+      const objetivo = sinObjetivo
+        ? 'Sin objetivo'
+        : c.objetivoTipo === 'money'
+          ? _fmtArs(c.objetivo)
+          : _fmtUds(c.objetivo) + ' u';
+      const pct = c.pct == null ? null : Number(c.pct);
+      const ancho = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+      cuerpo +=
+        '<div class="dv-camp">' +
+        '<div class="dv-camp-nombre">' +
+        _escHtml(c.nombre) +
+        '</div>' +
+        '<div class="dv-camp-fechas">' +
+        _escHtml(_fmtFecha(c.desde)) +
+        ' al ' +
+        _escHtml(_fmtFecha(c.hasta)) +
+        '</div>' +
+        '<div class="dv-camp-datos">Vendido: ' +
+        _escHtml(_fmtUds(c.uds)) +
+        ' u · ' +
+        _escHtml(_fmtArs(c.ars)) +
+        ' — Objetivo: ' +
+        _escHtml(objetivo) +
+        ' — ' +
+        _escHtml(pct == null ? '—' : _fmtPct(pct)) +
+        '</div>' +
+        '<div class="dv-camp-bar"><div class="dv-camp-bar-fill" style="width:' +
+        ancho.toFixed(1) +
+        '%"></div></div>' +
+        '</div>';
+    }
+  }
+  return (
+    '<section class="dv-section" id="dv-campanias"><div class="dv-section-head"><h3>Campañas</h3></div>' +
+    cuerpo +
+    '</section>'
+  );
+}
+
+function _clientesSection(rows, secciones) {
+  if (!Array.isArray(rows) || (secciones && secciones.clientes && secciones.clientes.error)) {
+    return _noDisponible('dv-clientes-chart', 'Facturación por cliente');
+  }
+  const abierto = state.verMas.clientes;
+  const total = rows.length;
+  const h = Math.max(120, Math.min(TOP_N, total) * 22 + 40);
+  return (
+    '<section class="dv-section" id="dv-clientes-chart"><div class="dv-section-head"><h3>Facturación por cliente - Top 20</h3>' +
+    (total > 0
+      ? '<button type="button" class="dv-link" data-vermas="clientes" aria-expanded="' +
+        (abierto ? 'true' : 'false') +
+        '">' +
+        (abierto ? 'Ver menos' : 'Ver más') +
+        ' (' +
+        total +
+        ')</button>'
+      : '') +
+    '</div>' +
+    (total > 0
+      ? '<div class="dv-chart" style="height:' +
+        h +
+        'px"><canvas id="dv-chart-top-clientes" role="img" aria-label="Facturación por cliente"></canvas></div>'
+      : '<div class="dv-muted">Sin datos.</div>') +
+    (abierto ? _verMasTabla('clientes', rows) : '') +
+    '</section>'
+  );
+}
+
 function _lineSection(id, titulo) {
   return (
     '<section class="dv-section"><div class="dv-section-head"><h3>' +
@@ -449,6 +865,7 @@ function _isEmpty(d) {
 
 /** Resultados (leyenda, tarjetas, rankings, gráficos). No toca los filtros. */
 function renderResults() {
+  _stockMemo.clear();
   const root = document.getElementById('dv-results');
   if (!root) return;
   const d = state.data;
@@ -481,11 +898,16 @@ function renderResults() {
     html += _card('Cant. de pedidos del mes', _fmtUds(k.pedidos));
     html += _card('Cant. pedidos únicos', _fmtUds(k.pedidosUnicos));
     html += '</div>';
+    html += _gestionSection(d.gestion, d.secciones, state.interQuery);
     html += _topSection('unidades', 'Top 20 SKU - Unidades', d.topUnidades || []);
     html += _topSection('dinero', 'Top 20 SKU - Dinero', d.topDinero || []);
     html += _lineSection('dv-chart-ventas', 'Evolución de ventas');
     html += _lineSection('dv-chart-bo-uds', 'Evolución del backorder - Unidades');
     html += _lineSection('dv-chart-bo-ars', 'Evolución del backorder - Dinero');
+    html += _productosSection(d.productos, d.secciones, state.prodQuery);
+    html += _coberturaSection(d.cobertura, d.secciones);
+    html += _clientesSection(d.clientes, d.secciones);
+    html += _campaniasSection(d.campanias, d.secciones);
   }
 
   _destroyCharts();
@@ -495,6 +917,11 @@ function renderResults() {
     const k = inp.getAttribute('data-vermas-search');
     if (k) /** @type {HTMLInputElement} */ (inp).value = state.verMasQuery[k] || '';
   });
+
+  const interInp = root.querySelector('#dv-interacciones-buscar');
+  if (interInp) /** @type {HTMLInputElement} */ (interInp).value = state.interQuery || '';
+  const prodInp = root.querySelector('#dv-productos-buscar');
+  if (prodInp) /** @type {HTMLInputElement} */ (prodInp).value = state.prodQuery || '';
 
   // Sin modal abierto no se dibuja (respuesta que llegó después de cerrar).
   if (_isOpen() && !state.loading && !state.error && d && !_isEmpty(d)) {
@@ -528,6 +955,17 @@ function _cssVar(name, fallback) {
   }
 }
 
+const CHART_FONT =
+  "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif";
+const CHART_GRID_LIGHT = 'rgba(0,0,0,.06)';
+const CHART_GRID_DARK = 'rgba(255,255,255,.08)';
+
+/** Grilla suave; en tema oscuro usa blanco translúcido para que se vea. */
+function _chartGrid() {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  return { color: dark ? CHART_GRID_DARK : CHART_GRID_LIGHT };
+}
+
 function _barChart(canvasId, rows, field, fmt, color) {
   const el = document.getElementById(canvasId);
   if (!el || !window.Chart) return;
@@ -542,12 +980,15 @@ function _barChart(canvasId, rows, field, fmt, color) {
       ],
     },
     options: {
+      // Margen derecho para que la etiqueta de dato (dvDataLabels) no se corte.
+      layout: { padding: { right: 90 } },
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
       plugins: {
         legend: { display: false },
+        dvDataLabels: { fmt },
         tooltip: {
           callbacks: {
             title: (items) => {
@@ -560,16 +1001,21 @@ function _barChart(canvasId, rows, field, fmt, color) {
       },
       scales: {
         x: {
+          grid: _chartGrid(),
+          border: { display: false },
           ticks: {
+            font: { family: CHART_FONT },
             callback: (v) => fmt(v),
             maxTicksLimit: 5,
             color: _cssVar('--text-muted', '#64748b'),
           },
         },
         y: {
+          grid: { display: false },
+          border: { display: false },
           ticks: {
             autoSkip: false,
-            font: { size: 10 },
+            font: { size: 10, family: CHART_FONT },
             color: _cssVar('--text-secondary', '#334155'),
           },
         },
@@ -648,13 +1094,85 @@ function _lineChart(canvasId, serie, fmt, color, conEstimado) {
       scales: {
         y: {
           beginAtZero: true,
+          grid: _chartGrid(),
+          border: { display: false },
           ticks: {
+            font: { family: CHART_FONT },
             callback: (v) => fmt(v),
             maxTicksLimit: 6,
             color: _cssVar('--text-muted', '#64748b'),
           },
         },
-        x: { ticks: { color: _cssVar('--text-muted', '#64748b') } },
+        x: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: { font: { family: CHART_FONT }, color: _cssVar('--text-muted', '#64748b') },
+        },
+      },
+    },
+  });
+}
+
+/** Barras horizontales de cobertura: una por vendedor, 0-100%. */
+function _coberturaChart(rows) {
+  const el = document.getElementById('dv-canvas-cobertura');
+  if (!el || !window.Chart) return;
+  charts['dv-canvas-cobertura'] = new window.Chart(el, {
+    type: 'bar',
+    data: {
+      labels: rows.map((r) => String(r.vendedor)),
+      datasets: [
+        {
+          data: rows.map((r) => (r.pct == null ? 0 : Number(r.pct) || 0)),
+          backgroundColor: '#0284a0',
+          borderRadius: 3,
+        },
+      ],
+    },
+    options: {
+      layout: { padding: { right: 90 } },
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        dvDataLabels: { fmt: (_v, i) => (rows[i] ? _coberturaEtiqueta(rows[i]) : '') },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const r = rows[items[0].dataIndex];
+              return r ? String(r.vendedor) : '';
+            },
+            label: (item) => {
+              const r = rows[item.dataIndex];
+              return r ? _coberturaEtiqueta(r) : '';
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          min: 0,
+          max: 100,
+          grid: _chartGrid(),
+          border: { display: false },
+          ticks: {
+            font: { family: CHART_FONT },
+            callback: (v) => v + '%',
+            maxTicksLimit: 5,
+            color: _cssVar('--text-muted', '#64748b'),
+          },
+        },
+        y: {
+          grid: { display: false },
+          border: { display: false },
+          ticks: {
+            autoSkip: false,
+            font: { size: 10, family: CHART_FONT },
+            color: _cssVar('--text-secondary', '#334155'),
+          },
+        },
       },
     },
   });
@@ -668,6 +1186,12 @@ function _drawCharts(d) {
   _lineChart('dv-chart-ventas', d.serieVentas || [], _fmtArs, '#1e40af', false);
   _lineChart('dv-chart-bo-uds', d.serieBoUds || [], _fmtUds, '#c2410c', true);
   _lineChart('dv-chart-bo-ars', d.serieBoArs || [], _fmtArs, '#9f1239', true);
+  if (Array.isArray(d.cobertura)) _coberturaChart(d.cobertura);
+  if (Array.isArray(d.clientes)) {
+    // _barChart usa sku/desc: se adaptan nombre y código del cliente.
+    const filas = d.clientes.map((c) => ({ sku: c.nombre, desc: c.code, facturado: c.facturado }));
+    _barChart('dv-chart-top-clientes', filas, 'facturado', _fmtArs, '#7c3aed');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -740,7 +1264,7 @@ function _wire() {
     }
     const vm = t.closest('[data-vermas]');
     if (vm) {
-      const tipo = vm.getAttribute('data-vermas') === 'dinero' ? 'dinero' : 'unidades';
+      const tipo = _tipoVerMas(vm.getAttribute('data-vermas'));
       state.verMas[tipo] = !state.verMas[tipo];
       // Solo resultados: no se leen ni se pisan filtros sin aplicar.
       renderResults();
@@ -777,14 +1301,39 @@ function _wire() {
       });
       return;
     }
+    if (t.id === 'dv-interacciones-buscar') {
+      state.interQuery = t.value;
+      const g = state.data && state.data.gestion;
+      const ti = (g && g.tablaInteracciones) || { rows: [], total: 0 };
+      const cont = body.querySelector('#dv-interacciones .dv-inter-body');
+      if (cont) cont.innerHTML = _interaccionesTabla(ti.rows, ti.total, state.interQuery);
+      return;
+    }
+    if (t.id === 'dv-productos-buscar') {
+      state.prodQuery = t.value;
+      if (_prodTimer) clearTimeout(_prodTimer);
+      _prodTimer = setTimeout(() => {
+        _prodTimer = null;
+        const cont = body.querySelector('#dv-productos .dv-prod-body');
+        if (cont)
+          cont.innerHTML = _productosTabla(state.data && state.data.productos, state.prodQuery);
+      }, PRODUCTOS_DEBOUNCE_MS);
+      return;
+    }
     const vmAttr = t.getAttribute('data-vermas-search');
     if (vmAttr) {
-      // Solo dos rankings posibles: nunca reusar el texto del atributo en el HTML.
-      const vmKey = vmAttr === 'dinero' ? 'dinero' : 'unidades';
+      // Solo tres rankings posibles: nunca reusar el texto del atributo en el HTML.
+      const vmKey = _tipoVerMas(vmAttr);
       state.verMasQuery[vmKey] = t.value;
       const sec = t.closest('.dv-vermas');
+      const dd = state.data;
       const rows =
-        (state.data && (vmKey === 'unidades' ? state.data.topUnidades : state.data.topDinero)) ||
+        (dd &&
+          (vmKey === 'unidades'
+            ? dd.topUnidades
+            : vmKey === 'dinero'
+              ? dd.topDinero
+              : dd.clientes)) ||
         [];
       if (sec) {
         const tmp = document.createElement('div');

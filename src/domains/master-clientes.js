@@ -21,6 +21,13 @@
 // approvedAltasList, escapeHtml, titleCase, showSyncTag, matchesAllTokens
 // (bundle __phase0.pure), findSapDuplicateForProvisorio (bundle), clientLocId,
 // normClientName (bundle __phase0.pure).
+import { buildFichaClienteMaster, findCarteraCliente } from '../pure/ficha-cliente-master.js';
+import { buildMasterClientesScope } from '../pure/master-clientes-scope.js';
+import {
+  mensajeSyncClientesSap,
+  SYNC_CLIENTES_SAP_TEXTOS,
+} from '../pure/sync-clientes-sap-mensajes.js';
+
 // ============================================================
 // MASTER CLIENTES - direcciones exactas por tienda (admin)
 // ============================================================
@@ -30,6 +37,36 @@ if (typeof window.clientMasterCache === 'undefined') window.clientMasterCache = 
 const clientMasterCache = window.clientMasterCache;
 if (typeof window.unsubClientMaster === 'undefined') window.unsubClientMaster = null;
 let mcPendingChanges = {}; // docId -> nuevo address (en proceso)
+
+// v1545 (2026-11-02): alcance por rol. admin/gerente: todo y editan.
+// vendedor: solo sus clientes del master, solo lectura. interno: su zona +
+// parejas (mismo conjunto que el mapa), solo lectura. Regla en
+// src/pure/master-clientes-scope.js.
+function _mcScope() {
+  let allowedVendorKeys = null;
+  try {
+    allowedVendorKeys =
+      typeof getMyAllowedVendorKeys === 'function' ? getMyAllowedVendorKeys() : null;
+  } catch (_e) {
+    allowedVendorKeys = null;
+  }
+  return buildMasterClientesScope({
+    role: typeof userRole !== 'undefined' ? userRole : null,
+    myVendorKey: typeof assignedVendor !== 'undefined' ? assignedVendor : '',
+    allowedVendorKeys,
+  });
+}
+window._mcScope = _mcScope;
+
+// v1545: en solo lectura, los campos editables de la tabla quedan
+// deshabilitados (no se pueden tipear ni disparar el autosave). Los botones
+// de acción los oculta el CSS `#master-cli-modal.mc-solo-lectura`.
+function _mcApplySoloLectura(cont) {
+  if (!cont || !_mcScope().readOnly) return;
+  cont.querySelectorAll('input, select, textarea').forEach((el) => {
+    el.disabled = true;
+  });
+}
 
 // Autosave debounced por fila. Antes solo se guardaba al tocar GUARDAR y
 // solo detectaba cambios en el input de direccion (mcPendingChanges), asi
@@ -271,12 +308,14 @@ function getAllStoreEntries() {
 }
 
 window.openMasterClientesPanel = function () {
-  if (userRole !== 'admin' && userRole !== 'gerente') {
-    alert('Solo admin o gerente puede acceder a Master Clientes.');
+  const _scope = _mcScope();
+  if (!_scope.canOpen) {
+    alert('Master Clientes no está disponible para tu usuario.');
     return;
   }
   ensureClientMasterListener();
   if (typeof ensureApprovedAltasListener === 'function') ensureApprovedAltasListener();
+  updateMcSyncSapBtnVisibility();
   updateMcProvisorioCount();
   mcPendingChanges = {};
   mcProvisorioMode = false;
@@ -306,11 +345,101 @@ window.openMasterClientesPanel = function () {
       pSel.appendChild(o);
     });
   }
+  // v1545: vendedor/interno — solo lectura y filtro de vendedor acotado.
+  const _mcModal = document.getElementById('master-cli-modal');
+  if (_mcModal) _mcModal.classList.toggle('mc-solo-lectura', _scope.readOnly);
+  Array.from(vSel.options).forEach((o) => {
+    o.hidden = !_scope.isGlobal && o.value !== 'ALL' && !_scope.allowsVendor(o.value);
+  });
+  if (_scope.fixedVendorKey && _scope.allowsVendor(_scope.fixedVendorKey)) {
+    vSel.value = _scope.fixedVendorKey;
+    vSel.disabled = true;
+  } else {
+    if (!_scope.isGlobal && vSel.value !== 'ALL' && !_scope.allowsVendor(vSel.value))
+      vSel.value = 'ALL';
+    vSel.disabled = false;
+  }
   // Reset filtro localidad cuando se abre
   rebuildMcLocalidadOptions();
   document.getElementById('master-cli-modal').classList.add('open');
   renderMasterClientesTable();
 };
+// =====================================================================
+// v1535 (APP-02) — boton "Sincronizar con SAP" (al lado de Reasignar Zonas)
+// =====================================================================
+// Corre a pedido el sync de clientes SAP -> app (callable syncClientesSapCF,
+// que reusa syncBpPesca del servidor). Un cliente recien creado en SAP aparece
+// en el master sin esperar la corrida programada y se le puede asignar
+// vendedor. Solo admin/gerente (el servidor vuelve a validar el rol).
+function updateMcSyncSapBtnVisibility() {
+  const btn = document.getElementById('mc-sync-sap-btn');
+  if (!btn) return;
+  const _puede = userRole === 'admin' || userRole === 'gerente';
+  btn.style.display = _puede ? '' : 'none';
+}
+window.updateMcSyncSapBtnVisibility = updateMcSyncSapBtnVisibility;
+
+/** @param {{tipo: string, texto: string}|null} m */
+function setMcSyncSapMsg(m) {
+  const el = document.getElementById('mc-sync-sap-msg');
+  if (!el) return;
+  if (!m) {
+    el.textContent = '';
+    el.style.display = 'none';
+    el.className = 'mc-sync-sap-msg';
+    return;
+  }
+  el.textContent = m.texto;
+  el.className = 'mc-sync-sap-msg is-' + m.tipo;
+  el.style.display = '';
+}
+
+let _mcSyncSapRunning = false;
+window.syncClientesSap = async function () {
+  if (userRole !== 'admin' && userRole !== 'gerente') return;
+  if (_mcSyncSapRunning) return;
+  const btn = document.getElementById('mc-sync-sap-btn');
+  const label = document.getElementById('mc-sync-sap-label');
+  if (!btn) return;
+  _mcSyncSapRunning = true;
+  btn.disabled = true;
+  btn.classList.add('is-syncing');
+  btn.setAttribute('aria-busy', 'true');
+  if (label) label.textContent = SYNC_CLIENTES_SAP_TEXTOS.sincronizando;
+  setMcSyncSapMsg(null);
+  /** @type {any} */
+  let res = null;
+  try {
+    const callable = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('syncClientesSapCF', { timeout: 320000 });
+    const r = await callable({});
+    res = (r && r.data) || null;
+  } catch (e) {
+    console.warn('[syncClientesSap] fallo', e);
+    // Errores HttpsError: code tipo 'functions/permission-denied'.
+    const raw = String((e && e.code) || 'INTERNAL');
+    res = { ok: false, code: raw.replace(/^functions\//, '') };
+  } finally {
+    _mcSyncSapRunning = false;
+    btn.disabled = false;
+    btn.classList.remove('is-syncing');
+    btn.removeAttribute('aria-busy');
+    if (label) label.textContent = SYNC_CLIENTES_SAP_TEXTOS.boton;
+  }
+  const m = mensajeSyncClientesSap(res);
+  setMcSyncSapMsg(m);
+  if (m.tipo === 'ok' && typeof showSyncTag === 'function') showSyncTag(m.texto, 4000);
+  // El listener de client_applications (approvedAltas) ya trae los clientes
+  // nuevos; igual re-renderizamos para que la lista visible quede al dia.
+  try {
+    updateMcProvisorioCount();
+    const modal = document.getElementById('master-cli-modal');
+    if (modal && modal.classList.contains('open')) renderMasterClientesTable();
+  } catch (_e) {}
+};
+
 window.closeMasterClientesPanel = function () {
   const dirty =
     Object.keys(mcPendingChanges).length > 0 ||
@@ -1127,7 +1256,7 @@ function renderMcProvisoriosTable() {
 
   // Alta Rapida guarda vendedor en assignedVendor (no vendor), provincia en
   // upper y localidad en localidadFinal (post-geocoding) o localidad.
-  let items = getProvisoriosList();
+  let items = _mcScope().filter(getProvisoriosList(), (a) => a.assignedVendor || a.vendor || '');
   if (fv !== 'ALL') items = items.filter((a) => (a.assignedVendor || a.vendor || '') === fv);
   if (fp !== 'ALL')
     items = items.filter((a) => (a.provincia || '').toString().toUpperCase() === fp.toUpperCase());
@@ -1474,6 +1603,7 @@ function renderMcProvisoriosTable() {
       items.length +
       '. Refina con filtros.</div>';
   cont.innerHTML = html;
+  _mcApplySoloLectura(cont);
 }
 
 // v302+: Autosave del nombre del comercio (comercio o fantasia) desde el
@@ -2099,7 +2229,8 @@ window.renderMasterClientesTable = function () {
   const fcEsp = _mcPerfilFilterValue('mc-filt-especializacion');
   const fcTL = _mcPerfilFilterValue('mc-filt-tipolocal');
 
-  let entries = getAllStoreEntries();
+  // v1545: alcance por rol (vendedor/interno ven solo sus clientes).
+  let entries = _mcScope().filter(getAllStoreEntries(), (e) => e.vendor);
   // v349+: modo SAP-only aplica primero. Excluye POINTS del padron viejo y
   // provisorios (altas sin cardCodeSap). Solo deja las que tienen CardCode.
   if (mcSapMode) entries = entries.filter((e) => e.tipo === 'sap_alta' && e.sapCardCode);
@@ -2282,9 +2413,13 @@ window.renderMasterClientesTable = function () {
   html += '<th style="width:12%"></th>';
   html += '</tr></thead><tbody>';
   const MAX = 500;
+  // v1539 APP-04: id → entry de las filas visibles (para armar la ficha).
+  const _fichaEntries = new Map();
+  window._mcFichaEntries = _fichaEntries;
   entries.slice(0, MAX).forEach((e) => {
     const isSap = e.tipo === 'sap_alta';
     const id = entryDocId(e);
+    _fichaEntries.set(id, { entry: e, vendLabel: '' });
     const cur = getCurrent(id, e.provincia, e.localidad, e.nombre, e.tipo);
     // Para POINTS usamos clientMasterCache; para SAP altas usamos el doc en
     // approvedAltasList (savedAddr es la calle/address actual guardada).
@@ -2352,6 +2487,11 @@ window.renderMasterClientesTable = function () {
       : e.vendor
         ? titleCase(e.vendor)
         : '-';
+    _fichaEntries.get(id).vendLabel = vendInfo
+      ? vendInfo.zone + ' - ' + titleCase(e.vendor)
+      : e.vendor
+        ? titleCase(e.vendor)
+        : '';
     // Aplicar customName de clientMeta si un vendedor renombro la tienda
     // desde el modal "Dar de alta". Como admin/viewer reciben los
     // clientMeta de todos los users mergeados, vemos los renombres aca.
@@ -2484,12 +2624,19 @@ window.renderMasterClientesTable = function () {
         'title="Editar nombre del comercio (autosave al salir del campo o Enter)" />' +
         '<div class="mc-meta" style="margin-top:4px">' +
         tagHtml +
+        ' <button type="button" class="mc-ficha-toggle mc-ficha-btn" data-ficha-id="' +
+        escapeAttr(id) +
+        '" aria-expanded="false" title="Ver ficha del cliente"><span class="mc-ficha-caret">&#9654;</span> Ficha</button>' +
         '</div>' +
         deliveryBadge +
         '</td>';
     } else {
+      // v1539 APP-04: el nombre despliega la ficha del cliente debajo de la
+      // fila (mismo concepto que el SKU en Stock Asignado).
       html +=
-        '<td><div class="mc-name">' +
+        '<td><div class="mc-name mc-ficha-toggle" role="button" tabindex="0" aria-expanded="false" data-ficha-id="' +
+        escapeAttr(id) +
+        '" title="Ver ficha del cliente"><span class="mc-ficha-caret">&#9654;</span> ' +
         escapeHtml(displayName) +
         '</div>' +
         renamedHint +
@@ -2686,6 +2833,10 @@ window.renderMasterClientesTable = function () {
       entries.length +
       '. Usa filtros / buscador para refinar.</div>';
   cont.innerHTML = html;
+  // v1539 APP-04: ficha desplegable por cliente.
+  _mcFichaBind(cont);
+  _mcFichaReopen(cont);
+  _mcApplySoloLectura(cont);
 };
 
 window.onMcAddrInput = function (input, docId, originalSaved) {
@@ -3136,6 +3287,11 @@ window.deleteMcEntry = async function (docId, nombre, sapFsId) {
     alert('Necesitas estar autenticado para eliminar.');
     return;
   }
+  // v1545: Master Clientes es solo lectura para vendedor/interno.
+  if (_mcScope().readOnly) {
+    alert('Solo admin o gerente puede eliminar desde Master Clientes.');
+    return;
+  }
   const safeName = nombre || 'esta tienda';
   const canDeleteSap = userRole === 'admin' || userRole === 'gerente';
   if (sapFsId) {
@@ -3419,3 +3575,214 @@ window.getProvisoriosList = getProvisoriosList;
 window.updateMcProvisorioCount = updateMcProvisorioCount;
 // E6 hotfix 3: cross-module bug — pedidos-modal llama getCurrentOrderClientData en renderReviewLines.
 window.getCurrentOrderClientData = getCurrentOrderClientData;
+
+// =====================================================================
+// v1539 APP-04 (2026-11-02): ficha desplegable del cliente en el Master.
+// Inventario de datos: docs/auditoria/47_FICHA_CLIENTE_MASTER.md.
+// SOLO LECTURA: este bloque no escribe nada en Firestore. Lee de memoria
+// (POINTS, approvedAltasList, clientMasterCache, clientMeta) y hace a lo
+// sumo 3 lecturas puntuales (.get) que quedan cacheadas por sesión:
+// client_locations/{slug}, client_buyer_stats/{cardCode},
+// cartera_vendor/{vendorKey}.
+// =====================================================================
+if (typeof window._mcFichaOpen === 'undefined') window._mcFichaOpen = new Set();
+/** @type {Map<string, any>} clave → doc (null = no existe / sin permiso). */
+const _mcFichaReadCache = new Map();
+/** @type {Map<string, Promise<any>>} lecturas en curso (evita duplicadas). */
+const _mcFichaInflight = new Map();
+
+/**
+ * Lectura puntual cacheada. Devuelve undefined si todavía no llegó.
+ * @param {string} col
+ * @param {string} docId
+ * @param {() => void} onReady
+ */
+function _mcFichaGet(col, docId, onReady) {
+  if (!docId) return null;
+  const k = col + '/' + docId;
+  if (_mcFichaReadCache.has(k)) return _mcFichaReadCache.get(k);
+  if (!_mcFichaInflight.has(k)) {
+    let p;
+    try {
+      p = fbDb
+        .collection(col)
+        .doc(docId)
+        .get()
+        .then((snap) => (snap && snap.exists ? snap.data() : null))
+        .catch(() => null);
+    } catch (_e) {
+      p = Promise.resolve(null);
+    }
+    _mcFichaInflight.set(
+      k,
+      p.then((d) => {
+        _mcFichaReadCache.set(k, d);
+        _mcFichaInflight.delete(k);
+        return d;
+      })
+    );
+  }
+  _mcFichaInflight.get(k).then(() => onReady());
+  return undefined;
+}
+
+/** @param {string} id */
+function _mcFichaInput(id, onReady) {
+  const ent = window._mcFichaEntries && window._mcFichaEntries.get(id);
+  if (!ent) return null;
+  const e = ent.entry;
+  const isSap = e.tipo === 'sap_alta';
+  const altas = typeof approvedAltasList !== 'undefined' ? approvedAltasList : [];
+  const alta = isSap ? altas.find((x) => x && x._fsId === e.sapFsId) || null : null;
+  let slug = '';
+  try {
+    if (isSap && alta) {
+      const pv = alta.provincia || '';
+      const lc = alta.localidadFinal || alta.localidad || '';
+      const nm = alta.comercio || '';
+      if (pv && lc && nm) slug = clientLocId(pv, lc, nm);
+    } else if (!isSap) {
+      slug = clientLocId(e.provincia, e.localidad, e.nombre);
+    }
+  } catch (_e) {
+    slug = '';
+  }
+  const cm = slug ? clientMasterCache.get(slug) || null : null;
+  let meta = null;
+  if (!isSap && typeof clientMeta === 'object' && clientMeta) {
+    const t = e.tipo === 'cliente' ? 'C' : 'P';
+    meta = clientMeta[t + '|' + e.provincia + '|' + e.localidad + '|' + e.nombre] || null;
+  }
+  let fallback = '';
+  try {
+    if (typeof sapGetClienteCode === 'function') fallback = sapGetClienteCode(e.nombre) || '';
+  } catch (_e) {
+    fallback = '';
+  }
+  const cardCode = String(
+    (alta && alta.cardCodeSap) || (cm && cm.sapCardCode) || e.sapCardCode || fallback || ''
+  ).trim();
+  const loc = slug ? _mcFichaGet('client_locations', slug, onReady) : null;
+  const buyer = cardCode ? _mcFichaGet('client_buyer_stats', cardCode, onReady) : null;
+  let cartera = null;
+  if (e.vendor) {
+    const doc = _mcFichaGet('cartera_vendor', e.vendor, onReady);
+    if (doc === undefined) cartera = undefined;
+    else
+      cartera = findCarteraCliente(doc && doc.clientes, {
+        cardCode,
+        nombre: (alta && alta.comercio) || e.nombre,
+        provincia: e.provincia,
+      });
+  }
+  const custom = meta && meta.customName ? String(meta.customName).trim() : '';
+  return {
+    entry: e,
+    displayName: custom || e.nombre,
+    vendorLabel: ent.vendLabel,
+    alta,
+    cm,
+    meta,
+    cardCode,
+    sapCodeFallback: fallback,
+    loc,
+    buyer,
+    cartera,
+  };
+}
+
+/** @param {any[]} sections */
+function _mcFichaHtml(sections) {
+  let h = '<div class="mc-ficha" role="region" aria-label="Ficha del cliente">';
+  for (const sec of sections) {
+    h += '<section class="mc-ficha-sec mc-ficha-' + escapeAttr(sec.key) + '">';
+    h += '<h4>' + escapeHtml(sec.title) + '</h4><dl>';
+    for (const r of sec.rows) {
+      const cls = r.state === 'empty' ? ' is-empty' : r.state === 'loading' ? ' is-loading' : '';
+      h +=
+        '<div class="mc-ficha-item' +
+        cls +
+        '"><dt>' +
+        escapeHtml(r.label) +
+        '</dt><dd>' +
+        escapeHtml(r.value) +
+        '</dd></div>';
+    }
+    h += '</dl>';
+    if (sec.note) h += '<p class="mc-ficha-note">' + escapeHtml(sec.note) + '</p>';
+    h += '</section>';
+  }
+  return h + '</div>';
+}
+
+/** @param {HTMLElement} cont @param {string} id */
+function _mcFichaFillRow(cont, id) {
+  const row = /** @type {HTMLElement|null} */ (
+    Array.from(cont.querySelectorAll('tr.mc-ficha-row')).find(
+      (r) => /** @type {HTMLElement} */ (r).dataset.fichaFor === id
+    ) || null
+  );
+  if (!row) return;
+  const input = _mcFichaInput(id, () => _mcFichaFillRow(cont, id));
+  const td = row.querySelector('td');
+  if (!td) return;
+  td.innerHTML = input
+    ? _mcFichaHtml(buildFichaClienteMaster(input))
+    : '<div class="mc-ficha"><p class="mc-ficha-note">No se encontró el cliente.</p></div>';
+}
+
+/** @param {HTMLElement} cont @param {HTMLElement} toggle @param {boolean} open */
+function _mcFichaSet(cont, toggle, open) {
+  const id = toggle.dataset.fichaId || '';
+  const tr = toggle.closest('tr');
+  if (!id || !tr) return;
+  const next = tr.nextElementSibling;
+  const existing =
+    next && next.classList.contains('mc-ficha-row') && next.dataset.fichaFor === id ? next : null;
+  const caret = toggle.querySelector('.mc-ficha-caret');
+  if (open) {
+    window._mcFichaOpen.add(id);
+    if (!existing) {
+      const fr = document.createElement('tr');
+      fr.className = 'mc-ficha-row';
+      fr.dataset.fichaFor = id;
+      const td = document.createElement('td');
+      td.colSpan = tr.children.length || 6;
+      fr.appendChild(td);
+      tr.parentNode.insertBefore(fr, tr.nextSibling);
+    }
+    _mcFichaFillRow(cont, id);
+    tr.classList.add('mc-ficha-open');
+  } else {
+    window._mcFichaOpen.delete(id);
+    if (existing) existing.remove();
+    tr.classList.remove('mc-ficha-open');
+  }
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (caret) caret.innerHTML = open ? '&#9660;' : '&#9654;';
+}
+
+/** @param {HTMLElement} cont */
+function _mcFichaBind(cont) {
+  if (!cont || cont.dataset.mcFichaBound === '1') return;
+  cont.dataset.mcFichaBound = '1';
+  const handler = (ev) => {
+    const t = ev.target && ev.target.closest ? ev.target.closest('.mc-ficha-toggle') : null;
+    if (!t || !cont.contains(t)) return;
+    if (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ') return;
+    ev.preventDefault();
+    const id = t.dataset.fichaId || '';
+    _mcFichaSet(cont, t, !window._mcFichaOpen.has(id));
+  };
+  cont.addEventListener('click', handler);
+  cont.addEventListener('keydown', handler);
+}
+
+/** Reabre las fichas que estaban abiertas antes de re-renderizar. */
+function _mcFichaReopen(cont) {
+  if (!cont || !window._mcFichaOpen.size) return;
+  cont.querySelectorAll('.mc-ficha-toggle').forEach((t) => {
+    const el = /** @type {HTMLElement} */ (t);
+    if (window._mcFichaOpen.has(el.dataset.fichaId || '')) _mcFichaSet(cont, el, true);
+  });
+}

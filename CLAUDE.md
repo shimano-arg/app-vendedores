@@ -3767,3 +3767,54 @@ Expuestos en `window.__phase0.pure.{buildPopupStockSkuLineas, renderPopupStockSk
 
 **Derivada**: quien referencia una línea de pedido guarda y usa su `lineIndex`; nunca la re-busca con `findIndex(code+state)` (puede haber varias líneas del mismo producto y estado). Limpieza de datos viejos: `scripts/audit/AS_asig_huerfanas.cjs`.
 
+## 105. PDFs oficiales de SAP vía Seidor — propuesta pendiente, NO implementada (2026-11-02)
+
+**Estado**: propuesta en conversación con Seidor. **La app todavía no descarga estos PDFs.** Es una funcionalidad nueva que necesita desarrollo y pruebas; no hay nada implementado ni probado.
+
+**Qué es**: Seidor ofrece un servicio que genera los PDFs oficiales de documentos SAP con el layout de Crystal Reports. Es independiente de la conexión actual de la app con SAP Service Layer (`sap-client.js`, `sapProxy`, sync a BigQuery) y **no la reemplaza**.
+
+**Contrato propuesto (según el correo de Seidor, sin verificar)**:
+- `GET /api/reportes?tipoDoc=<OF|OV|FC|EN|NC>&docEntry=<número>`. Significado probable de los tipos (inferido, confirmar con Seidor): OF oferta, OV orden de venta, FC factura, EN entrega, NC nota de crédito.
+- Autenticación con el header `X-Api-Key`.
+- Respuesta JSON; el PDF viene en base64 en el campo `strBase64`.
+
+**Autorizado**: Mariano dio el OK para preparar el acceso HTTPS **al ambiente de pruebas** desde Google Cloud. **No autoriza producción.**
+
+**Pendiente de Seidor**:
+- URL del ambiente de testing.
+- Entrega segura de la API Key.
+- Aclarar el tiempo de generación: el correo dice "entre 205 y 4 segundos", que no se entiende.
+
+**Reglas si se implementa**:
+1. La llamada sale **solo del backend** (Cloud Function), nunca del navegador.
+2. Antes de devolver el PDF, el backend valida que el usuario pueda ver ese documento: rol más cliente asignado, con el mismo alcance que Pedidos del mes (§ v1540) y el Dashboard de Ventas.
+3. La API Key vive en Secret Manager. **Nunca** en el navegador, en el repositorio, en los logs ni en un correo.
+4. Pasa por el mismo protocolo que el resto: plan aprobado, tests, deploy autorizado por Mariano y verificación real. Primero en testing; producción requiere una autorización aparte.
+
+## 106. Todo botón nuevo nace con estilo Apple (2026-11-02, v1546)
+
+**Regla fuerte** (pedido de Mariano: "siempre todos los botones con estilo Apple"): ningún botón nuevo se mergea con el estilo por defecto de `.btn-zonas` (rectángulo, mayúsculas, sombra). Cada botón visible lleva su bloque en `styles/apple-design.css` con el patrón pill:
+
+```css
+#mi-boton.btn-zonas {
+  background: <color> !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#mi-boton.btn-zonas:hover { background: <color más claro> !important; }
+#mi-boton.btn-zonas:active { transform: scale(0.97) !important; }
+```
+
+Referencias: `#planner-header-btn`, `#reclamos-header-btn`, `#panel-control-btn`, `#pedidos-mes-btn`. Los botones dentro de modales siguen el mismo criterio (pill, sin mayúsculas, `:active` con `scale(0.97)`), y lo gestual pasa además por §21.
+
+**Precedente**: v1540 agregó «Pedidos del mes» al header sin su bloque pill; quedó como rectángulo en mayúsculas al lado de botones pill. Mariano lo marcó el 2026-11-02 (v1546).
+
+**Cómo verificar**: antes de cerrar un PR que agrega un botón, abrir la app en el navegador y compararlo con los vecinos; agregar un test de contrato que exija el bloque pill en `apple-design.css` (ver `tests/unit/audit/pedidos-mes-btn-apple-v1546.test.js`). Recordar que `apple-design.css` usa CRLF.

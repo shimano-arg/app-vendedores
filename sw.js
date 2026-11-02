@@ -17,7 +17,7 @@
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar cache viejo.
 // El activate event borra caches con nombres distintos al vigente.
 
-const CACHE_VERSION = 'v1530';
+const CACHE_VERSION = 'v1546';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
@@ -57,6 +57,7 @@ const STATIC_ASSETS = [
   './chunks/panel-control.js',
   // v1529 (2026-10-29): Dashboard de Ventas (admin/gerente/vendedor).
   './chunks/dashboard-ventas.js',
+  './chunks/pedidos-del-mes.js',
   // v1283 (2026-10-20): reemplazo seguimiento → cartera-vendor.
   // Dashboard de analisis de cartera por vendedor (6 KPIs + tabla filtrable).
   // Lee cartera_vendor/{vendorKey} Firestore (snapshot nightly 04:00 ART).

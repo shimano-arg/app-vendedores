@@ -4735,6 +4735,312 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Rollback**: revert del PR (sin impacto en producción).
 
+### v1546 (2026-11-02) — Botón «Pedidos del mes» con estilo Apple
+
+- **Antes**: el botón del header «Pedidos del mes» (v1540) quedaba con el estilo por defecto de `.btn-zonas`: rectángulo, mayúsculas, sombra. Al lado, Panel de Control, Planner y los demás son pill Apple.
+- **Problema**: inconsistencia visual. Mariano pidió que todos los botones tengan siempre estilo Apple.
+- **Cambio**: bloque `#pedidos-mes-btn.btn-zonas` en `styles/apple-design.css`, con el mismo patrón que `#planner-header-btn`:
+  - pill 999px, sin mayúsculas, peso 600;
+  - hover más claro y `scale(0.97)` al presionar.
+- Regla durable nueva en CLAUDE.md §106: todo botón nuevo nace con su bloque pill.
+- **Verificación**: test nuevo `tests/unit/audit/pedidos-mes-btn-apple-v1546.test.js`; unit y smoke en verde.
+- **Rollback**: revertir el PR. Es solo CSS.
+
+### v1545 (2026-11-02) — Master Clientes para vendedores (solo sus clientes) + PACHI entra a Backorder
+
+- **Antes**:
+  - Master Clientes era solo para admin y gerente.
+  - PACHI veía el botón Backorder desde v1543, pero al tocarlo salía "Backorders no está disponible para tu usuario".
+- **Problema**: v1543 no tocó los dos bloqueos de v1481 (`src/pure/pachi-restrictions.js`):
+  - `PACHI_BLOCKED_OPEN_FNS` envolvía `openBackordersModal` con el aviso;
+  - `PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS` incluía `backorders-btn`.
+  - Mariano pidió además que todos los vendedores puedan entrar a Master Clientes viendo solo sus clientes.
+- **Cambio**:
+  - **PACHI**: se sacan `openBackordersModal` y `backorders-btn` de las dos listas. Siguen bloqueados Stock Asignado, Forecast, Reparto, Depósito, Cartera y Seguimiento.
+  - **Master Clientes**: el botón del encabezado y el ítem del menú móvil quedan visibles para admin, gerente, vendedor e interno.
+    - Regla nueva en `src/pure/master-clientes-scope.js`:
+      - admin y gerente ven todo y editan;
+      - el vendedor ve solo los clientes cuyo vendedor en el master es el suyo (`assignedVendor`), con el filtro de vendedor fijo;
+      - el interno ve su zona más la de sus parejas (`getMyAllowedVendorKeys`, como el mapa);
+      - otro rol no entra.
+    - El filtro se aplica a la tabla principal y a la de Provisorios.
+    - Vendedor e interno ven el Master en **solo lectura**:
+      - clase `mc-solo-lectura`;
+      - se ocultan Guardar, Eliminar, Vincular, Reasignar Zonas, Sincronizar con SAP y Exportar Perfil;
+      - los campos de la tabla quedan deshabilitados;
+      - `deleteMcEntry` rechaza (`saveMcAddr` ya rechazaba a quien no fuera admin o gerente).
+    - La Ficha de cada cliente sigue disponible.
+- **Por qué solo lectura**: las reglas de `client_master` no dejan a un vendedor escribir la dirección, así que guardar le fallaría.
+- **Ojo**: el filtro es de pantalla. `client_master` ya era legible por cualquier usuario logueado y eso no cambia.
+- **Verificación**:
+  - tests nuevos:
+    - `tests/unit/master-clientes-scope.test.js` (7): admin, gerente, vendedor, vendedor sin zona, interno, roles sin acceso, no muta;
+    - `tests/unit/audit/master-clientes-vendedores-v1545.test.js` (7);
+  - tests actualizados: `pachi-v1481-sidebar-left.test.js` y `tests/e2e/pachi.spec.js`;
+  - unit 2741 y smoke 25 en verde, typecheck limpio;
+  - Playwright con el padrón completo:
+    - admin: 500 filas de todos los vendedores, editable;
+    - vendedor PACHI: 196 filas, todas de "Z4 Pachi", solo lectura, filtro fijo;
+    - viewer: no entra.
+  - Pendiente manual (§90): entrar con PACHI y con otro vendedor.
+- **Rollback**: revertir el PR. Sin cambios de servidor ni de reglas.
+
+### v1544 (2026-11-02) — APP-07: Buyer, las notas de crédito no son compras
+
+> Desarrollado como v1542 (los comentarios del código lo citan así). Se publica como v1544 porque v1543 se mergeó antes. Las funciones `recomputeClientBuyerStats` y `triggerRecomputeClientBuyerStats` ya están deployadas.
+
+- **Antes**: en `functions/core/buyer-stats-core.js`, la primera y la última compra, los días desde la última y la frecuencia salían de las fechas de **todas** las filas, incluidas las notas de crédito.
+- **Problema**: una NC sin factura base aparecía como "última compra" y un cliente que solo tenía NC mostraba compras. Además, la frecuencia mezclaba el período de las NC con la cantidad de facturas. El conteo de FACTURAS ya excluía las NC (`doc_kind = 'INVOICE'`). El 8 que vio Mariano queda para diagnosticar con datos: consulta en el informe 50.
+- **Cambio**:
+  - Las fechas y la frecuencia salen solo de facturas.
+  - Se agregan los campos informativos `montoBruto`, `notasCreditoArs` y `notasCreditoCount`.
+  - La pantalla ya no dice "1 factura" cuando hay 0.
+  - Monto, promedio, SKU y mix siguen en neto, y se verificó que suman lo mismo.
+- **Verificación**: `tests/functions/buyer-stats-core.test.js` cubre los casos A a G pedidos. Con el código viejo fallan E y G.
+- **Deploy necesario**: `firebase deploy --only functions:recomputeClientBuyerStats,functions:triggerRecomputeClientBuyerStats`. Los números se actualizan en la próxima corrida del cron, a las 03:00, o con el recálculo manual.
+- **Informe**: `docs/auditoria/50_BUYER_FACTURAS_NC.md`.
+- **Rollback**: revertir el commit y volver a hacer el deploy.
+### v1543 (2026-11-02) — PACHI puede mirar y exportar Backorder (solo lectura)
+
+- **Antes**: PACHI no veía el botón Backorder del encabezado. El código lo mostraba solo al administrador, y la regla CSS de v1478 se lo ocultaba entero. En Reportes Excel tampoco tenía la opción "Backorder".
+- **Problema**: Mariano pidió que PACHI pueda mirar el backorder de sus clientes y exportarlo, también cliente por cliente.
+- **Cambio**:
+  - `index.html` `applyRolePermissions`: `#backorders-btn` visible para admin **o** PACHI (`isPachiRestricted(uid)`). Para los demás vendedores no cambia nada.
+  - CSS `body.is-pachi-restricted`:
+    - se saca `#backorders-btn` de la lista de botones ocultos de v1478;
+    - en `#backorders-modal` siguen desactivados las casillas, "Generar Backorder" y "Crear Pedido Desde Stock Asignado", pero ahora quedan habilitados "Exportar" (`#btn-export-stock-asig`) y "Gráficos" (`#btn-backorders-graficos`).
+  - Reportes Excel: se suma `BACKORDER` a lo permitido para PACHI en tres lugares: la regla CSS, `_pachiAllowedKinds` y `exportToExcel` (`src/domains/exports-core.js`).
+  - Stock Asignado sigue oculto para PACHI.
+- **Por qué no ve clientes ajenos**:
+  - la pantalla y los exports salen de `globalPedidos`, y para el rol vendedor (el de PACHI según `firestore.rules`) ese listener trae solo `assignedVendorUid == uid`;
+  - las reglas de Firestore no dejan a un vendedor listar pedidos ajenos;
+  - `exportBackorderAll` además filtra por el alcance `export-scope` (v1534).
+  - "De cada cliente": se busca el cliente en el filtro Tienda del modal y se toca Exportar; el Excel respeta ese filtro.
+- **Verificación**:
+  - tests `tests/unit/audit/pachi-backorder-v1543.test.js` (nuevo) y `tests/unit/audit/pachi-v1478-restricciones.test.js` (actualizado);
+  - `npm run test:unit`, `npm run test:smoke`, lint y typecheck en verde.
+  - Pendiente manual (§90): entrar con PACHI y abrir Backorder; comprobar que solo aparecen sus clientes, que "Generar Backorder" no responde, y exportar uno filtrado por cliente.
+- **Rollback**: revertir el PR. No hay cambios de servidor ni de reglas.
+
+### v1541 (2026-11-02) — Master de Clientes con el estilo visual de «Pedidos del mes»
+
+- **Antes**: Master de Clientes usaba el tratamiento v656 (encabezado blanco, barra de filtros gris, tabla en tarjeta).
+- **Problema**: Mariano pidió que se viera igual que Pedidos del mes (v1540).
+- **Cambio**: bloque CSS v1541 en `styles/apple-design.css`, ubicado después del v656 para que lo pise, y gradiente del encabezado en `index.html`.
+  - Encabezado azul `#0f4c81 → #1e6fb5` con título en mayúsculas.
+  - Filtros y totales en pastillas.
+  - Tabla plana con encabezado subrayado.
+  - Fila resaltada al pasar el mouse o con la ficha abierta.
+  - El nombre se pone azul al pasar el mouse.
+- **Solo visual**: no cambian los filtros, la edición de direcciones, el vendedor, Guardar/Eliminar, Reasignar zonas, Sincronizar con SAP ni la ficha.
+- **Verificación**: `tests/unit/audit/master-estilo-pedidos-mes-v1541.test.js`; unit 2721 / smoke 25. En el navegador, la ficha abre y cierra igual y no hay escrituras.
+- **Rollback**: revertir el commit.
+
+### v1540 (2026-11-02) — APP-06: módulo «Pedidos del mes» (facturación por cliente y SKU)
+
+- **Antes**: no había una pantalla para ver qué se le facturó a cada cliente en un mes. El Dashboard de Ventas muestra totales y rankings, pero no el detalle por cliente y SKU.
+- **Problema**: Mariano pidió consultar solo lo efectivamente facturado (sin pedidos pendientes, en espera ni backorder), con el despliegue de Stock Asignado y con cada vendedor viendo solo sus clientes.
+- **Cambio**:
+  - Callable nueva `pedidosDelMesCF` (core `functions/core/pedidos-del-mes-core.js`). Lee las facturas y notas de crédito de SAP desde BigQuery `v_ventas_lineas`; el servidor fuerza el alcance por rol.
+  - Chunk lazy `src/domains/pedidos-del-mes.js`, con los helpers en `src/pure/pedidos-del-mes-view.js`. Sincronizado en los 3 lugares de §18.
+  - Botón "Pedidos del mes" debajo de Forecast: solo en desktop y solo para admin, gerente y vendedor.
+- **Criterios**: los mismos del Dashboard de Ventas. Mes contable (la NC resta en el mes de la factura), solo pesca, importe neto sin IVA y vendedor asignado.
+- **Verificación**:
+  - 23 tests del core y 13 de pantalla y contrato.
+  - Suites: unit 2717, smoke 25, typecheck limpio.
+  - Prueba en navegador con la callable simulada: desktop, tablet, pantalla táctil ancha y mobile.
+- **Deploy necesario**: `firebase deploy --only functions:pedidosDelMesCF --project app-vendedores-shimano`. El front se publica al mergear.
+- **Informe**: `docs/auditoria/49_PEDIDOS_DEL_MES.md`.
+- **Rollback**: revertir el commit. La función nueva solo lee BigQuery.
+
+### v1539 (2026-11-02) — APP-04: ficha desplegable del cliente en Master de Clientes
+
+- **Antes**: el Master de Clientes mostraba solo tienda, localidad, provincia, vendedor y dirección. El resto de los datos del cliente estaba repartido en varias colecciones y no había un lugar donde verlos juntos.
+- **Problema**: Mariano pidió ver toda la información del cliente debajo de su fila, con el mismo despliegue que tiene Stock Asignado para los SKU.
+- **Cambio**: clic en el nombre (o en el botón "Ficha" de las filas provisorias) → se inserta una fila con la ficha en 6 bloques:
+  - Identificación;
+  - Comercial (incluye ventas de 12 meses y deuda);
+  - Ubicación;
+  - Contacto;
+  - Logística (forma de entrega del último pedido);
+  - Adicional.
+
+  La armó la función pura `src/pure/ficha-cliente-master.js`; el despliegue está en `src/domains/master-clientes.js` y el CSS `.mc-ficha*` en `index.html`.
+- **Por qué**: tener la información en un solo lugar sin abrir modales.
+- **Solo lectura**: no escribe en Firestore. Casi todo sale de memoria. Hace como máximo 3 lecturas puntuales cacheadas por sesión: `client_locations`, `client_buyer_stats`, `cartera_vendor`.
+- **Verificación**: tests unitarios y de contrato nuevos; suite unit 2704 / smoke 25 / typecheck limpios; prueba en navegador con Firestore simulado (detalle en el informe).
+- **Inventario e informe**: `docs/auditoria/47_FICHA_CLIENTE_MASTER.md`.
+- **Rollback**: revertir el commit. Solo frontend.
+
+### v1538 (2026-11-02) — APP-03: Pedido original con control [−][n][+]
+
+- **Antes**: en el modal "Pedido en espera" (Lista de espera → abrir pedido), la columna Pedido original era un campo numérico suelto de 60px.
+- **Problema**: Mariano pidió el mismo control que usa Crear pedido manual: botón rojo (−), cantidad en el centro y botón verde (+).
+- **Cambio**:
+  - `index.html:_renderWaitlistCard` arma el control con las clases existentes `.qty-stepper` / `.minus` / `.plus` (las de `src/domains/product-picker.js`, que no se tocó). (+) suma 1, (−) resta 1, el número se puede tipear. Las tres acciones guardan con `waitlistUpdateItemQty` (sin cambios: rechaza < 1, actualiza la memoria antes de grabar).
+  - Con cantidad 1 el (−) queda deshabilitado ("Para quitar el producto usá la X").
+  - Cálculo en `src/pure/waitlist-qty-stepper.js` (expuesto en `window.__phase0.pure.waitlistQtyStepper`), con respaldo inline si el bundle no cargó.
+  - CSS: en la tabla el control ocupa la columna (hasta 100px, mínimo 62px) y achica los botones en pantallas ≤1280px. `styles/apple-design.css` mantiene rojo/verde y el número negro sobre blanco cuando la fila se pinta de azul al pasar el mouse (la regla v674 ponía los botones transparentes).
+- **Por qué**: consistencia con Crear pedido manual; menos errores de tipeo.
+- **Verificación**:
+  - `tests/unit/waitlist-qty-stepper.test.js` y `tests/unit/audit/wcard-qty-stepper-v1538.test.js`. Suite unit y smoke verdes.
+  - Prueba en navegador (Playwright con un pedido de prueba, escritura a Firestore simulada) en 1366, 1280, 1024 y 390px: + y − cambian el número al instante, cada toque graba una vez el pedido completo, las otras filas no cambian, el total se recalcula (6 → 7 u), colores correctos en hover, el control entra en la columna en 1024px o más.
+- **Limitación**: en celular (390px) la tabla de 13 columnas ya estaba apretada antes de este cambio; el control (62px) pisa la columna vecina, igual que el campo viejo de 60px. Arreglarlo pide scroll horizontal de toda la tabla (fuera de alcance).
+- **Rollback**: revertir el commit. Solo frontend.
+
+### v1537 (2026-11-02) — PACHI ve "Precios + Stock" en Reportes Excel
+
+- **Antes**: PACHI veía en Reportes Excel solo "Pedidos del mes" y "Masterfile Clientes". "Precios + Stock" (lista de precios) quedaba oculta por la regla CSS v1478 y por la lista de permitidos del rol vendedor en `exportToExcel`.
+- **Problema**: el código v986 decía que PACHI la veía y el CSS v1478 la ocultaba; Mariano confirmó que sí la tiene que ver.
+- **Cambio**: `index.html` agrega `:not([data-exp-kind="PRECIOS_STOCK"])` a la regla `body.is-pachi-restricted #export-modal .exp-opt`. `src/domains/exports-core.js:exportToExcel` suma `PRECIOS_STOCK` a lo permitido solo cuando el body tiene `is-pachi-restricted`. El resto de los vendedores no cambia.
+- **Por qué**: la lista de precios no tiene datos de clientes; no rompe el alcance por vendedor de v1534.
+- **Verificación**: `tests/unit/audit/pachi-v1478-restricciones.test.js` actualizado (17 tests). Suite unit completa verde.
+- **Pendientes anotados**: filtro por master en el servidor y cookie del sync automático de clientes (ver `docs/auditoria/46_EXPORTS_SEGMENTACION_VENDEDOR.md`, sección "Respuestas y pendientes").
+- **Rollback**: revertir el commit. Solo frontend.
+
+### v1536 (2026-11-02) — Hotfix: exportaciones vacías para el rol vendedor
+
+**Antes**: la v1534 filtra Pedidos del mes, Backorder y Stock Asignado del vendedor comparando `assignedVendorUid` del pedido con su usuario de Firebase Auth (`src/pure/export-scope.js`).
+
+**Problema**: la copia en memoria de cada pedido (`globalPedidos`, listener de pedidos en `index.html`) no traía `assignedVendorUid`. El filtro descartaba todos los pedidos: PACHI exportaba Pedidos del mes vacío teniendo 33 pedidos en septiembre (verificado en consola, 2026-11-02). Los tests de la v1534 armaban los pedidos con el campo, por eso no lo detectaron.
+
+**Cambio**: la proyección de `globalPedidos` copia `assignedVendorUid`. Test nuevo `tests/unit/audit/global-pedidos-assigned-vendor-uid.test.js` (falla sin el arreglo).
+
+**Por qué**: sin el campo, la v1534 deja al vendedor sin sus exportaciones.
+
+**Verificación**: test nuevo (rojo sin el arreglo, verde con él), unit, smoke, lint y typecheck. Pendiente: exportar como PACHI.
+
+**Deploy**: solo frontend (se publica con el merge) + "Recargar limpio".
+
+**Rollback**: revert del commit.
+
+### v1535 (2026-11-02) — Master de Clientes: botón "Sincronizar con SAP" (APP-02)
+
+**Antes**: un cliente recién creado en SAP llegaba al Master de Clientes solo cuando corría el sync de clientes (`syncBpPesca`). En la corrida programada (`syncSapCatalogStockCF`, cada 5 min) ese sync está en modo prueba mientras `app_config/sap_integration.bpSyncByCF` sea `false`: no escribe nada. En la práctica había que esperar al workflow manual de Python para poder asignarle vendedor al cliente nuevo.
+
+**Problema**: el admin/gerente no tenía forma de traer el cliente nuevo cuando lo necesitaba. Además, si el botón y la corrida programada sincronizaban clientes a la vez, las dos leen `client_applications` antes de escribir y podían crear el mismo cliente dos veces.
+
+**Cambio**:
+- `functions/core/sync-bp-pesca-core.js`: `syncBpPesca` acepta `forceWrite`. Solo con `forceWrite === true` se saltea el modo prueba del flag. Sin esa opción todo queda igual (flag `false` → modo prueba) y `forceDryRun` sigue ganando. El resultado ahora incluye `fetchError`, el error al traer los clientes de SAP (antes se perdía y un 401 se veía como "0 clientes"). Es solo informativo: el flujo no cambia.
+- `functions/core/bp-sync-lock.js` (nuevo): lock `app_config/bp_sync_lock` `{holder, owner, acquiredAt, expiresAt}` con transacción (lecturas antes que escrituras, §58) y vencimiento a los 10 min, para que una corrida caída no bloquee para siempre. Se libera solo si el holder coincide.
+- `functions/core/sync-clientes-sap-core.js` (nuevo): core del callable. Exige sesión iniciada, lee el rol de `roles/{uid}` (solo admin y gerente), toma el lock (si está tomado devuelve `{ok:false, code:'EN_CURSO'}` sin correr), abre sesión SL y corre `syncBpPesca({forceWrite:true})` con cookie `B1SESSION=…`. Libera el lock en `finally` y devuelve `{ok, nuevos, actualizados, total, durationMs}`. `nuevos` = clientes creados y `actualizados` = provisorios confirmados + existentes refrescados. Si `syncBpPesca` falla, SAP corta la lista a mitad (`SAP_INCOMPLETO`) o el sync corre sin escribir, responde `ok:false`: nunca se informa éxito si algo falló. Deja una entrada en `operations_log` (`type: 'sync_clientes_sap_manual'`: quién, cuándo y resultado).
+- `functions/index.js`: nuevo `syncClientesSapCF` (onCall, southamerica-east1, 300 s, secret `SAP_SL_PASSWORD`), un wrapper fino (§7).
+- `functions/core/sync-sap-catalog-stock-core.js`: la corrida programada toma el mismo lock antes del sync de clientes. Si está tomado (o no se pudo leer), saltea solo esa parte del ciclo y lo anota en `operations_log.bpSync.skipped` (`lock_held` / `lock_error`). Todo lo demás queda igual (no pasa `forceWrite` y sigue respetando el flag).
+- UI: botón "Sincronizar con SAP" con ícono de refresco, al lado de "Reasignar Zonas" (`index.html`). Es una pill blanca con borde fino, del mismo tamaño que el resto del toolbar, con `:active` scale(.97) en 100 ms. Respeta `prefers-reduced-motion` (`styles/apple-design.css`). Solo lo ven admin y gerente. Mientras corre muestra "Sincronizando…", el ícono gira y el botón queda deshabilitado. Al terminar muestra "Se incorporaron N clientes nuevos" o "Sincronización terminada: no hay clientes nuevos". Si hay otra corrida activa: "Ya hay una sincronización en curso, probá en un minuto". Ante un error muestra un mensaje claro con el código técnico al final y el botón vuelve a quedar disponible. Los textos salen de `src/pure/sync-clientes-sap-mensajes.js` (§68) y la lógica está en `src/domains/master-clientes.js` (bundle principal, no es chunk lazy). Al terminar se vuelve a dibujar la lista del master; el listener de altas aprobadas ya trae los clientes nuevos.
+
+**Por qué**: así se reusa la única integración de clientes SAP → app que ya existe, sin armar otra en paralelo. El botón escribe siempre por decisión del dueño, pero el flag y la corrida programada no cambian. El lock compartido evita que se dupliquen clientes.
+
+**Cómo aparece el cliente nuevo**: `syncBpPesca` lo crea en `client_applications` con `status: 'approved'`, `cardCodeSap` y `assignedVendor: ''`. El listener de altas aprobadas (`ensureApprovedAltasListener`, `where('status','==','approved')`) lo levanta y el Master de Clientes lo muestra como alta SAP para asignarle vendedor. Excepción: si el nombre y la provincia coinciden con una tienda del padrón, se muestra esa fila.
+
+**Verificación**: tests nuevos en `tests/functions/sync-bp-pesca-force-write.test.js`, `tests/functions/bp-sync-lock.test.js`, `tests/functions/sync-clientes-sap-core.test.js`, `tests/functions/sync-sap-catalog-stock-bp-lock.test.js`, `tests/unit/sync-clientes-sap-mensajes.test.js` y `tests/unit/audit/sync-clientes-sap-ui.test.js`, que usan el mock estricto de transacciones `tests/fixtures/strict-lock-db.js`. Además pasan lint, typecheck, test:unit, test:smoke y los tests de functions tocados. Después del deploy: como admin, abrir el Master de Clientes, tocar "Sincronizar con SAP" y revisar el mensaje y la entrada `sync_clientes_sap_manual` en `operations_log`. Probar con un usuario vendedor que el botón no aparece.
+
+**Ajustes de revisión**: si SL contesta con error sin que haya excepción (`fetchError`, por ejemplo un 401), la sesión SL se descarta del pool y no se devuelve una cookie muerta. Un fallo de `/States` (provincias) también se informa como `fetchError`: el botón responde "incompleto" en lugar de éxito, porque los clientes nuevos quedarían sin provincia. La corrida programada sigue igual. Si no hay clientes nuevos pero se confirmaron provisorios, el mensaje dice "Se actualizaron N clientes existentes; no hay clientes nuevos". En el caso incompleto con altas parciales dice "Antes del corte se incorporaron N clientes nuevos.". El botón deshabilitado ya no se achica al tocarlo.
+
+**Avisos para el dueño**:
+- (a) Bug previo, no cambiado en este PR (pendiente de decisión): la corrida programada le pasa a `syncBpPesca` la cookie SL sin el prefijo `B1SESSION=`. Pasa en `sync-sap-catalog-stock-core.js` (`cookie: sess.cookie`) y llega a `sync-bp-pesca-core.js` (`fetch(url, { headers: { Cookie: cookie } })` en `/States` y `/BusinessPartners`). Lo más probable es que SL conteste 401 en cada ciclo y el log muestre "0 BPs". Hoy no hace daño porque corre en modo prueba, pero si se prende `bpSyncByCF` no va a escribir nada. El botón manual sí arma bien la cookie.
+- (b) El primer click del botón es la primera escritura real en producción del upsert Node. Hace `set merge` sobre todos los clientes pesca que ya existen, más los creates. `assignedVendor` no se toca en los updates: solo se setea vacío al crear. Después de la primera corrida conviene revisar algunos clientes (datos de dirección, fantasía, provincia y vendedor).
+- (c) El workflow manual de Python (`workflow_dispatch`) no toma el lock. No correr el workflow y el botón al mismo tiempo.
+- (d) Si más adelante se arregla la cookie de la corrida programada, su paso de clientes va a tardar más (trae todos los BPs). Mientras corre, el botón puede responder "Ya hay una sincronización en curso".
+
+**Deploy**: `firebase deploy --only functions:syncClientesSapCF,functions:syncSapCatalogStockCF --project app-vendedores-shimano`. El front se publica con el merge (Pages).
+
+**Rollback**: revertir el commit y redeployar las dos funciones. Si queda un lock colgado, borrar `app_config/bp_sync_lock` (vence solo a los 10 min).
+
+### v1534 (2026-11-02) — Exportaciones por vendedor: cada vendedor exporta solo los pedidos de sus clientes del master (Etapas 0 y 1)
+
+**Antes**: en el modal "Reportes Excel", Pedidos del mes, Backorder y Stock Asignado - líneas traían para el vendedor todos los pedidos con `assignedVendorUid` = su usuario, aunque el cliente hoy fuera de otro vendedor en el master. La columna "Vendedor" de Pedidos del mes salía de `ownerVendor` (quién cargó el pedido). Los internos (VDI) exportaban pedidos y visitas de todos los vendedores del país. Visitas y Contactos le fallaba al vendedor (la consulta pedía todas las visitas y las reglas no se lo permiten).
+
+**Problema**: `assignedVendorUid` se graba al crear el pedido y no se actualiza cuando el cliente cambia de vendedor en el master. Un vendedor (caso PACHI) podía bajar pedidos de clientes ajenos, y la columna Vendedor mostraba nombres de otros. Detalle completo con archivo:línea en `docs/auditoria/46_EXPORTS_SEGMENTACION_VENDEDOR.md`.
+
+**Cambio**:
+- Alcance único en `src/pure/export-scope.js` (`buildExportScope`), expuesto en `window.__phase0.pure.exportScope` y usado por `src/domains/exports-core.js` (`_exportScope`):
+  - Vendedor: un pedido entra solo si el vendedor ACTUAL del master de su cliente (POINTS + vendor_overrides + approvedAltas, el mismo resolver `window._resolveClientVendorFromMaster`) es el suyo, y además `assignedVendorUid` = su usuario de Firebase Auth (no se toma de `userRole`). Solo un prospecto sin CardCode SAP cae al `vendorAssigned` guardado en el pedido. Un CardCode que el master no resuelve (por ejemplo, un alta reasignada a otro vendedor, que desaparece del `approvedAltasList` del vendedor) o una zona sin vendedor (incluido distribuidor) queda afuera: falla cerrado.
+  - Interno: un pedido entra si el vendedor del master de su cliente está en su zona + sus parejas (`getMyAllowedVendorKeys`, el mismo alcance que el mapa y el Masterfile).
+  - Admin / gerente / viewer: sin cambio. Cualquier otro rol (vacío, `unassigned`, desconocido) no exporta nada.
+- Aplicado a Pedidos del mes, Backorder (snapshot actual y por mes) y Stock Asignado - líneas (snapshot actual y por mes).
+- Pedidos del mes: la columna "Vendedor" muestra el vendedor del master (si el master no resuelve, `vendorAssigned`; `ownerVendor` solo si no hay otra cosa). Si el cliente está en una zona sin vendedor, la celda queda vacía. Mismas columnas y formato. El filtro del mes se aplica antes que el alcance (menos resoluciones del master).
+- Visitas y Contactos: el vendedor consulta `where('ownerUid','==',uid)` y exporta solo las que cargó él. El interno exporta las suyas (`ownerUid` o `createdByUid` = él), las de sus parejas (`ownerUid` de una pareja) y las que tienen `vendor` dentro de su zona + parejas. Las visitas que el interno cargó en nombre de un vendedor (con `ownerUid` del vendedor) también le aparecen al vendedor. Filtro por mes igual que antes.
+- Masterfile Clientes: revisado, ya filtra por `getEffectiveVendorSet` con el vendedor del master (vendedor = su zona; interno = parejas). Sin cambio.
+- Etapa 0: script de solo lectura `scripts/audit/AT_pedidos_vendor_vs_master.cjs` (no escribe nada, no tiene `--apply`). Para pedidos abiertos + cerrados de los últimos 90 días (o `--desde=YYYY-MM-DD`), compara el vendedor del pedido con el del master y muestra por vendedor: pedidos que ve hoy, pedidos ajenos que ve, pedidos propios que no ve y pedidos sin master; más el detalle (`--limit`, por defecto 50; `--vendor=PACHI` para filtrar).
+- Fix de test aparte: `tests/unit/audit/commit-pedido-asig-exceeds-reserve.test.js` pasaba `{ nowMs }` a `getStockBreakdown`, pero la función lee `opts.now`; con la fecha fija del fixture la asignación quedaba vencida según el reloj real. Se corrigió a `{ now: nowMs }` (bug del test, no de la función).
+- Archivos: `src/pure/export-scope.js` (nuevo), `src/domains/exports-core.js`, `src/main.js`, `scripts/audit/AT_pedidos_vendor_vs_master.cjs` (nuevo), `app.bundle.js` + `chunks/` (regenerados), `index.html` y `sw.js` (versión), tests. `biome.json` (global `getMyAllowedVendorKeys`).
+
+**Por qué**: decisión de Mariano: "los clientes de un vendedor" son los del master actual, no el vendedor que quedó guardado en el pedido. El interno ve lo mismo que en el mapa (sus parejas).
+
+**Pendiente (Etapa 2)**: realineación de `assignedVendorUid` / `vendorAssigned` de los pedidos contra el master (dry-run + snapshot `_backfill` §55, con OK de Mariano) y un mantenimiento que lo re-propague cuando cambia el master. Hasta entonces, un vendedor puede NO ver en sus exportaciones algunos pedidos de clientes suyos cuyo `assignedVendorUid` quedó apuntando a otro usuario (la consulta del servidor solo le trae los que tienen su UID). El script de la Etapa 0 mide cuántos son ("propios que no ve"). Esta entrega no endurece las reglas de Firestore: el filtro nuevo corre en el navegador.
+
+**Verificación**: tests `tests/unit/export-scope.test.js` (vendedor ve solo clientes de su master aunque un pedido ajeno tenga su UID; no ve un pedido con UID de otro; interno solo parejas; admin todo; columna Vendedor desde el master; visitas por rol), `tests/unit/audit/exports-scope-wiring.test.js` (las exportaciones usan el alcance), `tests/unit/audit/AT-pedidos-vendor-vs-master.test.js` (lógica del script). `npm run lint`, `npm run typecheck`, `npm run test:unit`, `npm run test:smoke` en verde. Pendiente manual (§90): exportar Pedidos del mes, Backorder, Stock Asignado y Visitas con PACHI, con otro vendedor, con un interno y con admin; correr `node scripts/audit/AT_pedidos_vendor_vs_master.cjs --vendor=PACHI` (solo lectura) con OK de Mariano.
+
+**Deploy**: solo front (sin functions ni reglas). Publica con el merge; hacer "Recargar limpio".
+
+**Rollback**: revert del commit/PR. Vuelve el comportamiento anterior (filtro solo por `assignedVendorUid`, columna Vendedor desde `ownerVendor`).
+
+### v1533 (2026-10-29) — Dashboard de Ventas fase 2, entrega C: campañas activas, etiquetas de dato y evolución desde junio 2026
+
+**Antes**: el Dashboard de Ventas (v1532) no mostraba las campañas, los gráficos de barras no tenían el valor escrito sobre cada barra y las series de evolución (ventas y back order) no tenían un inicio fijo.
+
+**Problema**: no se podía ver el avance de las campañas activas contra su objetivo, había que pasar el cursor para leer cada valor de un gráfico, y la evolución mensual no arrancaba en un punto común.
+
+**Cambio**:
+- Campañas activas (`activa = TRUE`) en `v_campanias_progreso`. Sin filtro de vendedor se muestra el total de la campaña; con vendedor se muestran las campañas que lo alcanzan y lo vendido a sus clientes (desde `v_campanias_ventas_detalle`). El porcentaje se calcula por unidades o por dinero según el tipo de objetivo. Una campaña sin objetivo (vacío o 0) muestra "Sin objetivo" en vez de "0 u" / "$0".
+- Etiquetas de dato en todas las barras, con un plugin propio de Chart.js (`dvDataLabels`) y el formateador de cada gráfico.
+- Evolución de ventas y de back order desde junio 2026 (`SERIE_DESDE = '2026-06'`) hasta el mes elegido.
+- Fix de estilo: la primera campaña pierde el borde superior (`.dv-section-head + .dv-camp`; el selector anterior con `:first-of-type` nunca coincidía).
+- Script de apoyo `scripts/audit/BQ_dashboard_fase2_queries.cjs`: imprime todas las consultas del dashboard como scripts de BigQuery (DECLARE por parámetro + consulta con variables `p_*`) para probarlas en la consola. No forma parte de la app.
+- Revisión final: la tabla de productos sale ordenada por facturado (luego back order y SKU) desde la consulta y desde el servidor, así el tope de 200 filas muestra los más vendidos; una sección que falló no se guarda en la caché de 10 minutos (se reintenta en la próxima consulta); cada sección opcional tiene un tope de 25 s (`SECCION_TIMEOUT_MS`) para no perder las 5 consultas obligatorias, y el motivo de la falla queda en Cloud Logging (`[dashboardVentas] seccion <nombre> fallo: ...`); las etiquetas de las barras horizontales ya no se cortan y en cobertura el eje muestra solo el vendedor.
+- Archivos: `functions/core/dashboard-ventas-queries-campanias.js` (nuevo), `functions/core/dashboard-ventas-queries.js`, `functions/core/dashboard-ventas-core.js`, `src/domains/dashboard-ventas.js`, `chunks/dashboard-ventas.js` (regenerado), `styles/apple-design.css`, `scripts/audit/BQ_dashboard_fase2_queries.cjs`, `index.html` y `sw.js` (versión), tests.
+
+**Por qué**: completar el dashboard con el seguimiento de campañas y gráficos legibles de un vistazo, con una serie histórica comparable entre meses.
+
+**Verificación**: tests `tests/functions/dashboard-ventas-campanias.test.js`, `dashboard-ventas-core.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`, `dashboard-ventas-apple.test.js`, `dashboard-ventas-bq-script.test.js`; lint 0 errores, typecheck limpio, unit 2586 tests (181 archivos), smoke 25, functions dashboard-ventas + bounded-cache 147 (junto con los tests de auditoría del dashboard), todo en verde. Antes del deploy, correr `node scripts/audit/BQ_dashboard_fase2_queries.cjs` y probar las consultas en BigQuery. Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
+
+**Deploy**: requiere las entregas A (v1531) y B (v1532) ya mergeadas. `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
+
+**Rollback**: revert del commit/PR + redeploy de `dashboardVentasCF`.
+
+### v1532 (2026-10-29) — Dashboard de Ventas fase 2, entrega B: tabla de productos, cobertura de cartera y facturación por cliente
+
+**Antes**: el Dashboard de Ventas (v1531) mostraba tarjetas de gestión e interacciones, pero no el detalle por producto, ni qué parte de la cartera compró, ni la facturación por cliente.
+
+**Problema**: no se podía ver qué productos se vendieron en el mes junto a su back order y su stock, ni cuántos clientes de la cartera de cada vendedor compraron, ni cuáles clientes concentran la facturación.
+
+**Cambio**:
+- Tabla de productos (CATEGORIA, FAMILIA, SKU, UNIDADES VENDIDAS, FACTURADO, UNIDADES BACKORDER, UNIDADES RESERVADAS, UNIDADES LIBRE PARA LA VENTA, UNIDADES EN STOCK). Ventas del mes y back order SAP vigente se unen con FULL OUTER JOIN desde BigQuery (un producto con back order y sin ventas también aparece). Reservadas, libre y stock se calculan en el navegador con `getStockBreakdown` (mismo cálculo que el popup "Stock del SKU"); mientras el stock no cargó se muestra "…". Tope de 200 filas visibles, con buscador (debounce 200 ms) y memo del stock por render.
+- Cobertura de cartera por vendedor: clientes que compraron desde 2026-06-01 hasta fin del mes elegido / clientes dados de alta en SAP (`v_cartera_vendor`). Etiqueta del estilo "36 de 66 · 54,55%".
+- Facturación por clientes: Top 20 con botón "Ver más".
+- Cada sección falla sola: si una query cae, esa sección muestra "No disponible" y el resto sigue.
+- Archivos: `functions/core/dashboard-ventas-queries-productos.js` (nuevo), `functions/core/dashboard-ventas-queries.js` (export `T_BO_VIVO`), `functions/core/dashboard-ventas-core.js`, `src/domains/dashboard-ventas.js`, `chunks/dashboard-ventas.js` (regenerado), tests.
+
+**Por qué**: completar la vista comercial con el cruce ventas / back order / stock por producto, la penetración de la cartera y la concentración por cliente, sin que una query caída tumbe el dashboard.
+
+**Verificación**: tests `tests/functions/dashboard-ventas-core.test.js`, `dashboard-ventas-productos-queries.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`; lint 0 errores, typecheck limpio, unit 2578 tests (180 archivos), smoke 25, functions dashboard-ventas + bounded-cache 60, todo en verde. Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
+
+**Deploy**: requiere la entrega A (v1531) ya mergeada. `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
+
+**Rollback**: revert del commit/PR + redeploy de `dashboardVentasCF`.
+
+### v1531 (2026-10-29) — Dashboard de Ventas fase 2, entrega A: tarjetas de gestión, interacciones y estilo Apple
+
+**Antes**: el Dashboard de Ventas (`#dashboard-ventas-modal`) mostraba solo facturación; sin datos de gestión comercial y con estilo propio inline.
+
+**Problema**: no se veía target, cumplimiento, rendiciones, base activa, ticket promedio ni actividad (visitas, contactos, interacciones) del vendedor/cliente elegido.
+
+**Cambio**:
+- Tarjetas nuevas: Target, % cumplimiento, Rendiciones – monto (excluye rechazadas), Base activa (90 días al fin del mes elegido o hasta hoy), Ticket promedio (facturado / N° de facturas del mes), N° visitas, N° contactados, N° interacciones.
+- Tabla de interacciones (Cliente, Fecha, Vendedor, Tipo; tope 500) desde `v_visitas_full`.
+- Target y rendiciones se calculan solo por vendedor+mes; visitas/contactos respetan el filtro Cliente.
+- Falla parcial de una sección: esa tarjeta muestra "No disponible" sin romper el resto (`runSeccion`).
+- Estilo Apple scoped a `#dashboard-ventas-modal` en `styles/apple-design.css` (specificity 2,1,0 sobre los estilos inline; grilla en dark).
+- Archivos: `functions/core/dashboard-ventas-queries-gestion.js` (nuevo), `dashboard-ventas-queries.js` (exports), `dashboard-ventas-core.js` (gestion + secciones + runSeccion), `src/domains/dashboard-ventas.js`, `chunks/dashboard-ventas.js` (regenerado), `styles/apple-design.css`, `index.html` (CSS `.dv-inter-wrap`), tests.
+
+**Por qué**: dar al gerente/vendedor la vista de gestión junto a la facturación, con el mismo lenguaje visual del resto de la app, sin que una query caída tumbe el dashboard.
+
+**Verificación**: tests `tests/functions/dashboard-ventas-core.test.js`, `dashboard-ventas-gestion-queries.test.js`, `tests/unit/audit/dashboard-ventas-ui.test.js`, `dashboard-ventas-apple.test.js`; lint y typecheck limpios; unit 2567 tests OK (180 archivos); smoke 25 OK; functions dashboard-ventas + bounded-cache 48 OK. Pendiente manual: admin + PACHI (§90), modo claro y oscuro.
+
+**Deploy**: `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
+
+**Rollback**: revert del commit/PR + redeploy de `dashboardVentasCF`.
+
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
 **Antes**: el Excel de "Exportar pedido" (v1526) sumaba todas las unidades pedidas al "TOTAL DEL PEDIDO", aunque parte no tuviera stock.

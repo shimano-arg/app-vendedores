@@ -41,6 +41,13 @@ import { formatAsigHuerfanaAviso, planCpstOrigenes } from './pure/cpst-origenes-
 import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
+// v1534 (2026-11-02): alcance por rol de las exportaciones (auditoría 46, Etapa 1).
+import {
+  buildExportScope,
+  normVendorKey as normExportVendorKey,
+  resolvePedidoVendorKey,
+  vendorColumnForPedido,
+} from './pure/export-scope.js';
 import {
   FICHA_CLASIF_LABELS,
   fichaClienteBuyerRow,
@@ -49,6 +56,7 @@ import {
   findCmDataByCardCode,
   labelForFichaField,
 } from './pure/ficha-cliente-labels.js';
+import { buildFichaClienteMaster } from './pure/ficha-cliente-master.js';
 import { passesTypeFilter } from './pure/filters.js';
 // v1499 §98 (2026-10-27): política de lectura Firestore server vs cache.
 // Fuente única de qué colecciones críticas siempre van a server.
@@ -266,6 +274,11 @@ import { buildWaitlistExportRows, isStockAsignadoItem } from './pure/waitlist-ex
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import {
+  isWaitlistQtyMinusDisabled,
+  nextWaitlistQty,
+  parseWaitlistQtyInput,
+} from './pure/waitlist-qty-stepper.js';
+import {
   buildExcludedPedidoIdsForRepetido,
   filterYaEnOtroPedidoForLine,
   lineCountsAsPedidoAnterior,
@@ -393,6 +406,8 @@ installChunkStubs('forecast', [
 installChunkStubs('panel-control', ['openPanelControl', 'closePanelControl', 'renderPanelControl']);
 // v1529 (2026-10-29): Dashboard de Ventas (chunk lazy, misma lista que build.js).
 installChunkStubs('dashboard-ventas', ['openDashboardVentas', 'closeDashboardVentas']);
+// v1540 APP-06: Pedidos del mes (facturación por cliente/SKU).
+installChunkStubs('pedidos-del-mes', ['openPedidosDelMes', 'closePedidosDelMes']);
 // v1283 (2026-10-20): reemplazo de 'seguimiento' chunk por 'cartera-vendor'.
 // El modal viejo (6 tabs) fue tirado; el nuevo es dashboard de analisis de
 // cartera por vendedor. Ver docs/superpowers/specs/2026-10-20-cartera-vendor-analisis-design.md
@@ -461,6 +476,8 @@ const phase0 = {
     passesTypeFilter,
     shouldIncludeWaitlistDoc,
     computeHasExceed,
+    // v1538 APP-03: control [−][n][+] de Pedido original (modal Pedido en espera).
+    waitlistQtyStepper: { nextWaitlistQty, parseWaitlistQtyInput, isWaitlistQtyMinusDisabled },
     computeWaitlistCardClasses,
     isWaitlistCpst,
     findOpenWaitlistsForClient,
@@ -490,6 +507,14 @@ const phase0 = {
     waitlistVisibility: {
       isWaitlistVisibleForVendor,
       filterWaitlistsForVendor,
+    },
+    // v1534 (2026-11-02): alcance por rol de las exportaciones (lo usa
+    // chunks/exports-core.js; expuesto para pruebas desde la consola).
+    exportScope: {
+      buildExportScope,
+      normVendorKey: normExportVendorKey,
+      resolvePedidoVendorKey,
+      vendorColumnForPedido,
     },
     resolveClientVendorFromMaster,
     enrichPayloadWithClientVendor,
@@ -553,6 +578,8 @@ const phase0 = {
     },
     // v1482 §82 (2026-10-27) — Ficha Cliente labels fuente única. Reusado por
     // exportMasterClientes + cartera-vendor columna TIPO + tests.
+    // v1539 APP-04: ficha desplegable del Master de Clientes.
+    fichaClienteMaster: { buildFichaClienteMaster },
     fichaClienteLabels: {
       FICHA_CLASIF_LABELS,
       labelForFichaField,

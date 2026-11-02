@@ -1637,6 +1637,66 @@ body.role-viewer .viewer-readonly-banner{display:block!important}
 .mc-table th{position:sticky;top:0;background:var(--bg-muted);padding:8px 10px;text-align:left;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--text-secondary);border-bottom:2px solid var(--border-default);z-index:2;white-space:nowrap}
 .mc-table td{padding:6px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle}
 .mc-table tr:hover td{background:#fafafa}
+/* v1540 APP-06: Pedidos del mes. Botón solo en desktop (>=1025px con mouse):
+   en tablet y mobile queda oculto aunque el rol lo habilite. */
+@media (max-width:1024px),(hover:none),(pointer:coarse){#pedidos-mes-btn{display:none !important}}
+#pedidos-mes-modal .modal-box{height:90vh !important;max-height:90vh !important;display:flex !important;flex-direction:column !important;overflow:hidden !important}
+#pedidos-mes-modal .modal-head{flex-shrink:0}
+.pdm-filtros{flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px 6px}
+.pdm-input{padding:8px 10px;border:1px solid var(--border-default);border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);font-size:13px;min-height:36px}
+.pdm-q{flex:1 1 240px}
+.pdm-kpis{flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;padding:4px 16px 10px}
+.pdm-kpi{background:var(--bg-muted);border:1px solid var(--border-subtle);border-radius:999px;padding:4px 12px;font-size:11.5px;color:var(--text-secondary)}
+.pdm-kpi b{color:var(--text-primary)}
+.pdm-kpi-ars b{color:#0f4c81}
+.pdm-kpi-scope{margin-left:auto}
+.pdm-list{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px 16px}
+.pdm-msg{text-align:center;color:var(--text-muted);font-size:12px;padding:24px 12px}
+.pdm-err{color:var(--color-danger-strong,#b91c1c)}
+.pdm-table{width:100%;border-collapse:collapse;font-size:12px}
+.pdm-table th{position:sticky;top:0;z-index:1;background:var(--bg-elevated);border-bottom:2px solid var(--border-strong,#cbd5e1);padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);text-align:left}
+.pdm-table th.num,.pdm-table td.num,.pdm-det th.num,.pdm-det td.num{text-align:right;white-space:nowrap}
+.pdm-row{cursor:pointer;background:var(--bg-elevated);border-bottom:1px solid var(--border-subtle)}
+.pdm-row > td{padding:10px;vertical-align:top}
+.pdm-row:hover > td,.pdm-row.open > td{background:var(--bg-muted)}
+.pdm-row:focus-visible{outline:2px solid #0f4c81;outline-offset:-2px}
+.pdm-cli{display:flex;align-items:flex-start;gap:8px}
+.pdm-caret{color:var(--text-muted);font-size:10px;margin-top:3px;flex-shrink:0}
+.pdm-nombre{font-size:13px;font-weight:800;color:var(--text-primary)}
+.pdm-code{font-size:10.5px;color:var(--text-muted);margin-top:2px}
+.pdm-ars{font-size:14px;font-weight:800;color:#0f4c81}
+.pdm-det-row > td{background:var(--bg-base);padding:0 10px 10px 36px}
+.pdm-det{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:4px;table-layout:fixed}
+.pdm-det th:nth-child(1){width:16%}.pdm-det th:nth-child(2){width:28%}.pdm-det th:nth-child(3){width:10%}.pdm-det th:nth-child(4){width:14%}.pdm-det th:nth-child(5){width:14%}.pdm-det th:nth-child(6){width:18%}
+.pdm-det td{overflow-wrap:anywhere}
+.pdm-det th{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-subtle)}
+.pdm-det td{padding:6px 8px;border-bottom:1px solid #f1f5f9;color:var(--text-primary);vertical-align:top}
+.pdm-det td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
+.pdm-det tfoot td{font-weight:800;border-top:2px solid var(--border-subtle);border-bottom:none}
+.pdm-doc{display:inline-block;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:4px;padding:0 5px;font-size:10px;font-weight:700;margin:1px 2px 1px 0;white-space:nowrap}
+.pdm-doc.nc{background:#fef2f2;color:#991b1b;border-color:#fecaca}
+/* v1539 APP-04: ficha desplegable del cliente (clic en el nombre). */
+.mc-ficha-toggle{cursor:pointer;user-select:none}
+.mc-name.mc-ficha-toggle:hover{color:var(--color-accent,#0071e3)}
+.mc-name.mc-ficha-toggle:focus-visible,.mc-ficha-btn:focus-visible{outline:2px solid var(--color-accent,#0071e3);outline-offset:2px;border-radius:4px}
+.mc-ficha-caret{display:inline-block;width:12px;font-size:10px;color:var(--text-muted)}
+.mc-ficha-btn{background:transparent;border:1px solid var(--border-default);border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;color:var(--text-secondary);cursor:pointer;vertical-align:middle}
+.mc-table tr.mc-ficha-open > td{background:var(--bg-muted)}
+.mc-table tbody tr.mc-ficha-row{content-visibility:visible}
+.mc-table tr.mc-ficha-row > td{padding:0 10px 12px 28px;background:var(--bg-base);border-bottom:2px solid var(--border-default)}
+.mc-table tr.mc-ficha-row:hover > td{background:var(--bg-base)}
+.mc-ficha{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;padding-top:10px}
+.mc-ficha-sec{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:10px;padding:10px 12px}
+.mc-ficha-sec h4{margin:0 0 6px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)}
+.mc-ficha-sec dl{margin:0}
+.mc-ficha-item{display:grid;grid-template-columns:42% 58%;gap:6px;padding:3px 0;border-top:1px solid var(--border-subtle)}
+.mc-ficha-item:first-child{border-top:none}
+.mc-ficha-item dt{font-size:10.5px;color:var(--text-muted);font-weight:600}
+.mc-ficha-item dd{margin:0;font-size:11.5px;color:var(--text-primary);font-weight:600;word-break:break-word}
+.mc-ficha-item.is-empty dd{color:var(--text-muted);font-weight:400;font-style:italic}
+.mc-ficha-item.is-loading dd{color:var(--text-muted);font-weight:400}
+.mc-ficha-note{margin:6px 0 0;font-size:10px;color:var(--text-muted)}
+@media (max-width:520px){.mc-ficha{grid-template-columns:1fr}.mc-table tr.mc-ficha-row > td{padding-left:10px}}
 @media (max-width:520px){
   .mc-table{font-size:11px;min-width:560px}
   .mc-table th,.mc-table td{padding:6px 8px}
@@ -2572,13 +2632,15 @@ body.is-pachi-restricted [data-drawer-action="sap"],
 body.is-pachi-restricted [data-drawer-action="rutas"]{display:none !important}
 /* Backorder "solo lectura": todos los botones de acción dentro del modal.
    La escritura server-side se bloquea en rules Firestore + CF (defense in depth). */
-body.is-pachi-restricted #backorders-modal button.bo-btn:not(.bo-btn-cancel):not(.bo-btn-close),
+/* v1543: "Exportar" y "Gráficos" quedan habilitados (solo leen datos). */
+body.is-pachi-restricted #backorders-modal button.bo-btn:not(.bo-btn-cancel):not(.bo-btn-close):not(#btn-export-stock-asig):not(#btn-backorders-graficos),
 body.is-pachi-restricted #backorders-modal input[type="checkbox"]:not(.bo-read-only-checkbox),
 body.is-pachi-restricted #btn-crear-pedido-st{pointer-events:none !important;opacity:0.5 !important}
 /* v1478 (2026-10-27): ampliación perfil PACHI — ocultar botones de header que
    no corresponden a su alcance (asesoría de cobranza, no de ventas tradicional).
-   Backorder pasa de "solo lectura" (v1460) a oculto completo. */
-body.is-pachi-restricted #backorders-btn,
+   Backorder pasa de "solo lectura" (v1460) a oculto completo.
+   v1543 (2026-11-02): Backorder vuelve a estar visible para PACHI en solo
+   lectura (autorizado por Mariano): puede mirarlo y exportarlo. */
 body.is-pachi-restricted #deposito-home-btn,
 body.is-pachi-restricted #revision-btn,
 body.is-pachi-restricted #forecast-btn,
@@ -2590,8 +2652,21 @@ body.is-pachi-restricted #seguimiento-btn{display:none !important}
    y no corresponde al scope de PACHI. Su lista propia (sidebar-left-waitlist,
    filtrada por su UID) SIGUE visible — el listener alimenta ambos. */
 body.is-pachi-restricted #waitlist-btn{display:none !important}
-/* v1478: Reportes Excel — PACHI ve solo "Pedidos del mes" + "Masterfile Clientes". */
-body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]){display:none !important}
+/* v1478: Reportes Excel — PACHI ve solo "Pedidos del mes" + "Masterfile Clientes".
+   v1537: + "Precios + Stock" (lista de precios), autorizado por Mariano 2026-11-02.
+   v1543: + "Backorder" (solo sus clientes, vía export-scope), autorizado por Mariano. */
+body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]):not([data-exp-kind="PRECIOS_STOCK"]):not([data-exp-kind="BACKORDER"]){display:none !important}
+/* v1545 (2026-11-02): Master Clientes en solo lectura (vendedor/interno).
+   La clase la pone openMasterClientesPanel según src/pure/master-clientes-scope.js.
+   Se ocultan las acciones de edición; la Ficha sigue disponible. */
+#master-cli-modal.mc-solo-lectura #mc-reasignar-zonas-btn,
+#master-cli-modal.mc-solo-lectura #mc-sync-sap-btn,
+#master-cli-modal.mc-solo-lectura #mc-sync-sap-msg,
+#master-cli-modal.mc-solo-lectura #mc-vincular-lead-sap-btn,
+#master-cli-modal.mc-solo-lectura #mc-export-perfil-btn,
+#master-cli-modal.mc-solo-lectura #mc-body .mc-save-btn,
+#master-cli-modal.mc-solo-lectura #mc-body button[onclick^="deleteMcEntry"],
+#master-cli-modal.mc-solo-lectura #mc-body button[onclick^="openVincularSapModal"]{display:none !important}
 /* v1478: Campañas — PACHI NO ve el botón "Gráficos" (métricas de progreso).
    El filtro por zona también se saltea para que vea TODAS las activas (ver
    renderMisCamps + _misCampsGraficosData). */
@@ -3260,6 +3335,18 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .qty-stepper button.plus{border-left:1px solid #fff}
 .qty-stepper input{width:42px;height:28px;border:none;text-align:center;font-size:13px;font-weight:800;padding:0;color:var(--text-primary);outline:none;-moz-appearance:textfield}
 .qty-stepper input::-webkit-outer-spin-button,.qty-stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+/* v1538 APP-03: (−) deshabilitado con cantidad 1 en Pedido en espera. */
+.qty-stepper button.minus:disabled{opacity:.45;cursor:not-allowed}
+.qty-stepper button.minus:disabled:hover{background:var(--color-danger)}
+/* v1538 APP-03: dentro de la tabla de Pedido en espera el control ocupa el
+   ancho de la columna (hasta 100px, el tamaño de Crear pedido manual) y se
+   achica en pantallas más angostas para no pisar la columna Pedido final. */
+#waitlist-card-modal #wcard-rows td.wcard-qty-cell{padding-left:2px !important;padding-right:2px !important}
+#wcard-rows .wcard-qty-stepper{width:100%;max-width:100px;min-width:62px;margin:0 auto}
+#wcard-rows .wcard-qty-stepper button{flex:0 0 28px}
+#wcard-rows .wcard-qty-stepper input{flex:1 1 auto;min-width:0;width:auto}
+@media (max-width:1280px){#wcard-rows .wcard-qty-stepper button{flex-basis:22px;font-size:14px}}
+@media (max-width:1100px){#wcard-rows .wcard-qty-stepper button{flex-basis:20px}}
 .prod-row .add-btn:hover{background:#15803d}
 .prod-row .add-btn.added{background:#0284a0;font-size:13px;font-weight:900}
 .prod-row .add-btn.added:hover{background:#00A9E0}
@@ -4089,6 +4176,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
          Modal compara ventas historicas (sku_ventas_snapshot BQ->Firestore) vs Sales Plan
          cargado por el user + politica de inventario (promedio YTD x 3 meses). -->
     <button class="btn-zonas" id="forecast-btn" onclick="openForecastModal()" title="FORECAST: proyeccion de necesidad vs pedidos Sales Plan (admin-only)" style="background:var(--color-accent-violet);color:#fff;display:none">Forecast</button>
+    <!-- v1540 (2026-11-02) APP-06: PEDIDOS DEL MES. Facturación efectivamente
+         emitida por cliente y SKU (callable pedidosDelMesCF / BigQuery).
+         Visible para admin, gerente y vendedor (applyRolePermissions); solo
+         desktop: el CSS #pedidos-mes-btn lo oculta en tablet y mobile. -->
+    <button class="btn-zonas" id="pedidos-mes-btn" onclick="openPedidosDelMes()" title="Pedidos del mes: lo facturado a cada cliente, por SKU" style="background:#0f4c81;color:#fff;display:none">Pedidos del mes</button>
     <!-- v451 (2026-08-11): boton REVISION Excel. Cargar Excel del cliente y ver
          backorder + disponible + pedido por SKU. Solo lectura, no persiste. CSS
          .revision-btn oculto por default; body.can-revision lo muestra
@@ -5278,6 +5370,20 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
   <!-- v1529 (2026-10-29): DASHBOARD DE VENTAS. Contenido lo arma el chunk lazy
        src/domains/dashboard-ventas.js (callable dashboardVentasCF + Chart.js).
        Altura fija + scroll interno por el bloque CSS §49. -->
+  <!-- v1540 (2026-11-02) APP-06: PEDIDOS DEL MES. Chunk lazy
+       src/domains/pedidos-del-mes.js (callable pedidosDelMesCF). Mismo
+       despliegue que Stock Asignado: fila por cliente con ▶ y detalle de SKU. -->
+  <div class="modal-overlay" id="pedidos-mes-modal" onclick="if(event.target===this)closePedidosDelMes()">
+    <div class="modal-box" style="width:min(1180px,98vw)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f4c81,#1e6fb5)">
+        <div><h2>PEDIDOS DEL MES</h2><div class="subt">Lo efectivamente facturado a cada cliente (facturas menos notas de crédito, sin IVA, solo pesca). Fuente: SAP, se actualiza cada 30 min.</div></div>
+        <button class="modal-close" onclick="closePedidosDelMes()">&times;</button>
+      </div>
+      <div id="pdm-filtros" class="pdm-filtros"></div>
+      <div id="pdm-kpis" class="pdm-kpis"></div>
+      <div id="pdm-list" class="pdm-list"></div>
+    </div>
+  </div>
   <div class="modal-overlay" id="dashboard-ventas-modal" onclick="if(event.target===this)closeDashboardVentas()">
     <div class="modal-box" style="width:min(1000px,98vw)">
       <div class="modal-head" style="background:linear-gradient(135deg,#0f766e,#14b8a6)">
@@ -5320,6 +5426,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         #dashboard-ventas-body .dv-chart{position:relative;width:100%}
         #dashboard-ventas-body .dv-vermas{margin-top:10px}
         #dashboard-ventas-body .dv-table-wrap{max-height:360px;overflow:auto;margin-top:6px}
+        #dashboard-ventas-body .dv-inter-wrap{max-height:360px;overflow-y:auto}
         #dashboard-ventas-body .dv-table{width:100%;border-collapse:collapse;font-size:12px}
         #dashboard-ventas-body .dv-table th,#dashboard-ventas-body .dv-table td{padding:5px 6px;border-bottom:1px solid var(--border-subtle);text-align:left;color:var(--text-primary)}
         #dashboard-ventas-body .dv-table th{position:sticky;top:0;background:var(--bg-secondary);font-size:11px}
@@ -5584,7 +5691,7 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
 
   <div class="modal-overlay" id="master-cli-modal" onclick="if(event.target===this)closeMasterClientesPanel()">
     <div class="modal-box mc-modal-box" style="width:min(1180px,98vw)">
-      <div class="modal-head" style="background:linear-gradient(135deg,#7f1d1d,#b91c1c)">
+      <div class="modal-head" style="background:linear-gradient(135deg,#0f4c81,#1e6fb5)">
         <div><h2>Master Clientes &ndash; Direcciones</h2><div class="subt">Carg&aacute; la direcci&oacute;n exacta de cada tienda. Mejora la precisi&oacute;n de Google Maps al enviar la ruta por WhatsApp.</div></div>
         <button class="modal-close" onclick="closeMasterClientesPanel()">&times;</button>
       </div>
@@ -5663,6 +5770,10 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
              su UI/logica). Antes: 2 botones en el header (Master Clientes +
              Zonas); ahora 1 solo (Master Clientes) + subboton para reasignacion. -->
         <button id="mc-reasignar-zonas-btn" class="mc-prov-btn" onclick="closeMasterClientesPanel();openZonasModal();" style="background:var(--color-accent-violet);box-shadow:0 1px 3px rgba(124,58,237,.3)" title="Reasignar tiendas / localidades / provincias a otro vendedor. Abre el panel Zonas con las 4 pestanas (Por tienda, Por localidad, Por provincia, Historial).">Reasignar Zonas</button>
+        <!-- v1535 (APP-02): trae ya los clientes nuevos de SAP (sin esperar la
+             corrida programada). Solo admin/gerente (updateMcSyncSapBtnVisibility). -->
+        <button id="mc-sync-sap-btn" class="mc-prov-btn" onclick="syncClientesSap()" style="display:none" title="Trae ahora los clientes nuevos creados en SAP para poder asignarles vendedor."><svg class="mc-sync-sap-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/></svg><span id="mc-sync-sap-label">Sincronizar con SAP</span></button>
+        <span id="mc-sync-sap-msg" class="mc-sync-sap-msg" role="status" aria-live="polite" style="display:none"></span>
         <!-- v799 (2026-09-04): boton para vincular un LEAD provisorio con
              su alta SAP. Fix del problema reportado por Mariano: cuando el
              sync SAP no matchea auto (nombre/CUIT distintos), aparece un
@@ -7197,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1530';
+const APP_VERSION = 'v1546';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12703,7 +12814,7 @@ function _renderFichaClienteBuyer() {
 
   const frecTxt = window.frecuenciaDias != null
     ? '1 cada ' + Math.round(window.frecuenciaDias) + ' días'
-    : (window.facturasCount < 2 ? 'N/A (1 factura)' : 'N/A');
+    : (window.facturasCount === 1 ? 'N/A (1 factura)' : 'N/A');
   const frecSub = window.facturasPorMes ? Math.round(window.facturasPorMes * 10) / 10 + ' por mes' : '';
   addKpi('Frecuencia', frecTxt, frecSub);
 
@@ -26488,15 +26599,50 @@ function _renderWaitlistCard(){
     if (yaEnOtroFiltrado.length > 0) {
       tr.classList.add('repeat-sku');
     }
-    // v467: qty editable inline. Input number con onchange que persiste.
+    // v467: qty editable inline con persistencia al toque.
+    // v1538 APP-03 (2026-11-02): mismo control [−][n][+] que Crear pedido
+    // manual (clase .qty-stepper, product-picker.js). (−) rojo, (+) verde,
+    // número central tipeable. Persiste con waitlistUpdateItemQty (sin cambio).
     const tdQty = document.createElement('td');
-    tdQty.className = 'num';
+    tdQty.className = 'num wcard-qty-cell';
+    const _wqs = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.waitlistQtyStepper) || null;
+    const _nextQty = _wqs ? _wqs.nextWaitlistQty : (cur, d) => Math.max(1, (Math.floor(Number(cur)) || 1) + d);
+    const _parseQty = _wqs ? _wqs.parseWaitlistQtyInput : (v) => { const s = String(v == null ? '' : v).trim(); return /^\d+$/.test(s) ? (parseInt(s, 10) || 0) : 0; };
+    const _minusOff = _wqs ? _wqs.isWaitlistQtyMinusDisabled : (q) => !(Math.floor(Number(q)) > 1);
+    const stepper = document.createElement('div');
+    stepper.className = 'qty-stepper wcard-qty-stepper';
+    const btnMinus = document.createElement('button');
+    btnMinus.type = 'button'; btnMinus.className = 'minus'; btnMinus.innerHTML = '&minus;';
+    btnMinus.setAttribute('data-idx', String(r.idx));
     const inp = document.createElement('input');
-    inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(r.qty);
-    inp.style.cssText = 'width:60px;text-align:center;font-weight:700;padding:2px 4px;border:1px solid var(--border-default);border-radius:4px;font-size:11px';
+    inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.inputMode = 'numeric'; inp.value = String(r.qty);
     inp.setAttribute('data-idx', String(r.idx));
-    inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, parseInt(inp.value, 10) || 0);
-    tdQty.appendChild(inp);
+    inp.title = 'Tipear cantidad';
+    const btnPlus = document.createElement('button');
+    btnPlus.type = 'button'; btnPlus.className = 'plus'; btnPlus.textContent = '+';
+    btnPlus.title = 'Sumar 1';
+    btnPlus.setAttribute('data-idx', String(r.idx));
+    const _syncMinus = () => {
+      const off = _minusOff(inp.value);
+      btnMinus.disabled = off;
+      btnMinus.title = off ? 'Para quitar el producto usá la X' : 'Restar 1';
+    };
+    _syncMinus();
+    const _applyStep = (delta) => {
+      const nq = _nextQty(inp.value, delta);
+      if (String(nq) === String(inp.value)) return;
+      inp.value = String(nq);
+      _syncMinus();
+      waitlistUpdateItemQty(w._id, r.idx, nq);
+    };
+    btnMinus.onclick = (ev) => { ev.stopPropagation(); _applyStep(-1); };
+    btnPlus.onclick = (ev) => { ev.stopPropagation(); _applyStep(1); };
+    inp.onclick = (ev) => { ev.stopPropagation(); inp.select(); };
+    inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, _parseQty(inp.value));
+    stepper.appendChild(btnMinus);
+    stepper.appendChild(inp);
+    stepper.appendChild(btnPlus);
+    tdQty.appendChild(stepper);
     // v1399 §40.7: aviso "se liberan N al enviar" cuando qty editada < reserva.
     try {
       const _collectItemFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.collectAsigRefsForItemCancel;
@@ -32190,7 +32336,7 @@ function applyRolePermissions(){
     // Ocultamos el resto (RENDICIONES/ALTAS/MASTER/BACKORDER/STOCK_ASIG).
     // Filtro por email (no por rol) porque otros VDE pueden necesitar el resto.
     const _isPachi986 = _em === 'pachinaba@gmail.com';
-    const _pachiAllowedKinds = new Set(['VISITAS', 'PEDIDOS_MES', 'PRECIOS_STOCK']);
+    const _pachiAllowedKinds = new Set(['VISITAS', 'PEDIDOS_MES', 'PRECIOS_STOCK', 'BACKORDER']);
     document.querySelectorAll('#export-modal .exp-opt[data-exp-kind]').forEach((el) => {
       const kind = el.getAttribute('data-exp-kind') || '';
       if (_isPachi986) {
@@ -32272,7 +32418,9 @@ function applyRolePermissions(){
   _setDrawer('targets', typeof canManageTargets === 'function' && canManageTargets());
   _setDrawer('campaigns', isAdminOrGerente);
   _setDrawer('sap', ['admin','viewer','vendedor','gerente'].indexOf(userRole) >= 0);
-  _setDrawer('mastercli', isAdminOrGerente);
+  // v1545: Master Clientes también para vendedor e interno (solo lectura,
+  // solo sus clientes; ver src/pure/master-clientes-scope.js).
+  _setDrawer('mastercli', ['admin','gerente','vendedor','interno'].indexOf(userRole) >= 0);
   _setDrawer('admin', userRole === 'admin');
   // USUARIOS: SOLO admin.
   document.getElementById('admin-btn').style.display = (userRole === 'admin') ? '' : 'none';
@@ -32292,7 +32440,13 @@ function applyRolePermissions(){
   // v420 (2026-08-06): Backorders + Asignacion Backorder ambos gated a
   // admin-only (probamos con Mariano, si va bien lo abrimos a vendedores).
   const bkBtn = document.getElementById('backorders-btn');
-  if (bkBtn) bkBtn.style.display = (userRole === 'admin') ? '' : 'none';
+  // v1543 (2026-11-02): PACHI también ve Backorder, en solo lectura (los
+  // botones de acción quedan desactivados por CSS is-pachi-restricted y sus
+  // datos ya vienen filtrados a sus clientes por el listener de pedidos).
+  const _pachiMod1543 = window.__phase0 && window.__phase0.pure && window.__phase0.pure.pachiRestrictions;
+  const _isPachi1543 = !!(_pachiMod1543 && _pachiMod1543.isPachiRestricted && currentUser
+    && _pachiMod1543.isPachiRestricted(currentUser.uid));
+  if (bkBtn) bkBtn.style.display = (userRole === 'admin' || _isPachi1543) ? '' : 'none';
   const asigBkBtn = document.getElementById('asignacion-backorder-btn');
   if (asigBkBtn) asigBkBtn.style.display = (userRole === 'admin') ? '' : 'none';
   // v416 (2026-08-06): boton Zonas del header fue unificado con Master Clientes.
@@ -32317,8 +32471,18 @@ function applyRolePermissions(){
     const isForecastUser = em === 'mariano.erbino@shimano.com.ar' || em === 'erbinomariano@gmail.com';
     forecastBtnEl.style.display = isForecastUser ? '' : 'none';
   }
+  // v1540 APP-06: Pedidos del mes para admin, gerente y vendedor. El alcance
+  // real lo fuerza el servidor (pedidosDelMesCF). Desktop-only por CSS.
+  const pedidosMesBtnEl = document.getElementById('pedidos-mes-btn');
+  if (pedidosMesBtnEl) {
+    const _pdmOk = userRole === 'admin' || userRole === 'gerente' || userRole === 'vendedor';
+    pedidosMesBtnEl.style.display = _pdmOk ? '' : 'none';
+  }
   document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';
-  document.getElementById('master-cli-btn').style.display = isAdminOrGerente ? '' : 'none';
+  // v1545: Master Clientes para admin/gerente (edición) + vendedor/interno
+  // (solo lectura, solo sus clientes; ver src/pure/master-clientes-scope.js).
+  document.getElementById('master-cli-btn').style.display =
+    ['admin','gerente','vendedor','interno'].indexOf(userRole) >= 0 ? '' : 'none';
   // SEGUIMIENTO: admin + gerente + interno (Santiago/Ioannis).
   // El check de rol del lado JS es replicado dentro del open handler y en
   // cada render (guard de scope) para que el frontend no pueda forzar
@@ -37961,6 +38125,11 @@ function attachFirebaseListeners(){
         // con 777 lineas mal categorizadas en Backorders_2026-09-25.xlsx.
         vendedor: d.vendedor || '',
         vendorAssigned: d.vendorAssigned || '',
+        // v1536: el alcance de las exportaciones por vendedor (v1534) compara
+        // assignedVendorUid con el usuario logueado; sin este campo en la
+        // proyección, Pedidos del mes / Backorder / Stock Asignado salían vacíos
+        // para el rol vendedor.
+        assignedVendorUid: d.assignedVendorUid || '',
         vendor: d.vendor || '',
         closedAt: d.closedAt || null,
         migrationSource: d.migrationSource || null,

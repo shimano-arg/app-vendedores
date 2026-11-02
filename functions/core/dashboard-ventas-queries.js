@@ -20,14 +20,14 @@ const DS = 'app-vendedores-shimano.shimano_app';
 // Back order: tablas materializadas por el sync (scripts/sync_sap_to_bigquery.py
 // sync_backorder_dashboard_tables). Las vistas tardan 1-2 min; el CF corta a 60 s.
 const T_VENTAS = `\`${DS}.v_ventas_lineas\``;
-const T_BO_VIVO = `\`${DS}.backorder_dashboard_actual\``;
+export const T_BO_VIVO = `\`${DS}.backorder_dashboard_actual\``;
 const T_BO_SNAP = `\`${DS}.backorder_daily_snapshot\``;
 const T_BO_RECON = `\`${DS}.backorder_reconstruido_mensual\``;
 
 export const TZ_ART = 'America/Argentina/Buenos_Aires';
 
-/** Meses de la serie de evolución (terminando en el mes elegido). */
-export const SERIE_MESES = 12;
+/** Primer mes de la serie de evolución (hasta el mes elegido). */
+export const SERIE_DESDE = '2026-06';
 /** Ventana de meses para las opciones de los filtros. */
 export const OPCIONES_MESES = 24;
 
@@ -80,14 +80,16 @@ export function shiftMonth(mes, delta) {
 }
 
 /**
- * Lista de `n` meses AAAA-MM que terminan en `mes` (orden ascendente).
- * @param {string} mes
- * @param {number} n
+ * Meses AAAA-MM de `desde` a `hasta`, ambos inclusive (ascendente).
+ * Si `hasta` es anterior a `desde`, devuelve solo [hasta].
+ * @param {string} desde
+ * @param {string} hasta
  * @returns {string[]}
  */
-export function monthsEndingAt(mes, n) {
+export function monthsBetween(desde, hasta) {
+  if (hasta < desde) return [hasta];
   const out = [];
-  for (let i = n - 1; i >= 0; i--) out.push(shiftMonth(mes, -i));
+  for (let m = desde; m <= hasta; m = shiftMonth(m, 1)) out.push(m);
   return out;
 }
 
@@ -108,7 +110,7 @@ function colExpr(p, colRef) {
  * @param {string} param
  * @param {string} colSql
  */
-function arrayPredicate(param, colSql) {
+export function arrayPredicate(param, colSql) {
   return `(COALESCE(ARRAY_LENGTH(@${param}), 0) = 0 OR ${colSql} IN UNNEST(@${param}))`;
 }
 
@@ -118,7 +120,7 @@ function arrayPredicate(param, colSql) {
  * @param {ReadonlyArray<string>} [only] limitar a estos filtros.
  * @returns {string}
  */
-function filterPredicate(alias, only) {
+export function filterPredicate(alias, only) {
   const a = alias || '';
   return FILTER_COLS.filter(([p]) => !only || only.includes(p))
     .map(([p, col]) => arrayPredicate(p, colExpr(p, `${a}${col}`)))
@@ -126,7 +128,7 @@ function filterPredicate(alias, only) {
 }
 
 /** @param {DashboardFilters} f */
-function filterParams(f) {
+export function filterParams(f) {
   /** @type {Record<string, any>} */
   const params = {};
   /** @type {Record<string, any>} */
@@ -138,7 +140,7 @@ function filterParams(f) {
   return { params, types };
 }
 
-const VENTAS_BASE = 'is_pesca = TRUE AND assigned_vendor IS NOT NULL';
+export const VENTAS_BASE = 'is_pesca = TRUE AND assigned_vendor IS NOT NULL';
 
 /**
  * Arma las 5 queries del dashboard.
@@ -151,8 +153,8 @@ export function buildQueries(f, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const [anio, mesNum] = f.mes.split('-').map(Number);
   const mesActual = currentMonthArt(now);
-  const desdeMes = shiftMonth(f.mes, -(SERIE_MESES - 1));
-  const desde = `${desdeMes}-01`;
+  // Mismo primer mes que el eje del core (monthsBetween): min(SERIE_DESDE, mes).
+  const desde = `${f.mes < SERIE_DESDE ? f.mes : SERIE_DESDE}-01`;
   const hasta = `${f.mes}-01`;
   const desdeOpciones = `${shiftMonth(mesActual, -(OPCIONES_MESES - 1))}-01`;
   const filt = filterPredicate();

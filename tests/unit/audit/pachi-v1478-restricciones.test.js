@@ -18,10 +18,8 @@ import { describe, expect, it } from 'vitest';
 const INDEX_HTML = readFileSync('index.html', 'utf8');
 
 describe('v1478 §PACHI iter 2 — CSS gates nuevos', () => {
-  it('oculta #backorders-btn entero (reemplaza pointer-events v1460)', () => {
-    expect(INDEX_HTML).toMatch(
-      /body\.is-pachi-restricted #backorders-btn[\s\S]*?display:none !important/
-    );
+  it('v1543: #backorders-btn ya NO se oculta entero (vuelve en solo lectura)', () => {
+    expect(INDEX_HTML).not.toMatch(/body\.is-pachi-restricted #backorders-btn,/);
   });
 
   it('oculta #deposito-home-btn', () => {
@@ -47,15 +45,27 @@ describe('v1478 §PACHI iter 2 — CSS gates nuevos', () => {
 });
 
 describe('v1478 §PACHI iter 2 — modal Reportes Excel', () => {
-  it('oculta todas las .exp-opt del modal excepto PEDIDOS_MES y MASTER', () => {
+  it('oculta todas las .exp-opt del modal excepto PEDIDOS_MES, MASTER, PRECIOS_STOCK (v1537) y BACKORDER (v1543)', () => {
     expect(INDEX_HTML).toMatch(
-      /body\.is-pachi-restricted #export-modal \.exp-opt:not\(\[data-exp-kind="PEDIDOS_MES"\]\):not\(\[data-exp-kind="MASTER"\]\)\{display:none !important\}/
+      /body\.is-pachi-restricted #export-modal \.exp-opt:not\(\[data-exp-kind="PEDIDOS_MES"\]\):not\(\[data-exp-kind="MASTER"\]\):not\(\[data-exp-kind="PRECIOS_STOCK"\]\):not\(\[data-exp-kind="BACKORDER"\]\)\{display:none !important\}/
     );
   });
 
   it('las 2 opciones permitidas siguen en el DOM del modal', () => {
     expect(INDEX_HTML).toMatch(/data-exp-kind="PEDIDOS_MES"/);
     expect(INDEX_HTML).toMatch(/data-exp-kind="MASTER"/);
+    expect(INDEX_HTML).toMatch(/data-exp-kind="PRECIOS_STOCK"/);
+  });
+
+  it('v1537: exportToExcel suma PRECIOS_STOCK al permitido solo con is-pachi-restricted', () => {
+    const EXPORTS = readFileSync('src/domains/exports-core.js', 'utf8');
+    expect(EXPORTS).toMatch(
+      /classList\.contains\('is-pachi-restricted'\)[\s\S]{0,300}allowed = new Set\(\[\.\.\.allowed, 'PRECIOS_STOCK', 'BACKORDER'\]\)/
+    );
+    // El resto de los vendedores no la ve: el set base de vendedor no la incluye.
+    expect(EXPORTS).toMatch(
+      /vendedor: new Set\(\['VISITAS', 'MASTER', 'BACKORDER', 'STOCK_ASIG', 'PEDIDOS_MES'\]\)/
+    );
   });
 });
 
