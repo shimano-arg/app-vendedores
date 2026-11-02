@@ -4717,6 +4717,22 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1538 (2026-11-02) — APP-03: Pedido original con control [−][n][+]
+
+- **Antes**: en el modal "Pedido en espera" (Lista de espera → abrir pedido), la columna Pedido original era un campo numérico suelto de 60px.
+- **Problema**: Mariano pidió el mismo control que usa Crear pedido manual: botón rojo (−), cantidad en el centro y botón verde (+).
+- **Cambio**:
+  - `index.html:_renderWaitlistCard` arma el control con las clases existentes `.qty-stepper` / `.minus` / `.plus` (las de `src/domains/product-picker.js`, que no se tocó). (+) suma 1, (−) resta 1, el número se puede tipear. Las tres acciones guardan con `waitlistUpdateItemQty` (sin cambios: rechaza < 1, actualiza la memoria antes de grabar).
+  - Con cantidad 1 el (−) queda deshabilitado ("Para quitar el producto usá la X").
+  - Cálculo en `src/pure/waitlist-qty-stepper.js` (expuesto en `window.__phase0.pure.waitlistQtyStepper`), con respaldo inline si el bundle no cargó.
+  - CSS: en la tabla el control ocupa la columna (hasta 100px, mínimo 62px) y achica los botones en pantallas ≤1280px. `styles/apple-design.css` mantiene rojo/verde y el número negro sobre blanco cuando la fila se pinta de azul al pasar el mouse (la regla v674 ponía los botones transparentes).
+- **Por qué**: consistencia con Crear pedido manual; menos errores de tipeo.
+- **Verificación**:
+  - `tests/unit/waitlist-qty-stepper.test.js` y `tests/unit/audit/wcard-qty-stepper-v1538.test.js`. Suite unit y smoke verdes.
+  - Prueba en navegador (Playwright con un pedido de prueba, escritura a Firestore simulada) en 1366, 1280, 1024 y 390px: + y − cambian el número al instante, cada toque graba una vez el pedido completo, las otras filas no cambian, el total se recalcula (6 → 7 u), colores correctos en hover, el control entra en la columna en 1024px o más.
+- **Limitación**: en celular (390px) la tabla de 13 columnas ya estaba apretada antes de este cambio; el control (62px) pisa la columna vecina, igual que el campo viejo de 60px. Arreglarlo pide scroll horizontal de toda la tabla (fuera de alcance).
+- **Rollback**: revertir el commit. Solo frontend.
+
 ### v1537 (2026-11-02) — PACHI ve "Precios + Stock" en Reportes Excel
 
 - **Antes**: PACHI veía en Reportes Excel solo "Pedidos del mes" y "Masterfile Clientes". "Precios + Stock" (lista de precios) quedaba oculta por la regla CSS v1478 y por la lista de permitidos del rol vendedor en `exportToExcel`.

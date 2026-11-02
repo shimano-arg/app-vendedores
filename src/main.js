@@ -273,6 +273,11 @@ import { buildWaitlistExportRows, isStockAsignadoItem } from './pure/waitlist-ex
 import { shouldIncludeWaitlistDoc } from './pure/waitlist-filter.js';
 import { computeHasExceed } from './pure/waitlist-has-exceed.js';
 import {
+  isWaitlistQtyMinusDisabled,
+  nextWaitlistQty,
+  parseWaitlistQtyInput,
+} from './pure/waitlist-qty-stepper.js';
+import {
   buildExcludedPedidoIdsForRepetido,
   filterYaEnOtroPedidoForLine,
   lineCountsAsPedidoAnterior,
@@ -468,6 +473,8 @@ const phase0 = {
     passesTypeFilter,
     shouldIncludeWaitlistDoc,
     computeHasExceed,
+    // v1538 APP-03: control [−][n][+] de Pedido original (modal Pedido en espera).
+    waitlistQtyStepper: { nextWaitlistQty, parseWaitlistQtyInput, isWaitlistQtyMinusDisabled },
     computeWaitlistCardClasses,
     isWaitlistCpst,
     findOpenWaitlistsForClient,

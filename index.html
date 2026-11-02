@@ -3261,6 +3261,18 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
 .qty-stepper button.plus{border-left:1px solid #fff}
 .qty-stepper input{width:42px;height:28px;border:none;text-align:center;font-size:13px;font-weight:800;padding:0;color:var(--text-primary);outline:none;-moz-appearance:textfield}
 .qty-stepper input::-webkit-outer-spin-button,.qty-stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+/* v1538 APP-03: (−) deshabilitado con cantidad 1 en Pedido en espera. */
+.qty-stepper button.minus:disabled{opacity:.45;cursor:not-allowed}
+.qty-stepper button.minus:disabled:hover{background:var(--color-danger)}
+/* v1538 APP-03: dentro de la tabla de Pedido en espera el control ocupa el
+   ancho de la columna (hasta 100px, el tamaño de Crear pedido manual) y se
+   achica en pantallas más angostas para no pisar la columna Pedido final. */
+#waitlist-card-modal #wcard-rows td.wcard-qty-cell{padding-left:2px !important;padding-right:2px !important}
+#wcard-rows .wcard-qty-stepper{width:100%;max-width:100px;min-width:62px;margin:0 auto}
+#wcard-rows .wcard-qty-stepper button{flex:0 0 28px}
+#wcard-rows .wcard-qty-stepper input{flex:1 1 auto;min-width:0;width:auto}
+@media (max-width:1280px){#wcard-rows .wcard-qty-stepper button{flex-basis:22px;font-size:14px}}
+@media (max-width:1100px){#wcard-rows .wcard-qty-stepper button{flex-basis:20px}}
 .prod-row .add-btn:hover{background:#15803d}
 .prod-row .add-btn.added{background:#0284a0;font-size:13px;font-weight:900}
 .prod-row .add-btn.added:hover{background:#00A9E0}
@@ -7203,7 +7215,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1537';
+const APP_VERSION = 'v1538';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26494,15 +26506,50 @@ function _renderWaitlistCard(){
     if (yaEnOtroFiltrado.length > 0) {
       tr.classList.add('repeat-sku');
     }
-    // v467: qty editable inline. Input number con onchange que persiste.
+    // v467: qty editable inline con persistencia al toque.
+    // v1538 APP-03 (2026-11-02): mismo control [−][n][+] que Crear pedido
+    // manual (clase .qty-stepper, product-picker.js). (−) rojo, (+) verde,
+    // número central tipeable. Persiste con waitlistUpdateItemQty (sin cambio).
     const tdQty = document.createElement('td');
-    tdQty.className = 'num';
+    tdQty.className = 'num wcard-qty-cell';
+    const _wqs = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.waitlistQtyStepper) || null;
+    const _nextQty = _wqs ? _wqs.nextWaitlistQty : (cur, d) => Math.max(1, (Math.floor(Number(cur)) || 1) + d);
+    const _parseQty = _wqs ? _wqs.parseWaitlistQtyInput : (v) => { const s = String(v == null ? '' : v).trim(); return /^\d+$/.test(s) ? (parseInt(s, 10) || 0) : 0; };
+    const _minusOff = _wqs ? _wqs.isWaitlistQtyMinusDisabled : (q) => !(Math.floor(Number(q)) > 1);
+    const stepper = document.createElement('div');
+    stepper.className = 'qty-stepper wcard-qty-stepper';
+    const btnMinus = document.createElement('button');
+    btnMinus.type = 'button'; btnMinus.className = 'minus'; btnMinus.innerHTML = '&minus;';
+    btnMinus.setAttribute('data-idx', String(r.idx));
     const inp = document.createElement('input');
-    inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.value = String(r.qty);
-    inp.style.cssText = 'width:60px;text-align:center;font-weight:700;padding:2px 4px;border:1px solid var(--border-default);border-radius:4px;font-size:11px';
+    inp.type = 'number'; inp.min = '1'; inp.step = '1'; inp.inputMode = 'numeric'; inp.value = String(r.qty);
     inp.setAttribute('data-idx', String(r.idx));
-    inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, parseInt(inp.value, 10) || 0);
-    tdQty.appendChild(inp);
+    inp.title = 'Tipear cantidad';
+    const btnPlus = document.createElement('button');
+    btnPlus.type = 'button'; btnPlus.className = 'plus'; btnPlus.textContent = '+';
+    btnPlus.title = 'Sumar 1';
+    btnPlus.setAttribute('data-idx', String(r.idx));
+    const _syncMinus = () => {
+      const off = _minusOff(inp.value);
+      btnMinus.disabled = off;
+      btnMinus.title = off ? 'Para quitar el producto usá la X' : 'Restar 1';
+    };
+    _syncMinus();
+    const _applyStep = (delta) => {
+      const nq = _nextQty(inp.value, delta);
+      if (String(nq) === String(inp.value)) return;
+      inp.value = String(nq);
+      _syncMinus();
+      waitlistUpdateItemQty(w._id, r.idx, nq);
+    };
+    btnMinus.onclick = (ev) => { ev.stopPropagation(); _applyStep(-1); };
+    btnPlus.onclick = (ev) => { ev.stopPropagation(); _applyStep(1); };
+    inp.onclick = (ev) => { ev.stopPropagation(); inp.select(); };
+    inp.onchange = () => waitlistUpdateItemQty(w._id, r.idx, _parseQty(inp.value));
+    stepper.appendChild(btnMinus);
+    stepper.appendChild(inp);
+    stepper.appendChild(btnPlus);
+    tdQty.appendChild(stepper);
     // v1399 §40.7: aviso "se liberan N al enviar" cuando qty editada < reserva.
     try {
       const _collectItemFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.collectAsigRefsForItemCancel;
