@@ -138,6 +138,7 @@
       "getEffectiveVendorForClient",
       "getEffectiveVendorKey",
       "getEffectiveVendorSet",
+      "getMyAllowedVendorKeys",
       "getFilteredAuditEntries",
       "getMonthlyTargetArs",
       "getProvinceCentroid",

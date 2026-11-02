@@ -41,6 +41,13 @@ import { formatAsigHuerfanaAviso, planCpstOrigenes } from './pure/cpst-origenes-
 import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.js';
 import { calcClientDiscount } from './pure/discount.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
+// v1534 (2026-11-02): alcance por rol de las exportaciones (auditoría 46, Etapa 1).
+import {
+  buildExportScope,
+  normVendorKey as normExportVendorKey,
+  resolvePedidoVendorKey,
+  vendorColumnForPedido,
+} from './pure/export-scope.js';
 import {
   FICHA_CLASIF_LABELS,
   fichaClienteBuyerRow,
@@ -490,6 +497,14 @@ const phase0 = {
     waitlistVisibility: {
       isWaitlistVisibleForVendor,
       filterWaitlistsForVendor,
+    },
+    // v1534 (2026-11-02): alcance por rol de las exportaciones (lo usa
+    // chunks/exports-core.js; expuesto para pruebas desde la consola).
+    exportScope: {
+      buildExportScope,
+      normVendorKey: normExportVendorKey,
+      resolvePedidoVendorKey,
+      vendorColumnForPedido,
     },
     resolveClientVendorFromMaster,
     enrichPayloadWithClientVendor,
