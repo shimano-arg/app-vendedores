@@ -4717,6 +4717,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1546 (2026-11-02) — Botón «Pedidos del mes» con estilo Apple
+
+- **Antes**: el botón del header «Pedidos del mes» (v1540) quedaba con el estilo por defecto de `.btn-zonas`: rectángulo, mayúsculas, sombra. Al lado, Panel de Control, Planner y los demás son pill Apple.
+- **Problema**: inconsistencia visual. Mariano pidió que todos los botones tengan siempre estilo Apple.
+- **Cambio**: bloque `#pedidos-mes-btn.btn-zonas` en `styles/apple-design.css`, con el mismo patrón que `#planner-header-btn`:
+  - pill 999px, sin mayúsculas, peso 600;
+  - hover más claro y `scale(0.97)` al presionar.
+- Regla durable nueva en CLAUDE.md §106: todo botón nuevo nace con su bloque pill.
+- **Verificación**: test nuevo `tests/unit/audit/pedidos-mes-btn-apple-v1546.test.js`; unit y smoke en verde.
+- **Rollback**: revertir el PR. Es solo CSS.
+
 ### v1545 (2026-11-02) — Master Clientes para vendedores (solo sus clientes) + PACHI entra a Backorder
 
 - **Antes**:

@@ -55,9 +55,11 @@ describe('v1545 — Master Clientes para vendedores', () => {
     expect(MC.slice(j, j + 600)).toMatch(/if \(_mcScope\(\)\.readOnly\)/);
   });
 
-  it('versión v1545 en sync con el SW', () => {
-    expect(HTML).toMatch(/const APP_VERSION = 'v1545'/);
-    expect(readFileSync('sw.js', 'utf8')).toMatch(/const CACHE_VERSION = 'v1545'/);
+  it('versión >= v1545 en sync con el SW', () => {
+    const m = HTML.match(/const APP_VERSION = 'v(\d+)'/);
+    expect(Number(m[1])).toBeGreaterThanOrEqual(1545);
+    const sw = readFileSync('sw.js', 'utf8').match(/const CACHE_VERSION = 'v(\d+)'/);
+    expect(sw[1]).toBe(m[1]);
   });
 });
 
