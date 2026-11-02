@@ -22,6 +22,7 @@
 // (bundle __phase0.pure), findSapDuplicateForProvisorio (bundle), clientLocId,
 // normClientName (bundle __phase0.pure).
 import { buildFichaClienteMaster, findCarteraCliente } from '../pure/ficha-cliente-master.js';
+import { buildMasterClientesScope } from '../pure/master-clientes-scope.js';
 import {
   mensajeSyncClientesSap,
   SYNC_CLIENTES_SAP_TEXTOS,
@@ -36,6 +37,36 @@ if (typeof window.clientMasterCache === 'undefined') window.clientMasterCache = 
 const clientMasterCache = window.clientMasterCache;
 if (typeof window.unsubClientMaster === 'undefined') window.unsubClientMaster = null;
 let mcPendingChanges = {}; // docId -> nuevo address (en proceso)
+
+// v1545 (2026-11-02): alcance por rol. admin/gerente: todo y editan.
+// vendedor: solo sus clientes del master, solo lectura. interno: su zona +
+// parejas (mismo conjunto que el mapa), solo lectura. Regla en
+// src/pure/master-clientes-scope.js.
+function _mcScope() {
+  let allowedVendorKeys = null;
+  try {
+    allowedVendorKeys =
+      typeof getMyAllowedVendorKeys === 'function' ? getMyAllowedVendorKeys() : null;
+  } catch (_e) {
+    allowedVendorKeys = null;
+  }
+  return buildMasterClientesScope({
+    role: typeof userRole !== 'undefined' ? userRole : null,
+    myVendorKey: typeof assignedVendor !== 'undefined' ? assignedVendor : '',
+    allowedVendorKeys,
+  });
+}
+window._mcScope = _mcScope;
+
+// v1545: en solo lectura, los campos editables de la tabla quedan
+// deshabilitados (no se pueden tipear ni disparar el autosave). Los botones
+// de acción los oculta el CSS `#master-cli-modal.mc-solo-lectura`.
+function _mcApplySoloLectura(cont) {
+  if (!cont || !_mcScope().readOnly) return;
+  cont.querySelectorAll('input, select, textarea').forEach((el) => {
+    el.disabled = true;
+  });
+}
 
 // Autosave debounced por fila. Antes solo se guardaba al tocar GUARDAR y
 // solo detectaba cambios en el input de direccion (mcPendingChanges), asi
@@ -277,8 +308,9 @@ function getAllStoreEntries() {
 }
 
 window.openMasterClientesPanel = function () {
-  if (userRole !== 'admin' && userRole !== 'gerente') {
-    alert('Solo admin o gerente puede acceder a Master Clientes.');
+  const _scope = _mcScope();
+  if (!_scope.canOpen) {
+    alert('Master Clientes no está disponible para tu usuario.');
     return;
   }
   ensureClientMasterListener();
@@ -312,6 +344,20 @@ window.openMasterClientesPanel = function () {
       o.textContent = titleCase(pr);
       pSel.appendChild(o);
     });
+  }
+  // v1545: vendedor/interno — solo lectura y filtro de vendedor acotado.
+  const _mcModal = document.getElementById('master-cli-modal');
+  if (_mcModal) _mcModal.classList.toggle('mc-solo-lectura', _scope.readOnly);
+  Array.from(vSel.options).forEach((o) => {
+    o.hidden = !_scope.isGlobal && o.value !== 'ALL' && !_scope.allowsVendor(o.value);
+  });
+  if (_scope.fixedVendorKey && _scope.allowsVendor(_scope.fixedVendorKey)) {
+    vSel.value = _scope.fixedVendorKey;
+    vSel.disabled = true;
+  } else {
+    if (!_scope.isGlobal && vSel.value !== 'ALL' && !_scope.allowsVendor(vSel.value))
+      vSel.value = 'ALL';
+    vSel.disabled = false;
   }
   // Reset filtro localidad cuando se abre
   rebuildMcLocalidadOptions();
@@ -1210,7 +1256,7 @@ function renderMcProvisoriosTable() {
 
   // Alta Rapida guarda vendedor en assignedVendor (no vendor), provincia en
   // upper y localidad en localidadFinal (post-geocoding) o localidad.
-  let items = getProvisoriosList();
+  let items = _mcScope().filter(getProvisoriosList(), (a) => a.assignedVendor || a.vendor || '');
   if (fv !== 'ALL') items = items.filter((a) => (a.assignedVendor || a.vendor || '') === fv);
   if (fp !== 'ALL')
     items = items.filter((a) => (a.provincia || '').toString().toUpperCase() === fp.toUpperCase());
@@ -1557,6 +1603,7 @@ function renderMcProvisoriosTable() {
       items.length +
       '. Refina con filtros.</div>';
   cont.innerHTML = html;
+  _mcApplySoloLectura(cont);
 }
 
 // v302+: Autosave del nombre del comercio (comercio o fantasia) desde el
@@ -2182,7 +2229,8 @@ window.renderMasterClientesTable = function () {
   const fcEsp = _mcPerfilFilterValue('mc-filt-especializacion');
   const fcTL = _mcPerfilFilterValue('mc-filt-tipolocal');
 
-  let entries = getAllStoreEntries();
+  // v1545: alcance por rol (vendedor/interno ven solo sus clientes).
+  let entries = _mcScope().filter(getAllStoreEntries(), (e) => e.vendor);
   // v349+: modo SAP-only aplica primero. Excluye POINTS del padron viejo y
   // provisorios (altas sin cardCodeSap). Solo deja las que tienen CardCode.
   if (mcSapMode) entries = entries.filter((e) => e.tipo === 'sap_alta' && e.sapCardCode);
@@ -2788,6 +2836,7 @@ window.renderMasterClientesTable = function () {
   // v1539 APP-04: ficha desplegable por cliente.
   _mcFichaBind(cont);
   _mcFichaReopen(cont);
+  _mcApplySoloLectura(cont);
 };
 
 window.onMcAddrInput = function (input, docId, originalSaved) {
@@ -3236,6 +3285,11 @@ window.pedidoDiscountFactor = pedidoDiscountFactor;
 window.deleteMcEntry = async function (docId, nombre, sapFsId) {
   if (!currentUser || !userRole || userRole === 'unassigned') {
     alert('Necesitas estar autenticado para eliminar.');
+    return;
+  }
+  // v1545: Master Clientes es solo lectura para vendedor/interno.
+  if (_mcScope().readOnly) {
+    alert('Solo admin o gerente puede eliminar desde Master Clientes.');
     return;
   }
   const safeName = nombre || 'esta tienda';

@@ -2656,6 +2656,17 @@ body.is-pachi-restricted #waitlist-btn{display:none !important}
    v1537: + "Precios + Stock" (lista de precios), autorizado por Mariano 2026-11-02.
    v1543: + "Backorder" (solo sus clientes, vía export-scope), autorizado por Mariano. */
 body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"]):not([data-exp-kind="MASTER"]):not([data-exp-kind="PRECIOS_STOCK"]):not([data-exp-kind="BACKORDER"]){display:none !important}
+/* v1545 (2026-11-02): Master Clientes en solo lectura (vendedor/interno).
+   La clase la pone openMasterClientesPanel según src/pure/master-clientes-scope.js.
+   Se ocultan las acciones de edición; la Ficha sigue disponible. */
+#master-cli-modal.mc-solo-lectura #mc-reasignar-zonas-btn,
+#master-cli-modal.mc-solo-lectura #mc-sync-sap-btn,
+#master-cli-modal.mc-solo-lectura #mc-sync-sap-msg,
+#master-cli-modal.mc-solo-lectura #mc-vincular-lead-sap-btn,
+#master-cli-modal.mc-solo-lectura #mc-export-perfil-btn,
+#master-cli-modal.mc-solo-lectura #mc-body .mc-save-btn,
+#master-cli-modal.mc-solo-lectura #mc-body button[onclick^="deleteMcEntry"],
+#master-cli-modal.mc-solo-lectura #mc-body button[onclick^="openVincularSapModal"]{display:none !important}
 /* v1478: Campañas — PACHI NO ve el botón "Gráficos" (métricas de progreso).
    El filtro por zona también se saltea para que vea TODAS las activas (ver
    renderMisCamps + _misCampsGraficosData). */
@@ -7297,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1544';
+const APP_VERSION = 'v1545';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -32407,7 +32418,9 @@ function applyRolePermissions(){
   _setDrawer('targets', typeof canManageTargets === 'function' && canManageTargets());
   _setDrawer('campaigns', isAdminOrGerente);
   _setDrawer('sap', ['admin','viewer','vendedor','gerente'].indexOf(userRole) >= 0);
-  _setDrawer('mastercli', isAdminOrGerente);
+  // v1545: Master Clientes también para vendedor e interno (solo lectura,
+  // solo sus clientes; ver src/pure/master-clientes-scope.js).
+  _setDrawer('mastercli', ['admin','gerente','vendedor','interno'].indexOf(userRole) >= 0);
   _setDrawer('admin', userRole === 'admin');
   // USUARIOS: SOLO admin.
   document.getElementById('admin-btn').style.display = (userRole === 'admin') ? '' : 'none';
@@ -32466,7 +32479,10 @@ function applyRolePermissions(){
     pedidosMesBtnEl.style.display = _pdmOk ? '' : 'none';
   }
   document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';
-  document.getElementById('master-cli-btn').style.display = isAdminOrGerente ? '' : 'none';
+  // v1545: Master Clientes para admin/gerente (edición) + vendedor/interno
+  // (solo lectura, solo sus clientes; ver src/pure/master-clientes-scope.js).
+  document.getElementById('master-cli-btn').style.display =
+    ['admin','gerente','vendedor','interno'].indexOf(userRole) >= 0 ? '' : 'none';
   // SEGUIMIENTO: admin + gerente + interno (Santiago/Ioannis).
   // El check de rol del lado JS es replicado dentro del open handler y en
   // cada render (guard de scope) para que el frontend no pueda forzar

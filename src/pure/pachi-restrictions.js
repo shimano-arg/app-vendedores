@@ -59,7 +59,8 @@ export const PACHI_VENDOR_KEY = 'PACHI';
  */
 export const PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS = Object.freeze([
   'seguimiento-btn',
-  'backorders-btn',
+  // v1545: 'backorders-btn' sale de la lista — PACHI ve Backorder en solo
+  // lectura (autorizado por Mariano 2026-11-02, v1543).
   'asignacion-backorder-btn',
   'forecast-btn',
   'revision-btn',
@@ -100,7 +101,7 @@ export function isHeaderBtnHiddenForPachi(btnId) {
  * `window.openBackordersModal()`) queda bloqueado para PACHI.
  */
 export const PACHI_BLOCKED_OPEN_FNS = Object.freeze([
-  'openBackordersModal',
+  // v1545: 'openBackordersModal' sale de la lista (Backorder solo lectura, v1543).
   'openAsignacionBackorderModal',
   'openForecastModal',
   'openRepartoModal',

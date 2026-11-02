@@ -4717,6 +4717,45 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1545 (2026-11-02) — Master Clientes para vendedores (solo sus clientes) + PACHI entra a Backorder
+
+- **Antes**:
+  - Master Clientes era solo para admin y gerente.
+  - PACHI veía el botón Backorder desde v1543, pero al tocarlo salía "Backorders no está disponible para tu usuario".
+- **Problema**: v1543 no tocó los dos bloqueos de v1481 (`src/pure/pachi-restrictions.js`):
+  - `PACHI_BLOCKED_OPEN_FNS` envolvía `openBackordersModal` con el aviso;
+  - `PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS` incluía `backorders-btn`.
+  - Mariano pidió además que todos los vendedores puedan entrar a Master Clientes viendo solo sus clientes.
+- **Cambio**:
+  - **PACHI**: se sacan `openBackordersModal` y `backorders-btn` de las dos listas. Siguen bloqueados Stock Asignado, Forecast, Reparto, Depósito, Cartera y Seguimiento.
+  - **Master Clientes**: el botón del encabezado y el ítem del menú móvil quedan visibles para admin, gerente, vendedor e interno.
+    - Regla nueva en `src/pure/master-clientes-scope.js`:
+      - admin y gerente ven todo y editan;
+      - el vendedor ve solo los clientes cuyo vendedor en el master es el suyo (`assignedVendor`), con el filtro de vendedor fijo;
+      - el interno ve su zona más la de sus parejas (`getMyAllowedVendorKeys`, como el mapa);
+      - otro rol no entra.
+    - El filtro se aplica a la tabla principal y a la de Provisorios.
+    - Vendedor e interno ven el Master en **solo lectura**:
+      - clase `mc-solo-lectura`;
+      - se ocultan Guardar, Eliminar, Vincular, Reasignar Zonas, Sincronizar con SAP y Exportar Perfil;
+      - los campos de la tabla quedan deshabilitados;
+      - `deleteMcEntry` rechaza (`saveMcAddr` ya rechazaba a quien no fuera admin o gerente).
+    - La Ficha de cada cliente sigue disponible.
+- **Por qué solo lectura**: las reglas de `client_master` no dejan a un vendedor escribir la dirección, así que guardar le fallaría.
+- **Ojo**: el filtro es de pantalla. `client_master` ya era legible por cualquier usuario logueado y eso no cambia.
+- **Verificación**:
+  - tests nuevos:
+    - `tests/unit/master-clientes-scope.test.js` (7): admin, gerente, vendedor, vendedor sin zona, interno, roles sin acceso, no muta;
+    - `tests/unit/audit/master-clientes-vendedores-v1545.test.js` (7);
+  - tests actualizados: `pachi-v1481-sidebar-left.test.js` y `tests/e2e/pachi.spec.js`;
+  - unit 2741 y smoke 25 en verde, typecheck limpio;
+  - Playwright con el padrón completo:
+    - admin: 500 filas de todos los vendedores, editable;
+    - vendedor PACHI: 196 filas, todas de "Z4 Pachi", solo lectura, filtro fijo;
+    - viewer: no entra.
+  - Pendiente manual (§90): entrar con PACHI y con otro vendedor.
+- **Rollback**: revertir el PR. Sin cambios de servidor ni de reglas.
+
 ### v1544 (2026-11-02) — APP-07: Buyer, las notas de crédito no son compras
 
 > Desarrollado como v1542 (los comentarios del código lo citan así). Se publica como v1544 porque v1543 se mergeó antes. Las funciones `recomputeClientBuyerStats` y `triggerRecomputeClientBuyerStats` ya están deployadas.
