@@ -6,13 +6,27 @@
  * un Map(cardCode → { cardName, stats_3m, stats_6m, stats_12m, stats_24m }).
  *
  * Para cada ventana calcula:
- * - montoTotal, facturasCount, montoPromedio
+ * - montoTotal (NETO: facturas − notas de crédito), facturasCount, montoPromedio
  * - primeraCompra, ultimaCompra (ISO date yyyy-mm-dd)
  * - frecuenciaDias (dias promedio entre facturas)
  * - facturasPorMes
  * - diasDesdeUltima
- * - topSkus (top 25 por monto)
+ * - topSkus (top 200 por monto neto)
  * - topCategorias (todas, con % share)
+ * - montoBruto, notasCreditoArs, notasCreditoCount (v1542, informativos)
+ *
+ * v1542 (2026-11-02, APP-07) — reglas de documentos (tipo real de SAP, columna
+ * doc_kind de v_ventas_lineas: 'INVOICE' = /Invoices, 'CREDIT_NOTE' =
+ * /CreditNotes; anulados ya excluidos por la vista con cancelled = 'tNO'):
+ *   - Una nota de crédito NUNCA cuenta como factura ni como compra.
+ *   - Fechas de compra (primera, última, días desde la última, frecuencia)
+ *     salen SOLO de facturas. Antes salían de todas las filas: una NC sin
+ *     factura base (que la vista deja en su propia fecha) podía aparecer como
+ *     "última compra", y la frecuencia mezclaba el período de todas las filas
+ *     con la cantidad de facturas.
+ *   - Importes y cantidades por SKU/categoría son NETOS (la NC ya viene con
+ *     signo negativo): la suma de SKU y de categorías = montoTotal.
+ *   - Promedio por factura = monto neto / facturas válidas (0 si no hay).
  */
 
 const WINDOWS = [3, 6, 12, 24];
@@ -78,22 +92,38 @@ function computeWindowStats(rows, nowDate, windowMonths) {
       diasDesdeUltima: null,
       topSkus: [],
       topCategorias: [],
+      montoBruto: 0,
+      notasCreditoArs: 0,
+      notasCreditoCount: 0,
     };
   }
   let montoTotal = 0;
+  let montoBruto = 0;
+  let notasCreditoArs = 0;
   const facturasSet = new Set();
-  let primera = rows[0].fecha;
-  let ultima = rows[0].fecha;
+  const notasSet = new Set();
+  /** @type {string|null} */
+  let primera = null;
+  /** @type {string|null} */
+  let ultima = null;
   /** @type {Map<string, {sku:string, nombre:string, qty:number, monto:number, categoria:string}>} */
   const bySku = new Map();
   /** @type {Map<string, number>} */
   const byCat = new Map();
 
   for (const r of rows) {
-    montoTotal += r.importe_linea_ars || 0;
-    if (r.doc_kind === 'INVOICE') facturasSet.add(r.doc_entry);
-    if (r.fecha < primera) primera = r.fecha;
-    if (r.fecha > ultima) ultima = r.fecha;
+    const imp = r.importe_linea_ars || 0;
+    montoTotal += imp;
+    if (r.doc_kind === 'INVOICE') {
+      facturasSet.add(r.doc_entry);
+      montoBruto += imp;
+      // Fechas de compra: solo facturas (una NC no es una compra).
+      if (r.fecha && (primera === null || r.fecha < primera)) primera = r.fecha;
+      if (r.fecha && (ultima === null || r.fecha > ultima)) ultima = r.fecha;
+    } else if (r.doc_kind === 'CREDIT_NOTE') {
+      notasSet.add(r.doc_entry);
+      notasCreditoArs += imp;
+    }
 
     const sku = r.item_code;
     if (sku) {
@@ -118,11 +148,12 @@ function computeWindowStats(rows, nowDate, windowMonths) {
   const facturasCount = facturasSet.size;
   const montoPromedio = facturasCount > 0 ? montoTotal / facturasCount : 0;
   const facturasPorMes = windowMonths > 0 ? facturasCount / windowMonths : 0;
-  const diasDesdeUltima = daysBetween(ultima, nowDate);
+  const diasDesdeUltima = ultima ? daysBetween(ultima, nowDate) : null;
 
-  // Frecuencia días: diferencia primera-ultima dividido facturas (si >= 2)
+  // Frecuencia días: período entre la primera y la última FACTURA dividido
+  // (facturas − 1). Ambos términos salen de facturas (v1542).
   let frecuenciaDias = null;
-  if (facturasCount >= 2 && primera !== ultima) {
+  if (facturasCount >= 2 && primera && ultima && primera !== ultima) {
     const spanDays = daysBetween(primera, new Date(ultima + 'T00:00:00Z'));
     frecuenciaDias = Math.abs(spanDays) / (facturasCount - 1);
   }
@@ -162,6 +193,9 @@ function computeWindowStats(rows, nowDate, windowMonths) {
     diasDesdeUltima,
     topSkus,
     topCategorias,
+    montoBruto: Math.round(montoBruto),
+    notasCreditoArs: Math.round(notasCreditoArs),
+    notasCreditoCount: notasSet.size,
   };
 }
 
@@ -203,3 +237,6 @@ export function aggregateVentasIntoBuyerStats(rows, nowDate) {
   }
   return result;
 }
+
+// v1542: expuesto para tests (casos por ventana).
+export { computeWindowStats };

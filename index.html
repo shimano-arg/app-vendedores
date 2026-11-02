@@ -7297,7 +7297,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1543';
+const APP_VERSION = 'v1544';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -12803,7 +12803,7 @@ function _renderFichaClienteBuyer() {
 
   const frecTxt = window.frecuenciaDias != null
     ? '1 cada ' + Math.round(window.frecuenciaDias) + ' días'
-    : (window.facturasCount < 2 ? 'N/A (1 factura)' : 'N/A');
+    : (window.facturasCount === 1 ? 'N/A (1 factura)' : 'N/A');
   const frecSub = window.facturasPorMes ? Math.round(window.facturasPorMes * 10) / 10 + ' por mes' : '';
   addKpi('Frecuencia', frecTxt, frecSub);
 
