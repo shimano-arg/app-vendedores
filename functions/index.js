@@ -1058,6 +1058,7 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         result.result === AUTO_SEND_RESULT.SKIP_NO_LINES ||
         result.result === AUTO_SEND_RESULT.SKIP_NO_CARDCODE ||
         result.result === AUTO_SEND_RESULT.SKIP_LOCKED ||
+        result.result === AUTO_SEND_RESULT.SKIP_DISCOUNT_REJECTED ||
         result.result === AUTO_SEND_RESULT.SKIP_STAGE
       ) {
         // Skips normales — log info para debugging pero no error.

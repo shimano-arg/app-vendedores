@@ -22,6 +22,7 @@
 // manda automaticamente como Sales Quotation. Idempotente: si dos admin
 // estan online, el primero gana porque la segunda invocacion ve
 // transferidoSAP ya seteado y skip.
+import { blocksAutoSend, buildSapTransferError } from '../pure/sap-transfer-error.js';
 import { SAP_LOCK_TTL_MS } from './sap-lock-constants.js';
 
 const _autoSendInflight = new Set(); // pedido fsIds que estan siendo enviados ahora
@@ -62,6 +63,16 @@ function ensureSapAutoSendListener() {
           if (p.transferidoSAP) return;
           // Idempotencia 2: ya esta en cola para envio en esta sesion -> skip.
           if (_autoSendInflight.has(fsId)) return;
+          // Patch 4xx (2026-11-03): rechazo por descuento (de cualquier camino)
+          // o rechazo deterministico 4xx de la CF => NO reintentar
+          // automaticamente (blocksAutoSend). Un reenvio podia crear la
+          // cotizacion sin el descuento economico y borrar el error. El envio
+          // manual sigue disponible, con confirmacion si hubo rechazo por
+          // descuento.
+          if (blocksAutoSend(p.transferError)) {
+            console.log('[SAP auto] skip', fsId, p.clientName, '- rechazo previo, envio manual');
+            return;
+          }
           // Resolver CardCode. Si no hay, queda Bloqueado en Pendientes (manual).
           const cliSap =
             typeof sapGetClienteCode === 'function' ? sapGetClienteCode(p.clientName) : '';
@@ -103,6 +114,7 @@ function ensureSapAutoSendListener() {
                 if (!snap.exists) throw new Error('DOC_GONE');
                 const data = snap.data() || {};
                 if (data.transferidoSAP) throw new Error('ALREADY_SENT');
+                if (blocksAutoSend(data.transferError)) throw new Error('CF_REJECTED_4XX');
                 if (data.sendingSapLock && data.sendingSapLock.at) {
                   const lockAgeMs = Date.now() - data.sendingSapLock.at;
                   if (lockAgeMs < SAP_LOCK_TTL_MS)
@@ -331,12 +343,18 @@ function ensureSapAutoSendListener() {
                 try {
                   await docRef.update({
                     sendingSapLock: firebase.firestore.FieldValue.delete(),
-                    transferError: {
-                      message: String(r.error || 'Error desconocido').slice(0, 500),
-                      at: new Date().toISOString(),
+                    // Patch 4xx: misma forma que la CF (status, sapCode,
+                    // discountRejected) para que un rechazo por descuento del
+                    // navegador tambien bloquee el reintento automatico.
+                    transferError: buildSapTransferError({
+                      status: r.status,
+                      body: r.body,
+                      error: r.error,
                       via: 'service_layer_auto',
+                      at: new Date().toISOString(),
                       attemptedBy: 'auto/' + ((currentUser && currentUser.email) || ''),
-                    },
+                      discountPercentSent: payload && payload.DiscountPercent,
+                    }),
                   });
                 } catch (_) {}
                 // No hacemos retry automatico. El admin lo ve en Pendientes y
@@ -350,6 +368,7 @@ function ensureSapAutoSendListener() {
               const msg = (e && e.message) || String(e);
               if (
                 msg === 'ALREADY_SENT' ||
+                msg === 'CF_REJECTED_4XX' ||
                 msg.startsWith('OTHER_SESSION_LOCK') ||
                 msg === 'DOC_GONE'
               ) {

@@ -28,6 +28,11 @@
 
 import { sapGet, sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
 import { buildSkipSetForCpstLines, filterLinesByLiveStock } from './sap-stock-recheck-core.js';
+import {
+  buildSapTransferError,
+  hasDiscountRejection,
+  isSapDiscountRejection,
+} from './sap-transfer-error.js';
 
 /**
  * @typedef {Object} SlDeps
@@ -77,6 +82,7 @@ export const AUTO_SEND_RESULT = /** @type {const} */ ({
   SKIP_ALL_BO: 'skip_all_bo', // 100% backorder (via='app_only' via v607)
   SKIP_NO_CARDCODE: 'skip_no_cardcode', // cliente sin sapCardCode -> queda bloqueado
   SKIP_LOCKED: 'skip_locked', // otra sesion tiene lock activo
+  SKIP_DISCOUNT_REJECTED: 'skip_discount_rejected', // patch 4xx: rechazo previo por descuento (cualquier camino) => no reenviar solo
   SKIP_NO_LINES: 'skip_no_lines', // pedido sin lineas confirmed
   SKIP_STOCK_RECHECK_ALL_DEGRADED: 'skip_stock_recheck_all_degraded', // v1051: re-check live stock SAP degradó TODAS las líneas confirmed → skip envío (queda app_only)
   SKIP_STOCK_RECHECK_PARTIAL_DEGRADED: 'skip_stock_recheck_partial_degraded', // v1179 (incident Ricardo Blanco Goitia 2026-10-07): recheck degradó al menos 1 línea → NO enviar silent-degradado, requiere intervencion manual
@@ -320,6 +326,10 @@ function _buildEntregaSuffix(formaEntrega) {
   return '';
 }
 
+// isSapDiscountRejection vive en ./sap-transfer-error.js (espejo de
+// src/pure/sap-transfer-error.js, §57); se re-exporta por compatibilidad.
+export { isSapDiscountRejection };
+
 /**
  * Chequea si un pedido cumple los criterios para auto-envio.
  * Guard change-detection: solo si transicionó a stage='confirmed'.
@@ -434,6 +444,11 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
       if (!snap.exists) throw new Error('DOC_GONE');
       const data = snap.data() || {};
       if (data.transferidoSAP) throw new Error('ALREADY_SENT');
+      // Patch 4xx (2026-11-03, hallazgo del escenario con emulador): si otro
+      // camino (listener del navegador) ya registro un rechazo por descuento,
+      // la CF NO reenvia. Evita que un trigger tardio cree la cotizacion sin el
+      // descuento si el modo cambio entre medio. Reenvio: manual, confirmado.
+      if (hasDiscountRejection(data.transferError)) throw new Error('DISCOUNT_REJECTED');
       const existingLock = data.sendingSapLock;
       if (existingLock && existingLock.at && now - existingLock.at < lockTtlMs) {
         throw new Error('OTHER_SESSION_LOCK');
@@ -446,6 +461,11 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     const msg = String((e && e.message) || e);
     if (msg === 'ALREADY_SENT') return { result: AUTO_SEND_RESULT.SKIP_ALREADY_SENT };
     if (msg === 'OTHER_SESSION_LOCK') return { result: AUTO_SEND_RESULT.SKIP_LOCKED };
+    if (msg === 'DISCOUNT_REJECTED')
+      return {
+        result: AUTO_SEND_RESULT.SKIP_DISCOUNT_REJECTED,
+        reason: 'discount_rejected_previo',
+      };
     if (msg === 'DOC_GONE') return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'doc_gone' };
     log('[auto-send] lock exception', { pedidoId, err: msg });
     return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'lock_exception:' + msg };
@@ -882,15 +902,40 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
           resp.body.error.message &&
           resp.body.error.message.value) ||
         `SL http ${resp && resp.status}`;
+      const sapErrCode =
+        resp && resp.body && resp.body.error && resp.body.error.code != null
+          ? resp.body.error.code
+          : null;
+      const discountRejected = isSapDiscountRejection(sapErrCode, errMsg);
       log('[auto-send] SL error (4xx, lock released)', {
         pedidoId,
         status: resp && resp.status,
+        sapCode: sapErrCode,
+        discountRejected,
         errMsg,
       });
       // 4xx = SAP rechazo deterministicamente. Es safe liberar lock para
       // permitir reintento tras fix (ej: payload invalido corregido).
+      // Fix silent-failure (2026-11-03): ademas se PERSISTE transferError para
+      // que el rechazo quede visible (antes solo se liberaba el lock y, sin un
+      // admin conectado, el pedido quedaba sin SAP y sin error a la vista).
+      // No re-dispara la CF: isEligibleForAutoSend solo procesa la transicion
+      // a 'confirmed'. El listener de auto-envio del navegador NO lo reintenta
+      // (isDeterministicCfRejection, src/pure/sap-transfer-error.js): sin eso,
+      // esta escritura era un 'modified' que disparaba un reenvio con
+      // DiscountPercent 0. El envio manual sigue disponible y limpia el error.
       try {
-        await docRef.update({ sendingSapLock: deps.FieldValue.delete() });
+        await docRef.update({
+          sendingSapLock: deps.FieldValue.delete(),
+          transferError: buildSapTransferError({
+            status: resp ? resp.status : null,
+            body: resp ? resp.body : null,
+            message: errMsg,
+            via: 'cf_auto',
+            at: new Date(now).toISOString(),
+            discountPercentSent: built.payload && built.payload.DiscountPercent,
+          }),
+        });
       } catch {
         /* swallow */
       }

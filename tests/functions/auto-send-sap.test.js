@@ -191,7 +191,10 @@ function makeSlFetch(scenarios) {
           headers: { get: () => null },
           text: async () =>
             JSON.stringify({
-              error: { message: { value: scenarios.quotError.msg || 'SL business error' } },
+              error: {
+                ...(scenarios.quotError.code != null ? { code: scenarios.quotError.code } : {}),
+                message: { value: scenarios.quotError.msg || 'SL business error' },
+              },
             }),
         };
       }
@@ -955,5 +958,137 @@ describe('handleAutoSendSap — v1179 degraded stock gate (incident Ricardo Blan
     const after = deps.fbDb._dump()['pedidos/p1'];
     expect(after.transferidoSAP.via).toBe('cf_auto');
     expect(after.transferidoSAP.stockRecheckDegraded).toBeUndefined();
+  });
+});
+
+// 2026-11-03: fix silent-failure — los 4xx de SAP dejan transferError visible.
+import { isSapDiscountRejection } from '../../functions/core/auto-send-sap-core.js';
+
+describe('handleAutoSendSap — 4xx persiste transferError (sin bucle ni cambio de reintentos)', () => {
+  it('400 genérico: libera lock, NO marca transferidoSAP y guarda transferError', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: { quotError: { status: 400, msg: 'CardCode not found' } },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.ERROR_SL);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.sendingSapLock).toBeUndefined();
+    expect(after.transferidoSAP).toBeUndefined();
+    expect(after.transferError).toMatchObject({
+      message: 'CardCode not found',
+      via: 'cf_auto',
+      status: 400,
+      sapCode: null,
+      discountRejected: false,
+    });
+    expect(typeof after.transferError.at).toBe('string');
+    expect(Object.values(after.transferError).some((v) => v === undefined)).toBe(false);
+  });
+
+  it('rechazo por descuento (10000724): discountRejected y el % enviado quedan registrados', async () => {
+    const ped = { ...validPedido, discountPct: 4 };
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...ped } },
+      slScenarios: {
+        quotError: {
+          status: 400,
+          code: -10000724,
+          msg: 'Value in "Discount %" field is greater than permitted',
+        },
+      },
+    });
+    // El % solo viaja a SAP con modo 'header' explicito (F02); sin F02 la base
+    // ignora este campo y manda discountPct igual. Asi el test vale con y sin F02.
+    deps.sapDiscountMode = 'header';
+    const r = await handleAutoSendSap('p1', null, { ...ped }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.ERROR_SL);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferError).toMatchObject({
+      status: 400,
+      discountRejected: true,
+      discountPercentSent: 4,
+    });
+    expect(after.transferidoSAP).toBeUndefined();
+  });
+
+  it('el mensaje se recorta a 500 caracteres', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: { quotError: { status: 422, msg: 'X'.repeat(900) } },
+    });
+    await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(deps.fbDb._dump()['pedidos/p1'].transferError.message.length).toBe(500);
+  });
+
+  it('escribir transferError no re-dispara la CF (no es transición a confirmed)', () => {
+    const before = { ...validPedido, stage: 'confirmed' };
+    const after = { ...before, transferError: { message: 'x', status: 400 } };
+    expect(isEligibleForAutoSend(before, after)).toEqual({
+      eligible: false,
+      reason: 'no_transition',
+    });
+  });
+});
+
+describe('isSapDiscountRejection', () => {
+  it('detecta 10000724 y el texto de descuento; no confunde otros 4xx', () => {
+    // 2026-11-03 (cierre ciclo 7): el código con signo también cuenta. Ante la
+    // duda, clasificar como rechazo por descuento es lo seguro: bloquea el
+    // reintento automático y exige confirmación en el manual.
+    expect(isSapDiscountRejection(-10000724, 'x')).toBe(true);
+    expect(isSapDiscountRejection('-10000724', 'x')).toBe(true);
+    expect(isSapDiscountRejection('10000724', 'x')).toBe(true);
+    expect(isSapDiscountRejection(null, 'error 10000724 ...')).toBe(true);
+    expect(
+      isSapDiscountRejection(-5002, 'Value in "Discount %" field is greater than permitted')
+    ).toBe(true);
+    expect(isSapDiscountRejection(-5002, 'CardCode not found')).toBe(false);
+    expect(isSapDiscountRejection(null, 'Invalid price')).toBe(false);
+    expect(isSapDiscountRejection(null, '')).toBe(false);
+  });
+});
+
+describe('handleAutoSendSap — rechazo previo por descuento de otro camino (cierre ciclo 7)', () => {
+  // Hallazgo del escenario con emulador: el listener del navegador ganó el lock,
+  // SAP rechazó el descuento y, después, el trigger de la CF tomó el lock libre y
+  // volvió a enviar. Ahora la CF no reenvía si ya hay un rechazo por descuento.
+  const postCalls = (deps) =>
+    deps.sl.fetch.mock.calls.filter(
+      (c) => String(c[0]).includes('/Quotations') && c[1] && c[1].method === 'POST'
+    );
+
+  it('transferError.discountRejected (del navegador) => SKIP_DISCOUNT_REJECTED, sin POST', async () => {
+    const te = {
+      message: 'HTTP 400 - Value in "Discount %" field is greater than permitted',
+      via: 'service_layer_auto',
+      status: 400,
+      discountRejected: true,
+    };
+    const ped = { ...validPedido, discountPct: 17, transferError: te };
+    const deps = makeDeps({ dbDocs: { 'pedidos/p1': { ...ped } } });
+    deps.sapDiscountMode = 'comments';
+    const r = await handleAutoSendSap('p1', null, { ...ped }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SKIP_DISCOUNT_REJECTED);
+    expect(postCalls(deps)).toHaveLength(0);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.transferError).toEqual(te);
+    expect(after.sendingSapLock).toBeUndefined();
+  });
+
+  it('4xx genérico previo del navegador (sin descuento) => la CF envía como siempre', async () => {
+    const ped = {
+      ...validPedido,
+      transferError: {
+        message: 'HTTP 400 - x',
+        via: 'service_layer_auto',
+        status: 400,
+        discountRejected: false,
+      },
+    };
+    const deps = makeDeps({ dbDocs: { 'pedidos/p1': { ...ped } } });
+    const r = await handleAutoSendSap('p1', null, { ...ped }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    expect(postCalls(deps)).toHaveLength(1);
   });
 });
