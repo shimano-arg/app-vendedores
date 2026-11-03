@@ -260,7 +260,12 @@ const sapSL = {
     // OData y SAP SL los rechaza silenciosamente si vienen %28/%29. Espacios
     // se encodean a %20 (requerido para URLs validas).
     const chunks = [];
-    const CHUNK_SIZE = 50; // 50 SKUs por request. ~100 chars/item => 5KB URL (safe)
+    // v1549 (2026-11-03): 50 → 20. SAP Service Layer devuelve como máximo 20
+    // registros por página: con tandas de 50 volvían solo 20 y los otros 30
+    // quedaban sin dato (y con >10 faltantes no se hacía el fallback
+    // individual). Mismo bug que el re-chequeo del envío automático (pedido
+    // ARIZAGA SQ 2000476). Tandas de 20 = una sola página por request.
+    const CHUNK_SIZE = 20;
     for (let i = 0; i < codes.length; i += CHUNK_SIZE) {
       chunks.push(codes.slice(i, i + CHUNK_SIZE));
     }
