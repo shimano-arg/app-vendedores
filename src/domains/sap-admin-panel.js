@@ -13,6 +13,14 @@
 // - window.unsubSapClients / window.unsubSapProducts / window.unsubSapConfig:
 // cleanups en detachFirebaseListeners inline.
 
+import {
+  archiveTransferError,
+  buildSapTransferError,
+  discountRetryConfirmText,
+  discountRetrySuccessFields,
+  hasDiscountRejection,
+  requestedDiscountPctForDisplay,
+} from '../pure/sap-transfer-error.js';
 import { SAP_LOCK_TTL_MS } from './sap-lock-constants.js';
 
 // =====================================================================
@@ -874,6 +882,28 @@ window.enviarSeleccionadosViaSL = async function () {
       '\n\nSi el pedido esta lockeado, esperá 60 segundos y reintenta. ' +
       'Si dice "ya enviado" pero no aparece en Ya Transferidos, refresca (F5).';
   }
+  // Patch 4xx (2026-11-03): reenvios confirmados tras rechazo por descuento
+  // que entraron a SAP SIN el descuento economico. Nunca se informan como OK
+  // a secas: el admin tiene que saber que el descuento NO quedo aplicado.
+  if (r.sinDescuento && r.sinDescuento.length) {
+    detail +=
+      '\n\nATENCION: enviados SIN el descuento economico (NO quedo aplicado; ' +
+      'hay que cargarlo en SAP):\n' +
+      r.sinDescuento
+        .slice(0, 5)
+        .map(
+          (e) =>
+            '- ' +
+            (e.cliente || e.pedido) +
+            ': solicitado ' +
+            e.pctSolicitado +
+            ' %, enviado ' +
+            e.pctEnviado +
+            ' %'
+        )
+        .join('\n');
+    if (r.sinDescuento.length > 5) detail += '\n... ' + (r.sinDescuento.length - 5) + ' mas.';
+  }
   if (r.failed > 0 && r.errors && r.errors.length) {
     detail +=
       '\n\nErrores:\n' +
@@ -906,6 +936,9 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
     );
     return { sent: 0, failed: 0, errors: ['Service Layer deshabilitado'] };
   }
+  // Patch 4xx (2026-11-03): pedidos reenviados a mano tras un rechazo por
+  // descuento que entraron a SAP sin el descuento economico (para el resumen).
+  const sinDescuento = [];
   const errors = [];
   let sent = 0;
   const skipped = [];
@@ -922,6 +955,48 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
     crypto.randomUUID().slice(0, 8);
   for (const p of pedidos) {
     const docRef = fbDb.collection('pedidos').doc(p._fsId);
+    // Patch 4xx (2026-11-03): rechazo previo por descuento => confirmacion
+    // explicita antes de reenviar (SAP puede recibirlo SIN el descuento). Sin
+    // confirmacion no se envia; con confirmacion se envia y el rechazo queda en
+    // transferErrorHistory. Pedidos sin rechazo por descuento: sin cambios.
+    const prevTe = p.transferError || null;
+    const discountRetryConfirmed = hasDiscountRejection(prevTe)
+      ? confirm(discountRetryConfirmText(p, prevTe))
+      : false;
+    if (hasDiscountRejection(prevTe) && !discountRetryConfirmed) {
+      skipped.push({
+        pedido: p._fsId,
+        cliente: p.clientName,
+        motivo: 'no reenviado: SAP habia rechazado el descuento (cancelado por el admin)',
+      });
+      continue;
+    }
+    /** @type {any} */
+    let teAtLock = prevTe;
+    // Patch 4xx: campos de reenvio confirmado tras rechazo por descuento.
+    const _retryAt = () => new Date().toISOString();
+    const _retryBy = (currentUser && currentUser.email) || '';
+    // Se evalua al usarse: teAtLock se fija dentro de la transaccion del lock.
+    const _isDiscountRetry = () => discountRetryConfirmed && hasDiscountRejection(teAtLock);
+    const retrySuccessFields = (pctEnviado) => {
+      if (!_isDiscountRetry()) return {};
+      const pctSolicitado = requestedDiscountPctForDisplay(p, teAtLock);
+      const f = discountRetrySuccessFields(teAtLock, {
+        pctSolicitado,
+        pctEnviado,
+        by: _retryBy,
+        at: _retryAt(),
+        arrayUnion: (x) => firebase.firestore.FieldValue.arrayUnion(x),
+      });
+      if (!f.descuentoRechazadoPrevio.aplicadoEnSap)
+        sinDescuento.push({
+          pedido: p._fsId,
+          cliente: p.clientName,
+          pctSolicitado,
+          pctEnviado: f.descuentoRechazadoPrevio.pctEnviado,
+        });
+      return f;
+    };
     // v344+ (2026-07-28): FIX DUPLICADOS. Igual que el auto-send listener,
     // aca tambien reservamos con transaction para prevenir carrera contra el
     // auto-send corriendo en OTRA sesion (o el mismo tab despues del F5).
@@ -936,6 +1011,11 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
         if (!snap.exists) throw new Error('DOC_GONE');
         const data = snap.data() || {};
         if (data.transferidoSAP) throw new Error('ALREADY_SENT');
+        // Patch 4xx: el pedido en memoria podia estar viejo. Si el doc ya tiene
+        // un rechazo por descuento que el admin no confirmo, no se envia.
+        if (hasDiscountRejection(data.transferError) && !discountRetryConfirmed)
+          throw new Error('DISCOUNT_REJECTED_NOT_CONFIRMED');
+        teAtLock = data.transferError || null;
         if (data.sendingSapLock && data.sendingSapLock.at) {
           const lockAgeMs = Date.now() - data.sendingSapLock.at;
           if (lockAgeMs < SAP_LOCK_TTL_MS)
@@ -948,6 +1028,14 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
       const msg = (e && e.message) || String(e);
       if (msg === 'ALREADY_SENT') {
         skipped.push({ pedido: p._fsId, cliente: p.clientName, motivo: 'ya enviado' });
+        continue;
+      }
+      if (msg === 'DISCOUNT_REJECTED_NOT_CONFIRMED') {
+        skipped.push({
+          pedido: p._fsId,
+          cliente: p.clientName,
+          motivo: 'no reenviado: SAP rechazo el descuento; volve a intentar para confirmar',
+        });
         continue;
       }
       if (msg.startsWith('OTHER_SESSION_LOCK')) {
@@ -1095,6 +1183,8 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
               },
               sendingSapLock: firebase.firestore.FieldValue.delete(),
               transferError: firebase.firestore.FieldValue.delete(),
+              // SQ ya existente: no sabemos con que descuento => se informa 0.
+              ...retrySuccessFields(0),
             });
           } catch (_updErr) {}
           sent++;
@@ -1126,6 +1216,9 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
           // v914 (2026-09-14): limpiar transferError de un intento fallido
           // previo — el envio actual fue exitoso.
           transferError: firebase.firestore.FieldValue.delete(),
+          // Patch 4xx: si era un reenvio confirmado tras rechazo por descuento,
+          // el rechazo queda en transferErrorHistory + descuentoRechazadoPrevio.
+          ...retrySuccessFields(payload && payload.DiscountPercent),
         });
       } catch (e) {
         console.warn('No pude marcar pedido como transferido', p._fsId, e);
@@ -1144,17 +1237,35 @@ window.enviarPedidosASAPViaServiceLayer = async function (pedidos) {
       // perdia al cerrar. Los vendedores no tenian visibilidad del problema.
       try {
         await docRef.update({
-          transferError: {
-            message: String(r.error || 'Error desconocido').slice(0, 500),
-            at: new Date().toISOString(),
+          // Patch 4xx: misma forma que la CF (status, sapCode, discountRejected).
+          transferError: buildSapTransferError({
+            status: r.status,
+            body: r.body,
+            error: r.error,
             via: 'service_layer',
+            at: new Date().toISOString(),
             attemptedBy: (currentUser && currentUser.email) || '',
-          },
+            discountPercentSent: payload && payload.DiscountPercent,
+          }),
+          // Reenvio confirmado que vuelve a fallar: el rechazo original no se
+          // pierde al reemplazar transferError.
+          ...(_isDiscountRetry()
+            ? {
+                transferErrorHistory: firebase.firestore.FieldValue.arrayUnion(
+                  archiveTransferError(teAtLock, {
+                    by: _retryBy,
+                    at: _retryAt(),
+                    resolution: 'reenvio_manual_fallido',
+                    pctEnviado: payload && payload.DiscountPercent,
+                  })
+                ),
+              }
+            : {}),
         });
       } catch (_) {}
     }
   }
-  return { sent, failed: errors.length, errors, skipped };
+  return { sent, failed: errors.length, errors, skipped, sinDescuento };
 };
 
 // ----- TAB: Pendientes / Transferidos -----
