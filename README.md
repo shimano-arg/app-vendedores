@@ -4755,6 +4755,28 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Rollback**: revert del PR (sin impacto en producción).
 
+### v1547 (2026-11-03) — «Pasar a Pendientes» ya no falla en silencio
+
+- **Antes**: desde Lista de espera, el vendedor confirmaba el cartel «¿Confirmar pedido de X…?», tocaba OK y no pasaba nada. El pedido seguía en Lista de espera, sin ningún mensaje. Reportado por Mariano el 2026-11-03 con LOS FERRETIS S. R. L. (ORDEN 610, 124 productos).
+- **Problema** (diagnóstico §29.3): `doConfirmPedido` es `async` y sus llamadores no hacen `await`:
+  - el botón «Pasar a Pendientes» en `src/domains/pedidos-modal.js:835`;
+  - Generar Backorder;
+  - el botón Confirmar.
+  - Por eso, si algo fallaba de forma imprevista después del OK, la promesa se rechazaba sin que nadie la atrapara: ni cartel ni registro. Además, mientras `commitPedidoCF` procesa un pedido grande, la pantalla no mostraba ningún aviso.
+  - **No pude ver la excepción concreta del caso real**: esta sesión no tiene acceso a los registros de producción. Este cambio hace que la próxima vez quede visible y registrada.
+- **Cambio** (`index.html`):
+  - `window.doConfirmPedido` pasa a ser un envoltorio de `window._doConfirmPedidoImpl`, que es el flujo de siempre sin cambios. Cualquier excepción se atrapa y:
+    - muestra el cartel `CONFIRM_EXCEPTION` (texto en `src/pure/mensajes-vendedor.js`, §68), con el detalle técnico al final para que el vendedor lo mande;
+    - deja un registro en `operations_log` con `type='client_confirm_exception'`, mensaje, stack, cliente, orden y lista de espera de origen (§70);
+    - lo reporta a Sentry con `reportCriticalError`.
+  - Durante la llamada a `commitPedidoCF` se muestra «Confirmando el pedido, esperá unos segundos…», y el aviso se oculta al terminar.
+- **Cómo diagnosticar el próximo caso**: el vendedor manda la captura con «Código técnico: CONFIRM_EXCEPTION · …», o se busca en `operations_log` el `type='client_confirm_exception'`.
+- **Verificación**:
+  - test nuevo `tests/unit/audit/confirm-pedido-sin-falla-muda-v1547.test.js` (5): ejecuta el envoltorio con una falla simulada y comprueba el cartel y el registro;
+  - unit 2777 y smoke 25 en verde, typecheck limpio;
+  - en el navegador (Playwright), con una falla forzada aparece el cartel y no hay errores de sintaxis.
+- **Rollback**: revertir el PR. No hay cambios de servidor ni de reglas.
+
 ### v1546 (2026-11-02) — Botón «Pedidos del mes» con estilo Apple
 
 - **Antes**: el botón del header «Pedidos del mes» (v1540) quedaba con el estilo por defecto de `.btn-zonas`: rectángulo, mayúsculas, sombra. Al lado, Panel de Control, Planner y los demás son pill Apple.
