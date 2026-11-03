@@ -81,6 +81,20 @@ jobs:
       - name: Gate smoke (sin fallas + piso de ejecutados)
         run: node scripts/ci/check-known-failures.mjs smoke smoke-report.json
 
+      # C9-D4 (2026-11-03): tests Python (solo stdlib, sin red ni credenciales).
+      # Cubren los guards de scripts destructivos y helpers de los syncs.
+      - name: Python tests
+        run: |
+          set -e
+          n=0
+          for f in tests/python/test_*.py; do
+            echo "== $f"
+            python3 "$f"
+            n=$((n+1))
+          done
+          echo "archivos Python ejecutados: $n"
+          test "$n" -ge 1
+
       # test:rules y test:functions corren en el job `security-tests` (abajo).
 
   # INFRA (2026-10-29): las suites de Rules y Functions (incluidas las de

@@ -12,17 +12,25 @@
  *
  * Estrategia:
  * 1. Firestore: buscar pedidos con `transferidoSAP.closedManuallyInSap: true`.
- * 2. Para cada uno, SAP SL: GET /Orders?$filter=NumAtCard eq '<pedidoId>'.
- * 3. Si hay match: la SQ SÍ tenía SO derivada — race victim. Reparar:
+ * 2. Para cada uno, SAP SL (solo GET): /Orders?$filter=NumAtCard eq '<pedidoId>'.
+ * 3. Si hay match: race victim. Reparar (REABRE el pedido):
  *    - Unset `closedAt`, `closedReason`, `closedBy`.
  *    - Unset `transferidoSAP.closedManuallyInSap`, `sapDocumentStatus`,
  *      `closedManuallyDetectedAt`.
  *    - Set `transferidoSAP.orderDocEntry`, `orderDocNum`, `orderSyncedAt`.
  * 4. Si NO hay match: cierre manual genuino, dejar como está.
  *
+ * C9 (contención):
+ *   - DRY-RUN por defecto (antes escribía por defecto).
+ *   - APPLY: --project <id> --apply --confirm-project=<id> + cuenta de servicio.
+ *   - Firebase Admin se inicializa con `projectId` = --project, y el guard
+ *     bloquea si la cuenta de servicio es de otro proyecto.
+ *   - Cada update guarda `_backfill.<slug>.previousValues` (CLAUDE.md §55)
+ *     para poder revertir.
+ *
  * Uso:
  *   cd functions
- *   node ../scripts/repair-quotation-closure-race-victims.mjs [--dry-run]
+ *   node ../scripts/repair-quotation-closure-race-victims.mjs --project app-vendedores-shimano
  *
  * Requisitos:
  *   - functions/serviceAccount.json (o GOOGLE_APPLICATION_CREDENTIALS env).
@@ -30,39 +38,113 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import admin from 'firebase-admin';
-
-// __dirname replacement.
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const safeTarget = require('./_lib/safe-target.cjs');
 
-const DRY_RUN = process.argv.includes('--dry-run');
+export const BACKFILL_SLUG = 'repair_quotation_closure_race_v1102';
 
-// -----------------------------------------------------------------------
-// Firebase Admin init
-// -----------------------------------------------------------------------
-
-const saPath = resolve(__dirname, '../functions/serviceAccount.json');
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(readFileSync(saPath, 'utf8'));
-} catch (e) {
-  console.error(`ERROR: no se pudo leer ${saPath}. ${e.message}`);
-  process.exit(1);
+/**
+ * Puro: arma el patch de Firestore para un race victim.
+ * @param {Record<string, any>} data  pedido actual
+ * @param {{docEntry:number, docNum:number|null}} so
+ * @param {string} nowIso
+ * @param {() => any} fieldDelete  FieldValue.delete
+ */
+export function buildRepairPatch(data, so, nowIso, fieldDelete) {
+  const existingTsap = data.transferidoSAP || {};
+  const newTsap = { ...existingTsap };
+  newTsap.orderDocEntry = so.docEntry;
+  if (so.docNum !== null) newTsap.orderDocNum = so.docNum;
+  newTsap.orderSyncedAt = nowIso;
+  newTsap.raceVictimRepairedAt = nowIso;
+  delete newTsap.closedManuallyInSap;
+  delete newTsap.sapDocumentStatus;
+  delete newTsap.closedManuallyDetectedAt;
+  const previousValues = {
+    closedAt: data.closedAt === undefined ? null : data.closedAt,
+    closedReason: data.closedReason === undefined ? null : data.closedReason,
+    closedBy: data.closedBy === undefined ? null : data.closedBy,
+    transferidoSAP: existingTsap,
+  };
+  return {
+    closedAt: fieldDelete(),
+    closedReason: fieldDelete(),
+    closedBy: fieldDelete(),
+    transferidoSAP: newTsap,
+    [`_backfill.${BACKFILL_SLUG}`]: {
+      previousValues,
+      by: 'scripts/repair-quotation-closure-race-victims.mjs',
+      at: nowIso,
+    },
+  };
 }
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const fbDb = admin.firestore();
 
-// -----------------------------------------------------------------------
-// SAP SL config
-// -----------------------------------------------------------------------
+/**
+ * Núcleo con dependencias inyectables (testeable sin red).
+ * @param {{ t: any, fbDb: any, findSo: (id:string)=>Promise<any>, fieldDelete: ()=>any,
+ *           login: ()=>Promise<any>, logout: (s:any)=>Promise<void>, log?: (m:string)=>void,
+ *           now?: ()=>string }} deps
+ */
+export async function runRepair(deps) {
+  const log = deps.log || ((m) => console.log(m));
+  const now = deps.now || (() => new Date().toISOString());
+  log(`[${deps.t.mode}] Buscando race victims (closedManuallyInSap:true) en ${deps.t.project}...`);
+  const snap = await deps.fbDb.collection('pedidos').where('closedAt', '!=', null).get();
+  /** @type {{id:string, data:any}[]} */
+  const candidates = [];
+  snap.forEach((doc) => {
+    const data = doc.data() || {};
+    const tsap = data.transferidoSAP || {};
+    if (tsap.closedManuallyInSap === true) candidates.push({ id: doc.id, data });
+  });
+  log(`Encontrados ${candidates.length} candidatos con closedManuallyInSap:true`);
+  const summary = { salvaged: 0, confirmed: 0, errors: 0, candidates: candidates.length };
+  if (candidates.length === 0) return summary;
 
-// Leer .env manualmente para no requerir dotenv.
-const envPath = resolve(__dirname, '../functions/.env');
-const envVars = {};
-try {
+  const session = await deps.login();
+  try {
+    for (const c of candidates) {
+      log(`\nProcesando ${c.id}...`);
+      try {
+        const so = await deps.findSo(session, c.id);
+        if (!so) {
+          log('  → cierre manual genuino (no hay SO con ese NumAtCard). Skip.');
+          summary.confirmed++;
+          continue;
+        }
+        log(`  → RACE VICTIM: SO DocEntry=${so.docEntry}, DocNum=${so.docNum}`);
+        const patch = buildRepairPatch(c.data, so, now(), deps.fieldDelete);
+        await safeTarget.write(
+          deps.t,
+          `update pedidos/${c.id} (reabrir + orderDocEntry=${so.docEntry})`,
+          () => deps.fbDb.doc(`pedidos/${c.id}`).update(patch),
+          log,
+        );
+        summary.salvaged++;
+      } catch (e) {
+        log(`  ERROR: ${/** @type {any} */ (e).message}`);
+        summary.errors++;
+      }
+    }
+  } finally {
+    await deps.logout(session);
+  }
+  log(
+    `\n===== RESUMEN =====\nRace victims ${deps.t.apply ? 'reparados' : 'a reparar'}: ${summary.salvaged}\n` +
+      `Confirmados cierres manuales: ${summary.confirmed}\nErrores: ${summary.errors}\n` +
+      `${deps.t.apply ? '' : '(DRY-RUN — no se aplicaron cambios)'}`,
+  );
+  return summary;
+}
+
+function readEnvFile(envPath) {
+  /** @type {Record<string,string>} */
+  const envVars = {};
   const envText = readFileSync(envPath, 'utf8');
   for (const line of envText.split('\n')) {
     const trimmed = line.trim();
@@ -71,178 +153,98 @@ try {
     if (eq === -1) continue;
     const k = trimmed.slice(0, eq).trim();
     let v = trimmed.slice(eq + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-      v = v.slice(1, -1);
-    }
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
     envVars[k] = v;
   }
-} catch (e) {
-  console.error(`ERROR: no se pudo leer ${envPath}. ${e.message}`);
-  process.exit(1);
+  return envVars;
 }
-
-const SAP_SL_URL = envVars.SAP_SL_URL;
-const SAP_SL_COMPANY = envVars.SAP_SL_COMPANY;
-const SAP_SL_USER = envVars.SAP_SL_USER;
-const SAP_SL_PASSWORD = envVars.SAP_SL_PASSWORD;
-if (!SAP_SL_URL || !SAP_SL_COMPANY || !SAP_SL_USER || !SAP_SL_PASSWORD) {
-  console.error(
-    'ERROR: SAP_SL_URL/COMPANY/USER/PASSWORD faltantes en functions/.env'
-  );
-  process.exit(1);
-}
-
-// -----------------------------------------------------------------------
-// SAP SL login helper (mínimo — sin retry / refresh)
-// -----------------------------------------------------------------------
-
-async function sapLogin() {
-  const res = await fetch(`${SAP_SL_URL}/b1s/v1/Login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      CompanyDB: SAP_SL_COMPANY,
-      UserName: SAP_SL_USER,
-      Password: SAP_SL_PASSWORD,
-    }),
-  });
-  if (!res.ok) throw new Error(`SAP Login failed: ${res.status}`);
-  const setCookie = res.headers.get('set-cookie') || '';
-  // Extraer B1SESSION + ROUTEID.
-  const b1 = setCookie.match(/B1SESSION=([^;]+)/);
-  const route = setCookie.match(/ROUTEID=([^;]+)/);
-  if (!b1) throw new Error('SAP Login: no B1SESSION cookie');
-  return {
-    cookie: `B1SESSION=${b1[1]}${route ? `; ROUTEID=${route[1]}` : ''}`,
-  };
-}
-
-async function sapLogout(session) {
-  try {
-    await fetch(`${SAP_SL_URL}/b1s/v1/Logout`, {
-      method: 'POST',
-      headers: { Cookie: session.cookie },
-    });
-  } catch {
-    /* silent */
-  }
-}
-
-async function findSoByNumAtCard(session, pedidoId) {
-  const escaped = String(pedidoId).replace(/'/g, "''");
-  const endpoint =
-    `${SAP_SL_URL}/b1s/v1/Orders` +
-    `?$filter=${encodeURIComponent(`NumAtCard eq '${escaped}'`)}` +
-    `&$select=${encodeURIComponent('DocEntry,DocNum')}`;
-  const res = await fetch(endpoint, { headers: { Cookie: session.cookie } });
-  if (!res.ok) {
-    console.warn(`  findSoByNumAtCard ${pedidoId} status=${res.status}`);
-    return null;
-  }
-  const body = await res.json();
-  const rows = (body && body.value) || [];
-  if (rows.length === 0) return null;
-  rows.sort((a, b) => Number(b.DocEntry) - Number(a.DocEntry));
-  const so = rows[0];
-  const docEntry = Number(so.DocEntry);
-  if (!Number.isFinite(docEntry) || docEntry <= 0) return null;
-  const docNumRaw = Number(so.DocNum);
-  const docNum = Number.isFinite(docNumRaw) ? docNumRaw : null;
-  return { docEntry, docNum };
-}
-
-// -----------------------------------------------------------------------
-// Main
-// -----------------------------------------------------------------------
 
 async function main() {
-  console.log(
-    `${DRY_RUN ? '[DRY-RUN]' : '[LIVE]'} Buscando race victims (closedManuallyInSap:true)...`
-  );
-
-  // Buscar candidatos.
-  const snap = await fbDb.collection('pedidos').where('closedAt', '!=', null).get();
-  const candidates = [];
-  snap.forEach((doc) => {
-    const data = doc.data() || {};
-    const t = data.transferidoSAP || {};
-    if (t.closedManuallyInSap === true) {
-      candidates.push({ id: doc.id, data });
-    }
+  const saPath = resolve(__dirname, '../functions/serviceAccount.json');
+  // El guard valida --project, modo y que la SA sea del mismo proyecto.
+  const t = await safeTarget.guardOrExit({
+    requiresWrite: true,
+    env: { ...process.env, GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS || saPath },
   });
-  console.log(`Encontrados ${candidates.length} candidatos con closedManuallyInSap:true`);
-
-  if (candidates.length === 0) {
-    console.log('Nada por reparar.');
-    await admin.app().delete();
-    return;
+  if (t.rest.length) {
+    console.error(`argumentos desconocidos: ${t.rest.join(' ')}`);
+    process.exit(2);
   }
-
-  const session = await sapLogin();
-  console.log('SAP SL login OK.');
-
-  let salvaged = 0;
-  let confirmed = 0;
-  let errors = 0;
+  const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || saPath;
+  let serviceAccount;
   try {
-    for (const c of candidates) {
-      console.log(`\nProcesando ${c.id} (${c.data.clientName || '(sin nombre)'})...`);
-      try {
-        const so = await findSoByNumAtCard(session, c.id);
-        if (!so) {
-          console.log('  → cierre manual genuino (no hay SO con ese NumAtCard). Skip.');
-          confirmed++;
-          continue;
-        }
-        console.log(`  → RACE VICTIM: SO DocEntry=${so.docEntry}, DocNum=${so.docNum}`);
-        if (DRY_RUN) {
-          console.log('  [DRY-RUN] no se actualiza Firestore.');
-          salvaged++;
-          continue;
-        }
-        const nowIso = new Date().toISOString();
-        const existingTsap = c.data.transferidoSAP || {};
-        // Preservar campos previos + agregar orderDocEntry/orderDocNum
-        // + limpiar los closure flags. Usamos objeto completo para
-        // reemplazar transferidoSAP sin arrastrar closure flags.
-        const newTsap = { ...existingTsap };
-        newTsap.orderDocEntry = so.docEntry;
-        if (so.docNum !== null) newTsap.orderDocNum = so.docNum;
-        newTsap.orderSyncedAt = nowIso;
-        newTsap.raceVictimRepairedAt = nowIso;
-        delete newTsap.closedManuallyInSap;
-        delete newTsap.sapDocumentStatus;
-        delete newTsap.closedManuallyDetectedAt;
-
-        await fbDb.doc(`pedidos/${c.id}`).update({
-          closedAt: admin.firestore.FieldValue.delete(),
-          closedReason: admin.firestore.FieldValue.delete(),
-          closedBy: admin.firestore.FieldValue.delete(),
-          transferidoSAP: newTsap,
-        });
-        console.log('  → reparado.');
-        salvaged++;
-      } catch (e) {
-        console.error(`  ERROR: ${e.message}`);
-        errors++;
-      }
-    }
-  } finally {
-    await sapLogout(session);
+    serviceAccount = JSON.parse(readFileSync(credPath, 'utf8'));
+  } catch (e) {
+    console.error(`ERROR: no se pudo leer la cuenta de servicio. ${/** @type {any} */ (e).message}`);
+    process.exit(1);
   }
+  let envVars;
+  try {
+    envVars = readEnvFile(resolve(__dirname, '../functions/.env'));
+  } catch (e) {
+    console.error(`ERROR: no se pudo leer functions/.env. ${/** @type {any} */ (e).message}`);
+    process.exit(1);
+  }
+  const { SAP_SL_URL, SAP_SL_COMPANY, SAP_SL_USER, SAP_SL_PASSWORD } = envVars;
+  if (!SAP_SL_URL || !SAP_SL_COMPANY || !SAP_SL_USER || !SAP_SL_PASSWORD) {
+    console.error('ERROR: SAP_SL_URL/COMPANY/USER/PASSWORD faltantes en functions/.env');
+    process.exit(1);
+  }
+  const admin = (await import('firebase-admin')).default;
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount), projectId: t.project });
+  const fbDb = admin.firestore();
 
-  console.log(
-    `\n===== RESUMEN =====\n` +
-      `Salvados (race victims reparados): ${salvaged}\n` +
-      `Confirmados cierres manuales: ${confirmed}\n` +
-      `Errores: ${errors}\n` +
-      `${DRY_RUN ? '(DRY-RUN — no se aplicaron cambios)' : ''}`
-  );
+  const login = async () => {
+    const res = await fetch(`${SAP_SL_URL}/b1s/v1/Login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ CompanyDB: SAP_SL_COMPANY, UserName: SAP_SL_USER, Password: SAP_SL_PASSWORD }),
+    });
+    if (!res.ok) throw new Error(`SAP Login failed: ${res.status}`);
+    const setCookie = res.headers.get('set-cookie') || '';
+    const b1 = setCookie.match(/B1SESSION=([^;]+)/);
+    const route = setCookie.match(/ROUTEID=([^;]+)/);
+    if (!b1) throw new Error('SAP Login: no B1SESSION cookie');
+    return { cookie: `B1SESSION=${b1[1]}${route ? `; ROUTEID=${route[1]}` : ''}` };
+  };
+  const logout = async (session) => {
+    try {
+      await fetch(`${SAP_SL_URL}/b1s/v1/Logout`, { method: 'POST', headers: { Cookie: session.cookie } });
+    } catch {
+      /* silent */
+    }
+  };
+  const findSo = async (session, pedidoId) => {
+    const escaped = String(pedidoId).replace(/'/g, "''");
+    const endpoint =
+      `${SAP_SL_URL}/b1s/v1/Orders` +
+      `?$filter=${encodeURIComponent(`NumAtCard eq '${escaped}'`)}` +
+      `&$select=${encodeURIComponent('DocEntry,DocNum')}`;
+    const res = await fetch(endpoint, { headers: { Cookie: session.cookie } });
+    if (!res.ok) {
+      console.warn(`  findSoByNumAtCard ${pedidoId} status=${res.status}`);
+      return null;
+    }
+    const body = await res.json();
+    const rows = (body && body.value) || [];
+    if (rows.length === 0) return null;
+    rows.sort((a, b) => Number(b.DocEntry) - Number(a.DocEntry));
+    const docEntry = Number(rows[0].DocEntry);
+    if (!Number.isFinite(docEntry) || docEntry <= 0) return null;
+    const docNumRaw = Number(rows[0].DocNum);
+    return { docEntry, docNum: Number.isFinite(docNumRaw) ? docNumRaw : null };
+  };
 
-  await admin.app().delete();
+  try {
+    await runRepair({ t, fbDb, findSo, login, logout, fieldDelete: () => admin.firestore.FieldValue.delete() });
+  } finally {
+    await admin.app().delete();
+  }
 }
 
-main().catch((e) => {
-  console.error('FATAL:', e);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error('FATAL:', e);
+    process.exit(1);
+  });
+}

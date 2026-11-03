@@ -4717,6 +4717,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### Contención C9 (2026-11-03) — guard de destino para scripts destructivos + tests Python en CI
+
+**Antes**: varios scripts de `scripts/` escribían en producción (SAP, Firestore, BigQuery) apenas se ejecutaban, sin dry-run ni confirmación de destino. `probe_sap_discount.py` creaba una cotización real en SAP; `test_sl_sqlqueries.py` creaba un SQLQuery; `repair-quotation-closure-race-victims.mjs` reabría pedidos sin snapshot; `cleanup_bad_bp_sync.py` borraba `client_applications`; `patch_paid_to_date.py` hacía ALTER, UPDATE y DROP al importarse; `backfill_sap_ortt.py` escribía por defecto. El `--dry-run` de `snapshot_avgprice_sl.py` igual creaba el SQLQuery en SAP. `sync_invoices_only.py` hacía WRITE_TRUNCATE de `sap_invoices_raw` con `lines_json=None` en todas las facturas. Los tests `tests/python` no corrían en CI.
+
+**Problema**: un dispatch o una ejecución local por error escribía en producción. En el caso de `sync_invoices_only.py`, aun con la lectura completa vaciaba las líneas de facturas que usan las vistas de ventas (`v_ventas_lineas`, `v_facturas_sap`, …) hasta el próximo sync completo.
+
+**Cambio**:
+- `scripts/_lib/` (`safe_target.py`, `safe-target.cjs`, `script_guard.py`): destino explícito (`--project`), dry-run por defecto, `--apply` + `--confirm-project` en producción, credencial = cuenta de servicio del mismo proyecto. Para SAP, `--sap-allow=<Entidad>` + `--confirm-sap-company`. Nunca imprime el host del Service Layer. `.gitignore`: excepción `!scripts/_lib/`.
+- Los 6 scripts adaptados al guard. Workflows ORTT: `backfill-sap-ortt` con `dry_run` por defecto en `true`; el cron `sync-sap-ortt-daily` escribe con `--apply --confirm-project` explícitos (mismo comportamiento que antes).
+- `snapshot_avgprice_sl.py`: en `--dry-run` ya no crea el SQLQuery.
+- `sync_invoices_only.py`: escritura a BigQuery bloqueada (solo lectura); con lectura incompleta da exit 3 y `--apply` da exit 2.
+- CI (`test-and-lint.yml`, job `test`): step "Python tests" corre `tests/python/test_*.py` (solo stdlib). Piso de unit: 2765 → 2772 (7 tests nuevos del guard).
+
+**Por qué**: contención C9. Que ningún script pueda escribir en producción sin una decisión explícita y verificable del operador. En el mismo ciclo se deshabilitaron los workflows `probe-sap-discount` y `backfill-sap-ortt` (configuración de GitHub, reversible con `gh workflow enable`).
+
+**Verificación**: local con `CI=true` sobre `main` 9ac6399: typecheck y lint sin errores; unit 2772, smoke 25, functions 975/975, gates `exit 0`; Python 6 archivos OK (incluidos 23 + 6 tests nuevos de contención, que fallan sobre `main`); Vitest del guard 7/7; `node build.js` sin diff en bundle/chunks. Sin cambios funcionales en la app.
+
+**Rollback**: revert del PR. Si el cron `sync-sap-ortt-daily` fallara por el guard (por ejemplo, si la cuenta de servicio fuera de otro proyecto), falla sin escribir; revertir solo el YAML lo restablece.
+
 ### Hotfix CI (2026-11-02) — suites de seguridad (Rules con emulador + Functions) en cada PR + gate de fallas conocidas v3
 
 **Antes**: CI corría solo unit + smoke. `tests/rules/setup.js` hacía pasar en vacío las reglas si no había emulador. Unit y smoke no tenían piso de tests ejecutados.

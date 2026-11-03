@@ -1,8 +1,8 @@
 name: Backfill SAP ORTT (tipos de cambio)
 
-# Dispatch manual. Reemplaza completo la tabla sap_tipo_cambio_raw desde
-# ORTT (SAP B1 Service Layer vista sml.svc/ORTT) con las cotizaciones
-# diarias desde start_date (default 2024-01-01).
+# Dispatch manual. MERGE idempotente en sap_tipo_cambio_raw (no trunca)
+# con las cotizaciones diarias desde start_date (default 2024-01-01),
+# via SBOBobService_GetCurrencyRate. C9: dry_run por defecto = true.
 #
 # Spec: ver scripts/backfill_sap_ortt.py docstring.
 #
@@ -17,7 +17,7 @@ on:
         description: 'Dry run (no escribe a BQ, solo loguea)'
         type: boolean
         required: false
-        default: false
+        default: true
       start_date:
         description: 'Fecha desde la cual traer cotizaciones (YYYY-MM-DD)'
         required: false
@@ -47,9 +47,9 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}
         run: |
-          args=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            args="$args --dry-run"
+          args="--project app-vendedores-shimano"
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            args="$args --apply --confirm-project=app-vendedores-shimano"
           fi
           args="$args --start-date=${{ inputs.start_date }}"
           python scripts/backfill_sap_ortt.py $args

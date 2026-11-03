@@ -44,4 +44,9 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}
-        run: python scripts/backfill_sap_ortt.py --start-date=${{ steps.date.outputs.value }}
+        # C9: el script es dry-run por defecto; el cron escribe de forma explicita.
+        run: >-
+          python scripts/backfill_sap_ortt.py
+          --project app-vendedores-shimano
+          --apply --confirm-project=app-vendedores-shimano
+          --start-date=${{ steps.date.outputs.value }}

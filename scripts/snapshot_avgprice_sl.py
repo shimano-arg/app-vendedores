@@ -144,17 +144,26 @@ def sl_logout(session: requests.Session, url_base: str) -> None:
         print(f'[logout] fallo (no critico): {e}')
 
 
-def ensure_sqlquery_exists(session: requests.Session, url_base: str) -> None:
-    """GET /SQLQueries('AVGPRICE_BQ'); si 404, crearla."""
+def ensure_sqlquery_exists(session: requests.Session, url_base: str,
+                           dry_run: bool = False) -> bool:
+    """GET /SQLQueries('AVGPRICE_BQ'); si 404, crearla.
+
+    Devuelve True si la SQLQuery existe (o se creó). En dry-run NO la crea:
+    informa y devuelve False (contención C9-D3: un --dry-run no escribe en SAP).
+    """
     url = f"{url_base}/b1s/v1/SQLQueries('{SQL_CODE}')"
     r = session.get(url, timeout=30)
     if r.ok:
         print(f'[sqlquery] {SQL_CODE} YA EXISTE en SAP')
-        return
+        return True
     if r.status_code != 404:
         print(f'[FATAL] GET /SQLQueries(X) devolvio {r.status_code}: {r.text[:500]}',
               file=sys.stderr)
         sys.exit(10)
+    if dry_run:
+        print(f'[DRY_RUN] {SQL_CODE} no existe en SAP. En modo real se crearía '
+              f'con POST /SQLQueries; en dry-run NO se crea y no se leen filas.')
+        return False
     print(f'[sqlquery] {SQL_CODE} no existe; creando...')
     rc = session.post(f'{url_base}/b1s/v1/SQLQueries', json=SQL_PAYLOAD, timeout=30)
     if rc.status_code != 201:
@@ -162,6 +171,7 @@ def ensure_sqlquery_exists(session: requests.Session, url_base: str) -> None:
               file=sys.stderr)
         sys.exit(11)
     print(f'[sqlquery] creada OK')
+    return True
 
 
 def fetch_avgprice_rows(session: requests.Session, url_base: str) -> list[dict]:
@@ -300,7 +310,8 @@ def main():
         # Login.
         sl_login(session, url_base, company_db, username, pwd)
         # Asegurar SQLQuery.
-        ensure_sqlquery_exists(session, url_base)
+        if not ensure_sqlquery_exists(session, url_base, dry_run=args.dry_run):
+            return
         # Fetch filas.
         rows = fetch_avgprice_rows(session, url_base)
         print()

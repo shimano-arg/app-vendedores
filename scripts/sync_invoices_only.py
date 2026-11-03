@@ -3,6 +3,16 @@ campo paid_to_date sin re-cargar BP/Items/Quotations/Orders/PO).
 
 Uso local. Chunkea el upload a BQ para no explotar la memoria del cliente
 como paso con el sync full en Windows 10 con 8GB RAM.
+
+CONTENCIÓN C9-D3 (2026-11-03): la escritura a BigQuery quedó BLOQUEADA.
+- Este script hace WRITE_TRUNCATE de `sap_invoices_raw` con `lines_json=None`
+  y `lines_count=0` en TODAS las facturas: aun con la lectura completa borra
+  las líneas que carga el sync grande y deja vacías las vistas de ventas
+  (`v_ventas_lineas`, `v_facturas_sap`, …) hasta el próximo sync.
+- Si una página de SAP fallaba, igual truncaba con datos parciales.
+Ahora: solo lectura (cuenta lo que traería). Para refrescar `paid_to_date`
+usar `scripts/patch_paid_to_date.py`; para todo lo demás,
+`scripts/sync_sap_to_bigquery.py`.
 """
 import json
 import os
@@ -55,7 +65,7 @@ cfg = {
     'username': sl['username'],
     'password': sl['password'],
 }
-print(f'[cfg] SL={cfg["url"]}  DB={cfg["companyDB"]}')
+print(f'[cfg] SL=<SAP_SL>  DB={cfg["companyDB"]}')  # C9: el repo es público, no imprimir el host
 
 session = requests.Session()
 resp = session.post(
@@ -101,11 +111,13 @@ path = (f"/b1s/v1/Invoices"
 print(f'[SL] fetching invoices: TODAS las abiertas + cerradas desde {since_date}...')
 all_rows = []
 page = 0
+fetch_complete = True  # C9-D3: False si alguna página falla o se corta por tope
 next_url = f"{cfg['url']}{path}"
 while next_url:
     r = session.get(next_url, timeout=60)
     if not r.ok:
-        print(f'[FAIL] pag {page}: HTTP {r.status_code} - {r.text[:200]}')
+        print(f'[FAIL] pag {page}: HTTP {r.status_code}')
+        fetch_complete = False
         break
     body = r.json()
     batch = body.get('value', [])
@@ -152,6 +164,7 @@ while next_url:
         next_url = f"{cfg['url']}/b1s/v1/{nlink}"
     if page > 500:
         print('[safety] 500 pags reached, cortando')
+        fetch_complete = False
         break
 
 print(f'\n[SL] TOTAL: {len(all_rows)} facturas')
@@ -161,6 +174,21 @@ session.post(f"{cfg['url']}/b1s/v1/Logout")
 if not all_rows:
     print('[warn] sin filas, no toco BQ')
     sys.exit(0)
+
+# ============================================================
+# C9-D3: escritura bloqueada (ver docstring). Nunca llega al WRITE_TRUNCATE.
+# ============================================================
+if not fetch_complete:
+    print(f'[ABORT] lectura de SAP INCOMPLETA ({len(all_rows)} facturas, {page} páginas). '
+          'No se escribe nada.')
+    sys.exit(3)
+print(f'[SOLO LECTURA] {len(all_rows)} facturas leídas. NO se escribe {BQ_TABLE}: '
+      'este script borraría lines_json de todas las facturas. Usar '
+      'scripts/patch_paid_to_date.py (solo paid_to_date) o scripts/sync_sap_to_bigquery.py.')
+if '--apply' in sys.argv[1:]:
+    print('[BLOQUEADO] --apply no está disponible en este script (contención C9-D3).')
+    sys.exit(2)
+sys.exit(0)
 
 # ============================================================
 # WRITE_TRUNCATE con schema explicito
