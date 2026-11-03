@@ -13,9 +13,7 @@ const HTML = readFileSync('index.html', 'utf8');
 describe('Fix P0 — acceso de interno (VDI) a Pedidos del mes', () => {
   it('openPedidosDelMes habilita a interno (el gate ya NO lo excluye)', () => {
     // El gate de rechazo no debe quedar como admin/gerente/vendedor sin interno.
-    expect(PDM).not.toMatch(
-      /role !== 'admin' && role !== 'gerente' && role !== 'vendedor'\)\s*\{/
-    );
+    expect(PDM).not.toMatch(/role !== 'admin' && role !== 'gerente' && role !== 'vendedor'\)\s*\{/);
     // Debe contemplar interno en la condición de rechazo.
     expect(PDM).toMatch(
       /role !== 'admin' && role !== 'gerente' && role !== 'vendedor' && role !== 'interno'/
