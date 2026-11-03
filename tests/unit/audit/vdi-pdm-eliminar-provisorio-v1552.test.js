@@ -53,7 +53,9 @@ describe('v1552 — Eliminar en provisorios/leads', () => {
     expect(b).toMatch(/color: #ff3b30 !important/);
     expect(b).toMatch(/border-radius: 999px !important/);
     expect(b).toMatch(/text-transform: none !important/);
-    expect(CSS).toMatch(/button\[onclick\*="deleteMcEntry"\]:active \{\s*transform: scale\(0\.97\)/);
+    expect(CSS).toMatch(
+      /button\[onclick\*="deleteMcEntry"\]:active \{\s*transform: scale\(0\.97\)/
+    );
     expect(CSS.includes('\r\n')).toBe(true);
   });
   it('versión >= v1552 en sync con el SW', () => {
