@@ -1414,7 +1414,8 @@ export const dashboardVentasCF = onCall(
  * Facturación efectivamente emitida por cliente y SKU de un mes (BigQuery
  * v_ventas_lineas). Wrapper fino (CLAUDE.md §7): la lógica y el alcance por
  * rol viven en core/pedidos-del-mes-core.js. El vendedor ve solo sus clientes
- * (roles/{uid}.vendor, leído acá en el servidor); admin/gerente, todo el país.
+ * (roles/{uid}.vendor, leído acá en el servidor); admin/gerente, todo el país;
+ * v1552: el interno (VDI) ve su zona + la de sus parejas VDE.
  */
 const _pedidosDelMesCache = createBoundedCache(200);
 
@@ -1461,7 +1462,17 @@ export const pedidosDelMesCF = onCall(
           getUserRole: async (/** @type {string} */ uid) => {
             const snap = await db.collection('roles').doc(uid).get();
             const d = snap.exists ? snap.data() || {} : {};
-            return { role: d.role, vendor: d.vendor };
+            /** @type {string[]} */
+            const partnerVendors = [];
+            // v1552: interno → vendedores pareja (VDE con internalPartnerUid = uid).
+            if (String(d.role || '').toLowerCase() === 'interno') {
+              const ps = await db.collection('roles').where('internalPartnerUid', '==', uid).get();
+              ps.forEach((/** @type {any} */ doc) => {
+                const v = (doc.data() || {}).vendor;
+                if (v) partnerVendors.push(String(v));
+              });
+            }
+            return { role: d.role, vendor: d.vendor, partnerVendors };
           },
           cache: _pedidosDelMesCache,
           now: () => Date.now(),

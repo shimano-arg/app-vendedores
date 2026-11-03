@@ -1566,9 +1566,10 @@ function renderMcProvisoriosTable() {
     // SAP sigue siendo admin-only. Layout: flex row para acomodar ambos.
     // v945 (2026-09-16): boton Eliminar tenia >< /button> sin texto —
     // invisible en la UI. Mismo fix que en el tab SAP (linea ~2457).
+    // v1552: pill Apple (CLAUDE.md §106) + clase mc-del-prov → visible
+    // también en solo lectura (vendedor/interno pueden borrar provisorios).
     const delBtn =
-      '<button type="button" ' +
-      'style="background:var(--color-danger);color:#fff;padding:6px 8px;font-size:10px;font-weight:800;border:none;border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" ' +
+      '<button type="button" class="mc-del-btn mc-del-prov" ' +
       'title="Eliminar provisorio" ' +
       'onclick="deleteMcEntry(\'sap:' +
       safeId +
@@ -2815,13 +2816,17 @@ window.renderMasterClientesTable = function () {
       // v945 (2026-09-16): boton Eliminar tenia >< /button> sin texto —
       // invisible en la UI. Reportado por Mariano con screenshot Master
       // Clientes tab SAP (ON FIRE, LANUS).
-      '<button type="button" onclick="deleteMcEntry(\'' +
+      // v1552: pill Apple (§106). Provisorio/lead (alta sin CardCode SAP):
+      // clase mc-del-prov → visible también para vendedor/interno.
+      '<button type="button" class="mc-del-btn' +
+      (isProvisorio ? ' mc-del-prov' : '') +
+      '" onclick="deleteMcEntry(\'' +
       escapeAttr(id) +
       "'," +
       JSON.stringify(e.nombre).replace(/"/g, '&quot;') +
       ",'" +
       escapeAttr(isSap ? e.sapFsId : '') +
-      '\')" style="background:var(--color-danger);color:#fff;border:none;border-radius:5px;padding:6px 10px;font-size:10px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.3px" title="Eliminar tienda">Eliminar</button></div></td>';
+      '\')" title="Eliminar tienda">Eliminar</button></div></td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -3288,9 +3293,20 @@ window.deleteMcEntry = async function (docId, nombre, sapFsId) {
     return;
   }
   // v1545: Master Clientes es solo lectura para vendedor/interno.
+  // v1552: excepto provisorios/leads (alta sin CardCode SAP), que cualquier
+  // vendedor puede eliminar (firestore.rules client_applications lo permite
+  // desde v778). Clientes SAP y padrón histórico siguen solo admin/gerente.
   if (_mcScope().readOnly) {
-    alert('Solo admin o gerente puede eliminar desde Master Clientes.');
-    return;
+    const _altaRO = sapFsId
+      ? (typeof approvedAltasList !== 'undefined' ? approvedAltasList : []).find(
+          (x) => x && x._fsId === sapFsId
+        )
+      : null;
+    const _esProvisorio = !!(_altaRO && !_altaRO.cardCodeSap);
+    if (!_esProvisorio) {
+      alert('Solo admin o gerente puede eliminar clientes de SAP desde Master Clientes.');
+      return;
+    }
   }
   const safeName = nombre || 'esta tienda';
   const canDeleteSap = userRole === 'admin' || userRole === 'gerente';

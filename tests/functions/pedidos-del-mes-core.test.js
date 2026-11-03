@@ -56,13 +56,31 @@ describe('alcance por rol', () => {
       vendedor: 'PACHI',
     });
   });
-  it('vendedor sin vendor, interno, viewer o sin rol: rechazado', () => {
-    for (const r of [
-      { role: 'vendedor' },
-      { role: 'interno', vendor: 'X' },
-      { role: 'viewer' },
-      null,
-    ]) {
+  it('v1552 interno: su zona + parejas de roles + respaldo fijo, sin duplicados', () => {
+    expect(
+      resolveAlcance({
+        role: 'interno',
+        vendor: 'Santiago Esteban',
+        partnerVendors: ['mauricio gil', 'MARTIN BOIERO'],
+      })
+    ).toEqual({
+      nacional: false,
+      vendedor: null,
+      vendedores: ['MARTIN BOIERO', 'MAURICIO GIL', 'PACHI', 'SANTIAGO ESTEBAN'],
+    });
+    expect(resolveAlcance({ role: 'interno', vendor: 'IOANNIS PALKOUDAKIS' }).vendedores).toEqual([
+      'FEDERICO CASTELANELLI',
+      'GONZALO DE LA ROSA',
+      'IOANNIS PALKOUDAKIS',
+    ]);
+  });
+  it('v1552 interno sin zona ni parejas: rechazado', () => {
+    expect(() => resolveAlcance({ role: 'interno' })).toThrow(
+      expect.objectContaining({ code: 'permission-denied' })
+    );
+  });
+  it('vendedor sin vendor, viewer o sin rol: rechazado', () => {
+    for (const r of [{ role: 'vendedor' }, { role: 'viewer' }, null]) {
       expect(() => resolveAlcance(r)).toThrow(
         expect.objectContaining({ code: 'permission-denied' })
       );
@@ -250,8 +268,19 @@ describe('pedidosDelMesCore', () => {
     expect(r.kpis.clientes).toBe(1);
   });
 
-  it('interno: rechazado sin consultar BigQuery', async () => {
-    const deps = mkDeps([], { role: 'interno', vendor: 'X' });
+  it('v1552 interno: consulta su zona + parejas', async () => {
+    const deps = mkDeps([], { role: 'interno', vendor: 'SANTIAGO ESTEBAN', partnerVendors: [] });
+    const r = await pedidosDelMesCore(deps, { auth: { uid: 'i' }, data: {} });
+    expect(r.alcance.vendedores).toEqual(['MAURICIO GIL', 'PACHI', 'SANTIAGO ESTEBAN']);
+    expect(deps.runQuery.mock.calls[0][0].params.vendedores).toEqual([
+      'MAURICIO GIL',
+      'PACHI',
+      'SANTIAGO ESTEBAN',
+    ]);
+  });
+
+  it('interno sin zona ni parejas: rechazado sin consultar BigQuery', async () => {
+    const deps = mkDeps([], { role: 'interno' });
     await expect(pedidosDelMesCore(deps, { auth: { uid: 'i' }, data: {} })).rejects.toMatchObject({
       code: 'permission-denied',
     });
@@ -285,5 +314,23 @@ describe('pedidosDelMesCore', () => {
     r1.clientes[0].nombre = 'ROTO';
     const r2 = await pedidosDelMesCore(deps, { auth: { uid: 'a' }, data: { anio: 2026, mes: 10 } });
     expect(r2.clientes[0].nombre).toBe('CLIENTE UNO');
+  });
+});
+
+describe('v1552 — query y caché con alcance de interno', () => {
+  it('la query filtra por todos los vendedores del interno', () => {
+    const q = buildPedidosDelMesQuery(
+      { anio: 2026, mes: 11 },
+      { nacional: false, vendedor: null, vendedores: ['MAURICIO GIL', 'PACHI', 'SANTIAGO ESTEBAN'] }
+    );
+    expect(q.params.vendedores).toEqual(['MAURICIO GIL', 'PACHI', 'SANTIAGO ESTEBAN']);
+  });
+  it('un alcance no nacional sin vendedores nunca consulta todo el país', () => {
+    expect(() =>
+      buildPedidosDelMesQuery(
+        { anio: 2026, mes: 11 },
+        { nacional: false, vendedor: null, vendedores: [] }
+      )
+    ).toThrow(expect.objectContaining({ code: 'permission-denied' }));
   });
 });

@@ -182,7 +182,11 @@ function _renderKpis(lista) {
     esc(fmtArs(t.ars)) +
     '</b> facturado</span>' +
     '<span class="pdm-kpi pdm-kpi-scope">' +
-    (alc.nacional ? 'Vista nacional' : 'Tus clientes') +
+    (alc.nacional
+      ? 'Vista nacional'
+      : Array.isArray(alc.vendedores) && alc.vendedores.length > 1
+        ? 'Tu zona y tus parejas'
+        : 'Tus clientes') +
     '</span>';
 }
 
