@@ -180,6 +180,8 @@ AUDITORIA-*.md
 scripts/debug-*
 scripts/force-*
 scripts/_*
+# C9: el guard comun de scripts SI se trackea (excepcion a scripts/_*).
+!scripts/_lib/
 scripts/audit/_*
 tests/e2e/evidencia/_output/
 tests/e2e/evidencia/_reports/

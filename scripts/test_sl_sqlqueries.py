@@ -28,23 +28,33 @@ NO carga nada en BigQuery. Si el paso 3 funciono, deja la SQLQuery
 creada en SAP (es solo un SELECT guardado). Para borrarla:
     DELETE /b1s/v1/SQLQueries('AVGPRICE_BQ')
 
-Uso:
+Uso (C9: DRY-RUN por defecto, no crea nada en SAP):
     $env:SAP_SL_PASSWORD = "..."
-    python scripts\test_sl_sqlqueries.py
+    python scripts\test_sl_sqlqueries.py --project app-vendedores-shimano
+  Crear la SQLQuery (escritura en SAP productivo) exige ademas:
+    --apply --confirm-project=<id> --sap-allow=SQLQueries --confirm-sap-company=<CompanyDB>
+  y una cuenta de servicio (el guard bloquea --apply en prod con ADC de usuario).
+  Nota: scripts/snapshot_avgprice_sl.py ya crea AVGPRICE_BQ si falta; este
+  script es exploratorio y deberia retirarse.
 """
 import json
 import os
 import sys
 
 import requests
+
+sys.path.insert(0, 'scripts')
+from _lib.script_guard import SapWriteGate, guard, mask_url  # noqa: E402
+from _lib.safe_target import SafeTargetError  # noqa: E402
+
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud import bigquery
 
 
-BQ_PROJECT = 'app-vendedores-shimano'
+BQ_PROJECT = None  # C9: lo fija main() desde --project (antes hardcode)
 BQ_LOCATION = 'southamerica-east1'
-SECRET_RESOURCE = f'projects/{BQ_PROJECT}/secrets/SAP_SL_PASSWORD/versions/latest'
+
 
 SKUS_TEST = [
     'EMFTZ5007428',
@@ -74,7 +84,7 @@ def resolve_sl_password() -> str:
         sys.exit(6)
     try:
         c = secretmanager.SecretManagerServiceClient()
-        resp = c.access_secret_version(request={'name': SECRET_RESOURCE})
+        resp = c.access_secret_version(request={'name': f'projects/{BQ_PROJECT}/secrets/SAP_SL_PASSWORD/versions/latest'})
         return resp.payload.data.decode('utf-8').strip()
     except Exception as e:
         print(f'[FATAL] Secret Manager fallo: {type(e).__name__}: {e}',
@@ -93,7 +103,10 @@ def pretty_body(resp: requests.Response, max_chars: int = 1500) -> str:
     return text
 
 
-def main():
+def main(argv=None):
+    global BQ_PROJECT
+    t = guard(argv=argv, requires_write=True, sa_env=None)
+    BQ_PROJECT = t.project
     # Firestore ADC
     try:
         firebase_admin.initialize_app(
@@ -114,6 +127,16 @@ def main():
         print(f'[FATAL] serviceLayer config incompleta', file=sys.stderr)
         sys.exit(3)
 
+    gate = SapWriteGate(t, ('SQLQueries',), sl.get('companyDB'))
+    if gate.rest:
+        print(f'[FATAL] argumentos desconocidos: {gate.rest}', file=sys.stderr)
+        sys.exit(2)
+    try:
+        gate.check_apply()
+    except SafeTargetError as e:
+        print(f'[safe-target] BLOQUEADO ({e.code}): {e}', file=sys.stderr)
+        sys.exit(2)
+
     pwd = resolve_sl_password()
     session = requests.Session()
 
@@ -122,7 +145,7 @@ def main():
     print('=' * 60)
     print('PASO 1 — Login + version del Service Layer')
     print('=' * 60)
-    print(f'[login] POST {url_base}/b1s/v1/Login')
+    print(f'[login] POST {mask_url(url_base)}/b1s/v1/Login')
     r = session.post(f'{url_base}/b1s/v1/Login',
                      json={'CompanyDB': sl['companyDB'], 'UserName': username,
                            'Password': pwd},
@@ -136,7 +159,7 @@ def main():
                        if any(t in k.lower() for t in ['version', 'data', 'server'])}
     print(f'[login] response headers (filtrados): {json.dumps(dict(version_headers), indent=2)}')
     # Metadata para version
-    print(f'\n[version] GET {url_base}/b1s/v1/$metadata (primeros 500 chars)')
+    print(f'\n[version] GET {mask_url(url_base)}/b1s/v1/$metadata (primeros 500 chars)')
     rm = session.get(f'{url_base}/b1s/v1/$metadata', timeout=30)
     print(f'[version] HTTP {rm.status_code}')
     if rm.ok:
@@ -177,12 +200,24 @@ def main():
     print('=' * 60)
     print('PASO 3 — POST /b1s/v1/SQLQueries (crear AVGPRICE_BQ)')
     print('=' * 60)
-    r3 = session.post(f'{url_base}/b1s/v1/SQLQueries',
-                      json=SQL_PAYLOAD, timeout=30)
-    print(f'[sqlqueries-create] HTTP {r3.status_code}')
-    print(f'[sqlqueries-create] body:')
-    print(pretty_body(r3))
-    if r3.status_code == 201:
+    r3 = gate.request(session, 'POST', f'{url_base}/b1s/v1/SQLQueries',
+                      'SQLQueries', SQL_PAYLOAD, timeout=30)
+    if r3 is None:
+        # DRY-RUN: no se creo nada. Solo seguimos si la SQLQuery ya existe.
+        rchk = session.get(f"{url_base}/b1s/v1/SQLQueries('AVGPRICE_BQ')", timeout=30)
+        if not rchk.ok:
+            print(f'[DRY-RUN] AVGPRICE_BQ no existe en SAP (HTTP {rchk.status_code}); '
+                  'no se puede probar /List sin crearla. Fin del dry-run.')
+            _logout(session, url_base)
+            return
+        print('[DRY-RUN] AVGPRICE_BQ ya existe; sigo con paso 4 (solo lectura).')
+    else:
+        print(f'[sqlqueries-create] HTTP {r3.status_code}')
+        print(f'[sqlqueries-create] body:')
+        print(pretty_body(r3))
+    if r3 is None:
+        pass
+    elif r3.status_code == 201:
         print('[sqlqueries-create] CREADA OK.')
     elif r3.status_code == 409 or (r3.status_code == 400 and 'exist' in r3.text.lower()):
         print('[sqlqueries-create] YA EXISTE, sigo con paso 4.')
@@ -325,7 +360,7 @@ def main():
     # DELETE instruction
     print()
     print(f'Para borrar la SQLQuery creada en SAP (si corresponde):')
-    print(f"  DELETE {url_base}/b1s/v1/SQLQueries('AVGPRICE_BQ')")
+    print(f"  DELETE {mask_url(url_base)}/b1s/v1/SQLQueries('AVGPRICE_BQ')")
     print('  (Es un SELECT guardado read-only, se puede dejar sin riesgo.)')
 
     _logout(session, url_base)

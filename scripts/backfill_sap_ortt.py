@@ -25,10 +25,11 @@ IDEMPOTENCIA (v2 2026-10-19):
   - Fila que ya existia y NO viene en esta corrida → NO SE TOCA
   Resultado: imposible perder historia aunque start_date sea reciente.
 
-Uso:
-  python scripts/backfill_sap_ortt.py                       # desde 2024-01-01
-  python scripts/backfill_sap_ortt.py --dry-run             # solo loguea
-  python scripts/backfill_sap_ortt.py --start-date=2026-01-01  # ventana corta
+Uso (C9: DRY-RUN por defecto; --project obligatorio):
+  python scripts/backfill_sap_ortt.py --project app-vendedores-shimano            # dry-run
+  python scripts/backfill_sap_ortt.py --project app-vendedores-shimano \
+      --apply --confirm-project=app-vendedores-shimano --start-date=2026-01-01   # escribe
+  En DRY-RUN igual se consulta SAP (solo lectura: SBOBobService_GetCurrencyRate).
 """
 
 import argparse
@@ -41,11 +42,11 @@ from datetime import date, datetime, timedelta, timezone
 import requests
 
 sys.path.insert(0, 'scripts')
+from _lib.script_guard import guard  # noqa: E402
 from sync_sap_to_bigquery import (  # noqa: E402
     BQ_DATASET,
-    BQ_PROJECT,
+    BQ_LOCATION,
     get_sl_config,
-    init_bigquery,
     init_firestore,
     log,
     parse_sa_json,
@@ -58,8 +59,17 @@ except ImportError:
     print('ERROR: pip install google-cloud-bigquery', file=sys.stderr)
     sys.exit(1)
 
-BQ_TABLE_TIPO_CAMBIO = f'{BQ_PROJECT}.{BQ_DATASET}.sap_tipo_cambio_raw'
-BQ_TABLE_TIPO_CAMBIO_STAGING = f'{BQ_PROJECT}.{BQ_DATASET}._tmp_sap_tipo_cambio_staging'
+# C9: el proyecto sale de --project (ver main/_set_project). Antes: hardcode.
+BQ_PROJECT = None
+BQ_TABLE_TIPO_CAMBIO = None
+BQ_TABLE_TIPO_CAMBIO_STAGING = None
+
+
+def _set_project(project: str) -> None:
+    global BQ_PROJECT, BQ_TABLE_TIPO_CAMBIO, BQ_TABLE_TIPO_CAMBIO_STAGING
+    BQ_PROJECT = project
+    BQ_TABLE_TIPO_CAMBIO = f'{project}.{BQ_DATASET}.sap_tipo_cambio_raw'
+    BQ_TABLE_TIPO_CAMBIO_STAGING = f'{project}.{BQ_DATASET}._tmp_sap_tipo_cambio_staging'
 START_DATE_DEFAULT = '2024-01-01'
 
 
@@ -274,11 +284,13 @@ def write_to_bq(bq_client: bigquery.Client, rows: list, dry_run: bool = False) -
 
 # ----- Main -----
 
-def main():
+def main(argv=None):
+    t = guard(argv=argv, requires_write=True)
+    _set_project(t.project)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--dry-run', action='store_true', help='No escribe a BQ')
     parser.add_argument('--start-date', default=START_DATE_DEFAULT, help='YYYY-MM-DD (default 2024-01-01)')
-    args = parser.parse_args()
+    args = parser.parse_args(t.rest)
+    args.dry_run = not t.apply  # --dry-run/--apply los consume el guard
 
     sync_ts = datetime.now(tz=timezone.utc).isoformat()
     log('=== Sync sap_tipo_cambio_raw ===')
@@ -289,7 +301,12 @@ def main():
 
     sa_data = parse_sa_json()
     db = init_firestore(sa_data)
-    bq_client = init_bigquery(sa_data)
+    from google.oauth2 import service_account
+    bq_client = bigquery.Client(
+        project=t.project,
+        credentials=service_account.Credentials.from_service_account_info(sa_data),
+        location=BQ_LOCATION,
+    )
     cfg = get_sl_config(db)
 
     session = requests.Session()
