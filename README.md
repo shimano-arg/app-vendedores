@@ -4717,6 +4717,32 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1550 (2026-11-03) — Fix silent-failure: los rechazos 4xx de SAP en el envío automático quedan visibles (`transferError`)
+
+**Antes**: `handleAutoSendSap` (`functions/core/auto-send-sap-core.js`, CF `onPedidoConfirmedSendToSap`), ante un 4xx de Service Layer, solo liberaba `sendingSapLock`. No guardaba `transferError` ni reintentaba.
+
+**Problema**: sin un admin conectado, el pedido quedaba sin llegar a SAP y sin ningún error a la vista. Con un admin conectado, el listener del navegador lo reenviaba (con `DiscountPercent 0`) sin dejar rastro del rechazo. Un rechazo por descuento (10000724) era invisible; `classifyTransferError` lo mostraba como "Datos invalidos" o "Error SAP".
+
+**Cambio**:
+- 4xx: además de liberar el lock, persiste `transferError {message (500), at, via: 'cf_auto', status, sapCode, discountRejected, discountPercentSent}`. Sin `undefined`.
+- `isSapDiscountRejection(sapCode, message)`: 10000724 o texto de descuento "greater than permitted".
+- `classifyTransferError` (index.html): categoría "Descuento no permitido en SAP" con indicación para el vendedor.
+- Fuente única `src/pure/sap-transfer-error.js` (espejo `functions/core/sap-transfer-error.js`, §57): `isSapDiscountRejection` (10000724, con o sin signo, o texto de descuento), `buildSapTransferError` (misma forma de `transferError` para CF, listener y envío manual: `status`, `sapCode`, `discountRejected`), `blocksAutoSend`, `discountRetryConfirmText`, `archiveTransferError`, `discountRetrySuccessFields`.
+- Listener de auto-envío del navegador: no reintenta solo un pedido con rechazo por descuento (de **cualquier** camino) o con rechazo determinístico 4xx de la CF (salvo 408/429). Se chequea en el snapshot y de nuevo dentro de la transacción del lock. Antes, la escritura del rechazo (o la sola liberación del lock) era un `modified` que disparaba un reenvío con `DiscountPercent 0`: SAP podía crear la cotización sin el descuento y el error se borraba. Lo mismo pasaba al conectarse un admin (snapshot inicial).
+- Envío manual (`enviarPedidosASAPViaServiceLayer`, también usado por el botón «Reintentar»): si el pedido tiene un rechazo previo por descuento, pide **confirmación explícita** (cliente, % solicitado, motivo de SAP, "SAP puede recibir la cotización SIN el descuento económico… NO se aplica"). Sin confirmación no se envía (queda en Omitidos). Con confirmación se envía y el rechazo original se conserva en `transferErrorHistory` (`resolution: 'reenvio_manual_confirmado'` o `'reenvio_manual_fallido'`) y `descuentoRechazadoPrevio {pctSolicitado, pctEnviado, aplicadoEnSap}`; el resumen y el alert del botón dicen "enviado SIN el descuento económico… NO quedó aplicado". Se vuelve a chequear dentro de la transacción del lock (pedido en memoria viejo). Pedidos sin rechazo por descuento: sin cambios.
+- CF `handleAutoSendSap`: si el pedido ya tiene un rechazo por descuento (de cualquier camino) no reenvía (`SKIP_DISCOUNT_REJECTED`, chequeado dentro de la transacción del lock). Hallazgo del escenario con Firebase Emulator: el listener ganó el lock, SAP rechazó el descuento y el trigger tardío de la CF volvió a enviar.
+- Pisos de tests (`tests/known-failures.json`): functions 975 → 982, unit 2772 → 2825 (2825 = lo ejecutado sobre `main` c44e068 con este cambio).
+
+**Por qué**: prerrequisito antes de mandar descuentos a SAP en cabecera (F02, `sapDiscountMode: 'header'`), y fix de un silent-failure general de los 4xx (§29.2).
+
+**Comportamiento que NO cambia**: no re-dispara la CF (`isEligibleForAutoSend` solo procesa la transición a `confirmed`); el envío manual de pedidos sin rechazo por descuento es igual que antes y borra `transferError` al enviar con éxito; los errores del propio navegador, los 408/429 y los ambiguos (5xx / red, `needsManualVerification`) se reintentan como antes.
+
+**Verificación**: local con `CI=true` sobre `main` c44e068 (v1549): typecheck y lint sin errores; functions 982/982, unit 2825/2825, smoke 25/25, rules sin cambios (mismas 6 fallas conocidas), gates `exit 0`; bundle regenerado con `node build.js` (incluido: cambia el listener). Escenario de punta a punta con Firebase Emulator (Auth + Firestore con reglas reales + Functions, datos sintéticos, SAP simulado) junto con F02: 32/32 (ciclo 7). Los tests nuevos fallan sobre `main` sin el cambio.
+
+**Deploy**: el merge a `main` publica GitHub Pages automáticamente (`deploy-pages.yml`, `on: push` a `main`). La CF `onPedidoConfirmedSendToSap` se despliega a mano después del merge (`firebase deploy --only functions:onPedidoConfirmedSendToSap`). Las versiones mezcladas son compatibles en los dos sentidos: CF nueva + frontend viejo = comportamiento de hoy; frontend nuevo + CF vieja = el bloqueo nuevo no se activa. Después del deploy los admins tienen que recargar la app.
+
+**Rollback**: revert del PR + redeploy de `onPedidoConfirmedSendToSap` y Pages. Los `transferError` ya escritos son solo informativos y se limpian solos en el próximo envío exitoso.
+
 ### Contención C9 (2026-11-03) — guard de destino para scripts destructivos + tests Python en CI
 
 **Antes**: varios scripts de `scripts/` escribían en producción (SAP, Firestore, BigQuery) apenas se ejecutaban, sin dry-run ni confirmación de destino. `probe_sap_discount.py` creaba una cotización real en SAP; `test_sl_sqlqueries.py` creaba un SQLQuery; `repair-quotation-closure-race-victims.mjs` reabría pedidos sin snapshot; `cleanup_bad_bp_sync.py` borraba `client_applications`; `patch_paid_to_date.py` hacía ALTER, UPDATE y DROP al importarse; `backfill_sap_ortt.py` escribía por defecto. El `--dry-run` de `snapshot_avgprice_sl.py` igual creaba el SQLQuery en SAP. `sync_invoices_only.py` hacía WRITE_TRUNCATE de `sap_invoices_raw` con `lines_json=None` en todas las facturas. Los tests `tests/python` no corrían en CI.

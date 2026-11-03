@@ -29304,6 +29304,10 @@ function classifyTransferError(msg){
   // SL este estable.
   if (raw.includes('stock_recheck_failed_fail_safe'))
     return { type: 'SAP no respondio al verificar stock', hint: 'Service Layer no respondio al pre-chequeo de stock. El pedido NO se envio para evitar enviar qtys sin verificar stock disponible. Esperá 1-2 min y reintenta con el boton "Enviar a SAP". Si persiste, chequea health del Service Layer en el tab Service Layer.' };
+  // 2026-11-03: rechazo por descuento (usuario tecnico de la app sin permiso
+  // para ese % en SAP: 10000724 "Value in Discount field is greater than permitted").
+  if (raw.includes('10000724') || (raw.includes('discount') && raw.includes('permitted')))
+    return { type: 'Descuento no permitido en SAP', hint: 'SAP no acepto el descuento del pedido desde la app. El gerente puede cargarlo directamente en SAP; avisale a Mariano para revisar el pedido.' };
   if (raw.includes('lead') && raw.includes('inactive'))
     return { type: 'Cliente inactivo', hint: 'El cliente esta marcado como Lead inactivo en SAP. Pedile a Mariano/Pablo que lo reactive.' };
   if (raw.includes('cardcode') || raw.includes('card code') || raw.includes('bp not found'))
@@ -29392,7 +29396,13 @@ window.reintentarEnvioSap = async function(pedidoFsId){
     const failCount = (r && r.failed) || 0;
     const skipCount = (r && r.skipped && r.skipped.length) || 0;
     let msg;
-    if (okCount > 0) {
+    const sinDesc = (r && r.sinDescuento && r.sinDescuento[0]) || null;
+    if (okCount > 0 && sinDesc) {
+      // Patch 4xx (2026-11-03): reenvio confirmado tras rechazo por descuento.
+      msg = 'Enviado a SAP, pero SIN el descuento economico.\n\nSolicitado: ' + sinDesc.pctSolicitado +
+        ' %\nEnviado: ' + sinDesc.pctEnviado + ' %\n\nEl descuento NO quedo aplicado: hay que cargarlo en SAP. ' +
+        'El rechazo original quedo guardado en el historial del pedido.';
+    } else if (okCount > 0) {
       msg = 'Enviado OK a SAP.';
     } else if (failCount > 0) {
       const errMsg = (r.errors && r.errors[0] && r.errors[0].error) || '(sin detalle)';
