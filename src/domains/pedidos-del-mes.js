@@ -477,7 +477,11 @@ window.openPedidosDelMes = function () {
   const modal = document.getElementById('pedidos-mes-modal');
   if (!modal) return;
   const role = _role();
-  if (role !== 'admin' && role !== 'gerente' && role !== 'vendedor') {
+  // v1552 fix: el gate del botón (index.html _pdmOk) y el backend (resolveAlcance)
+  // ya habilitan `interno` (VDI: Santiago, Ioannis) — su zona + parejas. Este gate
+  // de apertura del modal había quedado sin actualizar y bloqueaba a los VDI antes
+  // de llegar al servidor. El alcance real lo sigue acotando pedidosDelMesCF.
+  if (role !== 'admin' && role !== 'gerente' && role !== 'vendedor' && role !== 'interno') {
     alert('Tu usuario no tiene acceso a Pedidos del mes. Si lo necesitás, avisale a Mariano.');
     return;
   }
