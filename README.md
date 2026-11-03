@@ -4717,6 +4717,33 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1552 (2026-11-03) — «Pedidos del mes» para los VDI + «Eliminar» en provisorios/leads para todos los vendedores
+
+- **Antes**:
+  - «Pedidos del mes» se mostraba solo a admin, gerente y vendedor. Los VDI (Santiago Esteban, Ioannis Palkoudakis) no lo tenían, y el servidor rechazaba el rol interno.
+  - En Master Clientes, vendedor e interno no veían «Eliminar» en ninguna fila, porque el modo solo lectura de la v1545 lo ocultaba también en los provisorios.
+  - El botón de admin se veía gris con texto «ELIMINAR» en mayúsculas: el estilo inline pisaba el estilo Apple.
+- **Cambio**:
+  - **Pedidos del mes para interno**:
+    - `resolveAlcance` (`functions/core/pedidos-del-mes-core.js`) devuelve para el interno `vendedores` = su zona + sus parejas VDE.
+    - Las parejas salen de `roles` con `internalPartnerUid` = su uid, que lee el wrapper en `functions/index.js`, más el respaldo fijo `VDI_PARTNERS_FALLBACK`, espejo de `VENDOR_INCLUDES_OTHERS` del mapa.
+    - La query filtra por esa lista. Un alcance no nacional sin vendedores tira error en vez de devolver todo el país.
+    - La clave de caché incluye la lista.
+    - En el navegador, el botón se habilita para interno y el KPI dice «Tu zona y tus parejas».
+  - **Eliminar en provisorios/leads**:
+    - El botón lleva la clase `mc-del-prov` en la tabla de Provisorios y en las filas de la tabla principal con alta sin CardCode SAP.
+    - El CSS de solo lectura oculta Eliminar salvo en esas filas.
+    - `deleteMcEntry` deja borrar a vendedor e interno solo altas sin `cardCodeSap`. Las reglas de `client_applications` ya lo permitían desde v778. Los clientes SAP y el padrón histórico siguen siendo solo de admin y gerente.
+  - **Estilo Apple** (§106): `#master-cli-modal button[onclick*="deleteMcEntry"]` queda como acción destructiva: texto rojo sobre tinte rojo suave, pill, sin mayúsculas y `scale(0.97)` al presionar. Se quitó el estilo inline.
+- **Verificación**:
+  - test nuevo `tests/unit/audit/vdi-pdm-eliminar-provisorio-v1552.test.js` (9);
+  - interno agregado en `tests/functions/pedidos-del-mes-core.test.js`: zona + parejas, sin zona rechazado, query con la lista, alcance vacío rechazado;
+  - actualizado `pedidos-del-mes-v1540.test.js`, que limitaba el botón a 3 roles;
+  - unit 2842, functions 989 y smoke 25 en verde, typecheck limpio;
+  - en el navegador, con rol vendedor: el provisorio muestra Eliminar en pill rojo y el cliente SAP no.
+- **Deploy (autoriza Mariano)**: `firebase deploy --only functions:pedidosDelMesCF`. Lo demás sale con Pages.
+- **Rollback**: revertir el PR y redeployar `pedidosDelMesCF`.
+
 ### v1551 (2026-11-03) — «VA A SAP» muestra lo que efectivamente entró a SAP
 
 > Desarrollado como v1550; se publica como v1551 porque el PR #1334 (rechazos 4xx visibles) salió antes con el mismo número.

@@ -2665,7 +2665,7 @@ body.is-pachi-restricted #export-modal .exp-opt:not([data-exp-kind="PEDIDOS_MES"
 #master-cli-modal.mc-solo-lectura #mc-vincular-lead-sap-btn,
 #master-cli-modal.mc-solo-lectura #mc-export-perfil-btn,
 #master-cli-modal.mc-solo-lectura #mc-body .mc-save-btn,
-#master-cli-modal.mc-solo-lectura #mc-body button[onclick^="deleteMcEntry"],
+#master-cli-modal.mc-solo-lectura #mc-body button[onclick^="deleteMcEntry"]:not(.mc-del-prov),
 #master-cli-modal.mc-solo-lectura #mc-body button[onclick^="openVincularSapModal"]{display:none !important}
 /* v1478: Campañas — PACHI NO ve el botón "Gráficos" (métricas de progreso).
    El filtro por zona también se saltea para que vea TODAS las activas (ver
@@ -7308,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1551';
+const APP_VERSION = 'v1552';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -32485,7 +32485,8 @@ function applyRolePermissions(){
   // real lo fuerza el servidor (pedidosDelMesCF). Desktop-only por CSS.
   const pedidosMesBtnEl = document.getElementById('pedidos-mes-btn');
   if (pedidosMesBtnEl) {
-    const _pdmOk = userRole === 'admin' || userRole === 'gerente' || userRole === 'vendedor';
+    // v1552: también interno (VDI: Santiago, Ioannis) — su zona + parejas.
+    const _pdmOk = userRole === 'admin' || userRole === 'gerente' || userRole === 'vendedor' || userRole === 'interno';
     pedidosMesBtnEl.style.display = _pdmOk ? '' : 'none';
   }
   document.getElementById('campaigns-btn').style.display = isAdminOrGerente ? '' : 'none';

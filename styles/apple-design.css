@@ -778,19 +778,29 @@
 }
 #master-cli-modal .mc-save-btn.changed:hover { background: #3A8CC0 !important; }
 
-/* Delete button (rojo saturado) -> gris subtle, red on hover */
+/* Delete button: v656 gris subtle → v1552 acción destructiva Apple (texto
+   rojo sobre tinte rojo suave, pill, sin mayúsculas). Visible sin hover para
+   que vendedor/interno lo encuentren en provisorios/leads. CLAUDE.md §106. */
 #master-cli-modal button[onclick*="deleteMcEntry"] {
-  background: transparent !important;
-  color: #86868b !important;
-  border: 1px solid transparent !important;
-  padding: 6px 10px !important;
+  background: rgba(255, 59, 48, 0.1) !important;
+  color: #ff3b30 !important;
+  border: none !important;
+  padding: 6px 12px !important;
   border-radius: 999px !important;
-  transition: all 150ms ease-out;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
 }
 #master-cli-modal button[onclick*="deleteMcEntry"]:hover {
-  color: #ff3b30 !important;
-  background: rgba(255, 59, 48, 0.08) !important;
-  border-color: rgba(255, 59, 48, 0.2) !important;
+  background: rgba(255, 59, 48, 0.18) !important;
+}
+#master-cli-modal button[onclick*="deleteMcEntry"]:active {
+  transform: scale(0.97) !important;
 }
 
 /* ============================================================

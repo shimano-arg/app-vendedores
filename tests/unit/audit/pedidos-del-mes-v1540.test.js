@@ -19,10 +19,10 @@ describe('v1540 APP-06 — botón', () => {
     // Entre los dos solo están las aperturas del propio Forecast y de Pedidos del mes.
     expect(entre.match(/<button /g)?.length ?? 0).toBe(2);
   });
-  it('oculto por default y habilitado solo para admin, gerente y vendedor', () => {
+  it('oculto por default y habilitado para admin, gerente, vendedor e interno (v1552)', () => {
     expect(INDEX).toMatch(/id="pedidos-mes-btn"[^>]*display:none/);
     expect(INDEX).toMatch(
-      /const _pdmOk = userRole === 'admin' \|\| userRole === 'gerente' \|\| userRole === 'vendedor';/
+      /const _pdmOk = userRole === 'admin' \|\| userRole === 'gerente' \|\| userRole === 'vendedor' \|\| userRole === 'interno';/
     );
   });
   it('solo desktop: tablet, mobile y pantallas táctiles lo ocultan', () => {

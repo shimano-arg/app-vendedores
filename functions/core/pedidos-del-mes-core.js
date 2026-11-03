@@ -47,14 +47,14 @@ export const ANIO_MIN = 2020;
  *   skuCount: number, facturasCount: number, notasCreditoCount: number }} ClienteFacturado
  * @typedef {{
  *   periodo: { anio: number, mes: number },
- *   alcance: { nacional: boolean, vendedor: string|null },
+ *   alcance: { nacional: boolean, vendedor: string|null, vendedores?: string[] },
  *   kpis: { clientes: number, skus: number, uds: number, ars: number, facturas: number },
  *   clientes: ClienteFacturado[],
  *   generadoAt: string,
  * }} PedidosDelMesResponse
  * @typedef {{
  *   runQuery: (q: BqQuery) => Promise<any[]>,
- *   getUserRole: (uid: string) => Promise<{ role?: string, vendor?: string }|null>,
+ *   getUserRole: (uid: string) => Promise<{ role?: string, vendor?: string, partnerVendors?: string[] }|null>,
  *   cache?: { get: (k: string) => any, set: (k: string, v: any) => any },
  *   now?: () => number,
  *   log?: (msg: string, extra?: any) => void,
@@ -129,13 +129,45 @@ export function normalizePeriodo(data, nowMs) {
 }
 
 /**
+ * v1552: respaldo fijo de parejas VDI → VDE, espejo de VENDOR_INCLUDES_OTHERS
+ * en index.html (v783). Si en `roles` falta el internalPartnerUid de un VDE,
+ * el interno igual ve a sus parejas.
+ * @type {Record<string, string[]>}
+ */
+export const VDI_PARTNERS_FALLBACK = Object.freeze({
+  'IOANNIS PALKOUDAKIS': ['FEDERICO CASTELANELLI', 'GONZALO DE LA ROSA'],
+  'SANTIAGO ESTEBAN': ['MAURICIO GIL', 'PACHI'],
+});
+
+/**
  * Alcance por rol. Devuelve el vendedor forzado (vendedor) o null (nacional).
- * @param {{ role?: string, vendor?: string }|null} roleInfo
- * @returns {{ nacional: boolean, vendedor: string|null }}
+ * @param {{ role?: string, vendor?: string, partnerVendors?: string[] }|null} roleInfo
+ * @returns {{ nacional: boolean, vendedor: string|null, vendedores?: string[] }}
  */
 export function resolveAlcance(roleInfo) {
   const role = String((roleInfo && roleInfo.role) || '').toLowerCase();
   if (role === 'admin' || role === 'gerente') return { nacional: true, vendedor: null };
+  // v1552 (2026-11-03): interno (VDI: Santiago Esteban, Ioannis Palkoudakis)
+  // ve su zona + la de sus parejas VDE, el mismo alcance que el mapa
+  // (getMyAllowedVendorKeys). Parejas: roles con internalPartnerUid = su uid
+  // (`partnerVendors`, lo resuelve el wrapper) + respaldo fijo
+  // VDI_PARTNERS_FALLBACK (espejo de VENDOR_INCLUDES_OTHERS del cliente).
+  if (role === 'interno') {
+    const own = String((roleInfo && roleInfo.vendor) || '')
+      .trim()
+      .toUpperCase();
+    const set = new Set();
+    if (own) set.add(own);
+    for (const v of (roleInfo && roleInfo.partnerVendors) || []) {
+      const k = String(v || '')
+        .trim()
+        .toUpperCase();
+      if (k) set.add(k);
+    }
+    for (const v of VDI_PARTNERS_FALLBACK[own] || []) set.add(v);
+    if (set.size === 0) throw mkErr('permission-denied', 'interno sin zona ni parejas en roles');
+    return { nacional: false, vendedor: null, vendedores: Array.from(set).sort() };
+  }
   if (role === 'vendedor') {
     const vendor = String((roleInfo && roleInfo.vendor) || '')
       .trim()
@@ -150,11 +182,20 @@ export function resolveAlcance(roleInfo) {
  * Query única: líneas del mes agrupadas por cliente + SKU + documento, con la
  * localidad del alta del cliente. Valores del usuario solo como parámetros.
  * @param {{ anio: number, mes: number }} periodo
- * @param {{ nacional: boolean, vendedor: string|null }} alcance
+ * @param {{ nacional: boolean, vendedor: string|null, vendedores?: string[] }} alcance
  * @returns {BqQuery}
  */
 export function buildPedidosDelMesQuery(periodo, alcance) {
-  const vendedores = alcance.vendedor ? [alcance.vendedor] : [];
+  const vendedores = Array.isArray(alcance.vendedores)
+    ? alcance.vendedores
+    : alcance.vendedor
+      ? [alcance.vendedor]
+      : [];
+  // Defensa: un alcance NO nacional sin vendedores devolvería todo el país
+  // (el filtro trata la lista vacía como "sin filtro").
+  if (!alcance.nacional && vendedores.length === 0) {
+    throw mkErr('permission-denied', 'alcance sin vendedores');
+  }
   return {
     query: `-- pedidosDelMes:lineas
 WITH loc AS (
@@ -321,7 +362,8 @@ export async function pedidosDelMesCore(deps, params) {
   const periodo = normalizePeriodo(data, now);
 
   // La clave usa el alcance (no el uid): dos admins comparten la misma vista.
-  const cacheKey = `${alcance.vendedor || '*'}|${periodo.anio}-${periodo.mes}`;
+  const _scopeKey = alcance.nacional ? '*' : (alcance.vendedores || [alcance.vendedor]).join('+');
+  const cacheKey = `${_scopeKey}|${periodo.anio}-${periodo.mes}`;
   const cached = deps.cache ? deps.cache.get(cacheKey) : null;
   if (cached && now - cached.at < CACHE_TTL_MS) return structuredClone(cached.value);
 
@@ -340,6 +382,7 @@ export async function pedidosDelMesCore(deps, params) {
     deps.log('pedidosDelMes ok', {
       uid: auth.uid,
       vendedor: alcance.vendedor,
+      vendedores: alcance.vendedores || null,
       periodo,
       clientes: kpis.clientes,
     });
