@@ -85,6 +85,16 @@ export async function initTestEnv() {
     const code = (e && (e.code || (e.cause && e.cause.code))) || '';
     const msg = (e && (e.message || String(e))) || '';
     if (code === 'ECONNREFUSED' || /ECONNREFUSED/i.test(msg) || /fetch failed/i.test(msg)) {
+      // INFRA (2026-10-29): en CI (o con REQUIRE_EMULATOR=1) un emulador
+      // ausente es un ERROR, no un skip: si no, las suites de seguridad de
+      // reglas pasan en verde sin probar nada. El modo "skip" queda solo para
+      // corridas locales sin emulador.
+      if (process.env.CI === 'true' || process.env.REQUIRE_EMULATOR === '1') {
+        throw new Error(
+          '[rules-tests] Firestore emulator no responde (127.0.0.1:8080) y CI/REQUIRE_EMULATOR exige emulador. ' +
+            'Correr con `firebase emulators:exec --only firestore`.'
+        );
+      }
       emulatorUnavailable = true;
       // eslint-disable-next-line no-console
       console.warn(

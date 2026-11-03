@@ -1,0 +1,116 @@
+{
+  "_comment": "Fallas y skips PREEXISTENTES conocidos. v3 (2026-11-02, base main 6b33da1 v1546 + PR de corrección de las 11 fallas de functions): functions sin fallas conocidas (piso 975); unit y smoke sin fallas conocidas (pisos 2765 y 25). El gate scripts/ci/check-known-failures.mjs falla si: aparece una falla nueva, una conocida pasa, una conocida falla con otra firma, aparece un skip nuevo, un skip conocido corre, un archivo no carga o se ejecutan menos tests que minExecuted. Campos informativos (no cambian el exit code): securityRelevant/hallazgo (se listan siempre como 'Fallas conocidas de SEGURIDAD abiertas'), revisarAntesDe (aviso de revisión vencida), nota. Al corregir una falla o borrar tests, actualizar este archivo en el mismo PR.",
+  "version": 3,
+  "rules": [
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/roles vendor NO puede leer role de otro vendor",
+      "signature": "Error: Expected request to fail, but it succeeded.",
+      "hallazgo": "S04",
+      "securityRelevant": true,
+      "revisarAntesDe": "2026-11-30",
+      "nota": "Hueco real: regla v1491 (983d808) abrió la lectura de roles de vendedores (passwordHash/totpSecret). Se cierra con la migración D2/S04; NO es un test obsoleto."
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* interno crea nota con authorUid propio",
+      "signature": "FirebaseError: # PERMISSION_DENIED: No matching allow statements",
+      "hallazgo": "TEST-OBSOLETO",
+      "securityRelevant": false,
+      "revisarAntesDe": "2026-11-30",
+      "nota": "Las colecciones seguimiento_notes/seguimiento_status se eliminaron en v1283 (firestore.rules ~l.863). Test obsoleto: actualizar o retirar con justificación (CLAUDE.md §6)."
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* interno solo edita/borra sus propias notas",
+      "signature": "FirebaseError: # PERMISSION_DENIED: No matching allow statements",
+      "hallazgo": "TEST-OBSOLETO",
+      "securityRelevant": false,
+      "revisarAntesDe": "2026-11-30",
+      "nota": "Las colecciones seguimiento_notes/seguimiento_status se eliminaron en v1283 (firestore.rules ~l.863). Test obsoleto: actualizar o retirar con justificación (CLAUDE.md §6)."
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* interno/gerente/admin leen",
+      "signature": "FirebaseError: No matching allow statements",
+      "hallazgo": "TEST-OBSOLETO",
+      "securityRelevant": false,
+      "revisarAntesDe": "2026-11-30",
+      "nota": "Las colecciones seguimiento_notes/seguimiento_status se eliminaron en v1283 (firestore.rules ~l.863). Test obsoleto: actualizar o retirar con justificación (CLAUDE.md §6)."
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "/seguimiento_* seguimiento_status: mismo patrón, cada VDI ve/edita el suyo por cliente",
+      "signature": "FirebaseError: # PERMISSION_DENIED: No matching allow statements",
+      "hallazgo": "TEST-OBSOLETO",
+      "securityRelevant": false,
+      "revisarAntesDe": "2026-11-30",
+      "nota": "Las colecciones seguimiento_notes/seguimiento_status se eliminaron en v1283 (firestore.rules ~l.863). Test obsoleto: actualizar o retirar con justificación (CLAUDE.md §6)."
+    },
+    {
+      "file": "tests/rules/rules.test.js",
+      "test": "anon (no auth) permite crear client_applications via submittedByPublicForm (alta pública)",
+      "signature": "FirebaseError: # PERMISSION_DENIED:",
+      "hallazgo": "F17",
+      "securityRelevant": false,
+      "revisarAntesDe": "2026-11-30",
+      "nota": "Bug funcional real: la regla exige CUIT de 11 dígitos (fb2b4cfa v1172) y alta-cliente.html manda guiones. Además el test no manda createdAt. Se corrige con la propuesta S16/F17."
+    }
+  ],
+  "functions": [],
+  "skipped": {
+    "rules": [
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) admin NO puede crear pedido sin _commitVersion (sin excepción para admin)",
+        "hallazgo": "SEC-CREATE-LEGACY",
+        "securityRelevant": true,
+        "revisarAntesDe": "2026-11-30",
+        "nota": "Regla deny-legacy de /pedidos (exigir _commitVersion: crear pedidos solo vía commitPedidoCF) aún no implementada."
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) interno NO puede crear pedido sin _commitVersion",
+        "hallazgo": "SEC-CREATE-LEGACY",
+        "securityRelevant": true,
+        "revisarAntesDe": "2026-11-30",
+        "nota": "Regla deny-legacy de /pedidos (exigir _commitVersion: crear pedidos solo vía commitPedidoCF) aún no implementada."
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) vendor NO puede crear pedido con _commitVersion inválido",
+        "hallazgo": "SEC-CREATE-LEGACY",
+        "securityRelevant": true,
+        "revisarAntesDe": "2026-11-30",
+        "nota": "Regla deny-legacy de /pedidos (exigir _commitVersion: crear pedidos solo vía commitPedidoCF) aún no implementada."
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) vendor NO puede crear pedido sin _commitVersion",
+        "hallazgo": "SEC-CREATE-LEGACY",
+        "securityRelevant": true,
+        "revisarAntesDe": "2026-11-30",
+        "nota": "Regla deny-legacy de /pedidos (exigir _commitVersion: crear pedidos solo vía commitPedidoCF) aún no implementada."
+      },
+      {
+        "file": "tests/rules/pedidos-create-rules.test.js",
+        "test": "/pedidos — v1454 §67 Fase 2 deny-legacy (post audit GREEN) vendor puede crear pedido con _commitVersion=commitPedidoCore_v1",
+        "hallazgo": "SEC-CREATE-LEGACY",
+        "securityRelevant": true,
+        "revisarAntesDe": "2026-11-30",
+        "nota": "Regla deny-legacy de /pedidos (exigir _commitVersion: crear pedidos solo vía commitPedidoCF) aún no implementada."
+      }
+    ],
+    "functions": [],
+    "unit": [],
+    "smoke": []
+  },
+  "minExecuted": {
+    "rules": 204,
+    "functions": 975,
+    "unit": 2765,
+    "smoke": 25
+  },
+  "unit": [],
+  "smoke": []
+}

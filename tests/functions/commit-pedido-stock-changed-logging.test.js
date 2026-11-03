@@ -86,6 +86,11 @@ function makeMockDb(fixture) {
 
   const fbDb = {
     collection: (name) => makeCollection(name),
+    // v1480 §79: sku-catalog-check-core lee `fbDb.doc('app_config/stock_snapshot')`.
+    doc: (path) => {
+      const [c, ...rest] = path.split('/');
+      return makeDocRef(c, rest.join('/'));
+    },
     async runTransaction(fn) {
       const tx = {
         async get(ref) {
@@ -119,6 +124,9 @@ function makeStockChangedState() {
       stock_snapshot: {
         updatedAt: { toMillis: () => nowRef.getTime() - 60_000 },
         warehouseBreakdown: { 'SKU-A': { 11: 2 } },
+        // v1480 §79: sin `quantities` el chequeo de catálogo cae en fail-open
+        // §77 y escribe un log extra `catalog_check_skipped` antes del rechazo.
+        quantities: JSON.stringify({ 'SKU-A': 2 }),
       },
     },
     pedidos: {},

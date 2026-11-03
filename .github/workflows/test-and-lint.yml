@@ -32,7 +32,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
       - name: Checkout
@@ -65,12 +65,70 @@ jobs:
       - name: Lint (Biome)
         run: npm run lint
 
-      - name: Unit tests (168 assertions)
-        run: npm run test:unit
+      # v3 (2026-11-02): unit/smoke con reporte JSON + gate. `|| true` deja que
+      # el gate decida: falla ante cualquier falla (no hay conocidas en unit ni
+      # smoke) y también si se ejecutan menos tests que el piso (minExecuted),
+      # cosa que `npm run test:unit` solo no detecta.
+      - name: Unit tests
+        run: npx vitest run tests/unit/ --reporter=default --reporter=json --outputFile=unit-report.json || true
 
-      - name: Smoke tests (25 assertions)
-        run: npm run test:smoke
+      - name: Gate unit (sin fallas + piso de ejecutados)
+        run: node scripts/ci/check-known-failures.mjs unit unit-report.json
 
-      # NO corremos test:rules ni test:functions aquí — requieren
-      # firebase-emulator + Java 21 que agrega ~2 min de setup por corrida.
-      # Esos se corren local antes del PR (documentado en README §42.1).
+      - name: Smoke tests
+        run: npx vitest run tests/smoke/ --reporter=default --reporter=json --outputFile=smoke-report.json || true
+
+      - name: Gate smoke (sin fallas + piso de ejecutados)
+        run: node scripts/ci/check-known-failures.mjs smoke smoke-report.json
+
+      # test:rules y test:functions corren en el job `security-tests` (abajo).
+
+  # INFRA (2026-10-29): las suites de Rules y Functions (incluidas las de
+  # seguridad SEC-01/02/04, D2/D3, BUG-REV y SEC-05) corren en cada PR.
+  # - Rules: con el emulador real de Firestore (Java 21 + firebase-tools
+  #   pinneado). Proyecto `demo-*`: imposible tocar producción.
+  #   REQUIRE_EMULATOR=1 → si el emulador no levanta, la suite FALLA (no
+  #   pasa en vacío).
+  # - Functions: mocks (no necesitan emulador).
+  # - Las fallas preexistentes están listadas en tests/known-failures.json; el
+  #   gate falla ante una falla nueva o si una conocida empieza a pasar.
+  security-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java (emulador Firestore)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Install functions deps
+        run: cd functions && npm ci
+
+      - name: Rules tests (emulador Firestore)
+        env:
+          REQUIRE_EMULATOR: '1'
+        run: >-
+          npx --yes firebase-tools@14.27.0 emulators:exec --project demo-ci --only firestore
+          "npx vitest run tests/rules/ --no-file-parallelism --reporter=default --reporter=json --outputFile=rules-report.json || true"
+
+      - name: Gate rules (fallas conocidas vs nuevas)
+        run: node scripts/ci/check-known-failures.mjs rules rules-report.json
+
+      - name: Functions tests
+        run: npx vitest run tests/functions/ --reporter=default --reporter=json --outputFile=functions-report.json || true
+
+      - name: Gate functions (fallas conocidas vs nuevas)
+        run: node scripts/ci/check-known-failures.mjs functions functions-report.json

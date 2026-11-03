@@ -136,6 +136,10 @@ function baseState(sku, fisico) {
       stock_snapshot: {
         updatedAt: { toMillis: () => nowRef.getTime() - 60_000 },
         warehouseBreakdown: { [sku]: { 11: fisico } },
+        // v1480 §79: el chequeo de catálogo (sku-catalog-check-core) lee
+        // `quantities` de este mismo doc. Sin él cae en fail-open §77 y el core
+        // escribe un log extra `commit_pedido_warning/catalog_check_skipped`.
+        quantities: JSON.stringify({ [sku]: fisico }),
       },
     },
     pedidos: {},
