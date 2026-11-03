@@ -109,6 +109,11 @@ export const MENSAJES_VENDEDOR = Object.freeze({
   UNKNOWN: {
     texto: 'No pudimos confirmar el pedido. Avisale a Mariano con la hora y el cliente.',
   },
+  // v1547: excepción no prevista dentro de doConfirmPedido (antes era muda).
+  CONFIRM_EXCEPTION: {
+    texto:
+      'No pudimos pasar el pedido a Pendientes por un error del sistema. Sacale una captura a este mensaje y mandásela a Mariano.',
+  },
 
   // releaseAsigCF errorCodes (quitar producto / rechazo CPST).
   RELEASE_PERMISSION_DENIED: {

@@ -7308,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1546';
+const APP_VERSION = 'v1547';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -38213,7 +38213,51 @@ saveClientMeta = function(){
 
 // ========== Override de las acciones de pedido (push a coleccion pedidos) ==========
 const _origDoConfirm = window.doConfirmPedido;
+// v1547 (2026-11-03): envoltorio contra la falla MUDA. doConfirmPedido es
+// async y sus llamadores (botón "Pasar a Pendientes" en pedidos-modal.js,
+// Generar Backorder, botón Confirmar) la invocan SIN await: una excepción no
+// prevista después del confirm() quedaba como promesa rechazada sin manejar
+// → el vendedor tocaba OK y "no pasaba nada", el pedido seguía en Lista de
+// espera. Ahora toda excepción se atrapa acá: cartel al vendedor (§68, con
+// el detalle técnico al final para que lo mande), registro en operations_log
+// (type='client_confirm_exception', §70) y reportCriticalError (Sentry).
 window.doConfirmPedido = async function(){
+  try {
+    return await window._doConfirmPedidoImpl.apply(this, arguments);
+  } catch (err) {
+    const _msg = String((err && err.message) || err || 'sin detalle').slice(0, 500);
+    try { console.error('[doConfirmPedido] excepción no prevista', err); } catch (_e) {}
+    try {
+      if (typeof window.reportCriticalError === 'function') {
+        window.reportCriticalError(err, { op: 'doConfirmPedido', silent: true });
+      }
+    } catch (_e) {}
+    try {
+      if (currentUser && currentUser.uid && fbDb && firebase && firebase.firestore) {
+        fbDb.collection('operations_log').add({
+          type: 'client_confirm_exception',
+          userUid: currentUser.uid,
+          userEmail: currentUser.email || null,
+          errMessage: _msg,
+          errStack: String((err && err.stack) || '').slice(0, 2000),
+          clientName: (typeof currentOrderClient !== 'undefined' && currentOrderClient && currentOrderClient.name) || null,
+          orderKey: (typeof currentOrderKey !== 'undefined' && currentOrderKey) || null,
+          waitlistOrigenId: window._pendingPedidoWaitlistId || null,
+          orderNumber: window._pendingPedidoOrderNumber || null,
+          clientVersion: window.APP_VERSION || null,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+        }).catch((_e) => console.warn('[client_confirm_exception log] skipped:', _e && _e.message));
+      }
+    } catch (_e) {}
+    const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+    const _base = (_mv && typeof _mv.getMensajeParaErrorCode === 'function')
+      ? _mv.getMensajeParaErrorCode('CONFIRM_EXCEPTION').texto
+      : 'No pudimos pasar el pedido a Pendientes por un error del sistema. Sacale una captura a este mensaje y mandásela a Mariano.';
+    alert(_base + '\n\nCódigo técnico: CONFIRM_EXCEPTION · ' + _msg.slice(0, 160));
+    return undefined;
+  }
+};
+window._doConfirmPedidoImpl = async function(){
   if (!currentOrderKey || currentOrderKey === '__readonly__') return;
   const ord = orders[currentOrderKey] || [];
   if (!ord.length) return;
@@ -38585,7 +38629,16 @@ window.doConfirmPedido = async function(){
     // resultado substituye a `pedidos.add` (ref.id = result.pedidoId).
     // Si falla con errorCode → modal apropiado + abort. Si CF no disponible
     // → fallback a pedidos.add directo (comportamiento legacy).
-    const _commitCfResult = await (window._tryCommitPedidoCF ? window._tryCommitPedidoCF(docData) : Promise.resolve(null));
+    // v1547: aviso visible mientras el servidor confirma. En pedidos grandes
+    // (ej. LOS FERRETIS ORDEN 610, 124 productos) la espera puede ser larga y
+    // sin aviso el vendedor veía "no pasa nada" después de tocar OK.
+    try { showSyncTag('Confirmando el pedido, esperá unos segundos…', 90000); } catch (_eTag) {}
+    let _commitCfResult;
+    try {
+      _commitCfResult = await (window._tryCommitPedidoCF ? window._tryCommitPedidoCF(docData) : Promise.resolve(null));
+    } finally {
+      try { const _st = document.getElementById('sync-tag'); if (_st) _st.classList.remove('show'); } catch (_eTag) {}
+    }
     if (_commitCfResult && _commitCfResult.ok === true) {
       // CF OK: usar pedidoId del server, saltear `pedidos.add` y continuar en el then()
       // con un ref simulado.
