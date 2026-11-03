@@ -7308,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1547';
+const APP_VERSION = 'v1548';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -38733,9 +38733,19 @@ window._doConfirmPedidoImpl = async function(){
         }
       } else if (code === 'SNAPSHOT_TOO_OLD') {
         alert(_fmt(code));
+      } else if (code === 'SKU_NOT_IN_SAP_CATALOG') {
+        // v1548: listar QUÉ productos rechaza SAP (antes el cartel no decía
+        // cuáles; caso LOS FERRETIS ORDEN 610 con 124 productos).
+        const _miss = ((_commitCfResult && _commitCfResult.data) || {}).missingSkus || [];
+        try { console.warn('[SKU_NOT_IN_SAP_CATALOG] productos rechazados:', _miss); } catch (_e) {}
+        const _fp = _mv && _mv.formatProductosNoCargadosEnSap;
+        alert(_fp ? _fp(_miss, docData.lines || []) : (_fmt(code) + (_miss.length ? '\n\nProductos: ' + _miss.join(', ') : '')));
       } else if (code === 'CONTENTION_RETRY_EXHAUSTED') {
         // v1471 §68: diferenciar según lastError, usando mensajes del pure.
-        const _le = String((details && details.lastError) || '');
+        // v1548: antes leía `details`, variable que no existe → ReferenceError
+        // y el vendedor no veía ningún cartel (falla muda pre-v1547).
+        const _det = (_commitCfResult && _commitCfResult.data) || {};
+        const _le = String(_det.lastError || '');
         const _isContencion = /aborted|contention|conflict|unavailable|deadline/i.test(_le);
         const _subCode = _isContencion ? 'CONTENTION_RETRY_EXHAUSTED_REAL' : 'CONTENTION_RETRY_EXHAUSTED_OTRO';
         alert(_fmt(_subCode));

@@ -79,6 +79,7 @@ import { L_BO_ENTRY_TEXTS } from './pure/l_bo_entry_texts.js';
 // jerga técnica. Formato: una oración qué pasó + una oración qué hacer.
 import {
   formatMensajeConCodigo,
+  formatProductosNoCargadosEnSap,
   getMensajeParaErrorCode,
   MENSAJES_VENDEDOR,
   PALABRAS_PROHIBIDAS,
@@ -554,6 +555,7 @@ const phase0 = {
       PALABRAS_PROHIBIDAS,
       getMensajeParaErrorCode,
       formatMensajeConCodigo,
+      formatProductosNoCargadosEnSap,
     },
     // PR1 (v1474 2026-10-26 §71) — parse fecha tolerante a múltiples formatos.
     // v1479 (2026-10-27 §76): pedidoDateForPlanner + plannerCutoffIsoForQuery

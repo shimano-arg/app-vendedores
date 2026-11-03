@@ -4755,6 +4755,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Rollback**: revert del PR (sin impacto en producción).
 
+### v1548 (2026-11-03) — El cartel «productos no cargados en SAP» dice cuáles son
+
+- **Antes**:
+  - Con v1547 ya publicada, Mariano reintentó pasar LOS FERRETIS S. R. L. (ORDEN 610, 124 productos) a Pendientes. Recibió «Hay productos del pedido que todavía no están cargados en SAP… Código técnico: SKU_NOT_IN_SAP_CATALOG», sin la lista de productos. Con 124 productos no hay forma de saber cuál sacar.
+  - Además, la rama `CONTENTION_RETRY_EXHAUSTED` de `doConfirmPedido` leía `details.lastError`, pero la variable `details` no existe. Eso lanzaba un error que, antes de v1547, quedaba mudo.
+- **Diagnóstico**:
+  - `commitPedidoCF` ya devuelve `data.missingSkus` (`functions/core/commit-pedido-core.js:419`) y lo registra en `operations_log`, pero el cartel no lo mostraba.
+  - El chequeo compara contra `app_config/stock_snapshot.quantities`, que tiene **todos** los ítems del grupo PESCA de SAP, incluidos los que tienen stock 0 (`sync-sap-catalog-stock-core.js:212`). Por lo tanto los productos rechazados no son "sin stock": SAP no los tiene en el grupo PESCA.
+- **Cambio**:
+  - Función nueva `formatProductosNoCargadosEnSap(missing, lines)` en `src/pure/mensajes-vendedor.js`, expuesta en `__phase0.pure.mensajesVendedor`. Lista cada producto con su código y descripción (hasta 15, después «y N más»).
+  - `index.html` tiene ahora una rama propia para `SKU_NOT_IN_SAP_CATALOG`.
+  - La rama `CONTENTION_RETRY_EXHAUSTED` lee `_commitCfResult.data.lastError`.
+- **Verificación**:
+  - test nuevo `tests/unit/audit/sku-not-in-sap-lista-v1548.test.js` (9);
+  - unit 2786 y smoke 25 en verde, typecheck limpio;
+  - en el navegador, el helper arma el cartel con la lista y la página carga sin errores de sintaxis.
+- **Pendiente**: con la lista a la vista, decidir si esos productos se sacan del pedido o se cargan en SAP en el grupo PESCA.
+- **Rollback**: revertir el PR. No hay cambios de servidor ni de reglas.
+
 ### v1547 (2026-11-03) — «Pasar a Pendientes» ya no falla en silencio
 
 - **Antes**: desde Lista de espera, el vendedor confirmaba el cartel «¿Confirmar pedido de X…?», tocaba OK y no pasaba nada. El pedido seguía en Lista de espera, sin ningún mensaje. Reportado por Mariano el 2026-11-03 con LOS FERRETIS S. R. L. (ORDEN 610, 124 productos).
