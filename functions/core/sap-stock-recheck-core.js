@@ -36,6 +36,10 @@ import { sapGet } from './sap-sl-client.js';
 
 /** Warehouse code para stock vendible pesca (v369+ definición canónica). */
 export const SALES_WAREHOUSE = '11';
+/** v1549: SAP SL pagina de a 20; consultamos en tandas de ese tamaño. */
+export const LIVE_STOCK_CHUNK_SIZE = 20;
+/** v1549: tope defensivo de páginas por tanda (con tandas de 20 debería ser 1). */
+export const LIVE_STOCK_MAX_PAGES_PER_CHUNK = 10;
 
 /**
  * @typedef {Object} DocumentLine
@@ -65,57 +69,93 @@ export async function fetchLiveWhs11Availability(session, itemCodes, deps) {
   if (!Array.isArray(itemCodes) || itemCodes.length === 0) {
     return { ok: true, map: new Map() };
   }
-  // SAP SL /Items acepta $filter con `or` encadenado. Los ItemCodes son
-  // alfanuméricos (validados por resolveItemCode upstream); igual sanitizamos
-  // apostrofes por si acaso — SL respeta el escaping OData estándar (`''`).
-  const clauses = itemCodes.map((c) => `ItemCode eq '${String(c).replace(/'/g, "''")}'`);
-  const filter = clauses.join(' or ');
-  const select = 'ItemCode,ItemWarehouseInfoCollection';
-  const endpoint =
-    `/b1s/v1/Items?$filter=${encodeURIComponent(filter)}` +
-    `&$select=${encodeURIComponent(select)}` +
-    `&$top=${itemCodes.length}`;
-
-  let resp;
-  try {
-    resp = await sapGet(session, endpoint, deps);
-  } catch (e) {
-    return { ok: false, error: 'sapGet threw: ' + ((e && e.message) || String(e)) };
-  }
-  if (resp.status !== 200) {
-    return { ok: false, error: `SL Items GET status=${resp.status}` };
-  }
-  const rows = resp.body && Array.isArray(resp.body.value) ? resp.body.value : [];
+  // v1549 (2026-11-03) — bug ARIZAGA SQ 2000476: SAP Service Layer devuelve
+  // como MÁXIMO 20 registros por página (+ `odata.nextLink`), aunque se pida
+  // `$top=N`. Antes se hacía UN solo GET con todos los ItemCodes: los
+  // productos después del 20 no volvían, quedaban fuera del map y
+  // filterLinesByLiveStock los marcaba `sap_item_not_found` → la CAPA (c)
+  // del auto-send los sacaba del envío en silencio (SAP recibió 20 líneas por
+  // $2.615.000 de un pedido de $5.176.000). Ahora: tandas de 20 ItemCodes por
+  // GET y, por las dudas, se sigue `odata.nextLink` dentro de cada tanda. Si
+  // CUALQUIER página falla, el chequeo entero devuelve ok:false (el caller es
+  // fail-safe §v1180: no envía, no degrada nada).
   /** @type {Map<string, number>} */
   const map = new Map();
-  for (const row of rows) {
-    const itemCode = row && row.ItemCode;
-    if (!itemCode) continue;
-    const whsList = Array.isArray(row.ItemWarehouseInfoCollection)
-      ? row.ItemWarehouseInfoCollection
-      : [];
-    const whs11 = whsList.find(
-      (/** @type {any} */ w) => String(w.WarehouseCode) === SALES_WAREHOUSE
-    );
-    if (!whs11) {
-      map.set(itemCode, 0);
-      continue;
+  const select = 'ItemCode,ItemWarehouseInfoCollection';
+  const uniqueCodes = Array.from(new Set(itemCodes.map((c) => String(c))));
+  for (let i = 0; i < uniqueCodes.length; i += LIVE_STOCK_CHUNK_SIZE) {
+    const chunk = uniqueCodes.slice(i, i + LIVE_STOCK_CHUNK_SIZE);
+    // SAP SL /Items acepta $filter con `or` encadenado. Los ItemCodes son
+    // alfanuméricos (validados por resolveItemCode upstream); igual sanitizamos
+    // apostrofes por si acaso — SL respeta el escaping OData estándar (`''`).
+    const clauses = chunk.map((c) => `ItemCode eq '${c.replace(/'/g, "''")}'`);
+    const filter = clauses.join(' or ');
+    /** @type {string | null} */
+    let endpoint =
+      `/b1s/v1/Items?$filter=${encodeURIComponent(filter)}` +
+      `&$select=${encodeURIComponent(select)}` +
+      `&$top=${chunk.length}`;
+    let pages = 0;
+    while (endpoint) {
+      pages++;
+      if (pages > LIVE_STOCK_MAX_PAGES_PER_CHUNK) {
+        return {
+          ok: false,
+          error: `SL Items paginación excedió ${LIVE_STOCK_MAX_PAGES_PER_CHUNK} páginas`,
+        };
+      }
+      let resp;
+      try {
+        resp = await sapGet(session, endpoint, deps);
+      } catch (e) {
+        return { ok: false, error: 'sapGet threw: ' + ((e && e.message) || String(e)) };
+      }
+      if (resp.status !== 200) {
+        return { ok: false, error: `SL Items GET status=${resp.status}` };
+      }
+      const body = resp.body && typeof resp.body === 'object' ? resp.body : {};
+      const rows = Array.isArray(body.value) ? body.value : [];
+      for (const row of rows) {
+        const itemCode = row && row.ItemCode;
+        if (!itemCode) continue;
+        const whsList = Array.isArray(row.ItemWarehouseInfoCollection)
+          ? row.ItemWarehouseInfoCollection
+          : [];
+        const whs11 = whsList.find(
+          (/** @type {any} */ w) => String(w.WarehouseCode) === SALES_WAREHOUSE
+        );
+        if (!whs11) {
+          map.set(itemCode, 0);
+          continue;
+        }
+        const inStock = Number(whs11.InStock) || 0;
+        const committed = Number(whs11.Committed) || 0;
+        // v839+ definición NETO: available = InStock - Committed (`Ordered`
+        // son compras entrantes, no se restan).
+        const available = Math.max(0, Math.trunc(inStock - committed));
+        map.set(itemCode, available);
+      }
+      endpoint = normalizeNextLink(body['@odata.nextLink'] || body['odata.nextLink'] || null);
     }
-    const inStock = Number(whs11.InStock) || 0;
-    const committed = Number(whs11.Committed) || 0;
-    const ordered = Number(whs11.Ordered) || 0;
-    // v839+ definición NETO: disponible = física - reservada por SOs abiertas
-    // - órdenes de compra recibidas pero no facturadas. `Ordered` en SAP SL
-    // representa las compras entrantes (aumenta stock futuro); NO lo restamos.
-    // La fórmula correcta que usa sync_sap_to_firestore.py (v839+) es:
-    //   available = InStock - Committed
-    // dejamos `ordered` capturado por si en un futuro se pide considerar
-    // reserva por PO adicional (no aplica hoy).
-    void ordered;
-    const available = Math.max(0, Math.trunc(inStock - committed));
-    map.set(itemCode, available);
   }
   return { ok: true, map };
+}
+
+/**
+ * v1549: convierte el `odata.nextLink` de SAP SL (absoluto, relativo a
+ * /b1s/v1/ o con barra inicial) en el endpoint que espera `sapGet`.
+ * @param {string | null} nextLink
+ * @returns {string | null}
+ */
+export function normalizeNextLink(nextLink) {
+  if (!nextLink || typeof nextLink !== 'string') return null;
+  if (nextLink.startsWith('http')) {
+    const idx = nextLink.indexOf('/b1s/v1/');
+    return idx >= 0 ? nextLink.slice(idx) : null;
+  }
+  if (nextLink.startsWith('/b1s/')) return nextLink;
+  if (nextLink.startsWith('/')) return '/b1s/v1' + nextLink;
+  return '/b1s/v1/' + nextLink;
 }
 
 /**

@@ -17,8 +17,8 @@
  * por faltante (max 10) con `GET /Items('CODE')`.
  *
  * Cases:
- * 1. Batch de 50 SKUs → 1 request paralelo → map con 50 entries.
- * 2. Batch de 150 SKUs → 3 chunks, concurrency cap=4 → map con 150.
+ * 1. Batch de 50 SKUs → 3 requests (20+20+10, v1549: SAP SL pagina de a 20) → map con 50 entries.
+ * 2. Batch de 150 SKUs → 8 chunks de 20 (v1549), concurrency cap=4 → map con 150.
  * 3. Chunk falla (no viene en respuesta) → fallback individual por los faltantes.
  * 4. SKU con comilla simple en el nombre → OData encoded ('') → anda.
  */
@@ -141,7 +141,7 @@ beforeEach(() => {
 // Case 1: 50 SKUs en 1 chunk → 1 request paralelo
 // ---------------------------------------------------------------------------
 describe('preCheckStockWhs11 — case 1: batch chico (50 SKUs)', () => {
-  it('50 SKUs → 1 request batch → map con 50 entries', async () => {
+  it('50 SKUs → 3 requests (20+20+10) → map con 50 entries', async () => {
     const codes = Array.from({ length: 50 }, (_, i) => `SKU-${String(i + 1).padStart(3, '0')}`);
     const stockMap = Object.fromEntries(
       codes.map((c, i) => [c, { inStock: 100 + i, committed: 10 }])
@@ -151,8 +151,9 @@ describe('preCheckStockWhs11 — case 1: batch chico (50 SKUs)', () => {
     const res = await sapSL.preCheckStockWhs11(codes);
     expect(res.ok).toBe(true);
     expect(res.availabilityMap.size).toBe(50);
-    // 1 solo request batch (CHUNK_SIZE=50).
-    expect(calls.length).toBe(1);
+    // v1549: CHUNK_SIZE=20 (SAP SL devuelve como máximo 20 por página; con
+    // tandas de 50 volvían solo 20 — bug ARIZAGA SQ 2000476).
+    expect(calls.length).toBe(3);
     expect(calls[0]).toMatch(/^\/b1s\/v1\/Items\?\$filter=/);
     // Validar que el filter NO tiene parentesis encodeados (regression v1165).
     expect(calls[0]).toContain('(ItemCode%20eq%20');
@@ -171,7 +172,7 @@ describe('preCheckStockWhs11 — case 1: batch chico (50 SKUs)', () => {
 // Case 2: 150 SKUs → 3 chunks paralelos (CONCURRENCY=4) → map con 150
 // ---------------------------------------------------------------------------
 describe('preCheckStockWhs11 — case 2: batch grande (150 SKUs, 3 chunks paralelos)', () => {
-  it('150 SKUs → 3 chunks (50+50+50), 1 lote de concurrencia (3 ≤ 4) → map con 150', async () => {
+  it('150 SKUs → 8 chunks de 20 (v1549), 2 lotes de concurrencia → map con 150', async () => {
     const codes = Array.from({ length: 150 }, (_, i) => `BULK-${String(i + 1).padStart(3, '0')}`);
     const stockMap = Object.fromEntries(
       codes.map((c, i) => [c, { inStock: 10 + (i % 5), committed: 0 }])
@@ -182,9 +183,8 @@ describe('preCheckStockWhs11 — case 2: batch grande (150 SKUs, 3 chunks parale
     const res = await sapSL.preCheckStockWhs11(codes);
     expect(res.ok).toBe(true);
     expect(res.availabilityMap.size).toBe(150);
-    // Expected: 3 batch requests (150 / 50 = 3). Como CONCURRENCY=4 y hay 3
-    // chunks, se ejecutan todos paralelos en 1 lote de Promise.all.
-    expect(calls.length).toBe(3);
+    // v1549: 8 requests (150 / 20 = 7.5 → 8). CONCURRENCY=4 → 2 lotes.
+    expect(calls.length).toBe(8);
     // Todos los requests deben matchear el pattern batch.
     for (const call of calls) {
       expect(call).toMatch(/^\/b1s\/v1\/Items\?\$filter=/);

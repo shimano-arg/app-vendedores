@@ -4755,6 +4755,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Rollback**: revert del PR (sin impacto en producción).
 
+### v1549 (2026-11-03) — Pedidos de más de 20 productos llegaban a SAP incompletos
+
+- **Antes**: PACHI confirmó SEBASTIAN ARIZAGA (31/10/2026) y la app mostraba «VA A SAP $5.176.000». La Oferta SAP 2000476 se creó con 20 líneas por $2.615.000 antes de IVA. Quedaron afuera productos confirmados, por ejemplo `CU301HGK` ×1 y `CIS151HGC` ×3: unos $2.561.000.
+- **Problema** (diagnóstico §29.3):
+  - Antes del POST, el envío automático (`onPedidoConfirmedSendToSap` → `handleAutoSendSap`) vuelve a chequear el stock en vivo con `fetchLiveWhs11Availability` (`functions/core/sap-stock-recheck-core.js`). Lo hacía con **un solo GET** de todos los productos (`$top=N`).
+  - SAP Service Layer devuelve **como máximo 20 registros por página** y el resto en `odata.nextLink`, que el código no seguía. Los productos después del 20 no volvían.
+  - `filterLinesByLiveStock` clasificaba a esos productos como `sap_item_not_found`, y la CAPA (c) de §72 («degradar individualmente los SKU que no existen en SAP») los **sacaba del envío sin bloquear el pedido**. Por eso a SAP llegaron exactamente 20 líneas.
+  - El envío manual desde el navegador (`preCheckStockWhs11`, `src/domains/sap-service-layer.js`) consultaba en tandas de 50 y tenía el mismo problema.
+  - Afecta a **todo pedido con más de 20 productos distintos** enviado desde la v1475 (2026-10-26, cuando entró la CAPA (c)).
+- **Cambio**:
+  - `fetchLiveWhs11Availability` consulta en tandas de 20 (`LIVE_STOCK_CHUNK_SIZE`) y además sigue `odata.nextLink`, con un tope defensivo de páginas. Si cualquier página falla, el chequeo entero devuelve `ok:false` y el caller aplica el fail-safe v1180: no envía y no degrada nada.
+  - Función nueva `normalizeNextLink`.
+  - `preCheckStockWhs11` baja de tandas de 50 a 20.
+- **Verificación**:
+  - test nuevo `tests/unit/sap-stock-recheck-paginacion-v1549.test.js` (6). Usa un SAP simulado que pagina de a 20 como el real. Con el código anterior fallaban los 5 casos de paginación; ahora pasan: 25 productos completos, 124 completos, un producto inexistente sigue marcado y una página caída deja el chequeo fallido;
+  - `tests/unit/preCheckStockWhs11.test.js` actualizado: suponía que SAP devolvía 50 por respuesta (§6, error del test);
+  - unit 2792, functions 975 y smoke 25 en verde, typecheck limpio.
+- **Deploy (autoriza Mariano)**: `firebase deploy --only functions:onPedidoConfirmedSendToSap`. El cambio del navegador sale con Pages.
+- **Remediación de datos (no incluida)**: las líneas que no viajaron a SAP quedaron en sus pedidos marcadas con `_degradedReason='sap_item_not_found_app_only'`. Por cada caso hubo un registro `type='sap_item_not_found_degraded'` en `operations_log`, con `missingSkus`, y un email de alerta. Hay que agregarlas a mano en SAP, o volver a cargarlas como pedido nuevo.
+- **Rollback**: revertir el PR y redeployar la función.
+
 ### v1548 (2026-11-03) — El cartel «productos no cargados en SAP» dice cuáles son
 
 - **Antes**:
