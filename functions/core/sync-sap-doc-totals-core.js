@@ -38,6 +38,7 @@
  * a SAP. Safe para deploy directo.
  */
 
+import { sapDocNetoSinIva } from './sap-doc-neto.js';
 import { sapGet, sapLogin, sapLogout } from './sap-sl-client.js';
 
 const DEFAULT_LOOKAHEAD = 2000;
@@ -104,7 +105,9 @@ async function fetchDocTotals(session, deps, endpointBase, lookahead) {
   /** @type {Map<number, number>} */
   const map = new Map();
   let scanned = 0;
-  const select = 'DocEntry,DocNum,DocTotal';
+  // v1550: también VatSum, para guardar el neto SIN IVA (lo que la app
+  // muestra como "VA A SAP"). Antes se guardaba DocTotal con IVA.
+  const select = 'DocEntry,DocNum,DocTotal,VatSum';
   for (let skip = 0; skip < lookahead; skip += DEFAULT_PAGE_SIZE) {
     const endpoint =
       `${endpointBase}?$select=${encodeURIComponent(select)}` +
@@ -118,7 +121,7 @@ async function fetchDocTotals(session, deps, endpointBase, lookahead) {
     for (const r of rows) {
       const de = Number(r.DocEntry);
       if (!de) continue;
-      map.set(de, Number(r.DocTotal) || 0);
+      map.set(de, sapDocNetoSinIva(r) || 0);
     }
     scanned += rows.length;
     if (rows.length < DEFAULT_PAGE_SIZE) break;

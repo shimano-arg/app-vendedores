@@ -203,6 +203,8 @@ function makeSlFetch(scenarios) {
           JSON.stringify({
             DocEntry: scenarios.docEntry ?? 12345,
             DocNum: scenarios.docNum ?? 67890,
+            // v1550: la respuesta real del POST trae DocTotal (con IVA) y VatSum.
+            ...(scenarios.postBodyExtra || {}),
           }),
       };
     }
@@ -506,6 +508,34 @@ describe('handleAutoSendSap — happy path', () => {
     expect(after.transferidoSAP.docNum).toBe(12345);
     expect(after.transferidoSAP.via).toBe('cf_auto');
     expect(after.sendingSapLock).toBeUndefined();
+  });
+});
+
+describe('handleAutoSendSap — v1550 VA A SAP = lo que entró a SAP', () => {
+  it('guarda sapDocTotal NETO sin IVA desde la respuesta del POST (ARIZAGA SQ 2000476)', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: {
+        docNum: 2000476,
+        docEntry: 4760,
+        postBodyExtra: { DocTotal: 3164150, VatSum: 549150 },
+      },
+    });
+    const r = await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(r.result).toBe(AUTO_SEND_RESULT.SENT_OK);
+    const after = deps.fbDb._dump()['pedidos/p1'];
+    expect(after.sapDocTotal).toBe(2615000);
+    expect(after.sapDocTotalSource).toBe('SQ');
+    expect(typeof after.sapDocTotalSyncedAt).toBe('string');
+  });
+
+  it('si la respuesta no trae DocTotal, no escribe sapDocTotal (lo completa el sync)', async () => {
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/p1': { ...validPedido } },
+      slScenarios: { docNum: 12345, docEntry: 999 },
+    });
+    await handleAutoSendSap('p1', null, { ...validPedido }, deps);
+    expect(deps.fbDb._dump()['pedidos/p1'].sapDocTotal).toBeUndefined();
   });
 });
 

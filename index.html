@@ -7308,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1549';
+const APP_VERSION = 'v1550';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -38038,6 +38038,12 @@ function attachFirebaseListeners(){
         // valido en Firestore). Bug historico del snapshot del entry — el
         // listener global unsubPedidosAll (globalPedidos) sí lo incluia.
         transferidoSAP: d.transferidoSAP || null,
+        // v1550 (2026-11-03): total NETO real de la Oferta/Orden en SAP. Faltaba
+        // en esta proyección → el modal del pedido nunca lo veía y "VA A SAP"
+        // sumaba las líneas confirmadas, incluso las que no habían viajado
+        // (ARIZAGA SQ 2000476: modal $5.176.000 vs SAP $2.615.000).
+        sapDocTotal: (typeof d.sapDocTotal === 'number') ? d.sapDocTotal : null,
+        sapDocTotalSource: d.sapDocTotalSource || null,
         // v914 (2026-09-14): error del ultimo intento de envio a SAP.
         // Persistido por sap-admin-panel (manual) o sap-auto-send-listener
         // (auto) cuando la respuesta del Service Layer no es ok. Se limpia
@@ -38135,6 +38141,9 @@ function attachFirebaseListeners(){
         migrationSource: d.migrationSource || null,
         lines: d.lines || [],
         transferidoSAP: d.transferidoSAP || null,
+        // v1550: total NETO real en SAP (ver proyección pedidos_own).
+        sapDocTotal: (typeof d.sapDocTotal === 'number') ? d.sapDocTotal : null,
+        sapDocTotalSource: d.sapDocTotalSource || null,
         // v914 (2026-09-14): error persistido del ultimo intento fallido de
         // envio a SAP. Se lee desde openTransferErrorModal y renderConfirmadosList.
         transferError: d.transferError || null,

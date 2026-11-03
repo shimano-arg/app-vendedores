@@ -4755,6 +4755,25 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Rollback**: revert del PR (sin impacto en producción).
 
+### v1550 (2026-11-03) — «VA A SAP» muestra lo que efectivamente entró a SAP
+
+- **Antes**: el modal del pedido de SEBASTIAN ARIZAGA decía «VA A SAP $5.176.000». La Oferta 2000476 entró a SAP por $2.615.000 sin IVA ($3.164.150 con IVA).
+- **Problema** (tres causas que se sumaban):
+  1. Los listeners de pedidos (`pedidos_own` y `pedidos_all` en `index.html`) **no copiaban `sapDocTotal`** al objeto que usa el modal. Por eso `computeVaASap` nunca tenía el total de SAP y sumaba las líneas confirmadas, incluidas las que no viajaron (v1549).
+  2. El sync `syncSapDocTotalsToApp` guardaba `DocTotal` **con IVA**. «VA A SAP» y las líneas de la app son sin IVA.
+  3. El total real recién llegaba con el sync de cada 30 minutos.
+- **Cambio**:
+  - `functions/core/sap-doc-neto.js` (nuevo): `sapDocNetoSinIva(doc)` = `DocTotal − VatSum`, que coincide con el «Total Before Discount» de la Oferta cuando no hay descuento de cabecera.
+  - `functions/core/auto-send-sap-core.js`: al crear la Oferta, guarda `sapDocTotal` neto desde la respuesta del POST, en el mismo paso que `transferidoSAP`. «VA A SAP» queda exacto en el acto.
+  - `functions/core/sync-sap-doc-totals-core.js`: agrega `VatSum` al `$select` y guarda el neto. Los pedidos abiertos que tenían el total con IVA se corrigen solos en la próxima corrida.
+  - `index.html`: los dos listeners copian `sapDocTotal` y `sapDocTotalSource`.
+- **Efecto**: el modal, la tarjeta del Planner y el total del pedido muestran el neto que efectivamente entró a SAP. El envío manual queda cubierto por el sync de 30 minutos.
+- **Verificación**:
+  - tests nuevos `tests/unit/sap-doc-neto-v1550.test.js` (8) y 2 casos en `tests/functions/auto-send-sap.test.js`; el de ARIZAGA da 3.164.150 − 549.150 = 2.615.000;
+  - unit 2800, functions 977 y smoke 25 en verde, typecheck limpio.
+- **Deploy (autoriza Mariano)**: `firebase deploy --only functions:onPedidoConfirmedSendToSap,functions:syncSapDocTotalsToApp`. El cambio en `index.html` sale con Pages.
+- **Rollback**: revertir el PR y redeployar las dos funciones.
+
 ### v1549 (2026-11-03) — Pedidos de más de 20 productos llegaban a SAP incompletos
 
 - **Antes**: PACHI confirmó SEBASTIAN ARIZAGA (31/10/2026) y la app mostraba «VA A SAP $5.176.000». La Oferta SAP 2000476 se creó con 20 líneas por $2.615.000 antes de IVA. Quedaron afuera productos confirmados, por ejemplo `CU301HGK` ×1 y `CIS151HGC` ×3: unos $2.561.000.

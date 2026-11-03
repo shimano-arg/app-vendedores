@@ -26,6 +26,7 @@
  * (loading configs, wiring deps, invocando handleAutoSendSap).
  */
 
+import { sapDocNetoSinIva } from './sap-doc-neto.js';
 import { sapGet, sapLogin, sapLogout, sapPost } from './sap-sl-client.js';
 import { buildSkipSetForCpstLines, filterLinesByLiveStock } from './sap-stock-recheck-core.js';
 
@@ -935,10 +936,22 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
         sapDocRange: String(docNum),
         batchId: 'CF-AUTO-' + now,
       };
-      tx.update(docRef, {
+      /** @type {Record<string, any>} */
+      const _upd = {
         transferidoSAP: transferidoSAPPayload,
         sendingSapLock: deps.FieldValue.delete(),
-      });
+      };
+      // v1550: "VA A SAP" = lo que efectivamente entró a SAP. La respuesta del
+      // POST trae DocTotal y VatSum de la Oferta creada; guardamos el neto
+      // sin IVA en el acto (antes había que esperar al sync de 30 min y ese
+      // guardaba el total CON IVA). computeVaASap lo usa como prioridad 1.
+      const _neto = sapDocNetoSinIva(resp.body);
+      if (_neto != null) {
+        _upd.sapDocTotal = _neto;
+        _upd.sapDocTotalSource = 'SQ';
+        _upd.sapDocTotalSyncedAt = new Date(now).toISOString();
+      }
+      tx.update(docRef, _upd);
       winner = { docNum, docEntry, byUs: true };
     });
 
