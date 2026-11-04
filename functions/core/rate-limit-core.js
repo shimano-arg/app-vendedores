@@ -134,4 +134,162 @@ export const RATE_LIMITS = /** @type {const} */ ({
   // (consume minutos CI + envia email a equipo). 5/hr es generoso para el
   // uso real (max 1-2 veces por semana en operacion normal).
   triggerRendicionesEmailManual: { threshold: 5, windowMs: 60 * 60 * 1000 },
+  // S04b PR-A (2026-11-04): gates de verificacion de credenciales. Umbral
+  // chico por ventana corta + lockout con backoff (ver checkAuthGateRateLimit).
+  // Fuerza bruta de password/TOTP se corta con el lockout, no solo la ventana.
+  verifyPasswordGate: { threshold: 5, windowMs: 60 * 1000 }, // 5/min
+  verifyTotpGate: { threshold: 5, windowMs: 60 * 1000 }, // 5/min
+  // S04b M2 (2026-11-04): rate-limit de los SETTERS (ventana fija SIN lockout,
+  // via checkAndIncrementRateLimit; no usar el backoff de los gates para no
+  // bloquear operaciones admin criticas — la recuperacion es automatica al
+  // vencer la ventana). Valores aprobados por el responsable.
+  setPasswordGate: { threshold: 20, windowMs: 60 * 60 * 1000 }, // 20/hr (scrypt costoso)
+  authSecretAdminOp: { threshold: 60, windowMs: 60 * 60 * 1000 }, // 60/hr (setTotp + disableTotp)
 });
+
+/**
+ * S04b PR-A (2026-11-04): escalones de backoff para lockout de gates de auth.
+ * failStreak (fallos consecutivos) -> ms de bloqueo. Valores DEFINITIVOS
+ * SUJETOS A APROBACION del responsable. El lockout vive en el mismo doc
+ * rate_limits/{uid} bajo `<opName>.lockedUntil` + `<opName>.failStreak`.
+ */
+export const AUTH_GATE_BACKOFF_STEPS = /** @type {const} */ ([
+  { atStreak: 5, lockMs: 60 * 1000 }, // 5 fallos -> 1 min
+  { atStreak: 10, lockMs: 5 * 60 * 1000 }, // 10 -> 5 min
+  { atStreak: 15, lockMs: 30 * 60 * 1000 }, // 15 -> 30 min
+  { atStreak: 20, lockMs: 24 * 60 * 60 * 1000 }, // 20 -> 24 h
+]);
+
+/**
+ * Devuelve el lockMs correspondiente al failStreak (el escalon mas alto
+ * alcanzado), o 0 si no llega al primer escalon.
+ * @param {number} failStreak
+ * @returns {number}
+ */
+export function backoffForStreak(failStreak) {
+  let lockMs = 0;
+  for (const step of AUTH_GATE_BACKOFF_STEPS) {
+    if (failStreak >= step.atStreak) lockMs = step.lockMs;
+  }
+  return lockMs;
+}
+
+/**
+ * S04b PR-A: rate-limit + lockout con backoff para gates de credenciales.
+ * NO reemplaza a checkAndIncrementRateLimit (los consumidores existentes no se
+ * tocan). Este es un mecanismo aparte que ademas de la ventana mantiene
+ * `lockedUntil` + `failStreak` por op en rate_limits/{uid}.
+ *
+ * Flujo:
+ *  - Si ahora < lockedUntil -> { allowed:false, locked:true, resetAt }.
+ *  - Si no, chequea la ventana fija (igual que checkAndIncrementRateLimit).
+ *  - Incrementa el contador de la ventana solo si allowed.
+ * El resultado de la VERIFICACION (ok/fallo) se registra aparte con
+ * registerAuthGateOutcome (abajo), que ajusta failStreak/lockedUntil.
+ *
+ * @param {import('./rate-limit-core.js').RateLimitDeps | any} deps
+ * @param {string} uid
+ * @param {string} opName  'verifyPasswordGate' | 'verifyTotpGate'
+ * @param {number} threshold
+ * @param {number} windowMs
+ * @returns {Promise<{allowed: boolean, locked: boolean, count: number, threshold: number, resetAt: string}>}
+ */
+export async function checkAuthGateRateLimit(deps, uid, opName, threshold, windowMs) {
+  if (!uid) throw new Error('auth-gate rate-limit: uid requerido');
+  if (!opName) throw new Error('auth-gate rate-limit: opName requerido');
+  const now = deps.now ? deps.now() : new Date();
+  const nowMs = now.getTime();
+  const ref = deps.fbDb.collection('rate_limits').doc(uid);
+  return await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() || {} : {};
+    const op = data[opName] || {};
+    const lockedUntilMs = op.lockedUntil ? new Date(op.lockedUntil).getTime() : 0;
+    if (lockedUntilMs && nowMs < lockedUntilMs) {
+      return {
+        allowed: false,
+        locked: true,
+        count: op.count || 0,
+        threshold,
+        resetAt: new Date(lockedUntilMs).toISOString(),
+      };
+    }
+    const windowStartMs = op.windowStartAt ? new Date(op.windowStartAt).getTime() : 0;
+    const inWindow = windowStartMs && nowMs - windowStartMs < windowMs;
+    const currentCount = inWindow ? op.count || 0 : 0;
+    const nextResetMs = inWindow ? windowStartMs + windowMs : nowMs + windowMs;
+    if (currentCount >= threshold) {
+      return {
+        allowed: false,
+        locked: false,
+        count: currentCount,
+        threshold,
+        resetAt: new Date(nextResetMs).toISOString(),
+      };
+    }
+    const nextCount = currentCount + 1;
+    const nextWindowStartAt = inWindow ? op.windowStartAt : now.toISOString();
+    tx.set(
+      ref,
+      {
+        [opName]: Object.assign({}, op, {
+          count: nextCount,
+          windowStartAt: nextWindowStartAt,
+        }),
+        updatedAt: now.toISOString(),
+      },
+      { merge: true }
+    );
+    return {
+      allowed: true,
+      locked: false,
+      count: nextCount,
+      threshold,
+      resetAt: new Date(nextResetMs).toISOString(),
+    };
+  });
+}
+
+/**
+ * S04b PR-A: registra el resultado de una verificacion de credencial para
+ * ajustar failStreak + lockedUntil (backoff). Exito resetea el streak; fallo
+ * lo incrementa y setea lockedUntil si cruza un escalon. Transaccional.
+ *
+ * @param {any} deps
+ * @param {string} uid
+ * @param {string} opName
+ * @param {boolean} success
+ * @returns {Promise<{failStreak: number, lockedUntil: string|null}>}
+ */
+export async function registerAuthGateOutcome(deps, uid, opName, success) {
+  if (!uid || !opName) throw new Error('registerAuthGateOutcome: uid/opName requerido');
+  const now = deps.now ? deps.now() : new Date();
+  const nowMs = now.getTime();
+  const ref = deps.fbDb.collection('rate_limits').doc(uid);
+  return await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() || {} : {};
+    const op = data[opName] || {};
+    let failStreak = typeof op.failStreak === 'number' ? op.failStreak : 0;
+    let lockedUntil = null;
+    if (success) {
+      failStreak = 0;
+    } else {
+      failStreak += 1;
+      const lockMs = backoffForStreak(failStreak);
+      if (lockMs > 0) lockedUntil = new Date(nowMs + lockMs).toISOString();
+    }
+    tx.set(
+      ref,
+      {
+        [opName]: Object.assign({}, op, {
+          failStreak,
+          lockedUntil: lockedUntil || op.lockedUntil || null,
+        }),
+        updatedAt: now.toISOString(),
+      },
+      { merge: true }
+    );
+    return { failStreak, lockedUntil };
+  });
+}
