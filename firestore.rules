@@ -160,7 +160,20 @@ service cloud.firestore {
                          && request.auth.token.firebase.sign_in_provider == 'google.com'
                        )
                      );
-      allow update, delete: if isAdmin();
+      // S04b PR-B (2026-11-04): congelamiento de credenciales legacy frente al
+      // cliente. Los campos passwordHash/passwordSalt/totpSecret/totpEnabled
+      // que PR-A todavía dual-writea en /roles (compat + rollback) ya NO pueden
+      // ser creados, modificados ni eliminados por un update cliente — ni
+      // siquiera por admin. Las Cloud Functions de PR-A los administran vía
+      // Admin SDK, que OMITE estas reglas (su dual-write sigue intacto). El
+      // resto de los campos administrativos sigue editable por admin. Las
+      // reglas de read y create no se tocan (create ya los excluye por el
+      // hasOnly de 5 campos de SEC-04). affectedKeys() cubre alta/edición/baja
+      // de esos campos (una eliminación de campo también aparece en el diff).
+      allow update: if isAdmin()
+                     && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled']);
+      allow delete: if isAdmin();
     }
 
     // D2 (2026-10-29): secretos del gate de contraseña y del TOTP. Solo Admin
