@@ -124,7 +124,12 @@ describe('unassigned role', () => {
   });
   it('bot.shimano.pesca sí puede crearse como admin (bootstrap flow)', async () => {
     const newUid = 'uid-boot';
-    const db = authedDb(newUid, { email: 'bot.shimano.pesca@gmail.com' });
+    // D3 (2026-10-29): la regla exige email verificado + login con Google.
+    const db = authedDb(newUid, {
+      email: 'bot.shimano.pesca@gmail.com',
+      email_verified: true,
+      firebase: { sign_in_provider: 'google.com' },
+    });
     await assertSucceeds(setDoc(doc(db, 'roles', newUid), { role: 'admin' }));
   });
 });
@@ -142,8 +147,25 @@ describe('/roles', () => {
   it('vendor puede leer su propio role', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendor)));
   });
-  it('vendor NO puede leer role de otro vendor', async () => {
-    await assertFails(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendorOther)));
+  // D2 (2026-10-29, actualizado ciclo 17): la lectura de docs de vendedores
+  // quedó para roles lectores. Un VDE ES lector, así que VDE → VDE está
+  // permitido a propósito: es el caso v1491 (el VDE resuelve vendorKey→UID
+  // client-side vía resolveClientVendorFromMaster/vdeUsers; sin esa lectura el
+  // payload sale sin assignedVendorUid y el gate server rechaza con
+  // VENDOR_UID_MISSING). El test previo ("vendor NO puede leer role de otro
+  // vendor") reflejaba una intención anterior a v1491 y nunca coincidió con la
+  // regla real (en main alcanzaba con estar autenticado). La frontera de
+  // seguridad real de D2 — unassigned / autenticado sin rol NO leen — se
+  // mantiene abajo y también en tests/rules/sec-d2-d3.test.js (L1/L2).
+  it('vendor SÍ puede leer role de otro vendor (D2: caso v1491 vendorKey→UID)', async () => {
+    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendorOther)));
+  });
+  it('D2: unassigned NO puede leer role de un vendor', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.unassigned), 'roles', UID.vendor)));
+  });
+  it('D2: autenticado sin doc en roles NO puede leer role de un vendor', async () => {
+    // uid sin doc sembrado en /roles → isReader() es false → denegado.
+    await assertFails(getDoc(doc(authedDb('uid-sin-doc-en-roles'), 'roles', UID.vendor)));
   });
   it('interno partnered puede leer role de su VDE (para listener partners)', async () => {
     // vendor tiene internalPartnerUid = UID.internoPartnered en seed
