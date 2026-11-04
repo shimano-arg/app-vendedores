@@ -183,6 +183,9 @@ export async function verifyTotpCore(deps, uid, code) {
   if (!uid) throw new TransientAuthError('uid requerido');
   if (!/^[0-9]{6}$/.test(String(code || ''))) return { ok: false, reason: 'format' };
   if (!deps.totpCodeAt) throw new TransientAuthError('totpCodeAt no inyectado');
+  // Referencia local tras el guard: tsc no estrecha deps.totpCodeAt (opcional)
+  // dentro del closure de la transaccion, por eso lo fijamos aca.
+  const totpCodeAt = deps.totpCodeAt;
   const nowMs = _now(deps).getTime();
   const curStep = Math.floor(nowMs / 1000 / TOTP_STEP_SECONDS);
   const ref = deps.fbDb.collection('auth_secrets').doc(uid);
@@ -198,7 +201,7 @@ export async function verifyTotpCore(deps, uid, code) {
       let matchedStep = null;
       for (let s = curStep - TOTP_TOLERANCE; s <= curStep + TOTP_TOLERANCE; s++) {
         if (s <= lastStep) continue; // anti-replay: paso ya consumido o anterior
-        if (_safeEq(deps, deps.totpCodeAt(String(secret), s), String(code))) {
+        if (_safeEq(deps, totpCodeAt(String(secret), s), String(code))) {
           matchedStep = s;
           break;
         }

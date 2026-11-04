@@ -3866,7 +3866,14 @@ export const updatePedidoLinesCF = onCall(
 // Parametros definitivos SUJETOS A BENCHMARK.
 // ============================================================
 
-/** Promisify de crypto.scrypt con los opts (incluye maxmem). */
+/**
+ * Promisify de crypto.scrypt con los opts (incluye maxmem).
+ * @param {string} password
+ * @param {string|Buffer} salt
+ * @param {number} keylen
+ * @param {object} opts
+ * @returns {Promise<Buffer>}
+ */
 function _scryptAsync(password, salt, keylen, opts) {
   return new Promise((resolve, reject) => {
     _scryptCb(password, salt, keylen, opts, (err, derivedKey) => {
@@ -3876,8 +3883,13 @@ function _scryptAsync(password, salt, keylen, opts) {
   });
 }
 
-/** HOTP(step) -> codigo TOTP de 6 digitos (HMAC-SHA1). Usa base32Decode
- * estricto del core (M5). */
+/**
+ * HOTP(step) -> codigo TOTP de 6 digitos (HMAC-SHA1). Usa base32Decode
+ * estricto del core (M5).
+ * @param {string} secretBase32
+ * @param {number} step
+ * @returns {string}
+ */
 function _totpCodeAt(secretBase32, step) {
   const key = base32Decode(secretBase32);
   const buf = Buffer.alloc(8);
@@ -3894,16 +3906,20 @@ function _totpCodeAt(secretBase32, step) {
   return String(code % 1000000).padStart(6, '0');
 }
 
-/** Construye los deps inyectables del core con las primitivas reales. */
+/**
+ * Construye los deps inyectables del core con las primitivas reales.
+ * @param {any} db  Firestore Admin instance
+ */
 function _buildAuthSecretsDeps(db) {
   return {
     fbDb: db,
     now: () => new Date(),
-    log: (msg, extra) => console.log(msg, extra || {}),
+    log: (/** @type {string} */ msg, /** @type {any} */ extra) => console.log(msg, extra || {}),
     scryptAsync: _scryptAsync,
-    sha256Hex: async (str) => createHash('sha256').update(String(str)).digest('hex'),
-    randomBytesHex: (n) => randomBytes(n).toString('hex'),
-    timingSafeEqualHex: (aHex, bHex) => {
+    sha256Hex: async (/** @type {string} */ str) =>
+      createHash('sha256').update(String(str)).digest('hex'),
+    randomBytesHex: (/** @type {number} */ n) => randomBytes(n).toString('hex'),
+    timingSafeEqualHex: (/** @type {string} */ aHex, /** @type {string} */ bHex) => {
       try {
         const a = Buffer.from(String(aHex), 'hex');
         const b = Buffer.from(String(bHex), 'hex');
@@ -3917,7 +3933,12 @@ function _buildAuthSecretsDeps(db) {
   };
 }
 
-/** Lee el rol de un uid server-side (fuente de verdad roles/{uid}). */
+/**
+ * Lee el rol de un uid server-side (fuente de verdad roles/{uid}).
+ * @param {any} db
+ * @param {string} uid
+ * @returns {Promise<string|null>}
+ */
 async function _readRole(db, uid) {
   try {
     const snap = await db.collection('roles').doc(uid).get();
@@ -3952,7 +3973,11 @@ function _assertRecentGoogleReauth(auth, nowSec) {
   }
 }
 
-/** Log de evento de auth-gate a operations_log, SIN secretos. Best-effort. */
+/**
+ * Log de evento de auth-gate a operations_log, SIN secretos. Best-effort.
+ * @param {any} db
+ * @param {Record<string, unknown>} entry
+ */
 async function _logAuthGate(db, entry) {
   try {
     await db
