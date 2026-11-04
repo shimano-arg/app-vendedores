@@ -12,6 +12,13 @@
  * Region: southamerica-east1 (mismo que Firestore + Storage del proyecto).
  */
 
+import {
+  scrypt as _scryptCb,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { defineSecret } from 'firebase-functions/params';
@@ -27,6 +34,17 @@ import { updateAsigLineState } from './core/asig-recycle-core.js';
 // v750 (2026-08-31): tracking de transiciones ASIG para analytics mes-a-mes.
 import { detectAsigTransitions, writeTransitionsBatch } from './core/asig-transitions-core.js';
 import { expireAsigLinesTTL } from './core/asig-ttl-core.js';
+import {
+  authorizeSecretOp,
+  base32Decode,
+  checkRecentGoogleReauth,
+  disableTotpCore,
+  setPasswordCore,
+  setTotpCore,
+  TransientAuthError,
+  verifyPasswordCore,
+  verifyTotpCore,
+} from './core/auth-secrets-core.js';
 // v818 (2026-09-07): auto-envio pedidos confirmed a SAP via CF trigger. Elimina
 // dependencia del auto-send client-side (que solo corria en sesion admin/gerente
 // con SL activo). Fix bug reportado por Mariano: pedidos VDE confirmed quedaban
@@ -64,7 +82,14 @@ import { handleResendPlannerEmail } from './core/planner-resend-email-core.js';
 import { handlePlannerStageChanged } from './core/planner-stage-change-core.js';
 // v939 (SecAudit Sprint 2 MED-15 VULN-L004+L015): rate limit para sapProxy
 // + geminiOcrProxy. Contador atomico en Firestore rate_limits/{uid}.
-import { checkAndIncrementRateLimit, RATE_LIMITS } from './core/rate-limit-core.js';
+// S04b PR-A (2026-11-04): gates de credenciales server-side (inertes en PR-A;
+// el frontend todavia NO las invoca). Ver functions/core/auth-secrets-core.js.
+import {
+  checkAndIncrementRateLimit,
+  checkAuthGateRateLimit,
+  RATE_LIMITS,
+  registerAuthGateOutcome,
+} from './core/rate-limit-core.js';
 // §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
 // §61 (v1440) destrabó con rule abierta. Cierra el parche.
 import { releaseAsigCore } from './core/release-asig-core.js';
@@ -3810,6 +3835,414 @@ export const updatePedidoLinesCF = onCall(
     } catch (e) {
       console.error('updatePedidoLinesCF unexpected', e);
       throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+    }
+  }
+);
+
+// ============================================================
+// S04b PR-A (2026-11-04) — Gates de credenciales server-side.
+// ------------------------------------------------------------
+// Estas Cloud Functions mueven la verificacion de password/TOTP desde el
+// cliente (que hoy lee los secretos de /roles) hacia el servidor, usando
+// /auth_secrets como fuente de verdad (coleccion cerrada a clientes).
+//
+// IMPORTANTE (PR-A): el frontend TODAVIA NO invoca estas funciones. Quedan
+// desplegadas pero inertes -> cero cambio de comportamiento productivo. El
+// cutover de frontend, el freeze de /roles por reglas y la migracion van en
+// PRs posteriores.
+//
+// App Check: enforceAppCheck=false en PR-A, por consistencia con el resto de
+// las CFs (ver §22/§23: el enforcement se habilita gradualmente, una CF a la
+// vez, nunca las criticas en simultaneo, por el precedente de ~66h de
+// propagacion). App Check NO es autenticacion: la identidad sale SIEMPRE de
+// request.auth.uid; App Check solo ataria la app cliente. Su habilitacion es
+// una etapa posterior documentada.
+//
+// Fail-closed: ante error transitorio (TransientAuthError) se lanza
+// 'unavailable' (reintentable); nunca se devuelve ok:true por fallback.
+//
+// scrypt: asincrono (no bloquea event loop); memory 512MiB + concurrency 1 en
+// las CFs de password para acotar el pico de memoria (~32-64 MiB por op).
+// Parametros definitivos SUJETOS A BENCHMARK.
+// ============================================================
+
+/**
+ * Promisify de crypto.scrypt con los opts (incluye maxmem).
+ * @param {string} password
+ * @param {string|Buffer} salt
+ * @param {number} keylen
+ * @param {object} opts
+ * @returns {Promise<Buffer>}
+ */
+function _scryptAsync(password, salt, keylen, opts) {
+  return new Promise((resolve, reject) => {
+    _scryptCb(password, salt, keylen, opts, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+}
+
+/**
+ * HOTP(step) -> codigo TOTP de 6 digitos (HMAC-SHA1). Usa base32Decode
+ * estricto del core (M5).
+ * @param {string} secretBase32
+ * @param {number} step
+ * @returns {string}
+ */
+function _totpCodeAt(secretBase32, step) {
+  const key = base32Decode(secretBase32);
+  const buf = Buffer.alloc(8);
+  // step como entero de 64 bits big-endian (hi suele ser 0 en la practica).
+  buf.writeUInt32BE(Math.floor(step / 0x100000000), 0);
+  buf.writeUInt32BE(step >>> 0, 4);
+  const hmac = createHmac('sha1', key).update(buf).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code =
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff);
+  return String(code % 1000000).padStart(6, '0');
+}
+
+/**
+ * Construye los deps inyectables del core con las primitivas reales.
+ * @param {any} db  Firestore Admin instance
+ */
+function _buildAuthSecretsDeps(db) {
+  return {
+    fbDb: db,
+    now: () => new Date(),
+    log: (/** @type {string} */ msg, /** @type {any} */ extra) => console.log(msg, extra || {}),
+    scryptAsync: _scryptAsync,
+    sha256Hex: async (/** @type {string} */ str) =>
+      createHash('sha256').update(String(str)).digest('hex'),
+    randomBytesHex: (/** @type {number} */ n) => randomBytes(n).toString('hex'),
+    timingSafeEqualHex: (/** @type {string} */ aHex, /** @type {string} */ bHex) => {
+      try {
+        const a = Buffer.from(String(aHex), 'hex');
+        const b = Buffer.from(String(bHex), 'hex');
+        if (a.length !== b.length || a.length === 0) return false;
+        return timingSafeEqual(a, b);
+      } catch (_e) {
+        return false;
+      }
+    },
+    totpCodeAt: _totpCodeAt,
+  };
+}
+
+/**
+ * Lee el rol de un uid server-side (fuente de verdad roles/{uid}).
+ * @param {any} db
+ * @param {string} uid
+ * @returns {Promise<string|null>}
+ */
+async function _readRole(db, uid) {
+  try {
+    const snap = await db.collection('roles').doc(uid).get();
+    return String((snap.data() || {}).role || '').toLowerCase() || null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * H1 (S04b): exige reautenticacion Google reciente para operaciones self sobre
+ * secretos (setPasswordGate self). Valida SOLO claims del token verificado por
+ * Firebase (nunca booleanos del frontend):
+ *  - request.auth presente.
+ *  - auth_time entero valido (segundos epoch).
+ *  - no futuro (sin tolerancia de skew: 0 <= now - auth_time).
+ *  - firebase.sign_in_provider === 'google.com'.
+ *  - antiguedad <= 300s (inclusive en 300).
+ * Falla -> HttpsError('failed-precondition') sin exponer el token/claims.
+ * @param {any} auth  req.auth del onCall
+ * @param {number} nowSec  Math.floor(Date.now()/1000)
+ */
+function _assertRecentGoogleReauth(auth, nowSec) {
+  // Logica pura + testeable en el core (checkRecentGoogleReauth); aca solo el
+  // mapeo a HttpsError sin exponer el token ni los claims.
+  const r = checkRecentGoogleReauth(auth && auth.token, nowSec);
+  if (!r.ok) {
+    throw new HttpsError(
+      'failed-precondition',
+      'reautenticá con Google para cambiar tu contraseña'
+    );
+  }
+}
+
+/**
+ * Log de evento de auth-gate a operations_log, SIN secretos. Best-effort.
+ * @param {any} db
+ * @param {Record<string, unknown>} entry
+ */
+async function _logAuthGate(db, entry) {
+  try {
+    await db
+      .collection('operations_log')
+      .add(Object.assign({ type: 'auth_gate', at: new Date().toISOString() }, entry));
+  } catch (_e) {
+    /* no-op */
+  }
+}
+
+/**
+ * verifyPasswordGate — SELF-OP. Verifica la password del propio usuario contra
+ * /auth_secrets. uid SIEMPRE de request.auth.uid (nunca de params).
+ */
+export const verifyPasswordGate = onCall(
+  { region: REGION, enforceAppCheck: false, memory: '512MiB', timeoutSeconds: 30, concurrency: 1 },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
+    const uid = auth.uid; // SELF-OP: jamas se acepta targetUid del cliente.
+    const db = getFirestore();
+    const deps = _buildAuthSecretsDeps(db);
+    // Rate-limit + lockout (fail-closed ante abuso).
+    const rl = await checkAuthGateRateLimit(
+      deps,
+      uid,
+      'verifyPasswordGate',
+      RATE_LIMITS.verifyPasswordGate.threshold,
+      RATE_LIMITS.verifyPasswordGate.windowMs
+    );
+    if (!rl.allowed) {
+      await _logAuthGate(db, {
+        op: 'verifyPasswordGate',
+        uid,
+        result: rl.locked ? 'locked' : 'rate_limited',
+      });
+      throw new HttpsError(
+        'resource-exhausted',
+        rl.locked ? 'bloqueado temporalmente' : 'demasiados intentos'
+      );
+    }
+    try {
+      const r = await verifyPasswordCore(deps, uid, String((req.data && req.data.password) || ''));
+      await registerAuthGateOutcome(deps, uid, 'verifyPasswordGate', r.ok);
+      await _logAuthGate(db, { op: 'verifyPasswordGate', uid, result: r.ok ? 'ok' : 'fail' });
+      return { ok: r.ok }; // nunca el hash/salt ni el reason detallado al cliente
+    } catch (e) {
+      if (e instanceof TransientAuthError) {
+        console.error('verifyPasswordGate transient', e.message);
+        throw new HttpsError('unavailable', 'no se pudo verificar ahora, reintentá');
+      }
+      console.error('verifyPasswordGate unexpected', e);
+      throw new HttpsError('internal', 'error inesperado');
+    }
+  }
+);
+
+/**
+ * verifyTotpGate — SELF-OP. Verifica un codigo TOTP del propio usuario con
+ * anti-replay atomico. uid SIEMPRE de request.auth.uid.
+ */
+export const verifyTotpGate = onCall(
+  { region: REGION, enforceAppCheck: false, memory: '256MiB', timeoutSeconds: 30 },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
+    const uid = auth.uid;
+    const db = getFirestore();
+    const deps = _buildAuthSecretsDeps(db);
+    const rl = await checkAuthGateRateLimit(
+      deps,
+      uid,
+      'verifyTotpGate',
+      RATE_LIMITS.verifyTotpGate.threshold,
+      RATE_LIMITS.verifyTotpGate.windowMs
+    );
+    if (!rl.allowed) {
+      await _logAuthGate(db, {
+        op: 'verifyTotpGate',
+        uid,
+        result: rl.locked ? 'locked' : 'rate_limited',
+      });
+      throw new HttpsError(
+        'resource-exhausted',
+        rl.locked ? 'bloqueado temporalmente' : 'demasiados intentos'
+      );
+    }
+    try {
+      const r = await verifyTotpCore(deps, uid, String((req.data && req.data.code) || ''));
+      await registerAuthGateOutcome(deps, uid, 'verifyTotpGate', r.ok);
+      await _logAuthGate(db, { op: 'verifyTotpGate', uid, result: r.ok ? 'ok' : 'fail' });
+      return { ok: r.ok };
+    } catch (e) {
+      if (e instanceof TransientAuthError) {
+        console.error('verifyTotpGate transient', e.message);
+        throw new HttpsError('unavailable', 'no se pudo verificar ahora, reintentá');
+      }
+      console.error('verifyTotpGate unexpected', e);
+      throw new HttpsError('internal', 'error inesperado');
+    }
+  }
+);
+
+/**
+ * setPasswordGate — SELF o ADMIN. Setea la password (dual-write atomico
+ * auth_secrets + roles). self: targetUid == caller; admin: targetUid ajeno y
+ * callerRole == 'admin' (verificado server-side).
+ */
+export const setPasswordGate = onCall(
+  { region: REGION, enforceAppCheck: false, memory: '512MiB', timeoutSeconds: 30, concurrency: 1 },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
+    const callerUid = auth.uid;
+    const data = req.data || {};
+    const targetUid = String(data.targetUid || callerUid);
+    const db = getFirestore();
+    const callerRole = await _readRole(db, callerUid);
+    const authz = authorizeSecretOp({ callerUid, callerRole, targetUid });
+    if (!authz.allowed) throw new HttpsError('permission-denied', 'no autorizado');
+    // H1 (S04b): el cambio de la PROPIA contraseña exige reauth Google reciente
+    // (<=300s). El path admin sobre tercero NO exige reauth del target (ya
+    // valido rol server-side via authorizeSecretOp mode='admin').
+    if (authz.mode === 'self') {
+      _assertRecentGoogleReauth(auth, Math.floor(Date.now() / 1000));
+    }
+    const deps = _buildAuthSecretsDeps(db);
+    // M2 (S04b): rate-limit por UID ANTES de scrypt/transaccion (op costosa).
+    // Ventana fija sin lockout (no bloquear admin; recuperacion automatica).
+    const rl = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, e) => console.log(m, e || {}) },
+      callerUid,
+      'setPasswordGate',
+      RATE_LIMITS.setPasswordGate.threshold,
+      RATE_LIMITS.setPasswordGate.windowMs
+    );
+    if (!rl.allowed) {
+      await _logAuthGate(db, { op: 'setPasswordGate', uid: callerUid, result: 'rate_limited' });
+      throw new HttpsError(
+        'resource-exhausted',
+        `límite alcanzado, reintentá luego de ${rl.resetAt}`
+      );
+    }
+    try {
+      const r = await setPasswordCore(deps, { targetUid, password: String(data.password || '') });
+      await _logAuthGate(db, {
+        op: 'setPasswordGate',
+        uid: callerUid,
+        targetUid,
+        mode: authz.mode,
+        result: 'ok',
+      });
+      return { ok: r.ok };
+    } catch (e) {
+      if (e instanceof TransientAuthError) {
+        console.error('setPasswordGate transient', e.message);
+        throw new HttpsError('unavailable', 'no se pudo guardar ahora, reintentá');
+      }
+      console.error('setPasswordGate unexpected', e);
+      throw new HttpsError('internal', 'error inesperado');
+    }
+  }
+);
+
+/**
+ * setTotpGate — ADMIN-OP. Activa TOTP para un usuario (dual-write atomico).
+ * Requiere callerRole == 'admin' (TOTP no es self-service por diseño).
+ */
+export const setTotpGate = onCall(
+  { region: REGION, enforceAppCheck: false, memory: '256MiB', timeoutSeconds: 30 },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
+    const db = getFirestore();
+    const callerRole = await _readRole(db, auth.uid);
+    if (callerRole !== 'admin') throw new HttpsError('permission-denied', 'solo admin');
+    const data = req.data || {};
+    const targetUid = String(data.targetUid || '');
+    if (!targetUid) throw new HttpsError('invalid-argument', 'targetUid requerido');
+    const deps = _buildAuthSecretsDeps(db);
+    // M2 (S04b): rate-limit admin-op por UID antes de la transaccion.
+    const rlT = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, e) => console.log(m, e || {}) },
+      auth.uid,
+      'authSecretAdminOp',
+      RATE_LIMITS.authSecretAdminOp.threshold,
+      RATE_LIMITS.authSecretAdminOp.windowMs
+    );
+    if (!rlT.allowed) {
+      await _logAuthGate(db, {
+        op: 'setTotpGate',
+        uid: auth.uid,
+        targetUid,
+        result: 'rate_limited',
+      });
+      throw new HttpsError(
+        'resource-exhausted',
+        `límite alcanzado, reintentá luego de ${rlT.resetAt}`
+      );
+    }
+    try {
+      const r = await setTotpCore(deps, {
+        targetUid,
+        secretBase32: String(data.secretBase32 || ''),
+        enabledBy: String(auth.token?.email || ''),
+      });
+      await _logAuthGate(db, { op: 'setTotpGate', uid: auth.uid, targetUid, result: 'ok' });
+      return { ok: r.ok };
+    } catch (e) {
+      if (e instanceof TransientAuthError) {
+        console.error('setTotpGate transient', e.message);
+        throw new HttpsError('unavailable', 'no se pudo guardar ahora, reintentá');
+      }
+      console.error('setTotpGate unexpected', e);
+      throw new HttpsError('internal', 'error inesperado');
+    }
+  }
+);
+
+/**
+ * disableTotpGate — ADMIN-OP. Desactiva TOTP de un usuario (dual-write atomico).
+ */
+export const disableTotpGate = onCall(
+  { region: REGION, enforceAppCheck: false, memory: '256MiB', timeoutSeconds: 30 },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
+    const db = getFirestore();
+    const callerRole = await _readRole(db, auth.uid);
+    if (callerRole !== 'admin') throw new HttpsError('permission-denied', 'solo admin');
+    const data = req.data || {};
+    const targetUid = String(data.targetUid || '');
+    if (!targetUid) throw new HttpsError('invalid-argument', 'targetUid requerido');
+    const deps = _buildAuthSecretsDeps(db);
+    // M2 (S04b): rate-limit admin-op por UID antes de la transaccion.
+    const rlD = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, e) => console.log(m, e || {}) },
+      auth.uid,
+      'authSecretAdminOp',
+      RATE_LIMITS.authSecretAdminOp.threshold,
+      RATE_LIMITS.authSecretAdminOp.windowMs
+    );
+    if (!rlD.allowed) {
+      await _logAuthGate(db, {
+        op: 'disableTotpGate',
+        uid: auth.uid,
+        targetUid,
+        result: 'rate_limited',
+      });
+      throw new HttpsError(
+        'resource-exhausted',
+        `límite alcanzado, reintentá luego de ${rlD.resetAt}`
+      );
+    }
+    try {
+      const r = await disableTotpCore(deps, { targetUid, deleteFieldValue: FieldValue.delete() });
+      await _logAuthGate(db, { op: 'disableTotpGate', uid: auth.uid, targetUid, result: 'ok' });
+      return { ok: r.ok };
+    } catch (e) {
+      if (e instanceof TransientAuthError) {
+        console.error('disableTotpGate transient', e.message);
+        throw new HttpsError('unavailable', 'no se pudo guardar ahora, reintentá');
+      }
+      console.error('disableTotpGate unexpected', e);
+      throw new HttpsError('internal', 'error inesperado');
     }
   }
 );
