@@ -4717,6 +4717,30 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1553 (2026-11-05) — DSO literal por factura: sync PaymentInvoices (RCT2) + vista `v_cobros_factura`
+
+- **Antes**: el tablero SAR tenía DSO como estimación agregada (deuda total ÷ venta diaria). No existía fecha de cobro por factura: `v_facturas_sap.paid_to_date` es monto acumulado, no fecha; y `update_date` se actualiza con cualquier edit SAP (avg 0.33 días vs emisión sobre 2387 facturas cobradas 6m — no sirve como proxy).
+- **Problema**: la fecha de cobro vive en `ORCT.DocDate` + línea RCT2 que aplica el pago a cada factura (`PaymentInvoices`). RCT2 **no estaba sincronizada** a BigQuery; `sync_sap_to_bigquery.py` COBRANZAS-B v2 (2026-09-07) traía solo `PaymentChecks` y `Deposits/CheckLines`, sin el link factura→pago.
+- **Cambio** (sin tocar bundle cliente — es cambio Python + BQ):
+  - `scripts/sync_sap_to_bigquery.py` COBRANZAS-B: nueva constante `BQ_TABLE_PAYMENT_INVOICES` + helper `flatten_payment_invoice` + fetch per-doc paralelo `/b1s/v1/IncomingPayments({de})/PaymentInvoices` (patrón idéntico a PaymentChecks porque `$expand` también rechaza en el SL de Shimano). Aplica a TODOS los pagos (no solo cheques). Tabla raw nueva `sap_incoming_payment_invoices_raw` con columnas `payment_doc_entry, payment_doc_date, payment_card_code, payment_cancelled, invoice_doc_entry, invoice_type, sum_applied, applied_sys_amount, sum_applied_fc, doc_rate, line_num, _sync_timestamp`.
+  - `bigquery/views.sql`: nueva vista `v_cobros_factura` al final del archivo. Grano 1 row por factura (`doc_kind='INVOICE'`). Regla de fecha_cobro (Opción A, confirmada por Mariano): fecha del pago FIFO cuyo acumulado llega a `doc_total * 0.9999`. Facturas con saldo > 0 → `fecha_cobro = NULL`. Alinea `vendor` + `es_bike` + `is_pesca = NOT es_bike` con `v_facturas_sap`.
+  - `scripts/apply_v_cobros_factura.py` nuevo: patrón idéntico a `apply_v_pedidos_lines.py`. Pre-chequea que `sap_incoming_payment_invoices_raw` tiene filas (aborta con instrucción si no). Deploy via regex marker único + 6 validaciones post-deploy (cobertura 12m, DSO avg/mediana/p10/p90, breakdown Pesca vs Bike, top 10 vendedores, **5 facturas cobradas con historial de pagos y marca `<-- cierra` en el que llega al saldo 0**, schema final).
+- **Power BI (siguiente paso de Mariano)**:
+  ```
+  DSO = AVERAGEX(FILTER('v_cobros_factura', [fecha_cobro] <> BLANK()), [dias_cobro])
+  ```
+  Filtrable por mes de emisión (`doc_date`), `vendor`, `is_pesca`.
+- **Verificación / orden de ejecución**:
+  1. Correr `python scripts/sync_sap_to_bigquery.py` (sync completo diario). Agrega ~3-6 min adicionales por el fetch per-doc de ~6k pagos / 8 workers.
+  2. Correr `python scripts/apply_v_cobros_factura.py`. Si la tabla raw sigue vacía, aborta con instrucción explícita.
+  3. Revisar las 6 validaciones de salida — sample 5 facturas con historial de pagos que cierran el saldo (marca `<-- cierra`).
+- **Deploy**: ninguno de app-vendedores (es BQ + Python standalone). Se corre a demanda de Mariano después del merge.
+- **Rollback**: revertir el PR. La tabla raw `sap_incoming_payment_invoices_raw` queda poblada pero sin consumidores (la vista `v_cobros_factura` desaparece con el revert). Innocuo; se puede dropear con `DROP TABLE` si molesta.
+- **Notas**:
+  - El sync corre SOLO una vez al día (schedule actual). Hasta esa corrida, la nueva tabla raw no existe y el `apply` aborta con instrucción clara — no silent fail.
+  - `v_facturas_sap.es_bike` es a nivel CLIENTE (v4 2026-09-09). `is_pesca = NOT es_bike` es heurística: un cliente que nunca compró bike queda `is_pesca=TRUE`. Para refinamiento item-level se puede extender la vista más adelante.
+  - La regla A ignora NCs aplicadas a la factura (`invoice_type='it_CreditNote'`) a propósito: el saldo que debe cerrar es el bruto, no neto de devoluciones. Consistente con lo que PBI considera "cobrado literal".
+
 ### v1552 (2026-11-03) — «Pedidos del mes» para los VDI + «Eliminar» en provisorios/leads para todos los vendedores
 
 - **Antes**:

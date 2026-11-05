@@ -132,6 +132,11 @@ BQ_TABLE_INV_TRANSFERS   = f'{BQ_PROJECT}.{BQ_DATASET}.sap_inventory_transfers_r
 # con FK a la cabecera (incoming_payment_doc_entry). Idem Deposits/CheckLines.
 BQ_TABLE_INCOMING_PAYMENTS = f'{BQ_PROJECT}.{BQ_DATASET}.sap_incoming_payments_raw'
 BQ_TABLE_PAYMENT_CHECKS    = f'{BQ_PROJECT}.{BQ_DATASET}.sap_payment_checks_raw'
+# v1553 (2026-11-05): PaymentInvoices (RCT2) — lineas que aplican cada pago a facturas
+# especificas. Habilita DSO literal (fecha de cobro por OINV) en v_cobros_factura.
+# Patron per-doc igual que PaymentChecks porque $expand=PaymentInvoices tambien devuelve
+# HTTP 400 "invalid navigation property" en Shimano SL (confirmado vs COBRANZAS-B).
+BQ_TABLE_PAYMENT_INVOICES  = f'{BQ_PROJECT}.{BQ_DATASET}.sap_incoming_payment_invoices_raw'
 BQ_TABLE_DEPOSITS          = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deposits_raw'
 BQ_TABLE_DEPOSIT_CHECKS    = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deposit_checks_raw'
 BQ_TABLE_BANKS             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_banks_raw'
@@ -1268,6 +1273,46 @@ def flatten_payment_check(check: dict, payment_doc_entry: int, payment_doc_date,
         'originally_issued_by': check.get('OriginallyIssuedBy'),
         'fiscal_id': check.get('FiscalID'),
         'details': check.get('Details'),
+        '_sync_timestamp': sync_ts,
+    }
+
+
+def flatten_payment_invoice(inv_line: dict, payment_doc_entry: int, payment_doc_date,
+                            payment_card_code: str, payment_cancelled: str, sync_ts: str) -> dict:
+    """
+    v1553 (2026-11-05): linea de PaymentInvoices (RCT2) que aplica un IncomingPayment
+    a una factura (OINV) o nota de credito. Fan-out: 1 pago con N facturas aplicadas
+    -> N rows en sap_incoming_payment_invoices_raw. Habilita DSO literal via join
+    contra v_facturas_sap.
+
+    Campos clave:
+      - payment_doc_entry (FK ORCT): header del pago.
+      - payment_doc_date: fecha SAP del pago (ORCT.DocDate = fecha de cobro).
+      - invoice_doc_entry (FK OINV): factura aplicada.
+      - invoice_type: 'it_Invoice' / 'it_CreditNote' / 'it_DownPayment'.
+      - sum_applied: monto aplicado a esa factura en ARS (prorrateado del total del pago).
+      - applied_sys_amount: idem en moneda de la casa (si doc_currency != 'ARS', convertido).
+      - sum_applied_fc: idem en moneda extranjera si corresponde.
+      - payment_cancelled: 'tYES'/'tNO' heredado del header para filtrar en la vista
+        sin join al header.
+    """
+    return {
+        # FK a la cabecera del pago (para hacer join en vistas).
+        'payment_doc_entry': payment_doc_entry,
+        'payment_doc_date': payment_doc_date,
+        'payment_card_code': payment_card_code,
+        'payment_cancelled': payment_cancelled,
+        # Datos de la factura aplicada.
+        'line_num': inv_line.get('LineNum'),
+        'invoice_doc_entry': inv_line.get('DocEntry'),
+        # InvoiceType enum SAP: it_Invoice / it_CreditNote / it_DownPayment / it_PayOnAccount.
+        'invoice_type': inv_line.get('InvoiceType'),
+        'doc_rate': inv_line.get('DocRate'),
+        # Montos aplicados. SumApplied = monto en moneda local (ARS) aplicado a esta factura.
+        # AppliedSys = idem en moneda de la casa. SumAppliedFC = moneda extranjera.
+        'sum_applied': inv_line.get('SumApplied'),
+        'applied_sys_amount': inv_line.get('AppliedSys'),
+        'sum_applied_fc': inv_line.get('AppliedFC'),
         '_sync_timestamp': sync_ts,
     }
 
@@ -3435,6 +3480,33 @@ def main():
     load_to_bq(bq_client, BQ_TABLE_INCOMING_PAYMENTS, ip_rows, 'INCOMING_PAYMENTS', dry_run=dry_run)
     load_to_bq(bq_client, BQ_TABLE_PAYMENT_CHECKS, check_rows, 'PAYMENT_CHECKS', dry_run=dry_run)
     log(f'[COBRANZAS-B] loaded: {len(ip_rows)} pagos / {len(check_rows)} cheques')
+
+    # v1553 (2026-11-05): PaymentInvoices (RCT2) — lineas que aplican el pago a facturas.
+    # Habilita DSO literal via join contra v_facturas_sap. $expand=PaymentInvoices rechazado
+    # por Shimano SL (mismo bug que PaymentChecks); fetch per-doc paralelo con max_workers=8.
+    # Aplica a TODOS los pagos (sin pre-filter) porque practicamente todo pago no-anticipo
+    # aplica a >= 1 factura. Los pagos a cuenta (on account) devuelven lista vacia — OK.
+    payment_entries_all = [p.get('DocEntry') for p in ips if p.get('DocEntry') is not None]
+    log(f'[COBRANZAS-B] PaymentInvoices fetch: {len(payment_entries_all)} pagos per-doc')
+    invoices_by_de = sl_fetch_nested_per_doc(
+        cfg, session, payment_entries_all,
+        '/b1s/v1/IncomingPayments({doc_entry})/PaymentInvoices',
+        'PaymentInvoices', 'PAYMENT_INVOICES',
+        max_workers=8,
+    )
+    # Fan-out: 1 pago con N facturas aplicadas -> N rows.
+    invoice_app_rows = []
+    for payment_de, inv_lines in invoices_by_de.items():
+        header = payment_headers_by_de.get(payment_de, {})
+        payment_dd = header.get('DocDate')
+        payment_cc = header.get('CardCode')
+        payment_cancelled = header.get('Cancelled')
+        for il in (inv_lines or []):
+            invoice_app_rows.append(flatten_payment_invoice(
+                il, payment_de, payment_dd, payment_cc, payment_cancelled, sync_ts))
+    load_to_bq(bq_client, BQ_TABLE_PAYMENT_INVOICES, invoice_app_rows,
+               'PAYMENT_INVOICES', dry_run=dry_run)
+    log(f'[COBRANZAS-B] loaded: {len(invoice_app_rows)} aplicaciones factura<-pago')
 
     # === COBRANZAS-C. Deposits + CheckLines (12 meses).
     # Mismo bug que COBRANZAS-B: $expand=CheckLines rechazado por SL.

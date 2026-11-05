@@ -3678,3 +3678,106 @@ WHERE p.pendiente_uds > 0
   AND ca.assigned_vendor_app IS NOT NULL
 -- Ordinales: evita ambiguedad entre alias y columnas homonimas de los joins.
 GROUP BY 1, 2, 3, 4, 5, 6;
+
+-- ============================================================
+-- v_cobros_factura — v1553 (2026-11-05)
+-- ============================================================
+-- Fecha de cobro LITERAL por factura (OINV) para habilitar DSO literal en PBI.
+-- DSO = AVERAGEX(facturas cobradas, dias_cobro).
+--
+-- Fuente:
+--   sap_incoming_payment_invoices_raw (RCT2) — cada linea aplica un pago ORCT a una
+--   factura OINV especifica con monto aplicado. Sincronizada por sync_sap_to_bigquery.py
+--   via /IncomingPayments({doc_entry})/PaymentInvoices (fetch per-doc, $expand rechazado
+--   por Shimano SL — mismo bug que PaymentChecks).
+--
+-- Regla de fecha_cobro (Opcion A, confirmada por Mariano 2026-11-05):
+--   fecha_cobro = fecha del pago (ORCT.DocDate) cuyo acumulado FIFO (ordenado por
+--   payment_doc_date ASC, payment_doc_entry ASC) llega a cubrir >= doc_total * 0.9999.
+--   Es decir: el pago que CIERRA la factura.
+--   Facturas con saldo > 0 al corte (no cobradas 100%) -> fecha_cobro = NULL.
+--   NCs aplicadas a una factura (invoice_type='it_CreditNote') se cuentan como pagos
+--   negativos — pueden adelantar o retroceder la fecha_cobro final (edge case raro).
+--
+-- Grano: 1 row por factura (doc_kind='INVOICE'). Credit notes y cancelled excluidas.
+--
+-- Shape expuesto a PBI (columnas):
+--   doc_entry, doc_num, doc_date, card_code, card_name, vendor, es_bike, is_pesca,
+--   doc_total_ars, monto_cobrado_ars, saldo_ars, fecha_cobro, dias_cobro,
+--   document_status, created_date.
+CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_cobros_factura` AS
+WITH
+-- Aplicaciones de pago vigentes (sin header cancelado, solo tipo Invoice o CreditNote).
+-- Nota: las NCs vienen como invoice_type='it_CreditNote' + sum_applied > 0; en RCT2 SAP
+-- no distingue signo — es simplemente "monto aplicado a este documento". Para el calculo
+-- FIFO contra una factura puntual solo contamos lineas con invoice_type='it_Invoice'
+-- y invoice_doc_entry = <la factura que me interesa>.
+aplicaciones AS (
+  SELECT
+    pi.invoice_doc_entry,
+    pi.payment_doc_entry,
+    pi.payment_doc_date,
+    pi.sum_applied
+  FROM `app-vendedores-shimano.shimano_app.sap_incoming_payment_invoices_raw` pi
+  WHERE pi.invoice_type = 'it_Invoice'
+    AND (pi.payment_cancelled IS NULL OR pi.payment_cancelled != 'tYES')
+    AND pi.sum_applied > 0
+    AND pi.payment_doc_date IS NOT NULL
+),
+-- Acumulado FIFO por factura.
+aplicaciones_cum AS (
+  SELECT
+    invoice_doc_entry,
+    payment_doc_entry,
+    payment_doc_date,
+    sum_applied,
+    SUM(sum_applied) OVER (
+      PARTITION BY invoice_doc_entry
+      ORDER BY payment_doc_date ASC, payment_doc_entry ASC
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS cumulative_pagado
+  FROM aplicaciones
+),
+-- Fecha de cobro = MIN(payment_doc_date WHERE cumulative_pagado >= doc_total * 0.9999).
+fechas_cobro AS (
+  SELECT
+    ac.invoice_doc_entry                                 AS doc_entry,
+    MIN(ac.payment_doc_date)                             AS fecha_cobro,
+    MIN(ac.payment_doc_entry)                            AS payment_doc_entry_cierre
+  FROM aplicaciones_cum ac
+  JOIN `app-vendedores-shimano.shimano_app.v_facturas_sap` f
+    ON f.doc_entry = ac.invoice_doc_entry
+   AND f.doc_kind = 'INVOICE'
+  WHERE ac.cumulative_pagado >= f.doc_total * 0.9999
+  GROUP BY ac.invoice_doc_entry
+)
+SELECT
+  f.doc_entry,
+  f.doc_num,
+  f.doc_date,
+  f.card_code,
+  f.card_name_bp                                         AS card_name,
+  -- Vendedor desde la app (mismo criterio que v_facturado_cobrado_deuda_por_vendedor
+  -- y v_deuda_facturas_detalle — alinea los reportes).
+  f.assigned_vendor                                      AS vendor,
+  f.es_bike,
+  -- is_pesca = NOT es_bike. es_bike se marca a nivel CLIENTE (v_facturas_sap v4,
+  -- 2026-09-09). Un cliente que NUNCA tuvo facturas con items bike queda es_bike=FALSE
+  -- y por lo tanto is_pesca=TRUE. Util para filtrar DSO Pesca SAR en el tablero SAR.
+  (NOT f.es_bike)                                        AS is_pesca,
+  f.doc_total                                            AS doc_total_ars,
+  f.paid_to_date                                         AS monto_cobrado_ars,
+  f.saldo_ars,
+  f.document_status,
+  f.dias_vencido,
+  fc.fecha_cobro,
+  SAFE_CAST(DATE_DIFF(fc.fecha_cobro, f.doc_date, DAY) AS INT64) AS dias_cobro,
+  fc.payment_doc_entry_cierre                            AS pago_cierre_doc_entry,
+  f.create_date                                          AS created_date,
+  f._sync_timestamp                                      AS factura_sync_ts
+FROM `app-vendedores-shimano.shimano_app.v_facturas_sap` f
+LEFT JOIN fechas_cobro fc
+  ON fc.doc_entry = f.doc_entry
+WHERE f.doc_kind = 'INVOICE'
+  AND f.cancelled != 'tYES'
+  AND f.doc_total > 0;
