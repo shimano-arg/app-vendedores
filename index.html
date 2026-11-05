@@ -7308,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1552';
+const APP_VERSION = 'v1554';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -26307,6 +26307,12 @@ function _renderWaitlistCard(){
   const _mergePure = (window.__phase0 && window.__phase0.pure) || null;
   // v1284: refrescar visibilidad del boton "Unificar orden" (async, no bloquea render).
   try { _wcardRefreshUnificarButton(w); } catch(_e){}
+  // APP-04 (2026-11-05): CANDADO DE ORDEN. Las filas se renderizan SIEMPRE en el
+  // orden original de w.items (r.idx = índice del item). Garantiza que editar la
+  // cantidad ("Pedido Original") NUNCA mueva la fila de lugar, pase lo que pase
+  // con el array. No-op si ya estaban en orden (defensa explícita + documenta la
+  // intención). Pedido Mariano 2026-11-05: "que al cambiar la qty la fila no salte".
+  rows.sort((a, b) => (Number(a.idx) || 0) - (Number(b.idx) || 0));
   rows.slice(0, 500).forEach(r => {
     const tr = document.createElement('tr');
     // v479: prioridad de clases (mas urgente arriba):
@@ -27755,7 +27761,10 @@ window.waitlistOnAddSearch = function(){
     item.style.cssText = 'padding:8px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11px';
     item.onmouseover = () => { item.style.background = '#f0f9ff'; };
     item.onmouseout = () => { item.style.background = '#fff'; };
-    item.onclick = () => waitlistAddProduct(p.code);
+    // APP-04 (2026-11-05): el alta se hace con el stepper [−][n][+] + "Agregar"
+    // de la derecha (bloque `right`), que agrega N unidades de una. La fila ya
+    // no suma al clickear (antes: waitlistAddProduct de a 1).
+    item.style.cursor = 'default';
     const left = document.createElement('div');
     left.style.flex = '1';
     const codeEl = document.createElement('div');
@@ -27823,10 +27832,42 @@ window.waitlistOnAddSearch = function(){
       tag.textContent = 'YA EN PEDIDO';
       right.appendChild(tag);
     } else {
-      const btn = document.createElement('span');
-      btn.style.cssText = 'background:#0f766e;color:#fff;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:700';
-      btn.textContent = '+ Agregar';
-      right.appendChild(btn);
+      // APP-04 (2026-11-05): stepper [−][n][+] + "Agregar" (opción A). El VDE
+      // elige cuántas unidades agregar directo desde el buscador (default 1) y
+      // "Agregar" las suma de una vía waitlistAddProductWithQty. stopPropagation
+      // en todos los controles para no disparar nada del row.
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
+      const stepper = document.createElement('div');
+      stepper.className = 'qty-stepper';
+      stepper.style.cssText = 'display:inline-flex;align-items:center';
+      const bMinus = document.createElement('button');
+      bMinus.type = 'button'; bMinus.className = 'minus'; bMinus.innerHTML = '&minus;';
+      const inpN = document.createElement('input');
+      inpN.type = 'number'; inpN.min = '1'; inpN.step = '1'; inpN.inputMode = 'numeric'; inpN.value = '1';
+      inpN.style.cssText = 'width:36px;text-align:center';
+      inpN.title = 'Cantidad a agregar';
+      const bPlus = document.createElement('button');
+      bPlus.type = 'button'; bPlus.className = 'plus'; bPlus.textContent = '+';
+      const _clampN = () => { let n = parseInt(inpN.value, 10); if (!Number.isFinite(n) || n < 1) n = 1; inpN.value = String(n); return n; };
+      bMinus.onclick = (ev) => { ev.stopPropagation(); inpN.value = String(Math.max(1, _clampN() - 1)); };
+      bPlus.onclick = (ev) => { ev.stopPropagation(); inpN.value = String(_clampN() + 1); };
+      inpN.onclick = (ev) => { ev.stopPropagation(); inpN.select(); };
+      inpN.onchange = (ev) => { ev.stopPropagation(); _clampN(); };
+      stepper.appendChild(bMinus); stepper.appendChild(inpN); stepper.appendChild(bPlus);
+      const btnAdd = document.createElement('button');
+      btnAdd.type = 'button';
+      btnAdd.style.cssText = 'background:#0f766e;color:#fff;border:none;padding:4px 11px;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer';
+      btnAdd.textContent = 'Agregar';
+      btnAdd.onclick = (ev) => {
+        ev.stopPropagation();
+        const n = _clampN();
+        if (w && w._id && typeof waitlistAddProductWithQty === 'function') {
+          waitlistAddProductWithQty(w._id, p.code, n);
+        }
+      };
+      wrap.appendChild(stepper); wrap.appendChild(btnAdd);
+      right.appendChild(wrap);
     }
     item.appendChild(right);
     dd.appendChild(item);
