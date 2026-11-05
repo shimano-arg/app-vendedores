@@ -68,7 +68,13 @@ jobs:
     # inicial ~7-10 min extra con 9k+ deliveries en ventana 12 meses) +
     # margen si SAP viene lento (hoy los otros fetches tardaron 40 min vs
     # 3-4 normal - problema de red intermitente en Seidor).
-    timeout-minutes: 60
+    # 2026-11-05 (v1553): subido a 180 min despues de agregar fetch per-doc
+    # paralelo de PaymentInvoices (RCT2) sobre ~14k pagos del bloque COBRANZAS-B.
+    # El primer run post-v1553 fue cancelled a 60 min exactos sin llegar a
+    # escribir `sap_incoming_payment_invoices_raw` (quedo procesando la pag 28
+    # de IncomingPayments headers). Con 8 workers, el fetch de RCT2 agrega
+    # ~15-20 min sobre el baseline anterior. 180 da margen holgado.
+    timeout-minutes: 180
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
