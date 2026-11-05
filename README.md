@@ -4717,6 +4717,17 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1554 (2026-11-05) — Lista de espera: buscador con stepper `[−][n][+]` + candado de orden de filas (APP-04)
+
+- **Antes**: (1) el buscador "agregar producto" del modal "Pedido en espera" (`waitlistOnAddSearch`) mostraba un botón "+ Agregar" que sumaba de a 1 por click. (2) El usuario reportó que al editar la cantidad en "Pedido Original" la fila saltaba de lugar.
+- **Problema**: (1) agregar N unidades requería N clicks. (2) reporte Mariano 2026-11-05.
+- **Cambio** (solo `index.html`, inline, sin rebuild de bundle):
+  - **Buscador**: el "+ Agregar" se reemplazó por un stepper `[−][n][+]` + botón "Agregar" que agrega N unidades de una vía `waitlistAddProductWithQty` (función ya existente). `stopPropagation` en todos los controles; la fila ya no agrega al clickear.
+  - **Candado de orden**: en `_renderWaitlistCard` las filas se ordenan explícitamente por `r.idx` (índice original del item) antes de renderear → editar la cantidad **nunca** mueve la fila. Defensa explícita (el handler `waitlistUpdateItemQty` ya editaba in-place; el candado garantiza el orden pase lo que pase).
+- **Por qué**: menos clicks para cargar cantidades + estabilidad visual de la lista al editar.
+- **Verificación**: parse JS aislado OK de `waitlistOnAddSearch` y `_renderWaitlistCard`. Pendiente smoke test manual en navegador (no se pudo abrir la app desde la sesión de desarrollo).
+- **Rollback**: revertir el commit; el buscador vuelve a "+ Agregar" y el render sin el `rows.sort(idx)`.
+
 ### v1553 (2026-11-05) — DSO literal por factura: sync PaymentInvoices (RCT2) + vista `v_cobros_factura`
 
 - **Antes**: el tablero SAR tenía DSO como estimación agregada (deuda total ÷ venta diaria). No existía fecha de cobro por factura: `v_facturas_sap.paid_to_date` es monto acumulado, no fecha; y `update_date` se actualiza con cualquier edit SAP (avg 0.33 días vs emisión sobre 2387 facturas cobradas 6m — no sirve como proxy).
