@@ -4728,6 +4728,34 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 - **Verificación**: parse JS aislado OK de `waitlistOnAddSearch` y `_renderWaitlistCard`. Pendiente smoke test manual en navegador (no se pudo abrir la app desde la sesión de desarrollo).
 - **Rollback**: revertir el commit; el buscador vuelve a "+ Agregar" y el render sin el `rows.sort(idx)`.
 
+### 2026-11-05 — `v_rentabilidad_pesca` para TABLERO SAR (Fase 2 shipped)
+
+- **Antes**: no existía vista de rentabilidad pesca. Power BI solo tenía `v_rentabilidad_bike` (grupo 100, cliente `u_division='1'`). El TABLERO SAR no podía mostrar margen bruto operación/cliente/SKU de pesca.
+- **Cambio** (Opción B arquitectural: archivo nuevo sin tocar bike):
+  - `bigquery/views/v_rentabilidad_pesca.sql` nuevo — espeja `v_rentabilidad_bike` con filtro cliente `bp.u_division = '2'`, JOIN a `sap_items_raw` (grupo 102), y mapeo específico pesca: `familia` ← `familia_norm`, `subfamilia` ← `subfamilia_norm`, `sub_subfamilia` ← `cat`, + columnas extras `ciclo_producto` + `pesca_categoria`. Eliminadas columnas bike-only (`marca`, `mss`, `clase`, `subcategoria`, `modelo`, `product_class`, `product_series`, `part_code`, `model_code`, `size`, `color`, `costo_prom_ars`, `costo_prom_usd`, `costo_paiva_ars_sep2026`) por decisión Mariano.
+  - `scripts/apply_v_rentabilidad_pesca.py` nuevo — mismo patrón que `apply_v_cobros_factura.py`. Pre-check snapshot pesca cierre oct existe + baseline bike pre-deploy + CREATE OR REPLACE VIEW + 6 validaciones (grano único, totales por mes, bike post=pre, cruce cierre oct, 3 samples azar, schema final).
+  - Prioridad fuentes costo: `paiva_import_<mes><año>` > `oitm_avg_price_sl_*` > `paiva_import_semanal_*` (idéntica a bike).
+  - Disclaimer en header: Juan Paiva NO hace informe pesca → `costo_finanzas_ars` viene de `oitm_avg_price_sl_<YYYYMMDD>` (AvgPrice SL), **no reconciliado con finanzas**. Power BI debe mostrar nota al lado de las cards.
+  - Clientes `u_division='3'` (FOLCA S.R.L + GOMAR GUSTAVO ADRIAN) **excluidos** — replica criterio bike. Si se necesitan incluir, extender filtro a `OR (bp.u_division = '3' AND it.items_group_code = 102)`.
+- **Verificación post-deploy** (correrlo con `python scripts/apply_v_rentabilidad_pesca.py`):
+  - Grano único ✓ (9,119 líneas = 9,119 distinct tuple).
+  - Bike intacto ✓ (11 meses 2026 sin diferencias vs baseline).
+  - Oct 2026 pesca: 2,736 líneas / 188 docs / **100% cobertura** (fuente única `oitm_avg_price_sl_20261102`).
+    - Venta neta: $399,666,853.
+    - Costo finanzas: $252,758,746.
+    - Margen bruto: **$146,908,107 (36.76% sobre venta neta)**.
+  - 3 samples oct con detalle (venta bruta, dcto cabecera, venta neta, costo doc, costo finanzas, fuente, cierre TRUE).
+- **Nombres finales columnas** (para medidas DAX de Power BI):
+  - Venta: `venta_bruta_ars`, `venta_neta_ars` (ambas con signo; NCs en -1).
+  - Costo: `costo_doc_ars`, `costo_finanzas_ars` (con signo).
+  - Flags: `costo_finanzas_cierre` BOOL (TRUE=cierre, FALSE=provisorio mes abierto, NULL=sin snapshot).
+  - Tiempo: `anio_contable`, `mes_contable` INT64.
+  - Fuente: `costo_finanzas_fuente` STRING.
+- **Rollback**: `DROP VIEW \`app-vendedores-shimano.shimano_app.v_rentabilidad_pesca\`` + revertir PR. `v_rentabilidad_bike` no se tocó, no hay riesgo bike.
+- **Nota operativa**: desde oct 2026 el cron semanal (lunes) refresca `costo_snapshot_semanal` con `oitm_avg_price_sl_<YYYYMMDD>` que ya incluye pesca (grupo 102, 604 items). La vista pesca se recalcula en lectura (es vista, no tabla) — no requiere refresh adicional.
+
+Archivos: `bigquery/views/v_rentabilidad_pesca.sql`, `scripts/apply_v_rentabilidad_pesca.py`, `README.md`. Informe análisis Fase 1 en `Desktop\PowerBI\INFORME_rentabilidad_pesca.md`.
+
 ### v1553 (2026-11-05) — DSO literal por factura: sync PaymentInvoices (RCT2) + vista `v_cobros_factura`
 
 - **Antes**: el tablero SAR tenía DSO como estimación agregada (deuda total ÷ venta diaria). No existía fecha de cobro por factura: `v_facturas_sap.paid_to_date` es monto acumulado, no fecha; y `update_date` se actualiza con cualquier edit SAP (avg 0.33 días vs emisión sobre 2387 facturas cobradas 6m — no sirve como proxy).
