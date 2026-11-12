@@ -435,7 +435,7 @@ function totpFlags(rolesData) {
 function authProviderFlags(authUser) {
   const ids = ((authUser && authUser.providerData) || []).map((p) => p && p.providerId);
   return {
-    google: ids.includes('google.com'),
+    google: ids.some((id) => id === 'google.com'),
     password: ids.includes('password'),
     other: ids.some((x) => x && x !== 'google.com' && x !== 'password'),
   };

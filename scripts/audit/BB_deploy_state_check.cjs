@@ -112,7 +112,7 @@ async function runDeployCheck(deps) {
       let release = null;
       for (const rel of ['cloud.firestore', 'cloud.firestore/(default)']) {
         try {
-          release = await httpGet(deps.fetch, `${RULES_API}/projects/${PROJECT}/releases/${encodeURIComponent(rel).replace('%2F', '/')}`, token, 'json', gopts);
+          release = await httpGet(deps.fetch, `${RULES_API}/projects/${PROJECT}/releases/${encodeURIComponent(rel).replaceAll('%2F', '/')}`, token, 'json', gopts);
           break;
         } catch (e) {
           if (!e || e.status !== 404) throw e;
