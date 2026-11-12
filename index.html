@@ -7308,7 +7308,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1554';
+const APP_VERSION = 'v1555';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -31748,7 +31748,7 @@ fbAuth.onAuthStateChanged(async user => {
     await fetchAndApplyRole();
     if (userRole === 'unassigned') return;
     // Password gate: si el doc tiene passwordHash, exigir password antes de entrar.
-    // Si no lo tiene (usuario nuevo o flujo viejo), setea el default 'Shi0*'.
+    // Si no lo tiene, no hay gate (D8 2026-11-06: ya no se inicializa con un default).
     const okPwd = await ensurePasswordGate();
     if (!okPwd) return; // canceló o no validó
     // TOTP gate (2FA): si el usuario lo tiene activado, pedir codigo de 6 digitos.
@@ -31882,29 +31882,23 @@ function loadQRCodeLib(){
 // ============================================================
 // PASSWORD GATE (capa UX encima del login con Google)
 // ============================================================
-// Cada doc /roles/{uid} tiene passwordHash + passwordSalt. Al ingresar a la
-// app despues del login Google, se le pide al usuario su password. Si el
-// doc no la tiene seteada, se inicializa con el default DEFAULT_USER_PASSWORD.
-// El admin puede resetearla a cualquier valor nuevo desde Panel Usuarios.
-const DEFAULT_USER_PASSWORD = 'Shi0*';
+// Capa de UX secundaria sobre el login Google. La validacion REAL de acceso la
+// dan Firebase Auth + reglas Firestore + CFs por ROL; este gate no es una
+// frontera de seguridad por si mismo (la comparacion es client-side).
+// D8 (2026-11-06): se elimino la contraseña por defecto hard-codeada (estaba
+// publicada en este archivo servido al cliente) y el init client-side de
+// credenciales. Sin hash configurado -> no hay gate. El reset de contraseña lo
+// hace el admin desde Panel Usuarios via la CF setPasswordGate (scrypt-v2,
+// server-side, dual-write auth_secrets+roles). La verificacion client-side
+// (SHA-256) es INTERINA: migrarla a verifyPasswordGate (scrypt server-side)
+// requiere poblar /auth_secrets primero para no dejar usuarios sin acceso
+// (ver docs/auditoria/55_FIX_D8_DEFAULT_PASSWORD_2026-11-06.md §11-§12).
 
 async function hashPasswordSHA256(password, salt){
   const enc = new TextEncoder();
   const data = enc.encode((salt || '') + (password || ''));
   const buf = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function generatePasswordSalt(){
-  const arr = new Uint8Array(8);
-  crypto.getRandomValues(arr);
-  return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function buildPasswordCredentials(password){
-  const salt = generatePasswordSalt();
-  const hash = await hashPasswordSHA256(password, salt);
-  return {passwordSalt: salt, passwordHash: hash};
 }
 
 let passwordGateResolver = null;
@@ -31925,18 +31919,11 @@ async function ensurePasswordGate(){
   catch(e) { console.error('passwordGate fetch', e); return true; } // si falla el read, dejamos pasar (no romper la app)
   if (!snap || !snap.exists) return true;
   const data = snap.data() || {};
-  // Si no tiene password seteada -> setear el default Shi0* ahora.
-  if (!data.passwordHash || !data.passwordSalt) {
-    try {
-      const creds = await buildPasswordCredentials(DEFAULT_USER_PASSWORD);
-      await fbDb.collection('roles').doc(currentUser.uid).update(creds);
-      data.passwordHash = creds.passwordHash;
-      data.passwordSalt = creds.passwordSalt;
-    } catch(e) {
-      console.warn('inicializar default password', e);
-      return true; // si no se pudo persistir, dejamos pasar
-    }
-  }
+  // D8 (2026-11-06): sin hash configurado NO hay gate. Antes se inicializaba
+  // con un default publicado en este archivo; ademas el write client-side ya
+  // quedaba bloqueado por el freeze S04b PR-B. El admin setea la contraseña
+  // desde Panel Usuarios (CF setPasswordGate).
+  if (!data.passwordHash || !data.passwordSalt) return true;
   // Mostrar modal y esperar validacion.
   return showPasswordGateModal(data.passwordSalt, data.passwordHash);
 }

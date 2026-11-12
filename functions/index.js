@@ -88,7 +88,7 @@ import {
   checkAndIncrementRateLimit,
   checkAuthGateRateLimit,
   RATE_LIMITS,
-  registerAuthGateOutcome,
+  recordAuthGateResult,
 } from './core/rate-limit-core.js';
 // §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
 // §61 (v1440) destrabó con rule abierta. Cierra el parche.
@@ -3974,6 +3974,27 @@ function _assertRecentGoogleReauth(auth, nowSec) {
 }
 
 /**
+ * D8 T65: motivo para operations_log. Solo valores de una allowlist de enums
+ * (nunca datos del usuario ni del secreto). Desconocido -> 'other'.
+ * @param {any} r
+ */
+function _authGateReasonForLog(r) {
+  const ALLOWED = [
+    'invalid',
+    'no_secret',
+    'no_password',
+    'no_totp',
+    'incomplete',
+    'unknown_version',
+    'empty',
+    'format',
+  ];
+  const reason = r && typeof r.reason === 'string' ? r.reason : null;
+  if (!reason) return null;
+  return ALLOWED.includes(reason) ? reason : 'other';
+}
+
+/**
  * Log de evento de auth-gate a operations_log, SIN secretos. Best-effort.
  * @param {any} db
  * @param {Record<string, unknown>} entry
@@ -4021,9 +4042,17 @@ export const verifyPasswordGate = onCall(
     }
     try {
       const r = await verifyPasswordCore(deps, uid, String((req.data && req.data.password) || ''));
-      await registerAuthGateOutcome(deps, uid, 'verifyPasswordGate', r.ok);
-      await _logAuthGate(db, { op: 'verifyPasswordGate', uid, result: r.ok ? 'ok' : 'fail' });
-      return { ok: r.ok }; // nunca el hash/salt ni el reason detallado al cliente
+      // D8 T65: solo reason 'invalid' suma failStreak; no_secret/no_totp/
+      // incomplete/etc. no se registran (ver classifyAuthGateResult).
+      const rec = await recordAuthGateResult(deps, uid, 'verifyPasswordGate', r);
+      await _logAuthGate(db, {
+        op: 'verifyPasswordGate',
+        uid,
+        result:
+          rec.outcome === 'success' ? 'ok' : rec.outcome === 'failure' ? 'fail' : 'not_counted',
+        reason: _authGateReasonForLog(r),
+      });
+      return { ok: rec.outcome === 'success' }; // contrato público sin cambios; nunca hash/salt/reason al cliente
     } catch (e) {
       if (e instanceof TransientAuthError) {
         console.error('verifyPasswordGate transient', e.message);
@@ -4067,9 +4096,17 @@ export const verifyTotpGate = onCall(
     }
     try {
       const r = await verifyTotpCore(deps, uid, String((req.data && req.data.code) || ''));
-      await registerAuthGateOutcome(deps, uid, 'verifyTotpGate', r.ok);
-      await _logAuthGate(db, { op: 'verifyTotpGate', uid, result: r.ok ? 'ok' : 'fail' });
-      return { ok: r.ok };
+      // D8 T65: solo reason 'invalid' suma failStreak; no_secret/no_totp/
+      // incomplete/etc. no se registran (ver classifyAuthGateResult).
+      const rec = await recordAuthGateResult(deps, uid, 'verifyTotpGate', r);
+      await _logAuthGate(db, {
+        op: 'verifyTotpGate',
+        uid,
+        result:
+          rec.outcome === 'success' ? 'ok' : rec.outcome === 'failure' ? 'fail' : 'not_counted',
+        reason: _authGateReasonForLog(r),
+      });
+      return { ok: rec.outcome === 'success' }; // contrato público sin cambios; nunca hash/salt/reason al cliente
     } catch (e) {
       if (e instanceof TransientAuthError) {
         console.error('verifyTotpGate transient', e.message);

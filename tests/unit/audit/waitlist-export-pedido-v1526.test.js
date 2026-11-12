@@ -73,7 +73,8 @@ describe('contrato index.html v1526', () => {
     expect(html).not.toContain('wcard-archivo-cliente-btn');
   });
   it('main.js expone el pure', () => {
-    const main = readFileSync('src/main.js', 'utf8');
+    // Normaliza CRLF→LF (Windows, informe 63).
+    const main = readFileSync('src/main.js', 'utf8').replace(/\r\n/g, '\n');
     expect(main).toContain("from './pure/waitlist-export-rows.js'");
     expect(main).toMatch(/buildWaitlistExportRows,\n\s+isStockAsignadoItem,/);
   });

@@ -293,3 +293,60 @@ export async function registerAuthGateOutcome(deps, uid, opName, success) {
     return { failStreak, lockedUntil };
   });
 }
+
+/**
+ * D8 Tarea 65: motivos de verificacion que SI cuentan como intento de
+ * credencial fallido (suman failStreak y pueden bloquear). Solo 'invalid':
+ * la credencial se comparo contra un secreto existente y no coincidio.
+ *
+ * NO cuentan (no se registra nada, ni suma ni resetea):
+ *  - no_secret / no_password / no_totp: la cuenta todavia no tiene el
+ *    secreto migrado. Contarlos bloqueaba a usuarios con la credencial
+ *    CORRECTA y el bloqueo sobrevivia al backfill (bug D8 no_secret).
+ *  - incomplete / unknown_version: dato de migracion roto o desconocido; es
+ *    un problema nuestro, no un intento de adivinar.
+ *  - empty / format: entrada vacia o que no tiene forma de credencial. Nunca
+ *    puede autenticar, asi que no aporta a un ataque de fuerza bruta; sigue
+ *    consumiendo la ventana 5/min de checkAuthGateRateLimit.
+ *  - cualquier reason futuro o desconocido: conservador para el usuario,
+ *    SIN ser permisivo (nunca se trata como exito).
+ * Los errores tecnicos (TransientAuthError) no llegan aca: el wrapper los
+ * convierte en 'unavailable' antes de registrar nada.
+ */
+export const AUTH_GATE_COUNTED_FAILURE_REASONS = Object.freeze(['invalid']);
+
+/**
+ * Clasifica el resultado de verifyPasswordCore / verifyTotpCore.
+ *  - 'success': ok === true (estricto) y sin reason 'invalid'.
+ *  - 'failure': reason contable (AUTH_GATE_COUNTED_FAILURE_REASONS).
+ *  - 'not_counted': cualquier otro caso, incluidos resultados malformados.
+ * Un resultado malformado jamas es 'success'.
+ * @param {{ok?: unknown, reason?: unknown} | null | undefined} r
+ * @returns {'success' | 'failure' | 'not_counted'}
+ */
+export function classifyAuthGateResult(r) {
+  if (!r || typeof r !== 'object') return 'not_counted';
+  if (typeof r.reason === 'string' && AUTH_GATE_COUNTED_FAILURE_REASONS.includes(r.reason)) {
+    return 'failure';
+  }
+  if (r.ok === true) return 'success';
+  return 'not_counted';
+}
+
+/**
+ * Unica via para registrar el resultado de un gate de credenciales.
+ * success -> registerAuthGateOutcome(true) (resetea failStreak, igual que antes).
+ * failure -> registerAuthGateOutcome(false) (suma failStreak + backoff, igual que antes).
+ * not_counted -> NO escribe rate_limits.
+ * @param {any} deps
+ * @param {string} uid
+ * @param {string} opName
+ * @param {{ok?: unknown, reason?: unknown} | null | undefined} r
+ * @returns {Promise<{outcome: 'success'|'failure'|'not_counted', recorded: boolean, failStreak?: number, lockedUntil?: string|null}>}
+ */
+export async function recordAuthGateResult(deps, uid, opName, r) {
+  const outcome = classifyAuthGateResult(r);
+  if (outcome === 'not_counted') return { outcome, recorded: false };
+  const res = await registerAuthGateOutcome(deps, uid, opName, outcome === 'success');
+  return { outcome, recorded: true, failStreak: res.failStreak, lockedUntil: res.lockedUntil };
+}

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // @ts-check
 /**
  * INFRA (2026-10-29): distingue fallas preexistentes de regresiones nuevas.
