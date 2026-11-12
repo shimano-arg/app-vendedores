@@ -146,3 +146,92 @@ jobs:
 
       - name: Gate functions (fallas conocidas vs nuevas)
         run: node scripts/ci/check-known-failures.mjs functions functions-report.json
+
+  # D8 Capa 2 (2026-11-12, informe 011): tests de INTEGRACION contra Firestore
+  # emulator real para el core de auth-secrets + rate-limit. Levanta solo
+  # Firestore emulator (Auth/Functions no son necesarios para estos tests;
+  # el core se ejercita directo con firebase-admin apuntando al emulator).
+  # REQUIRE_EMULATOR=1 garantiza que los tests NO pasen en vacio si el emulator
+  # no levanta. Si Vitest no encuentra NINGUN test (archivos renombrados o
+  # patron equivocado), el gate "Gate emulator (min ejecutados)" falla.
+  functions-with-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java (emulador Firestore)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Install functions deps
+        run: cd functions && npm ci
+
+      # Suite D8 Capa 2: auth-secrets-emulator.test.js (dual-write + anti-replay
+      # de TOTP) + d8-emulator-ampliado.test.js (disableTotpCore + rate_limits
+      # reales + legacy sha256 roundtrip). Ambos usan REQUIRE_EMULATOR=1 para
+      # gating explicito del `if (emulatorAvailable) describe(...)`.
+      - name: Emulator integration tests (D8 Capa 2)
+        env:
+          REQUIRE_EMULATOR: '1'
+        run: >-
+          npx --yes firebase-tools@14.27.0 emulators:exec --project demo-ci --only firestore
+          "npx vitest run tests/functions/auth-secrets-emulator.test.js tests/functions/d8-emulator-ampliado.test.js --reporter=default --reporter=json --outputFile=emulator-report.json || true"
+
+      # Gate anti-falso-positivo (D8 hardening informe 012). Verifica:
+      #  (a) El reporte JSON existe (si vitest crasheo antes de escribirlo,
+      #      require() aborta con MODULE_NOT_FOUND = step falla).
+      #  (b) numTotalTests >= 12. Con emulator funcionando los 2 archivos
+      #      ejecutan 14 tests reales (auth-secrets-emulator 3 + d8-emulator-
+      #      ampliado 11). Si emulator no arranca, solo corren los gating docs
+      #      (1 + 2 = 3 tests) y este umbral lo detecta.
+      #  (c) numFailedTests == 0.
+      #  (d) Ambos archivos esperados presentes en testResults (si vitest
+      #      por bug/renaming no matchea alguno, el gate detecta).
+      - name: Gate emulator (archivos presentes + minimo ejecutados + sin fallas)
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = "./emulator-report.json";
+            if (!fs.existsSync(path)) {
+              console.error("FAIL: reporte emulator-report.json no existe (vitest no corrio o crasheo)");
+              process.exit(1);
+            }
+            const r = JSON.parse(fs.readFileSync(path, "utf8"));
+            const n = r.numTotalTests || 0;
+            const failed = r.numFailedTests || 0;
+            const skipped = r.numPendingTests || 0;
+            const files = (r.testResults || []).map((t) => (t.name || "").replace(/\\/g, "/"));
+            console.log(`emulator: total=${n} pass=${r.numPassedTests||0} fail=${failed} skip=${skipped} files=${files.length}`);
+            console.log("files:", files.map((f) => f.split("/").slice(-2).join("/")).join(", "));
+            const expected = [
+              "tests/functions/auth-secrets-emulator.test.js",
+              "tests/functions/d8-emulator-ampliado.test.js",
+            ];
+            const missing = expected.filter((e) => !files.some((f) => f.endsWith(e)));
+            if (missing.length) {
+              console.error("FAIL: archivos esperados ausentes del reporte:", missing.join(", "));
+              process.exit(1);
+            }
+            if (n < 12) {
+              console.error(`FAIL: solo ${n} tests ejecutados (esperado >= 12 con emulator operativo)`);
+              process.exit(1);
+            }
+            if (failed > 0) {
+              console.error(`FAIL: ${failed} tests fallaron`);
+              process.exit(1);
+            }
+            console.log("OK: emulator gate pass");
+          '
