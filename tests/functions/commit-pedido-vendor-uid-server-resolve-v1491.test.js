@@ -187,18 +187,26 @@ describe('v1491 §89 — resolveClientVendorServerSide', () => {
   });
 });
 
+/**
+ * Lee el fuente del core normalizando finales de línea (CRLF → LF). En Windows,
+ * con core.autocrlf=true, el checkout tiene CRLF y los asserts que buscan
+ * '\n' literal fallan aunque el código sea idéntico (informe 62).
+ */
+async function readCoreSrc() {
+  const { readFileSync } = await import('node:fs');
+  return readFileSync('functions/core/commit-pedido-core.js', 'utf8').replace(/\r\n/g, '\n');
+}
+
 describe('v1491 §89 — commit-pedido-core gate llama resolver server-side', () => {
   it('T20 el import de resolveClientVendorServerSide está presente', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync('functions/core/commit-pedido-core.js', 'utf8');
+    const src = await readCoreSrc();
     expect(src).toMatch(
       /import \{\s*resolveClientVendorServerSide\s*\} from ['"]\.\/resolve-client-vendor-core\.js['"]/
     );
   });
 
   it('T21 el gate VENDOR_UID_MISSING ahora intenta resolver server-side antes de rechazar', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync('functions/core/commit-pedido-core.js', 'utf8');
+    const src = await readCoreSrc();
     // La llamada makeError('VENDOR_UID_MISSING', ...) debe venir precedida
     // del bloque v1491 §89 que invoca resolveClientVendorServerSide.
     const idx = src.indexOf("makeError(\n      'VENDOR_UID_MISSING'");
@@ -212,8 +220,7 @@ describe('v1491 §89 — commit-pedido-core gate llama resolver server-side', ()
   });
 
   it('T22 el gate preserva el fallo si tampoco se resuelve server-side', async () => {
-    const { readFileSync } = await import('node:fs');
-    const src = readFileSync('functions/core/commit-pedido-core.js', 'utf8');
+    const src = await readCoreSrc();
     // Debe haber un segundo if (_hasVendorName && !_hasVendorUid) para el reject final.
     expect(src.match(/if \(_hasVendorName && !_hasVendorUid\)/g)?.length).toBeGreaterThanOrEqual(2);
     expect(src).toMatch(/serverResolveAttempted:\s*true/);

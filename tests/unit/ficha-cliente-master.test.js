@@ -220,7 +220,9 @@ describe('v1539 APP-04 — helpers', () => {
   it('fmtArs y fmtFecha', () => {
     expect(fmtArs(1234567.4)).toBe('$ 1.234.567');
     expect(fmtArs('x')).toBe('');
-    expect(fmtFecha({ seconds: 0 })).toMatch(/1970/);
+    // 43200 s = 1970-01-01T12:00Z: cae en 1970 en cualquier zona horaria; {seconds: 0}
+    // es el borde del año y en UTC-3 da 31/12/1969 (informe 63).
+    expect(fmtFecha({ seconds: 43200 })).toMatch(/1970/);
     expect(fmtFecha('')).toBe('');
   });
   it('findCarteraCliente por cardCode y por nombre', () => {

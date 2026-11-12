@@ -9,7 +9,8 @@ import {
 } from '../../../src/pure/mensajes-vendedor.js';
 
 const HTML = readFileSync('index.html', 'utf8');
-const MAIN = readFileSync('src/main.js', 'utf8');
+// Normaliza CRLF→LF (Windows, informe 63).
+const MAIN = readFileSync('src/main.js', 'utf8').replace(/\r\n/g, '\n');
 
 const LINES = [
   { code: 'CLC66H2PY', desc: 'Caña Clarus 6\'6" H' },

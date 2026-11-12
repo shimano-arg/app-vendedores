@@ -16,7 +16,8 @@ const BUILD_JS = readFileSync('build.js', 'utf8');
 const MAIN_JS = readFileSync('src/main.js', 'utf8');
 const SW_JS = readFileSync('sw.js', 'utf8');
 const CHUNK_PATH = 'src/domains/dashboard-ventas.js';
-const CHUNK = existsSync(CHUNK_PATH) ? readFileSync(CHUNK_PATH, 'utf8') : '';
+// Normaliza CRLF→LF: en Windows (core.autocrlf) los regex con \n literal no matchean (informe 63).
+const CHUNK = existsSync(CHUNK_PATH) ? readFileSync(CHUNK_PATH, 'utf8').replace(/\r\n/g, '\n') : '';
 const UI_TEXT = CHUNK + '\n' + INDEX_HTML;
 
 const EXPORTS = ['openDashboardVentas', 'closeDashboardVentas'];

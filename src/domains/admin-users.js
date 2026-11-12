@@ -992,23 +992,28 @@ window.confirmTotpSetup = async function () {
     return;
   }
   try {
-    await fbDb
-      .collection('roles')
-      .doc(totpSetupState.uid)
-      .update({
-        totpSecret: totpSetupState.secret,
-        totpEnabled: true,
-        totpEnabledAt: firebase.firestore.FieldValue.serverTimestamp(),
-        totpEnabledBy: currentUser.email || '',
-      });
+    // D8 (Tarea 63): la activación usa la CF setTotpGate (admin-op, dual-write
+    // auth_secrets + roles vía Admin SDK). El write client-side de
+    // totpSecret/totpEnabled a /roles quedó bloqueado por el freeze S04b PR-B.
+    // El dual-write mantiene /roles al día, así que el gate TOTP actual sigue
+    // funcionando. La CF devuelve solo { ok }.
+    const callable = firebase.app().functions('southamerica-east1').httpsCallable('setTotpGate');
+    const res = await callable({
+      targetUid: totpSetupState.uid,
+      secretBase32: totpSetupState.secret,
+    });
+    if (!(res && res.data && res.data.ok)) {
+      alert('No se pudo activar el 2FA. Reintentá; si sigue, avisá a Mariano.');
+      return;
+    }
     showSyncTag('2FA activado para ' + (totpSetupState.email || 'usuario'));
     closeTotpSetupModal();
     try {
       openAdminPanel();
     } catch (_e) {}
   } catch (e) {
-    console.error('save totp', e);
-    alert('Error guardando: ' + (e.message || e));
+    console.error('save totp (setTotpGate CF)', e && e.code);
+    alert('No se pudo activar el 2FA. Reintentá en un momento; si sigue, avisá a Mariano.');
   }
 };
 
@@ -1016,22 +1021,25 @@ window.disableTotp = async function (uid) {
   if (userRole !== 'admin') return;
   if (!confirm('Deshabilitar 2FA para este usuario? Va a entrar solo con password.')) return;
   try {
-    await fbDb
-      .collection('roles')
-      .doc(uid)
-      .update({
-        totpEnabled: false,
-        totpSecret: firebase.firestore.FieldValue.delete(),
-        totpDisabledBy: currentUser.email || '',
-        totpDisabledAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
+    // D8 (Tarea 63): la desactivación usa la CF disableTotpGate (admin-op,
+    // dual-write auth_secrets + roles vía Admin SDK). Ver confirmTotpSetup.
+    const callable = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('disableTotpGate');
+    const res = await callable({ targetUid: uid });
+    if (!(res && res.data && res.data.ok)) {
+      alert('No se pudo deshabilitar el 2FA. Reintentá; si sigue, avisá a Mariano.');
+      return;
+    }
     showSyncTag('2FA deshabilitado');
     closeTotpSetupModal();
     try {
       openAdminPanel();
     } catch (_e) {}
   } catch (e) {
-    alert('Error: ' + (e.message || e));
+    console.error('disable totp (disableTotpGate CF)', e && e.code);
+    alert('No se pudo deshabilitar el 2FA. Reintentá en un momento; si sigue, avisá a Mariano.');
   }
 };
 
@@ -1098,21 +1106,26 @@ window.changeUserPassword = async function (uid, email) {
       return;
     }
     try {
-      const creds = await buildPasswordCredentials(pwd);
-      await fbDb
-        .collection('roles')
-        .doc(uid)
-        .update({
-          passwordHash: creds.passwordHash,
-          passwordSalt: creds.passwordSalt,
-          passwordChangedBy: currentUser.email || '',
-          passwordChangedAt: firebase.firestore.FieldValue.serverTimestamp(),
-          passwordResetMethod: 'gate_only',
-        });
-      showSyncTag('Password-gate actualizada para ' + email);
+      // D8 (2026-11-06): el reset usa la CF setPasswordGate (admin-op, scrypt-v2
+      // dual-write auth_secrets+roles via Admin SDK). El write client-side de
+      // passwordHash/passwordSalt a /roles quedo bloqueado por el freeze S04b
+      // PR-B; setPasswordGate es el mecanismo vigente. No se expone el hash ni
+      // el salt al cliente: el CF devuelve solo { ok }.
+      const callable = firebase
+        .app()
+        .functions('southamerica-east1')
+        .httpsCallable('setPasswordGate');
+      const res = await callable({ targetUid: uid, password: pwd });
+      if (res && res.data && res.data.ok) {
+        showSyncTag('Password-gate actualizada para ' + email);
+      } else {
+        alert('No se pudo actualizar la contraseña. Reintentá; si sigue, avisá a Mariano.');
+      }
     } catch (e) {
-      console.error('changeUserPassword gate', e);
-      alert('Error guardando: ' + (e.message || e));
+      console.error('changeUserPassword gate (setPasswordGate CF)', e);
+      alert(
+        'No se pudo actualizar la contraseña. Reintentá en un momento; si sigue, avisá a Mariano.'
+      );
     }
     return;
   }
