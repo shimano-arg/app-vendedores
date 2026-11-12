@@ -186,3 +186,10 @@ scripts/audit/_*
 tests/e2e/evidencia/_output/
 tests/e2e/evidencia/_reports/
 tests/e2e/evidencia/**/_output/
+
+# D8 hardening (informe 012, 2026-11-12): reportes JSON de vitest generados
+# en CI (job test, security-tests, functions-with-emulator) + locales. No
+# tienen que llegar al repo nunca; se escriben al CWD del workflow runner y
+# sobreviven solo durante el job. Pattern defensive por si alguien hace
+# `git add -A` localmente.
+*-report.json

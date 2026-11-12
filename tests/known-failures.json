@@ -107,7 +107,7 @@
   },
   "minExecuted": {
     "rules": 204,
-    "functions": 982,
+    "functions": 1050,
     "unit": 2825,
     "smoke": 25
   },
