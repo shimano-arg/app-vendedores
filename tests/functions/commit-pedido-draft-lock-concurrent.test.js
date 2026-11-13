@@ -248,6 +248,80 @@ describe('§64.3 draft lock atómico — prevención de doble-click concurrente'
     expect(lockWrite.data.pedidoId).toBe(pedidoWrite.path.split('/')[1]);
   });
 
+  it('T12 (§105) — doble-click CPST concurrente NO cancela ASIG dos veces', async () => {
+    // Fixture CPST: pedido origen con 1 ASIG qtyOpen=3; 2 commits CONCURRENTES
+    // con mismo draftId y mismo waitlistOrigenId intentan crear el pedido derivado.
+    // Invariante: draft lock (§64.3) garantiza 1 pedido creado; §105 garantiza
+    // que la ASIG se cancela EXACTAMENTE una vez (qtyCancelled=3, no 6).
+    const state = baseState();
+    state.app_config.stock_snapshot.warehouseBreakdown = JSON.stringify({
+      'SKU-ASIG': { 11: 10 },
+    });
+    state.pedidos.origen_pid = {
+      clientCardCode: 'C001',
+      clientName: 'TEST',
+      closedAt: null,
+      createdAt: '2026-10-15T00:00:00.000Z',
+      stage: 'confirmed',
+      lines: [
+        {
+          code: 'SKU-ASIG',
+          state: 'ASIG',
+          qty: 3,
+          qtyOpen: 3,
+          qtyCancelled: 0,
+          asigAt: '2026-10-20T00:00:00.000Z',
+          asigReserva: true,
+        },
+      ],
+      _backfill: {},
+    };
+    state.revision_waitlist.wl = {
+      clientCardCode: 'C001',
+      stage: 'pending',
+      closedAt: null,
+      source: 'stock-asignado-batch',
+    };
+    const mock = makeMockDb(state);
+    const payload = {
+      draftId: 'C|AR|CABA|TEST|540',
+      cardCode: 'C001',
+      clientName: 'TEST',
+      origen: 'cpst',
+      lines: [
+        {
+          sku: 'CPST_LINE',
+          cantidad: 1,
+          precio: 100,
+          origenLinea: 'stock-asignado',
+          asigRefs: [{ pedidoId: 'origen_pid', lineIndex: 0, sku: 'SKU-ASIG', qtyAsignada: 3 }],
+        },
+      ],
+      clientVersion: 'v1600',
+      ownerUid: 'U1',
+      ownerEmail: 'u1@test.com',
+      waitlistOrigenId: 'wl',
+      source: 'stock-asignado-batch',
+      autoAcceptStockChange: true,
+    };
+
+    const [r1, r2] = await Promise.all([
+      commitPedidoCore({ fbDb: mock.fbDb, now: () => nowRef }, payload),
+      commitPedidoCore({ fbDb: mock.fbDb, now: () => nowRef }, payload),
+    ]);
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    // Exactamente 1 pedido derivado creado (draft lock §64.3).
+    const derivados = Object.keys(mock._state.pedidos).filter((k) => k !== 'origen_pid');
+    expect(derivados.length).toBe(1);
+    expect(r1.pedidoId).toBe(r2.pedidoId);
+    // La ASIG se canceló EXACTAMENTE una vez. qtyCancelled=3 (no 6 = doble).
+    const origenLine = mock._state.pedidos.origen_pid.lines[0];
+    expect(origenLine.state).toBe('cancelled');
+    expect(origenLine.qtyOpen).toBe(0);
+    expect(origenLine.qtyCancelled).toBe(3);
+  });
+
   it('T6 — lock existe pero pedido NO (edge: rollback parcial) → crea nuevo pedido', async () => {
     const state = baseState();
     // Lock huérfano: pedidoId apunta a un pedido inexistente (edge borde raro).

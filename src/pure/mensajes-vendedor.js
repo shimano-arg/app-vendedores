@@ -115,6 +115,17 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'No pudimos pasar el pedido a Pendientes por un error del sistema. Sacale una captura a este mensaje y mandásela a Mariano.',
   },
 
+  // §105 commitPedidoCF: inconsistencia en referencias ASIG del pedido CPST.
+  // Caso típico: entre que el VDE armó el pedido CPST y lo pasó a pendientes,
+  // alguna reserva del cliente cambió (fue consumida, cancelada o facturada
+  // por otro flow), y el payload referencia una línea que ya no corresponde.
+  // El servidor aborta la tx completa (pedido derivado NO se crea) para
+  // evitar persistir inconsistencias (ver informe 032).
+  ASIG_REF_INVALID: {
+    texto:
+      'No pudimos confirmar el pedido porque una de las reservas del cliente cambió. Volvé a entrar a Stock Asignado y rearmá la selección; si sigue, avisale a Mariano.',
+  },
+
   // releaseAsigCF errorCodes (quitar producto / rechazo CPST).
   RELEASE_PERMISSION_DENIED: {
     texto:
