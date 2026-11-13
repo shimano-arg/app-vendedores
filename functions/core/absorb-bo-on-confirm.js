@@ -241,7 +241,7 @@ export function applyAbsorptionsToLines(lines, absorptionsOfPedido, newPedidoId,
  *     }
  *   }
  *
- * @param {Array<any>} existingBackfill  Valor actual del `_backfill` del doc (o {}).
+ * @param {Record<string, any>} existingBackfill  Valor actual del `_backfill` del doc (o {}).
  * @param {Array<any>} absorptionsOfPedido
  * @param {string} newPedidoId
  * @param {string} nowIso

@@ -1167,32 +1167,47 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     });
   }
 
-  // 5.9 Cancelar ASIG originales si origen='cpst' (usa snapshots pre-fetched).
+  // ===== POST-§105 (fix doble tx.update) =====
+  // 5.9 / 5.9b CONSOLIDACIÓN: cancel ASIG + absorb BO sobre el MISMO documento
+  // origen comparten un solo `tx.update` para evitar que el segundo pise las
+  // mutaciones del primero (Firestore last-write-wins sobre el mismo campo
+  // `lines` en la misma transacción). Ver informes 029/030/031/032.
+  //
+  // pendingPedidoWrites acumula las mutaciones en memoria; flushPendingPedidoWrites
+  // emite exactamente UN tx.update por pedido origen al final.
+  /** @type {Map<string, {ref: any, newLines: Array<any>, newBackfill: Record<string, any>, touchedBackfill: boolean}>} */
+  const pendingPedidoWrites = new Map();
+
+  // 5.9 Acumular cancelación ASIG si origen='cpst'.
+  // VALIDACIONES SEMÁNTICAS (informe 032 §2) — abortan la tx completa si fallan.
   if (payload.origen === 'cpst' && asigOrigenSnapshots.size > 0) {
-    cancelAsigRefsFromPrefetched(tx, payload, pedidoRef.id, nowIso, asigOrigenSnapshots);
+    accumulateCancelAsigMutations(
+      pendingPedidoWrites,
+      payload,
+      asigOrigenSnapshots,
+      pedidoRef.id,
+      nowIso
+    );
   }
 
-  // 5.9b §J (v1455 2026-10-25) — Aplicar absorciones de BO sobre pedidos
-  // origen pre-fetcheados. Mutaciones: qtyOpen -= absorbed; si 0 → cancelled
-  // + closedReason='absorbed_by_newer_confirmed'. Audit en _backfill (§55).
+  // 5.9b §J (v1455 2026-10-25) — Acumular absorciones de BO sobre el mismo
+  // pending state. Si el pedido origen ya tiene mutaciones por cancel, el
+  // absorb opera sobre `pending.newLines` (no sobre `data.lines` original).
   if (absorbResult.absorptions.length > 0) {
-    /** @type {Map<string, Array<any>>} */
-    const absByPedido = new Map();
-    for (const a of absorbResult.absorptions) {
-      const pid = String(a.pedidoIdOrigen);
-      if (!absByPedido.has(pid)) absByPedido.set(pid, []);
-      const arr = absByPedido.get(pid);
-      if (arr) arr.push(a);
-    }
-    for (const [pid, absList] of absByPedido) {
-      const snap = absorbOrigenSnapshots.get(pid);
-      if (!snap || !snap.exists) continue;
-      const data = snap.data || {};
-      const newLines = applyAbsorptionsToLines(data.lines || [], absList, pedidoRef.id, nowIso);
-      const newBackfill = buildBackfillUpdate(data._backfill || {}, absList, pedidoRef.id, nowIso);
-      tx.update(snap.ref, { lines: newLines, _backfill: newBackfill, updatedAt: nowIso });
-    }
+    accumulateAbsorbBoMutations(
+      pendingPedidoWrites,
+      absorbResult.absorptions,
+      absorbOrigenSnapshots,
+      pedidoRef.id,
+      nowIso
+    );
   }
+
+  // 5.9c Flush: un solo tx.update por pedido origen con lines + _backfill
+  // consolidados. El orden cancel→absorb se preserva por el orden de los
+  // bloques de arriba; applyAbsorbToPending opera sobre el array ya mutado
+  // por applyCancelAsigToPending.
+  flushPendingPedidoWrites(tx, pendingPedidoWrites, nowIso);
 
   // 5.10 §57 (2026-10-23) — marcar waitlist origen `stage='consumed'` + `closedAt`
   // DENTRO de la misma transacción. Antes el cliente lo hacía POST
@@ -1229,20 +1244,125 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
 }
 
 /**
- * Cancela las ASIG originales referenciadas en el payload (origen='cpst').
+ * §105 (fix doble tx.update, ver informes 029/030/031/032):
+ * `pendingPedidoWrites` acumula mutaciones sobre pedidos origen dentro de la
+ * misma `runTransaction`, para emitir UN solo `tx.update` por documento al
+ * final de la fase write. Antes `cancelAsigRefsFromPrefetched` y el bloque §J
+ * de absorciones BO emitían dos `tx.update` secuenciales sobre el mismo doc
+ * desde snapshots independientes; Firestore last-write-wins sobre el campo
+ * `lines` descartaba las mutaciones del primero (122 ASIG huérfanas en prod
+ * entre 2026-10-26 y 2026-11-05).
  *
- * §58 (2026-10-23): esta versión usa snapshots PRE-FETCHED (ya leídos antes
- * del primer `tx.set`) para no violar la invariante Firestore "all reads
- * before all writes". El `cancelAsigRefsInTransaction` histórico hacía
- * `tx.get(refDoc)` DESPUÉS del `tx.set(pedidoRef)` → FAILED_PRECONDITION.
+ * Shape del map:
+ *   Map<pedidoId, { ref, newLines, newBackfill, touchedBackfill }>
  *
- * @param {any} tx
+ * - `newLines` se inicializa como copia defensiva de `snap.data.lines` la
+ *   primera vez que un flow toca este pedido. Luego cada mutación posterior
+ *   opera sobre ese array mutado (composición linear).
+ * - `newBackfill` se inicializa como copia de `snap.data._backfill`. Solo
+ *   se escribe al `tx.update` si `touchedBackfill=true` (evita escribir el
+ *   campo cuando nadie lo modificó).
+ *
+ * @param {Map<string, {ref: any, newLines: Array<any>, newBackfill: Record<string, any>, touchedBackfill: boolean}>} pending
+ * @param {string} pedidoId
+ * @param {{ref: any, exists: boolean, data: any}} snap
+ */
+function getOrInitPendingWrite(pending, pedidoId, snap) {
+  let pw = pending.get(pedidoId);
+  if (!pw) {
+    const baseLines = Array.isArray(snap.data && snap.data.lines) ? snap.data.lines : [];
+    const baseBackfill =
+      snap.data && typeof snap.data._backfill === 'object' && snap.data._backfill !== null
+        ? snap.data._backfill
+        : {};
+    pw = {
+      ref: snap.ref,
+      newLines: baseLines.map((/** @type {any} */ l) => ({ ...l })),
+      newBackfill: { ...baseBackfill },
+      touchedBackfill: false,
+    };
+    pending.set(pedidoId, pw);
+  }
+  return pw;
+}
+
+/**
+ * §105: deduplicar refs por `(pedidoId, lineIndex)` dentro de un mismo pedido.
+ * Suma `qtyAsignada`. Si dos refs al mismo `lineIndex` tienen SKUs distintos
+ * (caso inconsistencia del payload), devuelve `null` en el campo `sku` del
+ * ref agrupado para que la validación posterior aborte con SKU_MISMATCH
+ * (informe 032, ajuste obligatorio 1 del prompt 033).
+ *
+ * @param {Array<any>} refs
+ * @returns {Array<{pedidoId: string, lineIndex: number, sku: string|null, qtyAsignada: number, _conflictingSkus?: string[]}>}
+ */
+function dedupRefsByLineIndex(refs) {
+  /** @type {Map<number, any>} */
+  const byIdx = new Map();
+  for (const r of refs || []) {
+    if (!r) continue;
+    const li = Number(r.lineIndex);
+    if (!Number.isInteger(li)) {
+      // No deduplica: deja pasar para que CHECK A aborte con LINE_INDEX_INVALID.
+      byIdx.set(Math.random(), { ...r, qtyAsignada: Number(r.qtyAsignada) || 0 });
+      continue;
+    }
+    const sku = String(r.sku || '')
+      .toUpperCase()
+      .trim();
+    const qa = Number(r.qtyAsignada) || 0;
+    const existing = byIdx.get(li);
+    if (!existing) {
+      byIdx.set(li, { pedidoId: r.pedidoId, lineIndex: li, sku: sku || null, qtyAsignada: qa });
+    } else {
+      // Si los SKUs no coinciden entre refs duplicadas, marcar conflicto.
+      const existingSku = existing.sku || '';
+      if (sku && existingSku && sku !== existingSku) {
+        // Ajuste 1 prompt 033: SKU conflict en refs duplicadas → sku=null fuerza SKU_MISMATCH abort.
+        existing.sku = null;
+        existing._conflictingSkus = Array.from(
+          new Set([...(existing._conflictingSkus || [existingSku]), sku])
+        );
+      } else if (!existingSku && sku) {
+        existing.sku = sku;
+      }
+      existing.qtyAsignada += qa;
+    }
+  }
+  return Array.from(byIdx.values());
+}
+
+/**
+ * §105 — Acumula las mutaciones de cancelación ASIG en `pendingPedidoWrites`.
+ * NO emite `tx.update`; eso lo hace `flushPendingPedidoWrites` al final.
+ *
+ * Valida semánticamente cada referencia antes de mutar (informe 032 §2):
+ *   A - lineIndex entero en rango
+ *   B - línea existe en el array
+ *   C - line.code === r.sku (protege contra bug 027 SKU_MISMATCH)
+ *   D1 - line.state === 'cancelled' → SKIP idempotente (NO error) + verif SKU coherente
+ *   D2 - line.state !== 'ASIG' (y no cancelled) → ABORT
+ *   E - qtyOpen > 0 (zombie §104)
+ *   F - qtyAsignada <= qtyOpen (cantidad suficiente)
+ *
+ * Errores críticos abortan con `throwError('ASIG_REF_INVALID', ...)` → la tx
+ * entera rolea (pedido derivado NO se crea).
+ *
+ * Idempotencia:
+ *   - Refs duplicadas: dedup previo con suma de qtyAsignada; CHECK F captura exceso.
+ *   - Línea ya cancelled: SKIP sin incrementar qtyCancelled (CHECK D1).
+ *   - Retry Firestore: cada reintento re-ejecuta la tx desde cero con snapshot fresco.
+ *
+ * Cambio idempotencia cuantitativa (informe 032 §3):
+ *   - `qtyCancelled += qtyOpen` (NO `+= qty`). Preserva `qtyCancelled_final <= qty_total`.
+ *
+ * @param {Map<string, {ref: any, newLines: Array<any>, newBackfill: Record<string, any>, touchedBackfill: boolean}>} pending
  * @param {any} payload
+ * @param {Map<string, {ref: any, exists: boolean, data: any}>} snapshots
  * @param {string} newPedidoId
  * @param {string} nowIso
- * @param {Map<string, {ref: any, exists: boolean, data: any}>} snapshots
  */
-function cancelAsigRefsFromPrefetched(tx, payload, newPedidoId, nowIso, snapshots) {
+function accumulateCancelAsigMutations(pending, payload, snapshots, newPedidoId, nowIso) {
   /** @type {Map<string, Array<any>>} */
   const refsByPedido = new Map();
   for (const l of payload.lines) {
@@ -1254,28 +1374,204 @@ function cancelAsigRefsFromPrefetched(tx, payload, newPedidoId, nowIso, snapshot
       if (arr) arr.push(r);
     }
   }
-  for (const [pedidoOrigenId, refs] of refsByPedido) {
+
+  for (const [pedidoOrigenId, refsRaw] of refsByPedido) {
     const snap = snapshots.get(pedidoOrigenId);
-    if (!snap || !snap.exists) continue;
-    const data = snap.data || {};
-    const newLines = Array.isArray(data.lines)
-      ? data.lines.map((/** @type {any} */ l) => ({ ...l }))
-      : [];
+    if (!snap || !snap.exists) {
+      // Pedido origen no existe en Firestore → ABORT. No se puede cancelar algo
+      // que no existe, y un pedido derivado con asigRefs a un pedido inexistente
+      // es inconsistencia del payload.
+      throwError('ASIG_REF_INVALID', 'pedido origen no existe', {
+        reason: 'PEDIDO_ORIGEN_NOT_FOUND',
+        pedidoOrigenId,
+      });
+    }
+    const pw = getOrInitPendingWrite(
+      pending,
+      pedidoOrigenId,
+      /** @type {{ref: any, exists: boolean, data: any}} */ (snap)
+    );
+
+    // Dedup refs (ajuste 1 prompt 033) — sku=null si hay conflict entre refs duplicadas.
+    const refs = dedupRefsByLineIndex(refsRaw);
+
     for (const r of refs) {
       const li = Number(r.lineIndex);
-      if (!newLines[li]) continue;
-      newLines[li] = {
-        ...newLines[li],
+
+      // CHECK A — lineIndex entero en rango [0, newLines.length).
+      if (!Number.isInteger(li) || li < 0 || li >= pw.newLines.length) {
+        throwError('ASIG_REF_INVALID', 'lineIndex fuera de rango', {
+          reason: 'LINE_INDEX_INVALID',
+          pedidoOrigenId,
+          lineIndex: r.lineIndex,
+          sku: r.sku,
+          arrayLength: pw.newLines.length,
+        });
+      }
+
+      const line = pw.newLines[li];
+
+      // CHECK B — línea existe (defensive, raro tras CHECK A).
+      if (!line) {
+        throwError('ASIG_REF_INVALID', 'línea no existe en el array', {
+          reason: 'LINE_MISSING',
+          pedidoOrigenId,
+          lineIndex: li,
+          sku: r.sku,
+        });
+      }
+
+      // CHECK C — SKU coincide con la línea del pedido origen (protege bug 027).
+      // Si dedup detectó conflicto SKU entre refs duplicadas, r.sku=null → aborta aquí.
+      const expectedSku =
+        r.sku === null
+          ? null
+          : String(r.sku || '')
+              .toUpperCase()
+              .trim();
+      const actualSku = String(line.code || '')
+        .toUpperCase()
+        .trim();
+      if (expectedSku === null) {
+        // Conflict detectado en dedupRefsByLineIndex: 2 refs al mismo lineIndex con SKUs
+        // distintos. Abort con listado de conflictos. (Ajuste 1 prompt 033.)
+        throwError('ASIG_REF_INVALID', 'referencias al mismo lineIndex con SKUs distintos', {
+          reason: 'SKU_CONFLICT_IN_DUPES',
+          pedidoOrigenId,
+          lineIndex: li,
+          conflictingSkus: r._conflictingSkus || [],
+          actualLineCode: actualSku,
+        });
+      }
+      if (expectedSku && actualSku !== expectedSku) {
+        throwError('ASIG_REF_INVALID', 'SKU no coincide con la línea del pedido origen', {
+          reason: 'SKU_MISMATCH',
+          pedidoOrigenId,
+          lineIndex: li,
+          expectedSku,
+          actualSku,
+        });
+      }
+
+      // CHECK D — estado válido.
+      if (line.state === 'cancelled') {
+        // AJUSTE 2 prompt 033: antes de aceptar skip idempotente, verificar SKU
+        // coherente (CHECK C arriba ya lo valida — llegamos aquí solo si matched).
+        // Validaciones de cantidad (qtyOpen, qtyAsignada vs qtyOpen) ya NO son
+        // posibles porque la línea cancelled tiene qtyOpen=0 por definición.
+        // Lo que SÍ se puede verificar: que la cancelación previa sea coherente
+        // con un flow legítimo (closedReason conocido). No lo forzamos por ahora
+        // — la idempotencia prevalece. Documentado en informe 033.
+        continue;
+      }
+      if (line.state !== 'ASIG') {
+        throwError('ASIG_REF_INVALID', 'línea no está en estado ASIG', {
+          reason: 'STATE_MISMATCH',
+          pedidoOrigenId,
+          lineIndex: li,
+          expectedState: 'ASIG',
+          actualState: line.state,
+        });
+      }
+
+      // CHECK E — qtyOpen > 0 (protege contra ASIG zombie §104).
+      const qtyOpen = Number(line.qtyOpen) || 0;
+      if (qtyOpen <= 0) {
+        throwError('ASIG_REF_INVALID', 'ASIG con qtyOpen inválido (zombie §104)', {
+          reason: 'QTY_ZERO',
+          pedidoOrigenId,
+          lineIndex: li,
+          qtyOpen,
+        });
+      }
+
+      // CHECK F — cantidad asignable suficiente.
+      const qtyAsignada = r.qtyAsignada;
+      if (qtyAsignada > qtyOpen) {
+        throwError('ASIG_REF_INVALID', 'qtyAsignada excede qtyOpen de la línea', {
+          reason: 'QTY_INSUFFICIENT',
+          pedidoOrigenId,
+          lineIndex: li,
+          qtyOpen,
+          qtyAsignada,
+        });
+      }
+
+      // MUTACIÓN: setea state=cancelled, qtyOpen=0, qtyCancelled += qtyOpen.
+      // Cambio informe 032 §3: `qtyCancelled += qtyOpen` (NO `+= qty`) para
+      // preservar invariante `qtyCancelled_final <= qty_total` bajo cancelaciones
+      // parciales previas o retries con mutación doble.
+      pw.newLines[li] = {
+        ...line,
         state: 'cancelled',
         qtyOpen: 0,
-        qtyCancelled: (Number(newLines[li].qtyCancelled) || 0) + (Number(newLines[li].qty) || 0),
+        qtyCancelled: (Number(line.qtyCancelled) || 0) + qtyOpen,
         closedReason: 'waitlist-confirm',
         cancelledAt: nowIso,
         cancelledIntoPedidoId: newPedidoId,
         asigReserva: false,
       };
     }
-    tx.update(snap.ref, { lines: newLines, updatedAt: nowIso });
+  }
+}
+
+/**
+ * §105 — Acumula las mutaciones de absorción BO §J v1455 en `pendingPedidoWrites`.
+ * NO emite `tx.update`.
+ *
+ * Opera sobre `pw.newLines` (el array ya mutado por `accumulateCancelAsigMutations`
+ * si el pedido estaba en ambos flows). Reutiliza `applyAbsorptionsToLines` y
+ * `buildBackfillUpdate` sin modificarlos (helpers puros en `absorb-bo-on-confirm.js`).
+ *
+ * @param {Map<string, {ref: any, newLines: Array<any>, newBackfill: Record<string, any>, touchedBackfill: boolean}>} pending
+ * @param {Array<any>} absorptions
+ * @param {Map<string, {ref: any, exists: boolean, data: any}>} snapshots
+ * @param {string} newPedidoId
+ * @param {string} nowIso
+ */
+function accumulateAbsorbBoMutations(pending, absorptions, snapshots, newPedidoId, nowIso) {
+  /** @type {Map<string, Array<any>>} */
+  const absByPedido = new Map();
+  for (const a of absorptions) {
+    const pid = String(a.pedidoIdOrigen);
+    if (!absByPedido.has(pid)) absByPedido.set(pid, []);
+    const arr = absByPedido.get(pid);
+    if (arr) arr.push(a);
+  }
+
+  for (const [pid, absList] of absByPedido) {
+    const snap = snapshots.get(pid);
+    if (!snap || !snap.exists) continue;
+    const pw = getOrInitPendingWrite(pending, pid, snap);
+
+    // IMPORTANTE: applyAbsorptionsToLines recibe pw.newLines (ya mutado por cancel
+    // si aplicable), no snap.data.lines. Esto es el núcleo del fix §105.
+    pw.newLines = applyAbsorptionsToLines(pw.newLines, absList, newPedidoId, nowIso);
+
+    // Backfill acumulado: operamos sobre pw.newBackfill (que puede tener keys
+    // previas del snapshot + keys de otras absorciones acumuladas).
+    pw.newBackfill = buildBackfillUpdate(pw.newBackfill, absList, newPedidoId, nowIso);
+    pw.touchedBackfill = true;
+  }
+}
+
+/**
+ * §105 — Emite las escrituras acumuladas. Un `tx.update` por pedido origen.
+ * `_backfill` solo se escribe si fue tocado (evita update espurio del campo
+ * cuando solo hubo cancel ASIG sin absorciones).
+ *
+ * @param {any} tx
+ * @param {Map<string, {ref: any, newLines: Array<any>, newBackfill: Record<string, any>, touchedBackfill: boolean}>} pending
+ * @param {string} nowIso
+ */
+function flushPendingPedidoWrites(tx, pending, nowIso) {
+  for (const pw of pending.values()) {
+    /** @type {Record<string, any>} */
+    const update = { lines: pw.newLines, updatedAt: nowIso };
+    if (pw.touchedBackfill) {
+      update._backfill = pw.newBackfill;
+    }
+    tx.update(pw.ref, update);
   }
 }
 

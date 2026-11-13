@@ -38797,6 +38797,12 @@ window._doConfirmPedidoImpl = async function(){
         const _isContencion = /aborted|contention|conflict|unavailable|deadline/i.test(_le);
         const _subCode = _isContencion ? 'CONTENTION_RETRY_EXHAUSTED_REAL' : 'CONTENTION_RETRY_EXHAUSTED_OTRO';
         alert(_fmt(_subCode));
+      } else if (code === 'ASIG_REF_INVALID') {
+        // §105 (fix doble tx.update, informes 029-033). La tx server abortó
+        // porque una reserva del cliente cambió entre que se armó el CPST y
+        // el pedido se pasó a pendientes. El pedido derivado NO se creó —
+        // es seguro que el VDE vuelva a armar la selección.
+        alert(_fmt(code));
       } else if (code === 'VALIDATION_ERROR' || code === 'PERMISSION_DENIED' || code === 'SAP_UNAVAILABLE' || code === 'INTERNAL') {
         alert(_fmt(code));
       } else {

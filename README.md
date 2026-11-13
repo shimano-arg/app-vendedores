@@ -4717,6 +4717,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1555 (2026-11-13) — Fix §105: consolidación transaccional del cancel ASIG + absorb BO (bug "último write gana")
+
+- **Antes**: en el flujo CPST (`origen='cpst'`), `commitPedidoCF` emitía DOS `tx.update()` sobre el mismo pedido origen cuando el pedido derivado cancelaba ASIG **y** absorbía líneas BO del mismo pedido. El 2do update pisaba el 1ero (semántica "last-write-wins" de Firestore sobre el campo `lines`). En prod: 122 líneas ASIG huérfanas detectadas (informes 029-032) — `qtyOpen>0` + no visibles en Stock Asignado + stock físico "comprometido" indefinidamente.
+- **Problema**: el `WriteBatch._ops` (array interno de Firestore SDK) acumula writes y en commit resuelve en ORDEN con MERGE SHALLOW. Dos `update({lines: [...]})` con mismo path → el último objeto `lines` reemplaza al primero. El cancel ASIG escribía `lines` con la línea X cancelada; después el absorb BO escribía `lines` con la línea Y qtyOpen=0 pero copiada desde `snap.data.lines` (sin la mutación del cancel) → cancel perdido.
+- **Cambio** (`functions/core/commit-pedido-core.js`):
+  - **§105 pattern**: `pendingPedidoWrites` Map que acumula mutaciones por pedido origen (copia defensiva de `lines` + `_backfill`).
+  - 4 helpers nuevos: `getOrInitPendingWrite`, `dedupRefsByLineIndex`, `accumulateCancelAsigMutations`, `accumulateAbsorbBoMutations`, `flushPendingPedidoWrites`.
+  - `accumulateCancelAsigMutations` aplica 7 validaciones semánticas (A lineIndex en rango / B línea existe / C SKU match / D1-D2 state / E qtyOpen>0 / F qty suficiente / G dedupe con sku=null → ABORT ASIG_REF_INVALID).
+  - `accumulateAbsorbBoMutations` opera sobre `pw.newLines` (no sobre `snap.data.lines`) → cancel + absorb se consolidan en un único array mutado.
+  - `flushPendingPedidoWrites` emite UN `tx.update` por pedido origen. `_backfill` solo se escribe si `touchedBackfill=true` (evita update espurio).
+  - **Idempotencia**: para líneas ya canceladas con mismo `closedReason='waitlist-confirm'`, verifica SKU coherence antes de skip. Si SKU diverge → `ASIG_REF_INVALID` (prompt ajuste obligatorio 2). `qtyCancelled += qtyOpen` (no `+= qty`) — evita doble suma cuando la línea se re-procesa.
+  - **Ajuste obligatorio 1 (prompt 033)**: `dedupRefsByLineIndex` detecta refs con mismo `lineIndex` pero SKUs distintos → setea `sku=null` + `_conflictingSkus[]` → la validación posterior aborta con `ASIG_REF_INVALID` (no silencia el conflicto manteniendo el primer SKU).
+- **Shape nuevo del error** (`ASIG_REF_INVALID`): devuelve `{reason, pedidoOrigenId, lineIndex, refSku, lineSku, ...}` con detalle del conflict. Handler nuevo en `index.html:_tryCommitPedidoCF` muestra mensaje humanizado via `src/pure/mensajes-vendedor.js` (nuevo entry `ASIG_REF_INVALID` — texto: "No pudimos confirmar el pedido porque una de las reservas del cliente cambió. Volvé a entrar a Stock Asignado y rearmá la selección; si sigue, avisale a Mariano.").
+- **Por qué**:
+  1. **Corrección**: 1 tx.update por pedido origen → Firestore aplica el objeto completo una sola vez, sin race.
+  2. **Validación fuerte**: antes de escribir, se validan las 7 invariantes semánticas; cualquier inconsistencia aborta la tx completa (no deja ASIG parcialmente canceladas).
+  3. **Preservación §58**: todos los reads (`tx.get` del pedido origen) ocurren antes de cualquier write (§58 ALL reads before ALL writes).
+- **Verificación**:
+  - **22 tests nuevos**, todos PASS:
+    - `tests/functions/commit-pedido-asig-bo-coalesce.test.js` (11 T-01..T-11): T-01 regression bug "último write gana" (cancel + absorb mismo pedido → 1 tx.update), T-02 SKU mismatch → ABORT con rollback, T-03..T-05 validaciones A/B/C/D/E/F, T-06..T-07 absorb BO solo, T-08 idempotencia qtyCancelled, T-11 orden ref inválido.
+    - `tests/functions/commit-pedido-multi-pedido-origen.test.js` (T-09): 3 pedidos origen distintos → 3 tx.update exactos.
+    - `tests/functions/commit-pedido-backfill-preserve.test.js` (T-10): `_backfill` con 2 entries históricos preservado tras cancel+absorb; sin `_backfill` previo → no se crea vacío spurio.
+    - `tests/functions/commit-pedido-draft-lock-concurrent.test.js` (T-12 añadido): doble-click CPST concurrente mismo `draftId` + asigRefs → draft lock §64.3 garantiza 1 pedido creado + §105 garantiza cancel ASIG ejecutado exactamente UNA vez (`qtyCancelled=3`, no 6).
+    - `tests/unit/property/commit-pedido-asig-coalesce-fastcheck.test.js` (T-13): property-based ≥50 runs, "K pedidos origen distintos → exactamente K tx.update sobre `pedidos/<id>`".
+  - **Mock Firestore con rollback real** (patrón §58 extendido): `runTransaction` snapshotea state antes del `fn(tx)` y restaura si `throw`. Garantiza que `ASIG_REF_INVALID` deja el estado como antes del tx (invariante crítica — pedido derivado NO se crea cuando la validación aborta).
+  - **Typecheck limpio** (fix colateral de JSDoc en `absorb-bo-on-confirm.js:buildBackfillUpdate` — typo histórico `Array<any>` → `Record<string, any>`).
+  - **Biome check** 0 errores.
+  - **Suite completa**: 4345 tests PASS (los 15 FAIL son infra: Playwright `@playwright/test` no instalado + Firebase emulator no levantado — ninguno relacionado con el fix).
+- **Prohibido**: devolver a `cancelAsigRefsFromPrefetched` con `tx.update` directo (pre-v1555). Si se agrega un flow nuevo que muta `pedidos/X.lines`, DEBE pasar por `pendingPedidoWrites` Map + `flushPendingPedidoWrites` para preservar la invariante "UN tx.update por pedido".
+- **Rollback**: revertir los helpers §105 + restaurar `cancelAsigRefsFromPrefetched` previo + remover el bloque §J absorb-bo del post-tx.set + remover el handler `ASIG_REF_INVALID` en index.html + remover el mensaje del `MENSAJES_VENDEDOR`. Las 5 test files nuevas se borran. El bug "122 ASIG huérfanas" vuelve a estar latente.
+
 ### v1554 (2026-11-05) — Lista de espera: buscador con stepper `[−][n][+]` + candado de orden de filas (APP-04)
 
 - **Antes**: (1) el buscador "agregar producto" del modal "Pedido en espera" (`waitlistOnAddSearch`) mostraba un botón "+ Agregar" que sumaba de a 1 por click. (2) El usuario reportó que al editar la cantidad en "Pedido Original" la fila saltaba de lugar.
