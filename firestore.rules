@@ -910,10 +910,15 @@ service cloud.firestore {
     // Backup en ./backups/seguimiento_backup_YYYY-MM-DD.json antes del delete.
 
     // v1283 (2026-10-20): snapshot nightly del dashboard "Analisis de Cartera".
-    // Solo lectura (admin/gerente/interno). Writes exclusivos de la CF
-    // syncCarteraVendorScheduled via Admin SDK (bypassa rules).
+    // v1556 (2026-11-16): abierto tambien a VDE con scope limitado a SU cartera.
+    // - admin/gerente: cualquier doc.
+    // - interno: cualquier doc (el dropdown client-side filtra a sus parejas).
+    // - vendedor: SOLO su propio vendorKey == /roles/{uid}.vendor (myVendorKey).
+    // Writes exclusivos de la CF syncCarteraVendorScheduled via Admin SDK.
     match /cartera_vendor/{vendorKey} {
-      allow read: if isSeguimientoUser();
+      allow read: if isAdminOrGerente()
+        || isInterno()
+        || (isVendor() && vendorKey == myVendorKey());
       allow write: if false;  // only CF via Admin SDK
     }
 

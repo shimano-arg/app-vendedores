@@ -58,7 +58,9 @@ export const PACHI_VENDOR_KEY = 'PACHI';
  * (Dashboard), `_exportBtn` (Exportar).
  */
 export const PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS = Object.freeze([
-  'seguimiento-btn',
+  // v1556 (2026-11-16): 'seguimiento-btn' sale — PACHI ve Cartera con scope
+  // acotado a su propio vendor via canViewCarteraAnalisis + getSeguimientoExternalSet
+  // + firestore.rules cartera_vendor/{vendorKey == myVendorKey()}.
   // v1545: 'backorders-btn' sale de la lista — PACHI ve Backorder en solo
   // lectura (autorizado por Mariano 2026-11-02, v1543).
   'asignacion-backorder-btn',
@@ -102,11 +104,13 @@ export function isHeaderBtnHiddenForPachi(btnId) {
  */
 export const PACHI_BLOCKED_OPEN_FNS = Object.freeze([
   // v1545: 'openBackordersModal' sale de la lista (Backorder solo lectura, v1543).
+  // v1556: 'openCarteraModal' sale — PACHI accede al modal Cartera con scope
+  // acotado a su propio vendor (ver canViewCarteraAnalisis + cartera-vendor.js
+  // populateVendorDropdown filtrado por rol).
   'openAsignacionBackorderModal',
   'openForecastModal',
   'openRepartoModal',
   'openDepositoModal',
-  'openCarteraModal',
   'openSeguimientoModal',
 ]);
 

@@ -4717,6 +4717,20 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1556 (2026-11-16) — Cartera (Seguimiento del CRM) abierto a todos los vendedores con scope propio
+
+- **Antes**: el botón "📊 Cartera" (`#seguimiento-btn`) solo lo veían `admin / gerente / interno` (Santiago y Ioannis). Los VDEs (Mauricio, Gonzalo, Federico, PACHI) nunca veían el botón — comentario explícito en `index.html:20282` desde 2026-07-28: "Vendedores externos NUNCA tienen acceso".
+- **Problema**: Mariano reportó 2026-11-16 que **todos los vendedores piden acceso** al panel Seguimiento del CRM. Es info operativa valiosa para cada VDE sobre su propia cartera: días sin compra, dormidos, nunca visitados, etc. Mantener el gate como estaba no reflejaba la operación real.
+- **Cambio** (fix mínimo + seguro, respeta §44/§46/§59):
+  - `index.html`: `canViewCarteraAnalisis()` agrega `vendedor`. `getSeguimientoExternalSet()` agrega case `vendedor` → `Set([assignedVendor])` (solo su propio key). Removida la regla CSS `body.is-pachi-restricted #seguimiento-btn{display:none}` para que PACHI también vea el botón.
+  - `src/pure/pachi-restrictions.js`: `'seguimiento-btn'` sale de `PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS`. `'openCarteraModal'` sale de `PACHI_BLOCKED_OPEN_FNS` (defense in depth).
+  - `src/domains/cartera-vendor.js:populateVendorDropdown`: nuevo filtro por rol. Para `userRole === 'vendedor'`, el dropdown se auto-selecciona con `assignedVendor` y se bloquea (`sel.disabled = true`); luego se dispara `onCarteraVendorChange()` una vez para cargar directo el dashboard de su cartera. Admin/gerente/interno: comportamiento histórico (lista completa).
+  - `firestore.rules`: regla `cartera_vendor/{vendorKey}.read` ahora es `isAdminOrGerente() || isInterno() || (isVendor() && vendorKey == myVendorKey())` (helper `myVendorKey()` ya existente desde v548, línea 27). Server-side rechaza si un VDE intenta leer otro doc via DevTools.
+  - Tests existentes actualizados (`pachi-v1478-restricciones.test.js`, `pachi-v1481-sidebar-left.test.js`, `tests/e2e/pachi.spec.js`): invertir asserts sobre `seguimiento-btn` + `openCarteraModal` + `cartera-modal`. Suite completa: 219 archivos / 2974 tests PASS.
+- **Por qué**: patrón §44/§46/§59 del repo (cada VDE ve SUS clientes, nunca cross-vendor) ya tiene precedente claro en v1545 (Master Clientes para VDE solo sus clientes) + v1543 (PACHI ve Backorder solo lectura). Este fix extiende el patrón al panel Cartera.
+- **Verificación**: Playwright `tests/e2e/pachi.spec.js` actualizado + 32 unit tests contrato PACHI PASS. Script audit nuevo `scripts/audit/O_cartera_vendor_scope.cjs` queda como gap documentado en `CLAUDE.md` para iteración futura (verificar en prod que VDE que no es `myVendorKey()` recibe `permission-denied` en el read directo). Mariano decide cuándo correr e2e PACHI (requiere secret test-pachi-*).
+- **Rollback**: revertir los 4 archivos tocados + deploy rules anterior + bumpear versión. Los VDEs volverían a NO ver el botón. Nada que revertir server-side: `cartera_vendor` solo leyó, nunca escribió.
+
 ### v1555 (2026-11-13) — Fix §105: consolidación transaccional del cancel ASIG + absorb BO (bug "último write gana")
 
 - **Antes**: en el flujo CPST (`origen='cpst'`), `commitPedidoCF` emitía DOS `tx.update()` sobre el mismo pedido origen cuando el pedido derivado cancelaba ASIG **y** absorbía líneas BO del mismo pedido. El 2do update pisaba el 1ero (semántica "last-write-wins" de Firestore sobre el campo `lines`). En prod: 122 líneas ASIG huérfanas detectadas (informes 029-032) — `qtyOpen>0` + no visibles en Stock Asignado + stock físico "comprometido" indefinidamente.
