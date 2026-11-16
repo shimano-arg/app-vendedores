@@ -265,12 +265,7 @@ test.describe('PACHI perfil operativo', () => {
     // Contrato dura: NO existen los proxies de botones ocultos.
     // v1545: 'backorders-btn' removido (Backorder solo lectura).
     // v1556: 'seguimiento-btn' removido (Cartera con scope propio).
-    const hiddenIds = [
-      'asignacion-backorder-btn',
-      'forecast-btn',
-      'revision-btn',
-      'waitlist-btn',
-    ];
+    const hiddenIds = ['asignacion-backorder-btn', 'forecast-btn', 'revision-btn', 'waitlist-btn'];
     for (const id of hiddenIds) {
       const proxyCount = await page
         .locator(`#sidebar-left-buttons [data-proxy-for="${id}"]`)

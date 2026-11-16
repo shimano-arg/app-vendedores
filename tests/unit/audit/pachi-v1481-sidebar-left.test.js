@@ -38,12 +38,7 @@ describe('v1481 §81 — pure fn PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS', () => {
     expect(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.length).toBe(4);
     expect(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.includes('backorders-btn')).toBe(false);
     expect(PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.includes('seguimiento-btn')).toBe(false);
-    const expected = [
-      'asignacion-backorder-btn',
-      'forecast-btn',
-      'revision-btn',
-      'waitlist-btn',
-    ];
+    const expected = ['asignacion-backorder-btn', 'forecast-btn', 'revision-btn', 'waitlist-btn'];
     for (const id of expected) {
       expect(
         PACHI_HIDDEN_SIDEBAR_LEFT_BTN_IDS.includes(id),

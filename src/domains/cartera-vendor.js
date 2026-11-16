@@ -94,8 +94,7 @@ async function populateVendorDropdown() {
 
   // Resolvemos el rol + assignedVendor del window (seteados por applyRoleVisibility).
   const userRole = typeof window !== 'undefined' ? window.userRole : null;
-  const assignedVendor =
-    typeof window !== 'undefined' ? window.assignedVendor : null;
+  const assignedVendor = typeof window !== 'undefined' ? window.assignedVendor : null;
 
   // Caso VDE: forzar el dropdown a UN solo vendor + bloquear.
   if (userRole === 'vendedor') {
