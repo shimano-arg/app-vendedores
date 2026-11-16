@@ -2645,8 +2645,10 @@ body.is-pachi-restricted #deposito-home-btn,
 body.is-pachi-restricted #revision-btn,
 body.is-pachi-restricted #forecast-btn,
 body.is-pachi-restricted #rendiciones-top-btn,
-body.is-pachi-restricted .tab-btn[data-tab="rendiciones"],
-body.is-pachi-restricted #seguimiento-btn{display:none !important}
+body.is-pachi-restricted .tab-btn[data-tab="rendiciones"]{display:none !important}
+/* v1556 (2026-11-16): #seguimiento-btn ya no se bloquea para PACHI. Mariano
+   habilito acceso a Seguimiento/Cartera para todos los vendedores con scope
+   limitado a cada uno. Ver canViewCarteraAnalisis + getSeguimientoExternalSet. */
 /* v1507 iter 8 (2026-10-28): ocultar botón "PEDIDOS EN ESPERA" global del header.
    El contador que muestra es cross-vendor (todas las ordenes abiertas del sistema)
    y no corresponde al scope de PACHI. Su lista propia (sidebar-left-waitlist,
@@ -7308,7 +7310,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1555';
+const APP_VERSION = 'v1556';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -20279,18 +20281,23 @@ const VENDOR_INCLUDES_OTHERS = {
 // - interno (Santiago / Ioannis): solo las VDEs que lo tienen como
 // pareja en /roles/{uid}.internalPartnerUid (lista que ya cargo
 // loadMyExternalPartners en myExternalPartners).
-// Vendedores externos NUNCA tienen acceso.
+// v1556 (2026-11-16): abierto tambien a VDE (role=vendedor) con scope limitado
+// a su propia cartera (patron §44/§46/§59 — cada VDE ve SUS clientes, nunca
+// cross-vendor). PACHI entra tambien (regla is-pachi-restricted removida en
+// este deploy). Respuesta a reporte 2026-11-16 "no puedo ingresar todavia a
+// la parte de seguimiento del CRM" — todos los vendedores piden acceso.
 function canViewCarteraAnalisis(){
   if (userRole === 'admin' || userRole === 'gerente') return true;
   if (userRole === 'interno') return true;
+  if (userRole === 'vendedor') return true;
   return false;
 }
 // Conjunto de VDE keys que el usuario puede ver en Seguimiento.
 // Es el guard de seguridad: cada render filtra usando este Set, y los
 // listeners de visits/pedidos chequean tambien antes de pintar.
-// Para internos se basa en myExternalPartners (configurable desde Panel
-// Usuarios). Para admin/gerente fallback a VENDOR_INCLUDES_OTHERS para
-// no hardcodear nombres en componentes.
+// - admin/gerente: todas las duplas comerciales.
+// - interno: sus parejas VDE (myExternalPartners) + fallback VENDOR_INCLUDES_OTHERS.
+// - vendedor (v1556): SOLO su propio assignedVendor.
 function getSeguimientoExternalSet(){
   if (userRole === 'admin' || userRole === 'gerente') {
     const all = new Set();
@@ -20307,6 +20314,10 @@ function getSeguimientoExternalSet(){
       if (hardcoded) hardcoded.forEach(k => s.add(k));
     }
     return s;
+  }
+  // v1556: VDE ve SOLO su propia cartera (patron §44/§46/§59).
+  if (userRole === 'vendedor' && assignedVendor) {
+    return new Set([assignedVendor]);
   }
   return new Set();
 }

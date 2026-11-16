@@ -39,8 +39,12 @@ describe('v1478 §PACHI iter 2 — CSS gates nuevos', () => {
     expect(INDEX_HTML).toMatch(/body\.is-pachi-restricted \.tab-btn\[data-tab="rendiciones"\]/);
   });
 
-  it('oculta #seguimiento-btn (botón Cartera; defensa)', () => {
-    expect(INDEX_HTML).toMatch(/body\.is-pachi-restricted[^{]*#seguimiento-btn/);
+  it('v1556: #seguimiento-btn ya NO se oculta (PACHI accede a Cartera con scope propio)', () => {
+    // Mariano 2026-11-16 habilito Seguimiento/Cartera para todos los vendedores
+    // (incluido PACHI). El scope se limita server-side via firestore.rules
+    // cartera_vendor/{vendorKey == myVendorKey()} + client-side via
+    // populateVendorDropdown que auto-selecciona assignedVendor para VDE.
+    expect(INDEX_HTML).not.toMatch(/body\.is-pachi-restricted[^{]*#seguimiento-btn\{display:none/);
   });
 });
 

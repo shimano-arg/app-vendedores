@@ -262,15 +262,10 @@ test.describe('PACHI perfil operativo', () => {
     // Asegurarse que el renderer ya corrió (se llama al init post-login).
     await page.waitForTimeout(1500);
 
-    // Contrato dura: NO existen los 6 proxies de botones ocultos.
-    const hiddenIds = [
-      'seguimiento-btn',
-      'backorders-btn',
-      'asignacion-backorder-btn',
-      'forecast-btn',
-      'revision-btn',
-      'waitlist-btn',
-    ];
+    // Contrato dura: NO existen los proxies de botones ocultos.
+    // v1545: 'backorders-btn' removido (Backorder solo lectura).
+    // v1556: 'seguimiento-btn' removido (Cartera con scope propio).
+    const hiddenIds = ['asignacion-backorder-btn', 'forecast-btn', 'revision-btn', 'waitlist-btn'];
     for (const id of hiddenIds) {
       const proxyCount = await page
         .locator(`#sidebar-left-buttons [data-proxy-for="${id}"]`)
@@ -348,12 +343,12 @@ test.describe('PACHI perfil operativo', () => {
 
     // Confirmar que ningún modal protegido quedó open después del attack.
     const openModalIds = await page.evaluate(() => {
+      // v1556: 'cartera-modal' removido (PACHI accede con scope propio).
       const ids = [
         'backorders-modal',
         'forecast-modal',
         'reparto-modal',
         'deposito-modal',
-        'cartera-modal',
         'seguimiento-modal',
       ];
       return ids.filter((id) => {

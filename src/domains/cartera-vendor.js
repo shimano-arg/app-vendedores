@@ -79,12 +79,51 @@ window.closeCarteraModal = function closeCarteraModal() {
 };
 
 // === Dropdown de vendors ===
+// v1556 (2026-11-16): filtro por rol del user actual.
+// - admin/gerente/viewer: lista completa (los 6 VDEs whitelist).
+// - interno: fallback a listar todos (el server rechazara vendors fuera de parejas,
+//   pero el dropdown muestra todo para preservar el comportamiento historico).
+// - vendedor: SOLO su propio assignedVendor, auto-seleccionado + bloqueado.
+// Patron §44/§46/§59: cada VDE ve SUS clientes, nunca cross-vendor.
 async function populateVendorDropdown() {
   const sel = /** @type {HTMLSelectElement|null} */ (
     document.getElementById('cartera-vendor-select')
   );
   if (!sel) return;
   if (sel.options.length > 1) return;
+
+  // Resolvemos el rol + assignedVendor del window (seteados por applyRoleVisibility).
+  const userRole = typeof window !== 'undefined' ? window.userRole : null;
+  const assignedVendor = typeof window !== 'undefined' ? window.assignedVendor : null;
+
+  // Caso VDE: forzar el dropdown a UN solo vendor + bloquear.
+  if (userRole === 'vendedor') {
+    if (!assignedVendor || !VENDORS_WHITELIST.has(assignedVendor)) {
+      // Sin vendor canonico o fuera de whitelist: no mostrar opciones (fail-safe).
+      sel.disabled = true;
+      return;
+    }
+    const opt = document.createElement('option');
+    opt.value = assignedVendor;
+    opt.textContent = assignedVendor;
+    sel.appendChild(opt);
+    sel.value = assignedVendor;
+    sel.disabled = true;
+    // Disparar el change una vez para cargar el dashboard directo.
+    if (typeof window.onCarteraVendorChange === 'function') {
+      // setTimeout para que el DOM del modal termine de montarse antes del fetch.
+      setTimeout(() => {
+        try {
+          window.onCarteraVendorChange();
+        } catch (_e) {
+          /* ignore */
+        }
+      }, 0);
+    }
+    return;
+  }
+
+  // Admin/gerente/interno/viewer: comportamiento historico (lista completa).
   try {
     // @ts-expect-error
     const snap = await firebase.firestore().collection('cartera_vendor').get();
