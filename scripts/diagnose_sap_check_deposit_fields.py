@@ -280,26 +280,48 @@ def main():
         'deposits_check_lines': {},
     }
 
-    # Fase 1: IncomingPayments + PaymentChecks expand.
-    log('--- Fase 1: /IncomingPayments({N})?$expand=PaymentChecks ---')
+    # Fase 1A: HEADER de IncomingPayments (sin $expand — $expand=PaymentChecks da HTTP 400
+    # "invalid navigation property" en este tenant SL v10). Es el bug conocido que el
+    # sync Python evita via fetch per-doc del nested.
+    log('--- Fase 1A: /IncomingPayments({N}) [header, sin expand] ---')
     for payment_doc_entry, check_abs_entry, check_number, hint in TARGET_PAYMENTS:
         log(f'[target] payment_doc_entry={payment_doc_entry} check_abs_entry={check_abs_entry} check_number={check_number} ({hint})')
-        data = fetch_json(session, base_url, f'/b1s/v1/IncomingPayments({payment_doc_entry})?$expand=PaymentChecks')
+        data = fetch_json(session, base_url, f'/b1s/v1/IncomingPayments({payment_doc_entry})')
         dump['incoming_payments'][str(payment_doc_entry)] = data
         if data.get('_error'):
             all_errors.append(f'IncomingPayments({payment_doc_entry}): HTTP {data["_status"]}')
             continue
-        header_keys = summarize_keys({k: v for k, v in data.items() if k != 'PaymentChecks'})
+        header_keys = summarize_keys(data)
         log(f'  header: {len(header_keys)} keys')
-        pc_list = data.get('PaymentChecks') or []
+        # Chequear si hay algo tipo Deposited / Reconciled en el header mismo.
+        interesting_header = [k for k in data.keys() if any(
+            tok in k.lower() for tok in ('depos', 'reconc', 'cleared')
+        )]
+        if interesting_header:
+            log(f'  [HINT] campos de interés en IncomingPayment header: {interesting_header}')
+            for k in interesting_header:
+                log(f'    -> {k} = {data.get(k)!r}')
+
+    # Fase 1B: /IncomingPayments({N})/PaymentChecks (nested per-doc, sin $expand).
+    # Este es el endpoint que usa el sync Python para poblar sap_payment_checks_raw.
+    log('--- Fase 1B: /IncomingPayments({N})/PaymentChecks [nested per-doc] ---')
+    dump['payment_checks_per_doc'] = {}
+    for payment_doc_entry, check_abs_entry, check_number, hint in TARGET_PAYMENTS:
+        log(f'[target] payment_doc_entry={payment_doc_entry} check_abs_entry={check_abs_entry} check_number={check_number} ({hint})')
+        data = fetch_json(session, base_url, f'/b1s/v1/IncomingPayments({payment_doc_entry})/PaymentChecks')
+        dump['payment_checks_per_doc'][str(payment_doc_entry)] = data
+        if data.get('_error'):
+            all_errors.append(f'IncomingPayments({payment_doc_entry})/PaymentChecks: HTTP {data["_status"]}')
+            continue
+        pc_list = data.get('value') or []
         log(f'  PaymentChecks[]: {len(pc_list)} items')
         if pc_list:
             first = pc_list[0]
             for line in summarize_keys(first, prefix='    '):
                 log(line)
-            # Buscar campos SOSPECHOSOS de ser flag de depósito.
+            # Buscar campos SOSPECHOSOS de ser flag de depósito O link a Deposit.
             interesting = [k for k in first.keys() if any(
-                tok in k.lower() for tok in ('depos', 'reconc', 'status', 'cleared', 'applied', 'cashed')
+                tok in k.lower() for tok in ('depos', 'reconc', 'status', 'cleared', 'applied', 'cashed', 'abs', 'key', 'rct')
             )]
             if interesting:
                 log(f'  [HINT] campos de interés en PaymentCheck: {interesting}')
