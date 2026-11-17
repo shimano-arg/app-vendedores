@@ -4717,6 +4717,27 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### fix v3 (2026-11-16) — v_cheques_recibidos: estado via `u_estado` del pago (fin del JOIN roto a Deposits)
+
+- **Antes**: `v_cheques_recibidos` resolvía `estado_cheque` para cheques físicos con un `LEFT JOIN` a `sap_deposit_checks_raw` por `check_number + bank_code + branch`. Matcheaba 29 de 2.259 (1.3%) y **0 de los 3 cheques físicos reales**. Los 3 físicos (TIBETAN SRL 4667, IRIBARREN 4120, PODWIAZNY 3573) figuraban `VENCIDO_SIN_DEPOSITAR` cuando SAP los tiene depositados.
+- **Problema**: diagnóstico Service Layer (PR #1355 + #1356, runs 44123376069 + 44124625517) confirmó que **en este tenant no hay forma de linkear PaymentCheck ↔ Deposit via SL**. `/Deposits/CheckLines` expone 12 fields y ninguno es FK al RCT1. `sap_deposit_checks_raw` tiene 293 cheques históricos pre-sync (`check_date 2024-06-18 .. 2025-02-10`) que no linkean con los PaymentChecks actuales. El flag "Depositado=Yes" de la pantalla SAP "Saldo de cheque" en este tenant viene de `U_Estado='COBRADO'` del `IncomingPayment` (UDF), **no del módulo Deposits**. SAP B1 liquida los cheques físicos directo como pago cobrado sin pasar por depósito físico.
+- **Cambio** (3 archivos):
+  - `bigquery/cobranzas_bike.sql` — vista `v_cheques_recibidos` reescrita con `LEFT JOIN sap_incoming_payments_raw p ON p.doc_entry = ch.payment_doc_entry` y nueva lógica `estado_cheque` basada en `e_check × u_estado × due_date`. Buckets: `RECHAZADO` (nuevo), `ACREDITADO`, `PENDIENTE_ACREDITACION`, `DEPOSITADO`, `VENCIDO_SIN_DEPOSITAR` (red de seguridad), `EN_CARTERA`. Se agregó columna `u_estado` al output. `deposit_abs_entry` / `deposit_date` quedan como columnas NULL por compat con medidas DAX.
+  - `bigquery/deploy_v_cheques_recibidos.py` — script Python SDK (UTF-8) para deploy aislado + 3 smoke queries post-deploy. Patrón de `feedback_bq_view_deploy_utf8`.
+  - README §41 (esta entry).
+- **Por qué**: `u_estado` cubre **100% de los cheques sincronizados** (2258 COBRADO + 1 RECHAZADO + 0 NULL) y ya lo captura el sync Python existente — no requiere tocar extract. Validado en prod post-deploy.
+- **Verificación** (post `CREATE OR REPLACE` ejecutado):
+  - Los 3 físicos quedan `estado_cheque='DEPOSITADO'` ✓ (TIBETAN 4667 $427.800, IRIBARREN 4120 $855.030, PODWIAZNY 3573 $1.914.880).
+  - `VENCIDO_SIN_DEPOSITAR` = **0 cheques** ✓ (antes: 3 falsos positivos).
+  - 1 echeq detectado `RECHAZADO` (antes figuraba ACREDITADO).
+  - Distribución total: ECHEQ ACREDITADO 1699 + ECHEQ PENDIENTE 556 + ECHEQ RECHAZADO 1 + FISICO DEPOSITADO 3 = 2259 ✓ (sin cheques perdidos).
+  - BQ job ID `job_M8ErXD8hpgp7rMp0_wr6evrp1Fg5`.
+  - Falta refresh del TABLERO SAR pestaña Cheques (Mariano, cuando quiera).
+- **Rollback**: re-deploy la vista v2 (archivo `cobranzas_bike.sql` pre-fix, bloque de `CREATE OR REPLACE VIEW v_cheques_recibidos` entre líneas 299-373). La columna `u_estado` desaparece del output — romper medidas DAX del TABLERO SAR solo si ya la consumieron entre deploy y rollback.
+- **Entregables**:
+  - Fase 1: `Desktop\RESPUESTAS\CHEQUES_VENCIDO_SIN_DEPOSITAR_2026-11-16\DIAGNOSTICO.md` (informe) + `artifact_run_1/` + `artifact_run_2/` (dumps Service Layer).
+  - Fase 2: SQL + script Python en este PR.
+
 ### diag (2026-11-16) — Workflow one-shot para diagnóstico schema SL (cheques depositados)
 
 - **Antes**: la vista BQ `v_cheques_recibidos` (TABLERO SAR) mostraba 3 cheques físicos reales como `VENCIDO_SIN_DEPOSITAR` aunque SAP los tiene depositados (caso testigo TIBETAN SRL `check_abs_entry=4667`). El `JOIN` por `check_number + bank_code + branch` matchea 29 de 2.259 y 0 de los 3 físicos; el `JOIN` por `check_abs_entry = check_key` da overlap 0 (rangos disjuntos `3.294..5.570` vs `1.685..2.287`).
