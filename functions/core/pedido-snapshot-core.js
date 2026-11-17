@@ -50,6 +50,8 @@ const RESERVA_TTL_DAYS = 7;
 // confirmed hard cap 60d).
 const _BO_TTL_DAYS = 90;
 const CONFIRMED_HARD_CAP_DAYS = 60;
+// v8 §E1 (2026-11-17 Reparto dep 12): hard cap líneas enTransito ASIG.
+const ASIG_TRANSITO_HARD_CAP_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -107,31 +109,42 @@ export function lineReservesStock(line, nowMs, pedido) {
     return false;
   }
   if (state === 'confirmed') {
-    // v1269 (2026-10-14): asigReserva=false libera reserva tambien para
-    // confirmed. Mirror client-side (src/pure/stock-realmente-disponible.js).
     if (line.asigReserva === false || line.asigReserva === 0) return false;
-    // v1400 §40.8 D3 mirror: si la SQ ya se convirtió en SO en SAP
-    // (orderDocEntry presente), SAP la cubre en Available → la app NO
-    // reserva (evita doble conteo).
     if (pedido && pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry != null) {
       return false;
     }
-    // v963: expira desde pedido.confirmedAt (TTL 7d post-v1198).
-    // v1384 (2026-10-21): guard defensivo — sin pedido.confirmedAt se trata
-    // como data corrupta y NO reserva. CLAUDE.md §36.
+    // v8 §E1 mirror: línea en tránsito dep 12 → ignora soft 7d, hard cap 60d.
+    if (line.enTransito === true) {
+      const refIso =
+        line.confirmedAtTransito || (pedido && pedido.confirmedAt) || (pedido && pedido.createdAt);
+      if (refIso) {
+        const refMs = toMillisSafe(refIso);
+        if (refMs !== null && (nowMs - refMs) / DAY_MS > CONFIRMED_HARD_CAP_DAYS) {
+          return false;
+        }
+      }
+      return true;
+    }
     if (!pedido || !pedido.confirmedAt) return false;
     const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
     if (confirmedAtMs === null) return false;
     const ageDays = (nowMs - confirmedAtMs) / DAY_MS;
     if (ageDays > RESERVA_TTL_DAYS) return false;
-    // v1388 (CLAUDE.md §38): hard cap 60d.
     if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
     return true;
   }
   if (state === 'ASIG') {
-    // v1402 §40.10 mirror: ASIG siempre reserva (§40). Guard asigReserva=false
-    // eliminado. Toggle UI "destildar" revierte a BO (ver _toggleAsigReserva).
-    // v959: expira 15d desde asigAt.
+    // v8 §E1 mirror: línea en tránsito → ignora soft 7d, hard cap 30d.
+    if (line.enTransito === true) {
+      const refIso = line.asigAtTransito || line.asigAt || (pedido && pedido.createdAt);
+      if (refIso) {
+        const refMs = toMillisSafe(refIso);
+        if (refMs !== null && (nowMs - refMs) / DAY_MS > ASIG_TRANSITO_HARD_CAP_DAYS) {
+          return false;
+        }
+      }
+      return true;
+    }
     if (line.asigAt) {
       const asigAtMs = toMillisSafe(line.asigAt);
       if (asigAtMs !== null && (nowMs - asigAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
@@ -200,10 +213,13 @@ export function getStockBreakdown(sku, deps, opts) {
   };
 
   // v1395 §40.3 mirror: raw ASIG + confirmed para FIFO.
-  /** @type {Array<{pedidoId:string, lineIndex:number, cardCode:string, clientName:string, asigAt:string|null, qtyNominal:number}>} */
+  // v8 §E1 mirror: incluye enTransito + buckets tránsito separados.
+  /** @type {Array<{pedidoId:string, lineIndex:number, cardCode:string, clientName:string, asigAt:string|null, qtyNominal:number, enTransito:boolean}>} */
   const asigRaw = [];
-  /** @type {Array<{confirmedAt:string|null, qtyNominal:number}>} */
+  /** @type {Array<{confirmedAt:string|null, qtyNominal:number, enTransito:boolean}>} */
   const confirmedRaw = [];
+  let asigTotalTransito = 0;
+  let confTotalTransito = 0;
 
   const pedidos = Array.isArray(deps.pedidos) ? deps.pedidos : [];
   for (const p of pedidos) {
@@ -238,21 +254,32 @@ export function getStockBreakdown(sku, deps, opts) {
             buckets[/** @type {'BO'|'confirmed'|'ASIG'} */ (st)]
           );
           _push(_map, p.clientCardCode, p.clientName, qo, p._fsId || p.id || '', i);
-          // v1395 §40.3 mirror: capturo raw.
+          // v8 §E1 mirror: separar líneas tránsito.
+          const _enTransito = l.enTransito === true;
           if (st === 'ASIG') {
-            asigRaw.push({
-              pedidoId: String(p._fsId || p.id || ''),
-              lineIndex: i,
-              cardCode: String(p.clientCardCode || ''),
-              clientName: String(p.clientName || ''),
-              asigAt: l.asigAt || null,
-              qtyNominal: qo,
-            });
+            if (_enTransito) {
+              asigTotalTransito += qo;
+            } else {
+              asigRaw.push({
+                pedidoId: String(p._fsId || p.id || ''),
+                lineIndex: i,
+                cardCode: String(p.clientCardCode || ''),
+                clientName: String(p.clientName || ''),
+                asigAt: l.asigAt || null,
+                qtyNominal: qo,
+                enTransito: false,
+              });
+            }
           } else if (st === 'confirmed') {
-            confirmedRaw.push({
-              confirmedAt: p.confirmedAt || null,
-              qtyNominal: qo,
-            });
+            if (_enTransito) {
+              confTotalTransito += qo;
+            } else {
+              confirmedRaw.push({
+                confirmedAt: p.confirmedAt || null,
+                qtyNominal: qo,
+                enTransito: false,
+              });
+            }
           }
         }
       }
@@ -282,9 +309,16 @@ export function getStockBreakdown(sku, deps, opts) {
   }
 
   const backorderApp = _toBucket(buckets.BO);
-  const confirmadasSinFacturar = _toBucket(buckets.confirmed);
+  const confirmadasBase = _toBucket(buckets.confirmed);
   const asignadasBase = _toBucket(buckets.ASIG);
   const waitlistCpst = _toBucket(bucketWaitlist);
+  // v8 §E1 mirror: wrap confirmadas con sub-totales físico/tránsito.
+  const confirmadasSinFacturar = {
+    total: confirmadasBase.total,
+    totalFisico: Math.max(0, confirmadasBase.total - confTotalTransito),
+    totalTransito: confTotalTransito,
+    porCliente: confirmadasBase.porCliente,
+  };
 
   // v1395 §40.3 mirror: FIFO distribution.
   const _tsOrInf = (/** @type {string|null} */ iso) => {
@@ -321,6 +355,9 @@ export function getStockBreakdown(sku, deps, opts) {
   }
   const asignadas = {
     total: asignadasBase.total,
+    // v8 §E1 mirror: sub-totales físico/tránsito.
+    totalFisico: Math.max(0, asignadasBase.total - asigTotalTransito),
+    totalTransito: asigTotalTransito,
     porCliente: asignadasBase.porCliente,
     detalle: asigDetalle,
   };
@@ -347,10 +384,15 @@ export function getStockBreakdown(sku, deps, opts) {
     }
   }
 
-  // v1394 §40.2 mirror: cap por fisico. reservadasTotal = min(ASIG+conf, fisico).
-  const reservasNominales = confirmadasSinFacturar.total + asignadas.total;
+  // v1394 §40.2 mirror: cap por fisico.
+  // v8 §E1 mirror: reservadasTotal excluye enTransito (reservan dep 12, no dep 11).
+  const reservasNominales = confirmadasSinFacturar.totalFisico + asignadas.totalFisico;
   const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
+  // v8 §E1 mirror: libreTransito paralelo contra dep 12.
+  const reservasTransito = confirmadasSinFacturar.totalTransito + asignadas.totalTransito;
+  const reservadasTransitoCap = Math.min(reservasTransito, transitoDep12);
+  const libreTransito = Math.max(0, transitoDep12 - reservadasTransitoCap);
 
   /** @param {string} cardCode */
   const utilizablePara = (cardCode) => {
@@ -369,6 +411,7 @@ export function getStockBreakdown(sku, deps, opts) {
     sku: skuUp,
     fisicoDep11,
     transitoDep12,
+    libreTransito, // v8 §E1
     backorderApp,
     confirmadasSinFacturar,
     asignadas,
@@ -378,7 +421,7 @@ export function getStockBreakdown(sku, deps, opts) {
     libre,
     utilizablePara,
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 7,
+    _version: 8,
   };
 }
 
@@ -392,6 +435,7 @@ export const STOCK_LABELS_SERVER = Object.freeze({
   fisicoDep11: 'Stock físico (dep 11)',
   transitoDep12: 'En tránsito (dep 12)',
   libre: 'Libre para la venta',
+  libreTransito: 'Libre en tránsito',
   pendienteReparto: 'Pendientes de reparto',
 });
 

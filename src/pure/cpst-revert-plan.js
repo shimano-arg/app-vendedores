@@ -35,6 +35,7 @@
  * @property {number} [lineIndex]
  * @property {number} qtyAsignada
  * @property {string} [state]
+ * @property {boolean} [enTransito]  v8 §E1: línea tránsito dep 12 (audit).
  */
 
 /**
@@ -43,6 +44,7 @@
  * @property {'keep'|'split'|'revert_full'} action
  * @property {number} qtyKeep  Unidades que mantienen state=ASIG (van al waitlist).
  * @property {number} qtyRevert Unidades que revierten a state=BO.
+ * @property {boolean} wasEnTransito  v8 §E1: la ASIG original era tránsito dep 12.
  */
 
 /**
@@ -58,17 +60,25 @@ export function computeCpstRevertPlan(entries, qtyAjustadaTotal) {
   for (const entry of list) {
     const q = Number(entry && entry.qtyAsignada) || 0;
     if (q <= 0) continue;
+    const wasEnTransito = !!(entry && entry.enTransito === true);
     if (restante <= 0) {
       out.push({
         entry,
         action: /** @type {'revert_full'} */ ('revert_full'),
         qtyKeep: 0,
         qtyRevert: q,
+        wasEnTransito,
       });
       continue;
     }
     if (q <= restante) {
-      out.push({ entry, action: /** @type {'keep'} */ ('keep'), qtyKeep: q, qtyRevert: 0 });
+      out.push({
+        entry,
+        action: /** @type {'keep'} */ ('keep'),
+        qtyKeep: q,
+        qtyRevert: 0,
+        wasEnTransito,
+      });
       restante -= q;
     } else {
       out.push({
@@ -76,6 +86,7 @@ export function computeCpstRevertPlan(entries, qtyAjustadaTotal) {
         action: /** @type {'split'} */ ('split'),
         qtyKeep: restante,
         qtyRevert: q - restante,
+        wasEnTransito,
       });
       restante = 0;
     }

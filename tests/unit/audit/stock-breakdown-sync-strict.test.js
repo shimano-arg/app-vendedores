@@ -52,8 +52,9 @@ describe('stock-breakdown-sync STRICT', () => {
   describe('R4 ASIG TTL 7d', () => {
     it('ambos usan RESERVA_TTL_DAYS para ASIG', () => {
       // La rama ASIG también usa la const RESERVA_TTL_DAYS para el cutoff.
-      const asigBranchSrc = SRC_LRS.match(/state\s*===?\s*['"]ASIG['"][\s\S]{0,800}/);
-      const asigBranchCf = CF.match(/state\s*===?\s*['"]ASIG['"][\s\S]{0,800}/);
+      // v8 §E1: el bloque enTransito queda arriba, así que ampliamos el rango.
+      const asigBranchSrc = SRC_LRS.match(/state\s*===?\s*['"]ASIG['"][\s\S]{0,2000}/);
+      const asigBranchCf = CF.match(/state\s*===?\s*['"]ASIG['"][\s\S]{0,2000}/);
       expect(asigBranchSrc).toBeTruthy();
       expect(asigBranchCf).toBeTruthy();
       expect(asigBranchSrc[0]).toMatch(/RESERVA_TTL_DAYS/);
@@ -126,9 +127,9 @@ describe('stock-breakdown-sync STRICT', () => {
   });
 
   describe('_version shape alineado (anti-drift)', () => {
-    it('ambos declaran _version 7 (§40.11)', () => {
-      expect(SRC).toMatch(/_version:\s*7/);
-      expect(CF).toMatch(/_version:\s*7/);
+    it('ambos declaran _version 8 (v8 §E1 Reparto dep 12)', () => {
+      expect(SRC).toMatch(/_version:\s*8/);
+      expect(CF).toMatch(/_version:\s*8/);
     });
   });
 

@@ -109,9 +109,9 @@ describe('v1394 §40.2 reservadasTotal cap por físico', () => {
     expect(b.libre).toBe(0);
   });
 
-  it('_version=5', () => {
+  it('_version=8', () => {
     const b = getStockBreakdown('X', makeDeps({}), { now: NOW });
-    expect(b._version).toBe(7);
+    expect(b._version).toBe(8);
   });
 
   it('sync: espejo functions/core también cap por fisico', () => {

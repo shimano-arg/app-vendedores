@@ -143,9 +143,9 @@ describe('v1403 §40.11 asignadas FIFO (detalle interno, sin top-level totalSobr
     expect(b.asignadas).not.toHaveProperty('totalSobreAsignada');
   });
 
-  it('_version = 7', () => {
+  it('_version = 8', () => {
     const b = getStockBreakdown('X', makeDeps({}), { now: NOW });
-    expect(b._version).toBe(7);
+    expect(b._version).toBe(8);
   });
 
   it('sync src/pure vs functions/core: mismo detalle FIFO', () => {
