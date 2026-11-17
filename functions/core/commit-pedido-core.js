@@ -89,7 +89,11 @@ import { checkSkusInSapCatalog } from './sku-catalog-check-core.js';
 // (6 corridas de margen entre runs). Si rompe, la CF Fase 3 Capa 2 cae a
 // live-SL vía deps.fetchStockLive — SNAPSHOT_TOO_OLD solo dispara si NO hay
 // fallback live configurado.
-const SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutos
+// R01-estilo export: `stock-sync-alert-core.js` lo reusa para que el
+// texto del email refleje el umbral REAL de bloqueo (ver §60 CLAUDE.md
+// y el bug de v1456 donde el email seguía diciendo "8h" post-bajada
+// a 30 min). Una sola constante → una sola verdad.
+export const SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutos
 const MAX_RETRY_ATTEMPTS = 5;
 // §67 (2026-10-25 v1454): se agrega 'manual_backorder' al set válido para
 // absorber el flow Generar Backorder manual de index.html:_gbConfirmar. Antes

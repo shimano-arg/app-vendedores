@@ -31,6 +31,10 @@ import {
   fetchOpenSqsFromServiceLayer,
   flattenBackorderDetailToTotals,
 } from './collect-backorder-from-sqs.js';
+// Incidente 2026-11-17: ver JSDoc de fetch-error-format.js para rationale.
+// El catch del core leía `e.message` ignorando `e.cause` del undici
+// fetch → 24 errores idénticos "fetch failed" sin detalle de errno.
+import { formatFetchError } from './fetch-error-format.js';
 import { acquireSession, releaseSession } from './sap-sl-session.js';
 // v1502 (2026-10-28) §60 fix durable: port del sync BPs pesca de Python a Node.
 // Se hookea aquí tras el stock-snapshot write. Feature flag
@@ -560,7 +564,9 @@ export async function syncSapCatalogStockCore(deps) {
       backorderSlRequests,
     };
   } catch (e) {
-    const errMsg = (e && e.message) || String(e);
+    // Incidente 2026-11-17: usar formatFetchError para capturar e.cause
+    // del undici fetch. Preserva e.message como prefijo (grep compat).
+    const errMsg = formatFetchError(e);
     errors.push(errMsg);
     log(`[sync] ERROR: ${errMsg}`);
     const durationMs = Date.now() - now;

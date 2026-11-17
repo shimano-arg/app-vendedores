@@ -9,11 +9,25 @@
  * Mariano decisión Fase 3: "sí, email a mi casilla cuando pasan más de 15
  * minutos sin corrida exitosa, con un máximo de un email por hora, además
  * del registro en operations_log."
+ *
+ * Incidente 2026-11-17 02:15 UTC — fix follow-up:
+ *   El texto del email mentía con "SNAPSHOT_MAX_AGE_MS (hoy 8h)" cuando el
+ *   valor real post-v1456 es 30 min. Resultado: durante 49 min (T+30→T+79)
+ *   `commitPedidoCF` rechazaba con SNAPSHOT_TOO_OLD mientras el email le
+ *   decía al admin que "no bloquea ventas". Fix: importar la constante del
+ *   core de commit-pedido + formatear con el valor real + listar los
+ *   `errors[]` de la última corrida (leídos del snapshot._syncRun) para
+ *   que el admin sepa la causa sin ir a Cloud Logging.
  */
+
+import { SNAPSHOT_MAX_AGE_MS } from './commit-pedido-core.js';
 
 const STALE_THRESHOLD_MS = 15 * 60 * 1000;
 const EMAIL_COOLDOWN_MS = 60 * 60 * 1000;
 const ALERT_EMAIL_TO = 'mariano.erbino@shimano.com.ar';
+
+// Export para tests y para que otros módulos reusen sin duplicar literales.
+export { EMAIL_COOLDOWN_MS, SNAPSHOT_MAX_AGE_MS, STALE_THRESHOLD_MS };
 
 /**
  * @typedef {Object} AlertDeps
@@ -124,14 +138,45 @@ export async function checkStockSyncStale(deps) {
   if (!inCooldown && deps.sendEmail) {
     const subject = `[app-vendedores] Stock sync stale ${Math.round(ageMs / 60000)} min`;
     const ageMinutes = Math.round(ageMs / 60000);
+    const snapshotMaxAgeMinutes = Math.round(SNAPSHOT_MAX_AGE_MS / 60000);
+    const staleThresholdMinutes = Math.round(STALE_THRESHOLD_MS / 60000);
+    const alreadyBlocking = ageMs > SNAPSHOT_MAX_AGE_MS;
+    const minutosBloqueando = alreadyBlocking
+      ? Math.round((ageMs - SNAPSHOT_MAX_AGE_MS) / 60000)
+      : 0;
+    // Lee el detalle de errors[] de la última corrida intentada (si existe).
+    const syncRun = (data && data._syncRun) || null;
+    const recentErrors = Array.isArray(syncRun && syncRun.errors) ? syncRun.errors.slice(0, 5) : [];
+    const lastAttemptIso = syncRun && syncRun.finishedAt ? syncRun.finishedAt : '(desconocido)';
+    const bloqueoMsg = alreadyBlocking
+      ? `⚠ IMPORTANTE: el snapshot ya superó el umbral de bloqueo ` +
+        `(${snapshotMaxAgeMinutes} min). Hace ~${minutosBloqueando} min que ` +
+        `commitPedidoCF rechaza confirmaciones con SNAPSHOT_TOO_OLD (a menos ` +
+        `que el flag live_sl.enabled=true, en cuyo caso cae a SAP SL live).\n`
+      : `Mientras el snapshot esté dentro del umbral de bloqueo ` +
+        `SNAPSHOT_MAX_AGE_MS (${snapshotMaxAgeMinutes} min desde v1456), ` +
+        `commitPedidoCF sigue validando contra el snapshot stale sin rechazar ` +
+        `confirmaciones. Pasado ese umbral, bloquea con SNAPSHOT_TOO_OLD o cae ` +
+        `a SAP SL live si live_sl.enabled=true.\n`;
+    const errorsBlock =
+      recentErrors.length > 0
+        ? `\nErrores de la última corrida intentada (${lastAttemptIso}):\n` +
+          recentErrors.map((e) => '  • ' + String(e).slice(0, 180)).join('\n') +
+          '\n'
+        : `\n(No hay errores registrados en snapshot._syncRun — el core puede ` +
+          `no haber llegado a escribir el audit. Revisar operations_log ` +
+          `type='stock_sync_run' ok=false.)\n`;
     const text =
       `Alerta: el snapshot de stock no se actualizó hace ${ageMinutes} minutos.\n\n` +
       `Última corrida exitosa: ${lastSuccessAt || '(nunca)'}.\n` +
-      `Fuente de la última corrida: ${(data && data.source) || 'desconocida'}.\n\n` +
-      `Si pasó más de 30 minutos sin corrida: revisar logs de syncSapCatalogStockCF ` +
-      `en Cloud Logging o el workflow sync-sap-catalog-stock.yml en GitHub.\n\n` +
-      `Mientras el snapshot esté dentro del umbral SNAPSHOT_MAX_AGE_MS (hoy 8h), ` +
-      `commitPedidoCF sigue validando contra el snapshot stale sin bloquear ventas.\n\n` +
+      `Fuente de la última corrida: ${(data && data.source) || 'desconocida'}.\n` +
+      `Umbral de alerta (stale): ${staleThresholdMinutes} min.\n` +
+      `Umbral de bloqueo commit (SNAPSHOT_MAX_AGE_MS): ${snapshotMaxAgeMinutes} min.\n\n` +
+      bloqueoMsg +
+      errorsBlock +
+      `\nSi pasó más de ${staleThresholdMinutes} minutos sin corrida: revisar logs de ` +
+      `syncSapCatalogStockCF en Cloud Logging o el workflow sync-sap-catalog-stock.yml ` +
+      `en GitHub (modo workflow_dispatch manual desde v1456).\n\n` +
       `Cooldown: no habrá otro email en la próxima hora aunque siga stale.`;
     try {
       await deps.sendEmail({ to: ALERT_EMAIL_TO, subject, text });
