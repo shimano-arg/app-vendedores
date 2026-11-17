@@ -4717,6 +4717,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### diag (2026-11-16) — Workflow one-shot para diagnóstico schema SL (cheques depositados)
+
+- **Antes**: la vista BQ `v_cheques_recibidos` (TABLERO SAR) mostraba 3 cheques físicos reales como `VENCIDO_SIN_DEPOSITAR` aunque SAP los tiene depositados (caso testigo TIBETAN SRL `check_abs_entry=4667`). El `JOIN` por `check_number + bank_code + branch` matchea 29 de 2.259 y 0 de los 3 físicos; el `JOIN` por `check_abs_entry = check_key` da overlap 0 (rangos disjuntos `3.294..5.570` vs `1.685..2.287`).
+- **Problema**: `DPS1.CheckKey` en este tenant NO es `RCT1.CheckAbsEntry` como asume la vista. No se puede escribir el fix sin ver el payload crudo que SAP SL devuelve en `/IncomingPayments({N})?$expand=PaymentChecks` y `/Deposits({M})/CheckLines` para identificar el campo real de link o un flag `Deposited`/`DepositNum` que podamos usar directo.
+- **Cambio**: agregar script `scripts/diagnose_sap_check_deposit_fields.py` + workflow `.github/workflows/diagnose-sap-check-fields.yml`. Read-only: 3 GETs a `/IncomingPayments({N})?$expand=PaymentChecks` para los 3 cheques físicos (`53158`/`50602`/`47778`), 3 GETs a `/Deposits({M})/CheckLines` recientes (`2287`/`2282`/`2286`) + `/$metadata` XML CSDL. Dumpea JSON + log + XML a artifact `sl-schema-dump` del workflow run.
+- **Por qué**: el CF read-only reutiliza el secret `SAP_SL_PASSWORD` de GHA sin exponerlo en el host local; 7 días de retención en el artifact alcanza para análisis. El script también corre local con `FIREBASE_SA_PATH` + `SAP_SL_PASSWORD` + `SL_INSECURE=true` (Seidor usa cert self-signed en `shimano-sap.seidor.com.ar:50000`).
+- **Verificación**: `gh workflow run diagnose-sap-check-fields.yml` tras el merge. Workflow termina exit 0 con `[OK] JSON dump en ...` + `[OK] Log en ...`. Grep del artifact por `[HINT] campos de interés en PaymentCheck` y `[HINT] campos de interés en CheckLine` para ver el campo que necesita el fix real. **NO modifica extract, vista, rules, functions ni cliente.** El fix de `v_cheques_recibidos` vive en una rama aparte (Fase 2, bloqueada hasta tener el dump).
+- **Rollback**: borrar `.github/workflows/diagnose-sap-check-fields.yml` + `scripts/diagnose_sap_check_deposit_fields.py` + esta entrada del changelog. Sin side-effects (nada se escribió a SAP, Firestore ni BQ).
+- **Entregables**:
+  - Informe Fase 1: `Desktop\RESPUESTAS\CHEQUES_VENCIDO_SIN_DEPOSITAR_2026-11-16\DIAGNOSTICO.md`.
+  - Workflow: `.github/workflows/diagnose-sap-check-fields.yml`.
+  - Script read-only: `scripts/diagnose_sap_check_deposit_fields.py`.
+
 ### v1556 (2026-11-16) — Cartera (Seguimiento del CRM) abierto a todos los vendedores con scope propio
 
 - **Antes**: el botón "📊 Cartera" (`#seguimiento-btn`) solo lo veían `admin / gerente / interno` (Santiago y Ioannis). Los VDEs (Mauricio, Gonzalo, Federico, PACHI) nunca veían el botón — comentario explícito en `index.html:20282` desde 2026-07-28: "Vendedores externos NUNCA tienen acceso".
