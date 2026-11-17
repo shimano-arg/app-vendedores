@@ -161,7 +161,9 @@ export async function checkStockSyncStale(deps) {
     const errorsBlock =
       recentErrors.length > 0
         ? `\nErrores de la última corrida intentada (${lastAttemptIso}):\n` +
-          recentErrors.map((e) => '  • ' + String(e).slice(0, 180)).join('\n') +
+          recentErrors
+            .map((/** @type {string} */ e) => '  • ' + String(e).slice(0, 180))
+            .join('\n') +
           '\n'
         : `\n(No hay errores registrados en snapshot._syncRun — el core puede ` +
           `no haber llegado a escribir el audit. Revisar operations_log ` +
