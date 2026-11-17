@@ -4717,6 +4717,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E2 (2026-11-17) — Reparto dep 12 §E2: CF trigger dep 12 + scanCancelledTransito + reconcile dep12
+
+- **Antes**: `onDep11IncreaseCreateReparto` solo detectaba deltas dep 11. Stock entrando a dep 12 no generaba `ingresos_reparto` hasta que cruzara (~7 días). `applyRepartoManualCore` no marcaba `enTransito=true` en ASIG resultantes.
+- **Problema**: Pablo necesita poder repartir stock dep 12 a la cola BO para que, cuando cruce, los clientes ya la tengan reservada automáticamente. Sin feature flag = deploy inseguro.
+- **Cambio**:
+  - `src/pure/feature-flags.js` + mirror `functions/core/feature-flags.js` (§57 sync test). Flag `dep12_reparto_enabled` default `false` (safety-off FIX-A7).
+  - `functions/core/reparto-core.js:createIngresosRepartoFromDelta`: procesa `dep12Deltas` detrás del flag. Crea `ingresos_reparto` con `source='dep12' + warehouse=12`. Log `operations_log` AWAIT.
+  - `functions/core/reparto-core.js:applyRepartoManualCore` + `_buildAsigLine`: cuando `ingreso.source='dep12'`, marca ASIG con `enTransito=true + asigAtTransito`.
+  - **Nuevo** `functions/core/reparto-transito-core.js`: `scanCancelledTransito` (revierte ASIG tránsito FIFO a BO con `closedReason='partida_cancelada_en_transito'`) + `scanDep12ToDep11Transitions` (migra flag `enTransito` cuando físico cubre). Ambos dentro de `runTransaction` §58 strict + §104 re-lectura.
+  - `functions/index.js`: CF handler encadena los 2 scanners detrás del flag. Nuevo export `onStockSnapshotWrittenReparto` como alias.
+- **Por qué**: habilita el pipeline E2 end-to-end con flag OFF por default (deploy 0-op funcional). §58 + §104 previenen races SATO-like. FIFO por `asigAtTransito` determinístico.
+- **Verificación**: 14 tests nuevos PASS (8 scanners + 4 feature-flags sync + 2 loadFeatureFlagsDoc). Biome + typecheck clean.
+- **Rollback**: flip flag a `false` en Firestore → CF skip inmediato. `git revert <sha>`. Data no requiere reversión (flag OFF = no se escribió data E2).
+- **Pendiente para PR complementaria** pre-E3: property-based FIFO (FIX-A5), FIX-A2 log `transito_source_missing`, extensión `reconcileRepartosFaltantes` para dep 12, scheduled safety-net (FIX-A4). Detalles en `docs/CHANGELOG-reparto-dep12-e2-cf-trigger.md`.
+
 ### feat E1 (2026-11-17) — Reparto dep 12 §E1: breakdown v8 + lineReservesStock enTransito + CPST ext
 
 - **Antes**: breakdown v7 exponía `transitoDep12` como campo informativo pero sin tracking de líneas enTransito. `lineReservesStock` aplicaba TTL soft 7d sin distinguir físico vs tránsito. Fórmulas de reserva solo contra `fisicoDep11`.

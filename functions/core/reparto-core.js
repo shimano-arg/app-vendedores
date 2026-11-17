@@ -39,6 +39,8 @@
 // cálculo que las pantallas (CLAUDE.md §39). lineReservesStock sigue
 // importado SOLO para armar clientesBO[] ordenado FIFO.
 import { findZombieAsigLines } from './asig-invariant.js';
+import { detectStockIncreases } from './detect-stock-increases.js';
+import { isDep12RepartoEnabled } from './feature-flags.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 
 const INGRESOS_REPARTO_COLLECTION = 'ingresos_reparto';
@@ -234,13 +236,15 @@ export async function createIngresosRepartoFromDelta(deps, beforeSnap, afterSnap
   const now = (deps.now || (() => new Date()))();
   const nowIso = now.toISOString();
   const deltas = detectDep11Increases(beforeSnap, afterSnap);
+  // E2: pre-compute dep12 deltas también para decidir early return.
+  const allDeltasForEarlyCheck = detectStockIncreases(beforeSnap, afterSnap);
   /** @type {string[]} */
   const created = [];
   /** @type {Array<{sku: string, reason: string}>} */
   const skipped = [];
   /** @type {string[]} */
   const errors = [];
-  if (deltas.size === 0) {
+  if (deltas.size === 0 && allDeltasForEarlyCheck.dep12Deltas.length === 0) {
     return { created, skipped, errors };
   }
   // Load pedidos abiertos UNA sola vez — reusable para todos los SKUs.
@@ -363,6 +367,86 @@ export async function createIngresosRepartoFromDelta(deps, beforeSnap, afterSnap
       errors.push(msg);
       log('ingreso_reparto error', { sku, err: msg });
     }
+  }
+  // E2 reparto-dep12 (FIX-A7): procesar dep12Deltas detrás del feature flag.
+  // Crea ingresos con `source='dep12'` para que applyRepartoManualCore marque
+  // las ASIG resultantes con `enTransito=true`. Si el flag está OFF, skip.
+  try {
+    const flagsDoc = await deps.fbDb.doc('app_config/feature_flags').get();
+    const flags = flagsDoc.exists ? flagsDoc.data() || {} : {};
+    if (isDep12RepartoEnabled(flags)) {
+      const allDeltas = detectStockIncreases(beforeSnap, afterSnap);
+      for (const d of allDeltas.dep12Deltas) {
+        try {
+          const sku = String(d.sku).toUpperCase();
+          const clientesBO = extractClientesBOForSku(openPedidos, sku);
+          if (clientesBO.length === 0) {
+            skipped.push({ sku: sku + '|dep12', reason: 'sin clientes BO (dep12)' });
+            continue;
+          }
+          const qtyBackorderTotal = clientesBO.reduce(
+            (s, c) => s + (Number(c.qtyBackorder) || 0),
+            0
+          );
+          const dedupeKey = sku + '|dep12|' + d.after;
+          // Dedupe simple contra pending/in_progress.
+          const existingQ = await deps.fbDb
+            .collection(INGRESOS_REPARTO_COLLECTION)
+            .where('sku', '==', sku)
+            .where('source', '==', 'dep12')
+            .where('status', 'in', ['pending', 'in_progress'])
+            .limit(1)
+            .get();
+          if (!existingQ.empty) {
+            skipped.push({ sku: sku + '|dep12', reason: 'ya existe ingreso dep12 pendiente' });
+            continue;
+          }
+          const docData = {
+            sku,
+            qtyIngresada: d.delta,
+            detectedAt: nowIso,
+            status: 'pending',
+            clientesBO,
+            qtyBackorderTotal,
+            clientesCount: clientesBO.length,
+            appliedAt: null,
+            appliedBy: null,
+            assignments: null,
+            source: 'dep12', // E2 marker — applyRepartoManualCore mira este campo.
+            warehouse: 12,
+            dedupeKey,
+          };
+          const ref = await deps.fbDb.collection(INGRESOS_REPARTO_COLLECTION).add(docData);
+          created.push(ref.id);
+          // Log operations_log AWAIT (§64.2 FIX-A3).
+          try {
+            await deps.fbDb.collection('operations_log').add({
+              type: 'reparto_dep12_creado',
+              timestamp: new Date(),
+              sku,
+              qtyIngresada: d.delta,
+              ingresoId: ref.id,
+              clientesCount: clientesBO.length,
+            });
+          } catch (_e) {
+            /* fire-and-forget fallback */
+          }
+          log('ingreso_reparto dep12 creado', {
+            sku,
+            delta: d.delta,
+            clientes: clientesBO.length,
+            id: ref.id,
+          });
+        } catch (e) {
+          const msg = String(d.sku) + ' (dep12): ' + (e && e.message ? e.message : String(e));
+          errors.push(msg);
+          log('ingreso_reparto dep12 error', { sku: d.sku, err: msg });
+        }
+      }
+    }
+  } catch (e) {
+    // Fallo en lectura de feature flags → fail-closed (no activa el flow).
+    log('feature_flags read failed (dep12)', { err: String(e) });
   }
   return { created, skipped, errors };
 }
@@ -1059,12 +1143,24 @@ export async function applyRepartoManualCore(deps, opts) {
           qtyCancelled: (Number(line.qtyCancelled) || 0) + elim,
           qtyOpen: qr,
         });
+        // E2 reparto-dep12: si el ingreso es source='dep12', ASIG resultante
+        // lleva enTransito=true + asigAtTransito.
+        const _ingresoAny = /** @type {any} */ (ingresoDoc);
+        const _isDep12Reparto =
+          _ingresoAny && (_ingresoAny.source === 'dep12' || _ingresoAny.warehouse === 12);
+        const _asigOpts = _isDep12Reparto
+          ? { enTransito: true, asigAtTransito: nowIso }
+          : undefined;
         if (qr === 0 && asig > 0 && elim === 0) {
           newOrig.qtyOpen = asig;
           newOrig.state = 'ASIG';
           newOrig.asigAt = nowIso;
           newOrig.asigReserva = true;
           newOrig.asigFromReparto = opts.ingresoId;
+          if (_isDep12Reparto) {
+            newOrig.enTransito = true;
+            newOrig.asigAtTransito = nowIso;
+          }
           lines[action.lineIndex] = newOrig;
         } else if (qr === 0 && elim > 0) {
           newOrig.state = 'cancelled';
@@ -1073,12 +1169,16 @@ export async function applyRepartoManualCore(deps, opts) {
           newOrig.cancelledFromIngreso = opts.ingresoId;
           lines[action.lineIndex] = newOrig;
           if (asig > 0) {
-            lines.push(_buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex));
+            lines.push(
+              _buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex, _asigOpts)
+            );
           }
         } else {
           lines[action.lineIndex] = newOrig;
           if (asig > 0) {
-            lines.push(_buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex));
+            lines.push(
+              _buildAsigLine(line, asig, nowIso, opts.ingresoId, action.lineIndex, _asigOpts)
+            );
           }
         }
         // v1520 invariante §104: ninguna linea tocada queda ASIG con qtyOpen<=0.
@@ -1255,8 +1355,17 @@ function elim0(action) {
  * @param {string} ingresoId
  * @param {number} splitFromIdx
  */
-function _buildAsigLine(origLine, qty, nowIso, ingresoId, splitFromIdx) {
-  return {
+/**
+ * @param {any} origLine
+ * @param {number} qty
+ * @param {string} nowIso
+ * @param {string} ingresoId
+ * @param {number} splitFromIdx
+ * @param {{enTransito?: boolean, asigAtTransito?: string}} [opts]
+ *   E2 reparto-dep12: cuando el ingreso es source='dep12', pasa enTransito=true.
+ */
+function _buildAsigLine(origLine, qty, nowIso, ingresoId, splitFromIdx, opts) {
+  const base = {
     code: origLine.code,
     desc: origLine.desc || '',
     cat: origLine.cat || '',
@@ -1283,6 +1392,11 @@ function _buildAsigLine(origLine, qty, nowIso, ingresoId, splitFromIdx) {
     asigFromReparto: ingresoId,
     splitFromLineIndex: splitFromIdx,
   };
+  if (opts && opts.enTransito === true) {
+    /** @type {any} */ (base).enTransito = true;
+    /** @type {any} */ (base).asigAtTransito = opts.asigAtTransito || nowIso;
+  }
+  return base;
 }
 
 /**
