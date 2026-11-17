@@ -24,6 +24,12 @@
  */
 
 import { acquireBpSyncLock, releaseBpSyncLock } from './bp-sync-lock.js';
+// Incidente 2026-11-17 (auditoría Master Clientes): extendemos el helper de
+// diagnóstico de `fetch failed` del PR #1353 a este core. Captura e.cause.code
+// (SELF_SIGNED_CERT_IN_CHAIN, ECONNRESET, ENOTFOUND, etc.) manteniendo
+// e.message como prefijo. Sin él, los errores de red/TLS llegan al log como
+// "fetch failed" genérico y no se puede distinguir causa.
+import { formatFetchError } from './fetch-error-format.js';
 import { acquireSession, releaseSession } from './sap-sl-session.js';
 import { syncBpPesca } from './sync-bp-pesca-core.js';
 
@@ -103,7 +109,11 @@ export async function syncClientesSapCore(deps, req) {
       sync: _syncBpPesca,
     });
   } catch (e) {
-    const msg = (e && /** @type {any} */ (e).message) || String(e);
+    // Incidente 2026-11-17: usar formatFetchError para capturar e.cause
+    // (SELF_SIGNED_CERT_IN_CHAIN, ECONN*, etc.) del undici fetch cuando falla
+    // acquireSession o cualquier otro fetch SAP dentro de runSync. Preserva
+    // e.message como prefijo (grep compat con operations_log histórico).
+    const msg = formatFetchError(e);
     log('[syncClientesSap] error: ' + msg);
     result = { ok: false, code: 'SYNC_FALLO', message: msg };
   } finally {
@@ -146,7 +156,11 @@ async function runSync(p) {
     if (r && r.fetchError) sessionOk = false;
     return mapResult(r);
   } catch (e) {
-    const msg = (e && /** @type {any} */ (e).message) || String(e);
+    // Incidente 2026-11-17: `msg` se usa solo para heurística 401; preservamos
+    // comportamiento vía `formatFetchError` que mantiene e.message como prefijo
+    // (los dos includes legacy siguen matcheando). El re-throw propaga e tal
+    // cual al catch superior que ya aplica formatFetchError.
+    const msg = formatFetchError(e);
     if (msg.includes('401') || msg.includes('login failed')) sessionOk = false;
     throw e;
   } finally {
