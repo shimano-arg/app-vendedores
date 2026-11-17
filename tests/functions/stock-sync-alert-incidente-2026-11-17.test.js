@@ -17,12 +17,12 @@
  *      diagnóstico rápido sin ir a Cloud Logging.
  */
 import { describe, expect, it, vi } from 'vitest';
+import { SNAPSHOT_MAX_AGE_MS as CORE_MAX } from '../../functions/core/commit-pedido-core.js';
 import {
   checkStockSyncStale,
   SNAPSHOT_MAX_AGE_MS,
   STALE_THRESHOLD_MS,
 } from '../../functions/core/stock-sync-alert-core.js';
-import { SNAPSHOT_MAX_AGE_MS as CORE_MAX } from '../../functions/core/commit-pedido-core.js';
 
 function makeFirestore(state) {
   const written = [];
@@ -140,7 +140,9 @@ describe('Incidente 2026-11-17 — texto del email corregido', () => {
     const sendEmail = vi.fn(async () => ({ ok: true }));
     await checkStockSyncStale({ fbDb, now: () => now, sendEmail });
     const call = sendEmail.mock.calls[0][0];
-    expect(call.text).toContain('Errores de la última corrida intentada (2026-11-17T01:05:00.000Z)');
+    expect(call.text).toContain(
+      'Errores de la última corrida intentada (2026-11-17T01:05:00.000Z)'
+    );
     expect(call.text).toContain('• SL login failed status=401');
     expect(call.text).toContain('• bp-sync: fetch failed');
     expect(call.text).toContain('• backorder-fetch: TimeoutError');
@@ -153,7 +155,7 @@ describe('Incidente 2026-11-17 — texto del email corregido', () => {
     await checkStockSyncStale({ fbDb, now: () => now, sendEmail });
     const call = sendEmail.mock.calls[0][0];
     expect(call.text).toContain('No hay errores registrados');
-    expect(call.text).toContain("operations_log");
+    expect(call.text).toContain('operations_log');
     expect(call.text).toContain("type='stock_sync_run'");
   });
 
