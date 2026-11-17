@@ -102,3 +102,38 @@ Pendiente de iteración (requiere planificación con Mariano):
 - Extensión de `reconcileRepartosFaltantes` para dep 12 (hoy solo dep 11; el delta dep 12 está cubierto via `createIngresosRepartoFromDelta`).
 
 **Nota de alcance**: esta PR deja el pipeline E2 funcional end-to-end con flag OFF por default. Mariano puede activar el flag en Firestore para hacer dogfooding sin re-deploy. Los tests restantes y FIX-A2/A4/A8 vienen en PR complementaria pre-E3.
+
+---
+
+## Follow-up — 2026-11-17 (misma PR #1361, commit adicional)
+
+Extensión de la PR original sumando lo que había quedado pendiente para cerrar el scope E2:
+
+### FIX-A2 — log explícito `transito_source_missing`
+
+- `src/pure/stock-realmente-disponible.js:lineReservesStock` + mirror aceptan ahora un 4° parámetro opcional `opts = { log, pedidoId, lineIndex }`.
+- Cuando la rama `enTransito=true` hace fail-open por falta de fecha de referencia (`asigAtTransito` / `asigAt` / `confirmedAt` / `createdAt` todos ausentes), invoca `opts.log('transito_source_missing', {sku, pedidoId, lineIndex, state, hasAsigAt, hasAsigAtTransito, ...})`.
+- Compat 100%: sin `opts` o sin `opts.log` → skip silencioso. Callback que throw queda tragado (log never bloquea reserva).
+- Mirror byte-equivalente en functions/core (§57).
+
+### Property-based × 300 runs (CLAUDE.md §54)
+
+`tests/functions/property/reconcile-dep12-fastcheck.test.js`:
+
+- **P1 — dedup dep12**: `createIngresosRepartoFromDelta` corrido 2× con mismo `after` NUNCA crea 2 ingresos `source='dep12'` open para el mismo SKU. 300 runs.
+- **P2 — cap scanCancelledTransito**: `sum(revertidas por SKU) ≤ max(0, dep12Bajo - dep11Subio)`. 300 runs.
+
+Ambas usan STRICT mock §58 (reads-before-writes enforced). Uso correcto de `fc.asyncProperty` + `await fc.assert(...)` (fast-check 4.x).
+
+### Tests específicos
+
+`tests/functions/reparto-transito-core-extra.test.js`:
+
+- **T-partida-parcial-exacta**: dep12 10→3, dep11 estable. 2 ASIG FIFO (3u T0 + 4u T1). Verifica ASIG_A revierte primero (3u), ASIG_B después (4u), total 7u. `operations_log` tiene 2 entries con `type='asig_revertida_partida_cancelada'`.
+- **T-reconcile-mientras-pablo-asigna**: existe `ingresos_reparto source='dep12' status='in_progress' + assignments=[{cardCode, qty}]`. Nuevo delta dep12 +5. `createIngresosRepartoFromDelta` NO crea otro ingreso; `skipped[]` incluye motivo "ya existe"; `assignments` del in_progress intactos.
+
+### Resultado
+
+- 4196 tests PASS (8 + 2 + 2 nuevos sobre los 14 de la PR original).
+- Biome clean + typecheck clean.
+- Pendientes que quedan explícitamente para E3 (NO en esta PR): FIX-A4 scheduled safety-net.
