@@ -65,6 +65,7 @@ import {
 // NOTA: NO uses esto para re-detectar BO server-side; es un gate puro sobre el
 // payload. La detección vive en index.html (cliente).
 // eslint-disable-next-line no-unused-vars
+// biome-ignore lint/correctness/noUnusedImports: preservación intencional — sync con el espejo cliente (ver comentario arriba)
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
@@ -1584,7 +1585,8 @@ function flushPendingPedidoWrites(tx, pending, nowIso) {
  */
 /** @param {any} payload @param {any[]} docLines @param {string} nowIso @param {any} deps */
 function buildPedidoDocData(payload, docLines, nowIso, deps) {
-  const FieldValue = deps.FieldValue || null;
+  // biome-ignore lint/correctness/noUnusedVariables: preservado por compat — pre-refactor usaba FieldValue.serverTimestamp(), hoy migrado a nowIso string. La captura sigue por si el deps lo mantiene.
+  const _FieldValue = deps.FieldValue || null;
   // §67 (v1454): source/transferidoSAP derivados por origen. manual_backorder
   // nunca va a SAP (skipSap=true, via='manual-backorder'); cpst usa el batch
   // marker; el resto delega al payload.source.

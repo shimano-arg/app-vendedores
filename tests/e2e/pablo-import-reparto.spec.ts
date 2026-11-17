@@ -302,7 +302,7 @@ test.describe('v1514 §T4 — Import Reparto Pablo (5 puntos)', () => {
     await screen(page, 'p1_preview_numbers');
   });
 
-  test('P3 — Aplicar modifica Firestore (requiere reparto real)', async ({ page }) => {
+  test('P3 — Aplicar modifica Firestore (requiere reparto real)', async ({ page: _page }) => {
     // Este test completa P1 con un click en Aplicar; marked como requirement
     // real environment. Si corren junto con P1 pueden chocar — correr una
     // vez a la vez o aislar el ingreso.
