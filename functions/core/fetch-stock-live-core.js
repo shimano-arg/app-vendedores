@@ -26,6 +26,10 @@
  *     'stock_live_partial' o 'stock_live_fallback'.
  */
 
+// Incidente 2026-11-17: enriquecemos errores de undici fetch con e.cause.
+// Mismo patrón que sync-sap-catalog-stock-core.
+import { formatFetchError } from './fetch-error-format.js';
+
 const BLOCK_SIZE = 50;
 const TIMEOUT_MS = 3000;
 const LINEAS_EN_RIESGO_THRESHOLD = 200;
@@ -130,7 +134,8 @@ async function fetchBatch(deps, cookie, skus, signal) {
     }
     return { ok: true, items: map };
   } catch (e) {
-    const msg = (e && e.message) || String(e);
+    // Incidente 2026-11-17: ver fetch-error-format.js para rationale.
+    const msg = formatFetchError(e);
     return { ok: false, items: {}, error: msg };
   }
 }
