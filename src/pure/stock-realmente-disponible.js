@@ -65,6 +65,9 @@ const _STATES_QUE_RESERVAN = new Set(['confirmed', 'BO', 'ASIG']);
 const RESERVA_TTL_DAYS = 7;
 const _BO_TTL_DAYS = 90; // §37: BO no vence a 7d, red seguridad a 90d.
 const CONFIRMED_HARD_CAP_DAYS = 60; // §38: aunque confirmedAt reciente, 60d es el tope duro.
+// v8 §E1 (2026-11-17 Reparto dep 12): hard cap para líneas enTransito.
+// ASIG+enTransito: 30d. confirmed+enTransito: usa CONFIRMED_HARD_CAP_DAYS (60d).
+const ASIG_TRANSITO_HARD_CAP_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -160,47 +163,57 @@ export function lineReservesStock(line, nowMs, pedido) {
     return false;
   }
   if (state === 'confirmed') {
-    // v1269 (2026-10-14): asigReserva=false libera reserva tambien para
-    // confirmed. El toggle del modal Stock Asignado permite al admin liberar
-    // una row ya enviada a SAP sin esperar facturacion ni cancelar el pedido.
-    // Explicito con 0/false (SAP serializa booleanos como 0/1; `0===false` es
-    // false en JS). undefined/null mantienen "default true" historicamente.
+    // v1269 (2026-10-14): asigReserva=false libera reserva tambien para confirmed.
     if (line.asigReserva === false || line.asigReserva === 0) return false;
-    // v1400 §40.8 D3: si la SQ ya se convirtió en SO en SAP (orderDocEntry
-    // presente, escrito por sync-sap-orders-core.js v1102), SAP ya la descuenta
-    // de Available → la app NO debe reservarla también (doble conteo).
-    // Precedente: hallazgo pre-fix 2026-10-21 = 47 líneas / 119 u / 46 SKUs.
+    // v1400 §40.8 D3: SQ ya convertida a SO en SAP → no reservar (doble conteo).
     if (pedido && pedido.transferidoSAP && pedido.transferidoSAP.orderDocEntry != null) {
       return false;
     }
-    // v963: expiracion 15d (bajada a 7d en v1198) desde confirmedAt del pedido.
-    // v1384 (2026-10-21): guard defensivo — si no hay NINGUNA fecha de
-    // referencia (confirmedAt faltante y pedido indefinido), tratar la linea
-    // como data corrupta y NO reservar. En prod hoy (2026-10-21) este caso
-    // no existe (verificado con grep sobre 542 SKUs = 0 hits), pero el guard
-    // previene bugs futuros si entra data corrupta. CLAUDE.md §36.
+    // v8 §E1 (2026-11-17): línea en tránsito dep 12 — ignora soft TTL 7d.
+    // Hard cap CONFIRMED_HARD_CAP_DAYS (60d) desde confirmedAtTransito ||
+    // confirmedAt || createdAt. Fail-open: si no hay fecha de referencia,
+    // reserva (defensa — una línea tránsito indatable es edge case raro).
+    if (line.enTransito === true) {
+      const now = typeof nowMs === 'number' ? nowMs : Date.now();
+      const refIso =
+        line.confirmedAtTransito || (pedido && pedido.confirmedAt) || (pedido && pedido.createdAt);
+      if (refIso) {
+        const refMs = toMillisSafe(refIso);
+        if (refMs !== null) {
+          const ageDays = (now - refMs) / DAY_MS;
+          if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
+        }
+      }
+      return true;
+    }
+    // Camino histórico (sin enTransito): soft 7d + hard cap 60d desde confirmedAt.
     if (!pedido || !pedido.confirmedAt) return false;
     const confirmedAtMs = toMillisSafe(pedido.confirmedAt);
     if (confirmedAtMs === null) return false;
     const now = typeof nowMs === 'number' ? nowMs : Date.now();
     const ageDays = (now - confirmedAtMs) / DAY_MS;
     if (ageDays > RESERVA_TTL_DAYS) return false;
-    // v1388 (2026-10-21, CLAUDE.md §38): hard cap 60d como red de seguridad
-    // sobre confirmedAt (incluso si asigReserva=true). Si una SQ sigue sin
-    // facturar a los 60d, no reserva aunque el TTL soft (7d) este configurable.
-    // En practica RESERVA_TTL_DAYS <= CONFIRMED_HARD_CAP_DAYS => el check de
-    // arriba ya corta; este cap vive por si en el futuro se sube el TTL soft.
     if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
     return true;
   }
   if (state === 'ASIG') {
-    // v1402 §40.10 (2026-10-21): regla §40 estricta — ASIG siempre reserva,
-    // sin excepción. El guard histórico `asigReserva === false` queda
-    // eliminado: si Pablo decidió no reservar, la línea revierte a BO con
-    // closedReason='asig_destildada_por_admin' (ver _toggleAsigReserva).
-    // Pre-fix había 0 líneas con asigReserva=false en prod (verificado por
-    // script N 2026-10-21), así que el cambio es puramente defensivo.
-    // v959: expiracion 15 dias desde asigAt.
+    // v1402 §40.10: ASIG siempre reserva (dentro de TTL), sin excepción.
+    // v8 §E1 (2026-11-17): si la línea está en tránsito dep 12, ignora TTL soft
+    // 7d de asigAt. Hard cap ASIG_TRANSITO_HARD_CAP_DAYS (30d) desde
+    // asigAtTransito || asigAt || pedido.createdAt. Fail-open si no hay fecha.
+    if (line.enTransito === true) {
+      const now = typeof nowMs === 'number' ? nowMs : Date.now();
+      const refIso = line.asigAtTransito || line.asigAt || (pedido && pedido.createdAt);
+      if (refIso) {
+        const refMs = toMillisSafe(refIso);
+        if (refMs !== null) {
+          const ageDays = (now - refMs) / DAY_MS;
+          if (ageDays > ASIG_TRANSITO_HARD_CAP_DAYS) return false;
+        }
+      }
+      return true;
+    }
+    // Camino histórico (sin enTransito): soft 7d desde asigAt.
     if (line.asigAt) {
       const asigAtMs = toMillisSafe(line.asigAt);
       if (asigAtMs !== null) {

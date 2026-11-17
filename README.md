@@ -4717,6 +4717,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E1 (2026-11-17) — Reparto dep 12 §E1: breakdown v8 + lineReservesStock enTransito + CPST ext
+
+- **Antes**: breakdown v7 exponía `transitoDep12` como campo informativo pero sin tracking de líneas enTransito. `lineReservesStock` aplicaba TTL soft 7d sin distinguir físico vs tránsito. Fórmulas de reserva solo contra `fisicoDep11`.
+- **Problema**: para habilitar reparto desde dep 12 hacen falta sub-totales tránsito por bucket + TTL dinámico (una ASIG tránsito con asigAt 10d no debe vencer; 7d está pensado para físico) + hard cap red de seguridad + audit CPST.
+- **Cambio** (shape aditivo sin regresión):
+  - `src/pure/stock-breakdown.js` + mirror → `_version: 8`. Nuevos: `libreTransito`, `asignadas.totalTransito`, `asignadas.totalFisico`, `confirmadas.totalTransito`, `confirmadas.totalFisico`. `reservadasTotal` ahora excluye tránsito; `utilizablePara` sigue usando `libre` físico.
+  - `src/pure/stock-realmente-disponible.js:lineReservesStock` + mirror: `enTransito=true` ignora soft 7d; hard cap 30d (ASIG) o 60d (confirmed). Fail-open si falta fecha de referencia.
+  - `src/pure/cpst-revert-plan.js`: `RevertAction.wasEnTransito` para audit.
+  - `src/pure/cpst-cancel-asig-plan.js`: export `buildClosedReasonWithTransito` que agrega `_transito` suffix.
+  - `src/pure/cpst-item-cancel-helpers.js`: preserva `enTransito` en refs.
+- **Por qué**: habilita E2/E3/E4 sin tocar transacciones ni callers del cliente. Sub-totales mantienen compat con consumidores actuales. TTL dinámico evita vencimientos prematuros durante tránsito.
+- **Verificación**: 3023 unit PASS / 0 FAIL (25 nuevos: 15 unit + 3 property × 300 + 7 sync). Typecheck + biome clean.
+- **Rollback**: shape aditivo; revertir no pierde datos (los nuevos campos nunca se persisten). Líneas enTransito volverían al TTL soft 7d.
+- Ver `docs/CHANGELOG-reparto-dep12-e1-breakdown-v8.md`.
+
 ### feat E0 (2026-11-17) — Reparto dep 12 §E0: constantes + detector + script audit (no-op)
 
 - **Antes**: el reparto se dispara sólo cuando sube `fisicoDep11` (whs 11 — físico Argentina). `functions/core/reparto-core.js:detectDep11Increases` lee únicamente el whs 11 del `warehouseBreakdown` del snapshot. Dep 12 (tránsito Uruguay → Argentina, ~7d) aparece en el breakdown pero nadie lo consume.

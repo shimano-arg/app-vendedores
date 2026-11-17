@@ -130,9 +130,9 @@ describe('v1393 §40.1 waitlistCpst NO reserva', () => {
     expect(b.utilizablePara('CA')).toBe(5); // libre + 0 (BO y waitlist no suman)
   });
 
-  it('_version = 5 (v1395)', () => {
+  it('_version = 8 (v8 §E1)', () => {
     const b = getStockBreakdown('X', makeDeps({}), { now: NOW });
-    expect(b._version).toBe(7);
+    expect(b._version).toBe(8);
   });
 
   it('sync: espejo functions/core también aplica §40.1', () => {

@@ -24,6 +24,7 @@
  * @property {number} lineIndex
  * @property {number} [qtyAsignada]
  * @property {string} [sku]
+ * @property {boolean} [enTransito]  v8 §E1: ref tránsito dep 12 (audit).
  */
 
 /**
@@ -45,10 +46,13 @@ export function collectAsigRefsForCancel(w) {
       // en asigRefs).
       existing.qtyAsignada = Math.max(existing.qtyAsignada || 0, q);
       if (r.sku && !existing.sku) existing.sku = r.sku;
+      // v8 §E1: si alguna fuente marcó la ref como tránsito, se preserva.
+      if (r.enTransito === true) existing.enTransito = true;
     } else {
       /** @type {AsigRef} */
       const neu = { pedidoId: r.pedidoId, lineIndex: r.lineIndex, qtyAsignada: q };
       if (r.sku) neu.sku = r.sku;
+      if (r.enTransito === true) neu.enTransito = true;
       refs.set(key, neu);
     }
   };
@@ -63,6 +67,20 @@ export function collectAsigRefsForCancel(w) {
     }
   }
   return Array.from(refs.values());
+}
+
+/**
+ * v8 §E1: extiende un closedReason base con `_transito` si la ref era tránsito.
+ * Mantiene closedReason original si enTransito=false/undefined (idempotente).
+ *
+ * @param {string} baseReason  ej. 'cliente_rechazo_cpst'
+ * @param {{enTransito?: boolean} | null | undefined} ref
+ * @returns {string}
+ */
+export function buildClosedReasonWithTransito(baseReason, ref) {
+  const r = String(baseReason || '');
+  if (ref && ref.enTransito === true) return r + '_transito';
+  return r;
 }
 
 /**

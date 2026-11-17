@@ -24,6 +24,7 @@
  * @property {number} lineIndex
  * @property {number} [qtyAsignada]
  * @property {string} [sku]
+ * @property {boolean} [enTransito]  v8 §E1: ref tránsito dep 12 (audit).
  */
 
 /**
@@ -50,9 +51,12 @@ export function collectAsigRefsForItemCancel(w, itemIndex) {
     const q = Number(r.qtyAsignada) || 0;
     if (existing) {
       existing.qtyAsignada = Math.max(existing.qtyAsignada || 0, q);
+      // v8 §E1: preservar enTransito si alguna fuente lo marca.
+      if (r.enTransito === true) existing.enTransito = true;
     } else {
       /** @type {AsigRef} */
       const neu = { pedidoId: r.pedidoId, lineIndex: r.lineIndex, qtyAsignada: q, sku };
+      if (r.enTransito === true) neu.enTransito = true;
       refs.set(key, neu);
     }
   };

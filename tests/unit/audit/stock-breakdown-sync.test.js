@@ -35,9 +35,19 @@ describe('stock-breakdown sync src/pure vs functions/core', () => {
     }
   });
 
-  it('ambos tienen _version=7 (v1403 §40.11)', () => {
-    expect(SRC).toMatch(/_version:\s*7/);
-    expect(CF).toMatch(/_version:\s*7/);
+  it('ambos tienen _version=8 (v8 §E1 Reparto dep 12)', () => {
+    expect(SRC).toMatch(/_version:\s*8/);
+    expect(CF).toMatch(/_version:\s*8/);
+  });
+
+  it('v8 §E1: ambos exponen libreTransito + asignadas.totalTransito + confirmadas.totalTransito', () => {
+    for (const src of [SRC, CF]) {
+      expect(src).toMatch(/libreTransito/);
+      expect(src).toMatch(/asigTotalTransito/);
+      expect(src).toMatch(/confTotalTransito/);
+      expect(src).toMatch(/totalTransito/);
+      expect(src).toMatch(/totalFisico/);
+    }
   });
 
   it('ambos aplican §40: reservadasTotal NO incluye backorderApp', () => {
