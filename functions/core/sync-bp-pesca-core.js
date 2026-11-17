@@ -34,6 +34,13 @@
  * sigue sin cambios.
  */
 
+// Incidente 2026-11-17 (auditoría Master Clientes): extendemos el helper de
+// diagnóstico de `fetch failed` del PR #1353 a los 3 catches de este core que
+// envuelven fetch SAP (load /States, fetch /BusinessPartners, orquestador).
+// Captura e.cause.code (SELF_SIGNED_CERT_IN_CHAIN, ECONN*, ENOTFOUND, timeout)
+// manteniendo e.message como prefijo compat.
+import { formatFetchError } from './fetch-error-format.js';
+
 /* --------------------------------------------------------------------
  * Normalizers (Python _norm_name + _norm_cuit)
  * ------------------------------------------------------------------ */
@@ -175,8 +182,8 @@ export async function loadArProvincesMap({ sapConfig, cookie, log }) {
       if (code && name) result[code] = name;
     }
   } catch (e) {
-    const msg =
-      '[bp] WARN load_ar_provinces: ' + ((e && /** @type {any} */ (e).message) || String(e));
+    // Incidente 2026-11-17: enriquecer con e.cause via formatFetchError.
+    const msg = '[bp] WARN load_ar_provinces: ' + formatFetchError(e);
     _log(msg);
     return { map: result, slRequests, error: msg };
   }
@@ -215,11 +222,8 @@ export async function fetchBpPescaFromSl({ sapConfig, cookie, log }) {
       resp = await fetch(url, { headers: { Cookie: cookie } });
       slRequests++;
     } catch (e) {
-      const msg =
-        '[SL/BP] error de red pag ' +
-        page +
-        ': ' +
-        ((e && /** @type {any} */ (e).message) || String(e));
+      // Incidente 2026-11-17: enriquecer con e.cause via formatFetchError.
+      const msg = '[SL/BP] error de red pag ' + page + ': ' + formatFetchError(e);
       _log(msg);
       return { bps, slRequests, pages: page, error: msg };
     }
@@ -900,7 +904,8 @@ export async function syncBpPesca(params) {
       fetchError: bpRes.error || provRes.error || null,
     };
   } catch (e) {
-    const msg = (e && /** @type {any} */ (e).message) || String(e);
+    // Incidente 2026-11-17: enriquecer con e.cause via formatFetchError.
+    const msg = formatFetchError(e);
     _log('[bp] FATAL sync BPs pesca: ' + msg + '. Sigo sin abortar el sync general.');
     return { ok: false, error: msg, slRequests, bpSyncByCFFlag, dryRun };
   }
