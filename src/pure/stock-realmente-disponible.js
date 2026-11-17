@@ -149,9 +149,14 @@ function toMillisSafe(value) {
  *   (que viven en el pedido, no en la linea). Opcional para backwards-compat
  *   con callers que solo pasan la linea. Sin pedido, ni confirmed ni BO
  *   expiran nunca (comportamiento pre-v963/v969).
+ * @param {{log?: (type:string, payload:Record<string, unknown>) => void, pedidoId?: string, lineIndex?: number}} [opts]
+ *   v8 §E2 FIX-A2 (2026-11-17): callback opcional para diagnóstico. Si viene
+ *   `log`, se invoca cuando la rama `enTransito=true` hace fail-open por
+ *   falta de fecha de referencia (`transito_source_missing`). Compat 100%
+ *   con callers existentes (sin opts → skip silencioso).
  * @returns {boolean}
  */
-export function lineReservesStock(line, nowMs, pedido) {
+export function lineReservesStock(line, nowMs, pedido, opts) {
   if (!line) return false;
   const state = line.state;
   if (state === 'BO') {
@@ -183,6 +188,23 @@ export function lineReservesStock(line, nowMs, pedido) {
           const ageDays = (now - refMs) / DAY_MS;
           if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
         }
+      } else if (opts && typeof opts.log === 'function') {
+        // v8 §E2 FIX-A2: fail-open sin fecha → log diagnóstico.
+        try {
+          opts.log('transito_source_missing', {
+            sku: String(line.code || ''),
+            pedidoId: opts.pedidoId || (pedido && (pedido._fsId || pedido._id)) || null,
+            lineIndex: typeof opts.lineIndex === 'number' ? opts.lineIndex : null,
+            state: 'confirmed',
+            hasAsigAt: Boolean(line.asigAt),
+            hasAsigAtTransito: Boolean(line.asigAtTransito),
+            hasConfirmedAtTransito: Boolean(line.confirmedAtTransito),
+            hasPedidoConfirmedAt: Boolean(pedido && pedido.confirmedAt),
+            hasCreatedAt: Boolean(pedido && pedido.createdAt),
+          });
+        } catch (_e) {
+          /* log fail-open: no romper la fn */
+        }
       }
       return true;
     }
@@ -209,6 +231,21 @@ export function lineReservesStock(line, nowMs, pedido) {
         if (refMs !== null) {
           const ageDays = (now - refMs) / DAY_MS;
           if (ageDays > ASIG_TRANSITO_HARD_CAP_DAYS) return false;
+        }
+      } else if (opts && typeof opts.log === 'function') {
+        // v8 §E2 FIX-A2: fail-open sin fecha → log diagnóstico.
+        try {
+          opts.log('transito_source_missing', {
+            sku: String(line.code || ''),
+            pedidoId: opts.pedidoId || (pedido && (pedido._fsId || pedido._id)) || null,
+            lineIndex: typeof opts.lineIndex === 'number' ? opts.lineIndex : null,
+            state: 'ASIG',
+            hasAsigAt: Boolean(line.asigAt),
+            hasAsigAtTransito: Boolean(line.asigAtTransito),
+            hasCreatedAt: Boolean(pedido && pedido.createdAt),
+          });
+        } catch (_e) {
+          /* log fail-open: no romper la fn */
         }
       }
       return true;

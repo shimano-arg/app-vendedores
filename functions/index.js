@@ -65,6 +65,7 @@ import { dashboardVentasCore } from './core/dashboard-ventas-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
+import { isDep12RepartoEnabled } from './core/feature-flags.js';
 // §63 Fase 3 Capa 2 (2026-10-23 v1445): fetchStockLiveCF — live query SL
 // gated por flag app_config/live_sl.enabled (default false).
 import { fetchStockLiveCore } from './core/fetch-stock-live-core.js';
@@ -105,6 +106,12 @@ import {
 // v1278 (2026-10-14): migracion ASIG → BO + create ingresos_reparto para
 // SKUs con stock libre. Switchover al reparto manual.
 import { migrateAsigToBOAndCreateReparto } from './core/reparto-migration-core.js';
+// E2 reparto-dep12 (2026-11-17): scanners dep 12 detrás de feature flag.
+import {
+  loadFeatureFlagsDoc,
+  scanCancelledTransito,
+  scanDep12ToDep11Transitions,
+} from './core/reparto-transito-core.js';
 // v1184 (2026-10-07): resuelve clientCardCode faltantes en pedidos (incident
 // cowork — ~1570 lineas sin cliente_code en v_pedidos_lines).
 import { handleResolvePedidoCardCode } from './core/resolve-pedido-cardcode-core.js';
@@ -1167,6 +1174,19 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
     // sobre-asignadas a BO con closedReason='asig_sin_stock_revertida_a_bo'.
     // Idempotente (una línea ya revertida no se re-revierte).
     const r3 = await revertSobreAsignadas(deps, after);
+    // E2 reparto-dep12: 2 scanners nuevos detrás del feature flag
+    // `dep12_reparto_enabled`. Si el flag está OFF (default), skip — garantiza
+    // que el deploy de E2 no cambie behavior hasta activación consciente.
+    const flagsDoc = await loadFeatureFlagsDoc(deps);
+    const dep12Enabled = isDep12RepartoEnabled(flagsDoc);
+    /** @type {{revertidas: any[], skipped: any[], errors: string[]}} */
+    let r4 = { revertidas: [], skipped: [], errors: [] };
+    /** @type {{migradas: any[], skipped: any[], errors: string[]}} */
+    let r5 = { migradas: [], skipped: [], errors: [] };
+    if (dep12Enabled) {
+      r4 = await scanCancelledTransito(deps, before, after);
+      r5 = await scanDep12ToDep11Transitions(deps, after);
+    }
     console.log('onDep11IncreaseCreateReparto done', {
       deltaCreated: r.created.length,
       deltaSkipped: r.skipped.length,
@@ -1182,9 +1202,20 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
       // v1522: pedidos que cambiaron durante el cálculo (ej. reparto de Pablo
       // en el medio) — no se escriben en esta vuelta para no pisarlos.
       sobreAsignadasSkipped: (r3.skipped && r3.skipped.length) || 0,
+      // E2 reparto-dep12.
+      dep12Enabled,
+      transitoCanceladasRevertidas: r4.revertidas.length,
+      transitoCanceladasErrors: r4.errors.length,
+      transitoCruzadas: r5.migradas.length,
+      transitoCruzadasErrors: r5.errors.length,
     });
   }
 );
+
+// E2 reparto-dep12 — alias deprecated-compat para ver claro el scope (dep11+dep12).
+// Mariano aprobó mantener el export histórico en el deploy actual (menor riesgo).
+// El nuevo nombre queda como re-export del mismo handler.
+export const onStockSnapshotWrittenReparto = onDep11IncreaseCreateReparto;
 
 /**
  * v1277: applyRepartoManualCF — callable HTTPS para que Pablo/admin aplique

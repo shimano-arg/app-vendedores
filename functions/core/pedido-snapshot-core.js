@@ -97,9 +97,12 @@ function toMillisSafe(value) {
  * @param {any} line
  * @param {number} nowMs
  * @param {any} pedido
+ * @param {{log?: (type:string, payload:Record<string, unknown>) => void, pedidoId?: string, lineIndex?: number}} [opts]
+ *   v8 §E2 FIX-A2 (mirror): callback opcional para diagnóstico cuando la rama
+ *   `enTransito=true` hace fail-open por falta de fecha de referencia.
  * @returns {boolean}
  */
-export function lineReservesStock(line, nowMs, pedido) {
+export function lineReservesStock(line, nowMs, pedido, opts) {
   if (!line) return false;
   const state = line.state;
   if (state === 'BO') {
@@ -122,6 +125,23 @@ export function lineReservesStock(line, nowMs, pedido) {
         if (refMs !== null && (nowMs - refMs) / DAY_MS > CONFIRMED_HARD_CAP_DAYS) {
           return false;
         }
+      } else if (opts && typeof opts.log === 'function') {
+        // v8 §E2 FIX-A2 mirror: fail-open sin fecha → log diagnóstico.
+        try {
+          opts.log('transito_source_missing', {
+            sku: String(line.code || ''),
+            pedidoId: opts.pedidoId || (pedido && (pedido._fsId || pedido._id)) || null,
+            lineIndex: typeof opts.lineIndex === 'number' ? opts.lineIndex : null,
+            state: 'confirmed',
+            hasAsigAt: Boolean(line.asigAt),
+            hasAsigAtTransito: Boolean(line.asigAtTransito),
+            hasConfirmedAtTransito: Boolean(line.confirmedAtTransito),
+            hasPedidoConfirmedAt: Boolean(pedido && pedido.confirmedAt),
+            hasCreatedAt: Boolean(pedido && pedido.createdAt),
+          });
+        } catch (_e) {
+          /* log fail-open: no romper la fn */
+        }
       }
       return true;
     }
@@ -141,6 +161,21 @@ export function lineReservesStock(line, nowMs, pedido) {
         const refMs = toMillisSafe(refIso);
         if (refMs !== null && (nowMs - refMs) / DAY_MS > ASIG_TRANSITO_HARD_CAP_DAYS) {
           return false;
+        }
+      } else if (opts && typeof opts.log === 'function') {
+        // v8 §E2 FIX-A2 mirror: fail-open sin fecha → log diagnóstico.
+        try {
+          opts.log('transito_source_missing', {
+            sku: String(line.code || ''),
+            pedidoId: opts.pedidoId || (pedido && (pedido._fsId || pedido._id)) || null,
+            lineIndex: typeof opts.lineIndex === 'number' ? opts.lineIndex : null,
+            state: 'ASIG',
+            hasAsigAt: Boolean(line.asigAt),
+            hasAsigAtTransito: Boolean(line.asigAtTransito),
+            hasCreatedAt: Boolean(pedido && pedido.createdAt),
+          });
+        } catch (_e) {
+          /* log fail-open: no romper la fn */
         }
       }
       return true;
