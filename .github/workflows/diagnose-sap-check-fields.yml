@@ -1,0 +1,68 @@
+name: Diagnose SAP check deposit fields (one-shot)
+
+# Workflow dispatch manual. No tiene schedule.
+#
+# Objetivo: correr scripts/diagnose_sap_check_deposit_fields.py contra el
+# Service Layer SAP de produccion para ver que campos expone realmente para
+# PaymentCheck + CheckLine, y resolver el link roto entre
+# sap_payment_checks_raw y sap_deposit_checks_raw que hoy rompe la vista
+# v_cheques_recibidos (ver Desktop\RESPUESTAS\CHEQUES_VENCIDO_SIN_DEPOSITAR_
+# 2026-11-16\DIAGNOSTICO.md).
+#
+# Es READ-ONLY: solo HTTP GET al SL. No escribe a SAP, BQ ni Firestore.
+#
+# Output: artifact `sl-schema-dump` con sl_schema_dump.json + .log +
+# sl_metadata.xml. Lo descargas del Run con `gh run download <run-id>`.
+#
+# Secrets requeridos (mismos que sync-sap-to-bigquery):
+#   FIREBASE_SERVICE_ACCOUNT  JSON del SA para leer Firestore app_config.
+#   SAP_SL_PASSWORD           Password del usuario SL.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sl_insecure:
+        description: 'Deshabilitar verify SSL en Service Layer (default true porque Seidor tiene self-signed)'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diagnose-sap-check-fields
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        # Mismo pin que sync-sap-to-bigquery (v610 2026-08-24, Firestore 2.29 rompia).
+        run: pip install firebase-admin "google-cloud-firestore<2.29" "google-cloud-core<2.7" "google-api-core<2.35" requests
+
+      - name: Run diagnostic
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SAP_SL_PASSWORD: ${{ secrets.SAP_SL_PASSWORD }}
+          SL_INSECURE: ${{ inputs.sl_insecure }}
+          OUT_DIR: ${{ github.workspace }}/out-diag
+        run: python scripts/diagnose_sap_check_deposit_fields.py
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl-schema-dump
+          path: out-diag/
+          retention-days: 7
