@@ -4717,6 +4717,23 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E0 (2026-11-17) — Reparto dep 12 §E0: constantes + detector + script audit (no-op)
+
+- **Antes**: el reparto se dispara sólo cuando sube `fisicoDep11` (whs 11 — físico Argentina). `functions/core/reparto-core.js:detectDep11Increases` lee únicamente el whs 11 del `warehouseBreakdown` del snapshot. Dep 12 (tránsito Uruguay → Argentina, ~7d) aparece en el breakdown pero nadie lo consume.
+- **Problema**: perdemos ~7 días operativos por partida esperando que la mercadería llegue a Argentina para que Pablo pueda asignar. Mariano quiere adelantar el reparto al ingreso al tránsito.
+- **Cambio** (E0 — infra only, sin cambio de comportamiento):
+  - `src/pure/warehouse-constants.js` (nuevo) + mirror `functions/core/warehouse-constants.js` (§57 pure + espejo) — enum `DEP_FISICO=11`, `DEP_TRANSITO=12` + helper `getQtyFromBreakdown()`.
+  - `src/pure/detect-stock-increases.js` (nuevo) + mirror `functions/core/detect-stock-increases.js` (§57) — `detectStockIncreases(before, after)` detecta deltas positivos dep11 + dep12 por SKU; `detectTransitoCancelaciones(before, after)` detecta dep12 bajando sin suba equivalente en dep11 (señal de partida cancelada).
+  - `scripts/audit/V_dep12_state_prod.cjs` (nuevo, read-only) — reporte prod: SKUs con dep 12 > 0, `ingresos_reparto` abiertos, cruces SKU-tránsito ↔ reparto abierto (riesgo doble reparto post-feature), ASIG abiertas (contexto baseline).
+  - 30 tests nuevos: 20 unit `detect-stock-increases.test.js` (dep11/dep12/mixed/empty/corrupt/cancelación) + 3 property-based × 100 runs (`numRuns: 100`) + 7 sync tests §57.
+- **Por qué**: separar la refactorización de helpers (sin riesgo) de los cambios de comportamiento. E0 agrega el pure + mirror + script audit **sin wirear**. La CF `onDep11IncreaseCreateReparto` sigue leyendo sólo dep 11 como hoy. E1-E5 (en PRs separados) wire el flow completo. Si E0 se mergea sin problema, E1 queda limpia de ruido de infra.
+- **Verificación**:
+  - `npx vitest run tests/unit/detect-stock-increases.test.js tests/unit/property/detect-stock-increases-fastcheck.test.js tests/unit/audit/warehouse-constants-sync.test.js tests/unit/audit/detect-stock-increases-sync.test.js` → **30 PASS**.
+  - Suite completa `npm run test:unit` → se corre en el pre-push hook.
+  - Script audit V corre read-only post-merge con `FIREBASE_SA_PATH` + output: SKUs con dep 12 hoy (si alguno) + repartos abiertos existentes como baseline.
+- **Rollback**: `git revert <sha_E0>` — sin side-effects (nada se wirea). Los 5 archivos nuevos quedan huérfanos pero no romp. Alternativa: borrar los 5 archivos + tests. Sin impacto a datos ni comportamiento.
+- **Referencia**: plan completo `docs/superpowers/plans/2026-11-17-reparto-dep12.md` (v0.3). Próximo PR = E1 (breakdown v8 con buckets tránsito + lineReservesStock TTL dinámico).
+
 ### fix v3 (2026-11-16) — v_cheques_recibidos: estado via `u_estado` del pago (fin del JOIN roto a Deposits)
 
 - **Antes**: `v_cheques_recibidos` resolvía `estado_cheque` para cheques físicos con un `LEFT JOIN` a `sap_deposit_checks_raw` por `check_number + bank_code + branch`. Matcheaba 29 de 2.259 (1.3%) y **0 de los 3 cheques físicos reales**. Los 3 físicos (TIBETAN SRL 4667, IRIBARREN 4120, PODWIAZNY 3573) figuraban `VENCIDO_SIN_DEPOSITAR` cuando SAP los tiene depositados.
