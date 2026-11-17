@@ -289,32 +289,51 @@ WHERE p.cancelled = 'tNO';
 
 
 -- ============================================================
--- NUEVA 3: v_cheques_recibidos (2026-09-07)
+-- v_cheques_recibidos v3 (2026-11-16): estado via u_estado del pago, NO por JOIN a Deposits
 -- ============================================================
 -- 1 fila por cheque. FK a v_pagos_recibidos por payment_doc_entry.
--- Discovery Bike 12m: 1.777 cheques, 99.83% son echeq (e_check='tYES').
--- Solo 3 cheques fisicos residuales.
--- El link a Deposit va por check_abs_entry === Deposit.CheckLines.check_key.
--- ============================================================
+--
+-- Historia:
+--   v1 (2026-09-07): JOIN a sap_deposit_checks_raw por check_abs_entry = check_key.
+--                    0 matches -- rangos disjuntos. Eran dos IDs internos distintos.
+--   v2 (2026-09-07): fallback a check_number + bank + branch. 29/2259 (1.3%) y 0/3 fisicos.
+--                    Reportado 2026-11-16 por Mariano: TIBETAN 4667 marcado
+--                    VENCIDO_SIN_DEPOSITAR cuando en SAP figura Depositado=Yes.
+--   v3 (2026-11-16): fix via Service Layer diagnostic (PR #1355 run 44123376069 + PR #1356
+--                    run 44124625517). Artifact sl-schema-dump + informe en
+--                    Desktop\RESPUESTAS\CHEQUES_VENCIDO_SIN_DEPOSITAR_2026-11-16.
+--
+-- Hallazgos del diagnostico SL:
+--   - /Deposits/CheckLines expone 12 fields; ninguno linkea al PaymentCheck (RCT1).
+--     CheckKey == Deposit.AbsEntry (ID del header del deposit, no FK al cheque recibido).
+--   - sap_deposit_checks_raw tiene 293 cheques historicos pre-sync (check_date
+--     2024-06-18 .. 2025-02-10). Son huerfanos: no linkean con PaymentChecks actuales.
+--   - Los 3 cheques fisicos actuales (TIBETAN C30693701755, IRIBARREN C20102551436,
+--     PODWIAZNY C20256418674) NO existen en sap_deposit_checks_raw por ningun criterio
+--     (customer, check_number, check_amount).
+--   - En este tenant SAP B1 liquida cheques fisicos directo via IncomingPayment +
+--     U_Estado='COBRADO' (UDF), SIN pasar por modulo Deposits. El "Depositado=Yes"
+--     de la pantalla "Saldo de cheque" se resuelve desde ese flag.
+--   - sap_incoming_payments_raw.u_estado cubre 100% de los cheques sincronizados:
+--     2258 COBRADO + 1 RECHAZADO + 0 NULL. Ya lo captura el sync Python (sin cambios).
+--
+-- Nueva logica estado_cheque (v3):
+--   ECHEQ:
+--     RECHAZADO                 u_estado='RECHAZADO' (bucket nuevo, mas honesto que ACREDITADO).
+--     ACREDITADO                due_date <= hoy (95%+ del volumen).
+--     PENDIENTE_ACREDITACION    due_date >  hoy.
+--   FISICO:
+--     DEPOSITADO                u_estado='COBRADO' (incluye los 3 fisicos actuales).
+--     RECHAZADO                 u_estado='RECHAZADO'.
+--     VENCIDO_SIN_DEPOSITAR     due_date < hoy sin COBRADO (red de seguridad: hoy 0
+--                               cheques caen aca, pero queda por si en el futuro aparece
+--                               un fisico con u_estado null/pendiente).
+--     EN_CARTERA                due_date >= hoy sin COBRADO.
+--
+-- Columnas deposit_abs_entry / deposit_date: se preservan por compat con medidas DAX del
+-- TABLERO SAR (si las usa). Resuelven a NULL para los cheques actuales porque el JOIN a
+-- sap_deposit_checks_raw quedo removido (universo disjunto; no se puede matchear).
 CREATE OR REPLACE VIEW `app-vendedores-shimano.shimano_app.v_cheques_recibidos` AS
--- v2 fix (2026-09-07 post-validation Cowork):
--- El link check_abs_entry <-> check_key NO existe (rangos disjuntos: check_key
--- 1591-2149 vs check_abs_entry 2998-4864). Son dos IDs internos distintos de
--- SAP (RCT1.CheckAbsEntry vs DPS1.CheckKey).
---
--- Hallazgo real: los echeqs NO usan Deposits estructuralmente. Se acreditan
--- directo en cuenta bancaria via BBVA/MAV/MEP al vencer. Los 267 deposits son
--- para cheques FISICOS (los 3 en produccion + histórico pre-modelo).
---
--- Fix: cambiar la logica de estados. Un echeq vencido NO es "vencido sin
--- depositar" -- es "ACREDITADO" (paso automatico al vencer). Los 5 estados
--- nuevos son:
---   ACREDITADO                echeq con due_date <= hoy (99.8% del volumen)
---   PENDIENTE_ACREDITACION    echeq con due_date > hoy (aun no vencio)
---   DEPOSITADO                fisico con match en deposit_checks (por
---                             check_number + bank, no por CheckAbsEntry)
---   VENCIDO_SIN_DEPOSITAR     fisico vencido sin match en deposits (alerta real)
---   EN_CARTERA                fisico no vencido sin depositar
 SELECT
   ch.payment_doc_entry,
   ch.payment_doc_date,
@@ -337,18 +356,20 @@ SELECT
   ch.originally_issued_by,
   ch.fiscal_id,
   ch._sync_timestamp,
-  -- Link opcional a deposit para cheques fisicos: JOIN por check_number + bank
-  -- (86 matches por check_number solo, 27 con bank tambien). El check_number no
-  -- es unico globalmente porque se resetea por talonario del banco emisor, pero
-  -- el par check_number + bank + branch reduce colisiones.
-  dc.deposit_abs_entry,
-  dc.deposit_date,
-  -- Estado del cheque - logica v2 basada en tipo (echeq vs fisico).
+  -- u_estado del pago entrante (fuente de verdad del "Depositado=Yes" en este tenant).
+  p.u_estado,
+  -- Columnas historicas preservadas por compat con Power BI (siempre NULL en v3 para
+  -- cheques del sync actual; queda por si alguna medida DAX las referencia).
+  CAST(NULL AS INT64) AS deposit_abs_entry,
+  CAST(NULL AS DATE)  AS deposit_date,
+  -- Estado del cheque v3: basado en e_check + u_estado + due_date.
   CASE
+    WHEN ch.e_check = 'tYES' AND p.u_estado = 'RECHAZADO' THEN 'RECHAZADO'
     WHEN ch.e_check = 'tYES' AND ch.due_date <= CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'ACREDITADO'
-    WHEN ch.e_check = 'tYES' AND ch.due_date > CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'PENDIENTE_ACREDITACION'
-    WHEN ch.e_check = 'tNO' AND dc.deposit_abs_entry IS NOT NULL THEN 'DEPOSITADO'
-    WHEN ch.e_check = 'tNO' AND ch.due_date < CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'VENCIDO_SIN_DEPOSITAR'
+    WHEN ch.e_check = 'tYES' AND ch.due_date >  CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'PENDIENTE_ACREDITACION'
+    WHEN ch.e_check = 'tNO'  AND p.u_estado = 'COBRADO'   THEN 'DEPOSITADO'
+    WHEN ch.e_check = 'tNO'  AND p.u_estado = 'RECHAZADO' THEN 'RECHAZADO'
+    WHEN ch.e_check = 'tNO'  AND ch.due_date <  CURRENT_DATE('America/Argentina/Buenos_Aires') THEN 'VENCIDO_SIN_DEPOSITAR'
     ELSE 'EN_CARTERA'
   END AS estado_cheque,
   -- Dias hasta el vencimiento (negativo = ya vencio / acreditado).
@@ -367,10 +388,8 @@ SELECT
     ELSE '5. Vence +90d'
   END AS bucket_vencimiento
 FROM `app-vendedores-shimano.shimano_app.sap_payment_checks_raw` ch
-LEFT JOIN `app-vendedores-shimano.shimano_app.sap_deposit_checks_raw` dc
-  ON CAST(ch.check_number AS INT64) = CAST(dc.check_number AS INT64)
- AND CAST(ch.bank_code AS STRING) = CAST(dc.bank AS STRING)
- AND CAST(ch.branch AS STRING) = CAST(dc.branch AS STRING);
+LEFT JOIN `app-vendedores-shimano.shimano_app.sap_incoming_payments_raw` p
+  ON p.doc_entry = ch.payment_doc_entry;
 
 
 -- ============================================================
