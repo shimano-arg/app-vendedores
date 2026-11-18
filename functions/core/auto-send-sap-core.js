@@ -72,6 +72,7 @@ import {
  * @property {number} [lockTtlMs]              default 300000 (5 min)
  * @property {number} [dueDateDays]            default 30
  * @property {(args: {to: string, subject: string, text: string}) => Promise<void>} [sendAlertEmail] PR2 v1475 §72: email alerta cuando se degrada línea por sap_item_not_found (CAPA c). Fire-and-forget. Si no se pasa, no se envía email (solo log).
+ * @property {boolean} [dep12Enabled] E3 reparto-dep12 §1: si true, `buildQuotationPayload` skippea líneas con `enTransito=true`. Default false (comportamiento histórico).
  */
 
 /**
@@ -173,7 +174,7 @@ export function resolveSlpCode(vendorKey, deps) {
  * @param {string} pedidoId Firestore doc id (para NumAtCard + U_AppOrderId).
  * @param {CoreDeps} deps
  * @param {string|null} [trueVendor] v991 (SecAudit run-1 HIGH #5): vendor key resuelto server-side desde roles/{ownerUid}. Si se pasa, se usa para resolver SLP code (y se ignora pedido.ownerVendor). Si es null/undefined, cae al pedido.ownerVendor (retrocompat).
- * @returns {{ok: false, reason: string} | {ok: true, payload: any, linesCount: number}}
+ * @returns {{ok: false, reason: string, transitoSkipped?: number} | {ok: true, payload: any, linesCount: number, transitoSkipped: number}}
  */
 export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
   const cardCode = resolveCardCode(pedido, deps);
@@ -192,11 +193,36 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     return { ok: false, reason: 'no_lines' };
   }
 
+  // E3 reparto-dep12 (§1): skip líneas `enTransito=true` detrás del feature
+  // flag. Con flag OFF comportamiento histórico 100% (el filter devuelve todas
+  // las confirmed; hoy ninguna línea tiene `enTransito=true` porque §2 del
+  // E2 solo lo setea tras activación consciente del flag).
+  // Si TODAS las confirmed son enTransito → `reason='all_transito'` pedido
+  // queda sin enviar (reintento se dispara cuando la CF migra al físico via
+  // scanDep12ToDep11Transitions).
+  // Si hay mix físico+tránsito → enviamos solo las físicas; el pedido sigue
+  // con las enTransito abiertas a la espera de que crucen.
+  /** @type {Array<any>} */
+  let linesForPayload = confirmedLines;
+  let transitoSkippedCount = 0;
+  if (deps && deps.dep12Enabled === true) {
+    const fisicoConfirmedLines = confirmedLines.filter((l) => !l.enTransito);
+    transitoSkippedCount = confirmedLines.length - fisicoConfirmedLines.length;
+    if (!fisicoConfirmedLines.length) {
+      return {
+        ok: false,
+        reason: 'all_transito',
+        transitoSkipped: transitoSkippedCount,
+      };
+    }
+    linesForPayload = fisicoConfirmedLines;
+  }
+
   // Dedup por ItemCode sumando qtys (SAP error 23105 si vienen 2 lines mismo item).
   /** @type {Map<string, {ItemCode: string, Quantity: number, WarehouseCode: string, UoMEntry: number, LineNum: number}>} */
   const dedupMap = new Map();
   let lineNum = 0;
-  for (const l of confirmedLines) {
+  for (const l of linesForPayload) {
     const itemCode = resolveItemCode(String(l.code || ''), deps);
     if (!itemCode) continue;
     const qty = Number(l.qty) || 0;
@@ -291,7 +317,12 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     DocumentLines: documentLines,
     ...seriesPatch,
   };
-  return { ok: true, payload, linesCount: documentLines.length };
+  return {
+    ok: true,
+    payload,
+    linesCount: documentLines.length,
+    transitoSkipped: transitoSkippedCount,
+  };
 }
 
 /**
@@ -517,7 +548,25 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     }
     if (built.reason === 'no_cardcode') return { result: AUTO_SEND_RESULT.SKIP_NO_CARDCODE };
     if (built.reason === 'no_lines') return { result: AUTO_SEND_RESULT.SKIP_NO_LINES };
+    // E3 §1: todas las confirmed son enTransito → no enviar. El trigger se
+    // dispara de nuevo cuando scanDep12ToDep11Transitions migra las líneas a
+    // dep 11 (`enTransito=false`) via el próximo cambio de stock_snapshot.
+    if (built.reason === 'all_transito') {
+      log('sap_autosend_skipped_all_transito', {
+        pedidoId,
+        transitoSkipped: built.transitoSkipped || 0,
+      });
+      return { result: AUTO_SEND_RESULT.SKIP_NO_LINES, reason: 'all_transito' };
+    }
     return { result: AUTO_SEND_RESULT.ERROR_SL, error: 'build:' + built.reason };
+  }
+  // E3 §1: si hubo recorte parcial de líneas enTransito, logueá.
+  if (built.transitoSkipped > 0) {
+    log('sap_autosend_partial_transito', {
+      pedidoId,
+      transitoSkipped: built.transitoSkipped,
+      linesSent: built.linesCount,
+    });
   }
 
   // === SL LOGIN + POST + LOGOUT ===
