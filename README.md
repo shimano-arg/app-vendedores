@@ -4717,6 +4717,18 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E4.2 v1563 (2026-11-18) — Reparto dep 12 §E4.2: Planner card tránsito
+
+- **Antes**: `renderPlannerCard` mostraba el total ARS + badges SAP/SO/ORDEN/🔒 pero sin ninguna señal de cuántas unidades del pedido están en tránsito (`line.enTransito===true`).
+- **Problema**: con el flag ON (previsto por Mariano), las líneas confirmed con `enTransito` reservan dep 12 pero no están disponibles hasta cruzar a dep 11 (~7 días). El Planner tenía que distinguirlas para el vendedor y para Pablo (priorización del reparto).
+- **Cambio**:
+  - CSS en `styles/apple-design.css` (bloque v1563 §E4.2): `.planner-transito-line` azul `#1e40af` + `.planner-badge-transito-full` pill azul. Regla hover-safe `0,3,3` con `!important`.
+  - JS en `index.html:renderPlannerCard`: loop sobre `pedido.lines` suma `_qtyTransitoOpen` vs `_qtyFisicoOpen`. Si 100% tránsito → badge "100% TRÁNSITO". Si mix → línea secundaria "✈️ En tránsito: N u". Sin cambios con `_qtyTransitoOpen=0` (defensivo flag OFF).
+  - Changelog: `docs/CHANGELOG-reparto-dep12-e4-2-planner.md`.
+- **Por qué**: §39 (sin duplicar breakdown — lee `pedido.lines` directo) + §68 (texto sin jerga) + §106 (pill Apple).
+- **Verificación**: 7 tests nuevos (`tests/unit/audit/planner-card-transito.test.js`). Bundle rebuild.
+- **Rollback**: revertir bloque CSS v1563 + 2 edits del renderPlannerCard + test.
+
 ### feat E4.1 (2026-11-18) — Reparto dep 12 §E4.1: badge ✈️ + popup 2 fórmulas + toggle Panel Control
 
 - **Antes**: CFs del feature live (E0..E3) con flag OFF. Sin UI que muestre la ASIG en tránsito, sin cuenta separada en el popup, sin forma rápida de prender/apagar el flag.
