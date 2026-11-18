@@ -113,6 +113,14 @@ export function filterIngresosForExcelExport(ingresos, filtros, getStockFisico) 
  * v1512: `Backorder`/`StockDisponible`/`Asignado`/`Eliminar` pueden ser null
  * en las filas aviso de SKU multi-reparto (`_notice=true`, `Codigo=''`).
  *
+ * v1565 (§E4.3 Opción 1): nueva columna 10 `EnTransito` al final.
+ * Columna informativa — no participa en la fórmula VueleABackorder (sigue
+ * siendo `=C{row}-E{row}-G{row}` = Backorder − Asignado − Eliminar). Mientras
+ * el flag `dep12_reparto_enabled` esté OFF la columna muestra 0 para todas
+ * las filas (no hay líneas `state='ASIG' + enTransito=true` en prod). Cuando
+ * se prenda el flag, el call-site inyecta `getQtyTransitoParaCliente` y los
+ * valores empiezan a aparecer sin tocar las fórmulas existentes.
+ *
  * @typedef {Object} RepartoExcelRow
  * @property {string} Codigo
  * @property {string} Cliente
@@ -123,6 +131,7 @@ export function filterIngresosForExcelExport(ingresos, filtros, getStockFisico) 
  * @property {number|null} Eliminar
  * @property {string} RepartoId
  * @property {string} CardCode
+ * @property {number|null} EnTransito - v1565 §E4.3: unidades ASIG enTransito del cliente+SKU.
  * @property {boolean} [_notice] - v1512: true si es fila aviso SKU multi-reparto
  */
 
@@ -134,7 +143,14 @@ export function filterIngresosForExcelExport(ingresos, filtros, getStockFisico) 
  *
  * @param {Array<any>} ingresos - array de `ingresos_reparto` con `clientesBO[]`.
  * @param {RepartoExcelFiltros} filtros
- * @param {{getStockFisico?: (sku:string) => number, consolidateFn?: (entries:Array<any>) => Array<any>}} [deps]
+ * @param {{
+ *   getStockFisico?: (sku:string) => number,
+ *   consolidateFn?: (entries:Array<any>) => Array<any>,
+ *   getQtyTransitoParaCliente?: (cardCode:string, sku:string) => number,
+ * }} [deps] - `getQtyTransitoParaCliente` es opcional (v1565 §E4.3): devuelve
+ *   las unidades ASIG `enTransito=true` del cliente+SKU para alimentar la
+ *   columna 10 "En tránsito". Si no viene, la columna queda en 0 para todas
+ *   las filas (comportamiento con feature flag OFF).
  * @returns {{
  *   rows: Array<RepartoExcelRow>,
  *   totalFilas: number,
@@ -147,6 +163,8 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
   const d = deps || {};
   const stockFn = typeof d.getStockFisico === 'function' ? d.getStockFisico : null;
   const consolidateFn = typeof d.consolidateFn === 'function' ? d.consolidateFn : null;
+  const transitoFn =
+    typeof d.getQtyTransitoParaCliente === 'function' ? d.getQtyTransitoParaCliente : null;
   const f = filtros || {};
   const filtered = filterIngresosForExcelExport(ingresos, f, stockFn || undefined);
 
@@ -206,6 +224,7 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
           Eliminar: null,
           RepartoId: '',
           CardCode: '',
+          EnTransito: null, // v1565 §E4.3: fila aviso no participa.
           _notice: true, // Flag para que el renderer aplique estilo amarillo.
         });
       }
@@ -230,6 +249,9 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
       // Fórmula Excel para "Vuelve a backorder" = Backorder - Asignado - Eliminar.
       // El row + 2 (header fila 1 + 1-indexed → first data row es 2).
       const excelRowIdx = rows.length + 2;
+      // v1565 §E4.3: unidades ASIG `enTransito=true` del cliente+SKU. 0 si la
+      // fn no está disponible (compat) o si el feature flag está OFF.
+      const qtyTransito = transitoFn ? safeNum(transitoFn(cardCode, sku)) : 0;
       rows.push({
         Codigo: sku,
         Cliente: clientName,
@@ -240,6 +262,7 @@ export function computeRepartoExcelExportRows(ingresos, filtros, deps) {
         Eliminar: 0,
         RepartoId: repartoId,
         CardCode: cardCode,
+        EnTransito: qtyTransito,
       });
       totalBackorder += backorder;
     }
