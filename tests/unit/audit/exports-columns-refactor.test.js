@@ -80,8 +80,18 @@ describe('v1565 §refactor exports — nombres renombrados en el modal', () => {
     expect(MODAL_SLICE).toMatch(/<h3>Rendiciones<\/h3>/);
   });
 
-  it('contiene Lista de precios - disponible (sin cambio)', () => {
-    expect(MODAL_SLICE).toMatch(/<h3>Lista de precios - disponible<\/h3>/);
+  it('contiene Lista de precio - Stock Disponible (v1566 rename)', () => {
+    expect(MODAL_SLICE).toMatch(/<h3>Lista de precio - Stock Disponible<\/h3>/);
+  });
+  it('v1566: Master Clientes handler lee visits para ULTIMA_VISITA', () => {
+    const exportsCore = readFileSync(resolve('src/domains/exports-core.js'), 'utf-8');
+    expect(exportsCore).toMatch(/collection\('visits'\)/);
+    expect(exportsCore).toMatch(/ultimaVisitaIdx/);
+  });
+  it('v1566: Backorder_SKU handler computa PROMEDIO_VENTA_3M desde globalPedidos', () => {
+    const exportsCore = readFileSync(resolve('src/domains/exports-core.js'), 'utf-8');
+    expect(exportsCore).toMatch(/avg3MIdx/);
+    expect(exportsCore).toMatch(/90 \* DAY_MS/);
   });
 });
 

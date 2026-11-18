@@ -109,6 +109,35 @@ window.exportMasterClientes = async function () {
       _e && _e.message
     );
   }
+
+  // v1566 (2026-11-18): cargar visits en bloque (1 query grande) y agrupar
+  // por cardCode con MAX(fecha). Alimenta la columna
+  // ULTIMA_VISITA/CONTACTO_FECHA. Fire-and-forget si falla: columna vacia.
+  // Rules: visits read abierto a isReader(); VDE ve sólo las suyas por
+  // ownerUid, admin/gerente las ve todas.
+  const ultimaVisitaIdx = new Map();
+  try {
+    const vSnap = await fbDb.collection('visits').get();
+    vSnap.forEach((d) => {
+      const v = d.data() || {};
+      const cc = String(v.cardCode || v.clientCardCode || '').trim().toUpperCase();
+      if (!cc) return;
+      const raw = v.fecha || v.date || v.visitDate || v.createdAt || v.timestamp || null;
+      let fechaIso = null;
+      try {
+        if (!raw) fechaIso = null;
+        else if (typeof raw === 'string') fechaIso = raw;
+        else if (raw && typeof raw.toDate === 'function') fechaIso = raw.toDate().toISOString();
+        else if (raw && typeof raw.seconds === 'number') fechaIso = new Date(raw.seconds * 1000).toISOString();
+      } catch { fechaIso = null; }
+      if (!fechaIso) return;
+      const prev = ultimaVisitaIdx.get(cc);
+      if (!prev || String(fechaIso) > String(prev)) ultimaVisitaIdx.set(cc, fechaIso);
+    });
+  } catch (_eVisits) {
+    console.warn('[masterfile] visits no cargado:', _eVisits && _eVisits.message);
+  }
+
   // Helpers del pure fn (fallback inline si bundle no cargó).
   const _fcLabels =
     (window.__phase0 && window.__phase0.pure && window.__phase0.pure.fichaClienteLabels) || null;
@@ -708,7 +737,23 @@ window.exportMasterClientes = async function () {
     'FRECUENCIA_COMPRA(DIAS)': r['Frecuencia (días entre compras)'] || '',
     ULTIMA_COMPRA: r['Última compra'] || '',
     VENDEDOR_ASIGNADO: r['Vendedor externo (VDE)'] || '',
-    'ULTIMA_VISITA/CONTACTO_FECHA': '', // v1565 pendiente: requiere query extra a visits.
+    // v1566: formato DD/MM/YYYY desde el max(fecha) agregado en ultimaVisitaIdx.
+    'ULTIMA_VISITA/CONTACTO_FECHA': (() => {
+      const cc = String(r['CardCode SAP'] || '').trim().toUpperCase();
+      const iso = cc ? ultimaVisitaIdx.get(cc) : null;
+      if (!iso) return '';
+      try {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        return (
+          String(d.getDate()).padStart(2, '0') +
+          '/' +
+          String(d.getMonth() + 1).padStart(2, '0') +
+          '/' +
+          d.getFullYear()
+        );
+      } catch { return ''; }
+    })(),
   }));
   const fname = 'Master Clientes_' + scopeLbl + '_' + ts + '.xlsx';
   await downloadXlsx(fname, [{ name: 'Master Clientes', rows: rowsMariano }]);
@@ -2040,6 +2085,52 @@ window.exportBackorderAll = async function () {
     if (!prev.nombre && r.NOMBRE_DEL_PRODUCTO) prev.nombre = r.NOMBRE_DEL_PRODUCTO;
     skuAgg.set(sku, prev);
   }
+  // v1566 (2026-11-18): computar PROMEDIO_VENTA_3M por SKU desde globalPedidos
+  // (líneas facturadas en los últimos 90 días / 3). Fuente local sin requerir
+  // agregado BQ; si un pedido no tiene fecha de facturación válida, se saltea.
+  /** @type {Map<string, number>} */
+  const avg3MIdx = new Map();
+  try {
+    const now = Date.now();
+    const DAY_MS = 86400000;
+    const _arrAll = typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
+    /** @type {Map<string, number>} */
+    const qtySum90 = new Map();
+    for (const p of _arrAll) {
+      if (!p || !Array.isArray(p.lines)) continue;
+      // fecha de facturación / entrega al SAP: preferir sapInvoiceDate /
+      // transferidoSAP.docDate / closedAt / confirmedAt.
+      const _rawDate = (p.transferidoSAP && (p.transferidoSAP.docDate || p.transferidoSAP.date))
+        || p.sapInvoiceDate || p.closedAt || p.confirmedAt || null;
+      if (!_rawDate) continue;
+      let ms = null;
+      try {
+        if (typeof _rawDate === 'string') ms = new Date(_rawDate).getTime();
+        else if (_rawDate && typeof _rawDate.toDate === 'function') ms = _rawDate.toDate().getTime();
+        else if (_rawDate && typeof _rawDate.seconds === 'number') ms = _rawDate.seconds * 1000;
+      } catch { ms = null; }
+      if (!ms || Number.isNaN(ms)) continue;
+      if ((now - ms) > 90 * DAY_MS) continue;
+      for (const l of p.lines) {
+        if (!l || !l.code) continue;
+        // sólo cuento líneas facturadas/entregadas (state cancelled o sin
+        // qtyOpen=0 implican que la venta se concretó).
+        const st = l.state || '';
+        if (st === 'BO' || st === 'ASIG') continue;
+        const q = Number(l.qty) || 0;
+        if (q <= 0) continue;
+        const sku = String(l.code).trim().toUpperCase();
+        qtySum90.set(sku, (qtySum90.get(sku) || 0) + q);
+      }
+    }
+    // divido por 3 meses → promedio mensual
+    for (const [sku, total] of qtySum90) {
+      avg3MIdx.set(sku, Math.round((total / 3) * 10) / 10);
+    }
+  } catch (_eAvg) {
+    console.warn('[backorder] no se pudo computar PROMEDIO_VENTA_3M:', _eAvg && _eAvg.message);
+  }
+
   /** @type {Array<Record<string, any>>} */
   const rowsSku = [];
   for (const [sku, agg] of skuAgg) {
@@ -2047,7 +2138,7 @@ window.exportBackorderAll = async function () {
       SKU: sku,
       CANTIDAD_BACKORDER: agg.qty,
       SUBTOTAL: Math.round(agg.sub),
-      PROMEDIO_VENTA_3M: '', // v1565 pendiente: requiere agregado BQ (ver changelog).
+      PROMEDIO_VENTA_3M: avg3MIdx.get(String(sku).trim().toUpperCase()) || 0,
     });
     void resumenRows;
   }
