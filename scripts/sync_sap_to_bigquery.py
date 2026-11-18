@@ -49,7 +49,7 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from io import BytesIO
 
 import requests
@@ -141,6 +141,11 @@ BQ_TABLE_DEPOSITS          = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deposits_raw'
 BQ_TABLE_DEPOSIT_CHECKS    = f'{BQ_PROJECT}.{BQ_DATASET}.sap_deposit_checks_raw'
 BQ_TABLE_BANKS             = f'{BQ_PROJECT}.{BQ_DATASET}.sap_banks_raw'
 BQ_TABLE_TARGETS         = f'{BQ_PROJECT}.{BQ_DATASET}.targets_raw'
+# v1557 (2026-11-18): coleccion `vdi_target_altas` — altas marcadas por
+# VDI/VDE por mes (modal "Target Altas" en app). Un doc por (vendor+YYYYMM)
+# con array altaFsIds. Alimenta la vista v_altas_marcadas_por_mes_vendedor
+# que usa Power BI en la tabla "Target - Altas De Cuentas por VDI".
+BQ_TABLE_VDI_TARGET_ALTAS = f'{BQ_PROJECT}.{BQ_DATASET}.vdi_target_altas_raw'
 BQ_TABLE_CAMPAIGNS       = f'{BQ_PROJECT}.{BQ_DATASET}.campaigns_raw'
 # v997 (2026-09-18): waitlist_raw se alimenta desde la coleccion Firestore
 # `revision_waitlist` (Lista de Espera). Cada doc tiene items[] array; en BQ
@@ -1458,6 +1463,56 @@ def sync_targets_from_firestore(db: firestore.Client, sync_ts: str) -> list:
             '_sync_timestamp':  sync_ts,
         })
     log(f'[TARGETS] {len(rows)} rows validas (target > 0)')
+    return rows
+
+
+def sync_vdi_target_altas_from_firestore(db: firestore.Client, sync_ts: str) -> list:
+    """v1557 (2026-11-18): lee coleccion `vdi_target_altas` de Firestore.
+    Shape del doc (ver index.html:_taSave):
+      vendor       STRING    vendorKey uppercase con espacios ("SANTIAGO ESTEBAN")
+      month        STRING    'YYYY-MM'
+      altaFsIds    ARRAY     IDs Firestore de clientes marcados como alta
+      updatedAt    STRING    ISO
+      updatedBy    STRING    email
+
+    Doc ID: {VENDOR_SIN_ESPACIOS}_{YYYYMM} (ej. SANTIAGO_ESTEBAN_202611).
+
+    Pensado para la tabla "Target - Altas De Cuentas por VDI" del Power BI
+    (hoja "Desempeno Vendedores"). La vista BQ `v_altas_marcadas_por_mes_vendedor`
+    agrega por (vendor, month) y expone cantidad_altas = ARRAY_LENGTH(altaFsIds).
+    """
+    log('[VDI_TARGET_ALTAS] leyendo coleccion vdi_target_altas de Firestore...')
+    rows = []
+    for d in db.collection('vdi_target_altas').stream():
+        data = d.to_dict() or {}
+        vendor = str(data.get('vendor', '') or '').strip()
+        month = str(data.get('month', '') or '').strip()
+        if not vendor or not month:
+            continue
+        alta_ids = data.get('altaFsIds') or []
+        if not isinstance(alta_ids, list):
+            alta_ids = []
+        # Compute month_date (primer dia del mes) para que Power BI pueda filtrar
+        # por rango de fecha en lugar de string.
+        month_date = None
+        try:
+            y, m = month.split('-')
+            month_date = date(int(y), int(m), 1).isoformat()
+        except Exception:
+            pass
+        rows.append({
+            'doc_id':         d.id,
+            'vendor':         vendor,
+            'month':          month,
+            'month_date':     month_date,
+            'cantidad_altas': int(len(alta_ids)),
+            'alta_fs_ids':    [str(x) for x in alta_ids if x],
+            # v1487 §85: parse_firestore_date tolera Timestamp + string ISO.
+            'updated_at':     parse_firestore_date(data.get('updatedAt')),
+            'updated_by':     str(data.get('updatedBy', '') or ''),
+            '_sync_timestamp': sync_ts,
+        })
+    log(f'[VDI_TARGET_ALTAS] {len(rows)} rows (vendor+mes con altas marcadas)')
     return rows
 
 
@@ -3568,6 +3623,29 @@ def main():
         bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
     ]
     _load_to_bq_with_schema(bq_client, BQ_TABLE_TARGETS, target_rows, 'TARGETS', _target_schema, dry_run=dry_run)
+
+    # === 7b. VDI Target Altas (Firestore -> BigQuery) v1557+ (2026-11-18)
+    # Coleccion `vdi_target_altas`: un doc por (vendor, YYYYMM) con array
+    # altaFsIds de IDs de clientes marcados como alta en ese mes.
+    # Alimenta la vista v_altas_marcadas_por_mes_vendedor y la tabla
+    # "Target - Altas De Cuentas por VDI" del Power BI.
+    vdi_target_altas_rows = sync_vdi_target_altas_from_firestore(db, sync_ts)
+    _vdi_target_altas_schema = [
+        bigquery.SchemaField('doc_id', 'STRING'),
+        bigquery.SchemaField('vendor', 'STRING'),
+        bigquery.SchemaField('month', 'STRING'),
+        bigquery.SchemaField('month_date', 'DATE'),
+        bigquery.SchemaField('cantidad_altas', 'INT64'),
+        bigquery.SchemaField('alta_fs_ids', 'STRING', mode='REPEATED'),
+        bigquery.SchemaField('updated_at', 'TIMESTAMP'),
+        bigquery.SchemaField('updated_by', 'STRING'),
+        bigquery.SchemaField('_sync_timestamp', 'TIMESTAMP'),
+    ]
+    _load_to_bq_with_schema(
+        bq_client, BQ_TABLE_VDI_TARGET_ALTAS, vdi_target_altas_rows,
+        'VDI_TARGET_ALTAS', _vdi_target_altas_schema, dry_run=dry_run,
+        truncate_on_empty=True,
+    )
 
     # === 8. Campanias comerciales (Firestore -> BigQuery)  v367+
     # Coleccion `campaigns` en Firestore (una fila por campania). Doc ID = auto.
