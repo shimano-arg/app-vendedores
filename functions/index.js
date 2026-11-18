@@ -1051,6 +1051,17 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         });
       }
 
+      // E3 reparto-dep12 §1: el core filtra lineas enTransito del payload SAP
+      // cuando el flag está ON (migra al físico via scanDep12ToDep11Transitions
+      // y el trigger se dispara de nuevo). Fail-open si el doc no existe.
+      let dep12EnabledForSap = false;
+      try {
+        const flagsDoc = await loadFeatureFlagsDoc({ fbDb: db });
+        dep12EnabledForSap = isDep12RepartoEnabled(flagsDoc);
+      } catch {
+        dep12EnabledForSap = false;
+      }
+
       const result = await handleAutoSendSap(pedidoId, beforeData, afterData, {
         fbDb: db,
         FieldValue,
@@ -1061,6 +1072,8 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
         // lo pasa como payload.Series. Sin esto, SAP aplica default del user SL
         // y clasifica los SQ contra la BU equivocada (bug cross-BU 2026-09-22).
         appSeriesId,
+        // E3 reparto-dep12 §1: skip líneas enTransito del payload.
+        dep12Enabled: dep12EnabledForSap,
         // v991 (SecAudit run-1 HIGH #5): fresh lookup del vendor real del owner
         // desde roles/{uid}.vendor. handleAutoSendSap lo pasa a
         // buildQuotationPayload para resolver SlpCode (en vez de confiar en
@@ -1216,6 +1229,75 @@ export const onDep11IncreaseCreateReparto = onDocumentWritten(
 // Mariano aprobó mantener el export histórico en el deploy actual (menor riesgo).
 // El nuevo nombre queda como re-export del mismo handler.
 export const onStockSnapshotWrittenReparto = onDep11IncreaseCreateReparto;
+
+/**
+ * E3 reparto-dep12 §3: safety-net scheduled.
+ *
+ * Corre cada 60 min como red de seguridad por si el trigger
+ * `onDep11IncreaseCreateReparto` perdió un event (ej. race de deploy, event
+ * duplicado colapsado, CF reinicio). Lee el snapshot actual + invoca
+ * `scanCancelledTransito` + `scanDep12ToDep11Transitions` contra el snapshot
+ * (sin before — los 2 scanners son idempotentes).
+ *
+ * Detrás del feature flag `dep12_reparto_enabled`. OFF por default = no-op.
+ */
+export const scheduledTransitoSafetyNet = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 60 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 0,
+    memory: '256MiB',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const db = getFirestore();
+    const deps = {
+      fbDb: db,
+      /** @param {string} msg @param {Record<string, unknown>} [extra] */
+      log: (msg, extra) => console.log(msg, extra || {}),
+    };
+    const flagsDoc = await loadFeatureFlagsDoc(deps);
+    const dep12Enabled = isDep12RepartoEnabled(flagsDoc);
+    if (!dep12Enabled) {
+      console.log('scheduledTransitoSafetyNet skip', { dep12Enabled });
+      return;
+    }
+    const snapDoc = await db.doc('app_config/stock_snapshot').get();
+    if (!snapDoc.exists) {
+      console.log('scheduledTransitoSafetyNet skip', { reason: 'no_snapshot' });
+      return;
+    }
+    const after = snapDoc.data() || null;
+    if (!after) {
+      console.log('scheduledTransitoSafetyNet skip', { reason: 'empty_snapshot' });
+      return;
+    }
+    // `before=null` fuerza a los scanners a comparar contra "sin stock previo".
+    // Ambos son idempotentes (§104 derivada 2: re-check dentro del tx).
+    const r4 = await scanCancelledTransito(deps, null, after);
+    const r5 = await scanDep12ToDep11Transitions(deps, after);
+    console.log('scheduledTransitoSafetyNet done', {
+      transitoCanceladasRevertidas: r4.revertidas.length,
+      transitoCanceladasErrors: r4.errors.length,
+      transitoCruzadas: r5.migradas.length,
+      transitoCruzadasErrors: r5.errors.length,
+    });
+    // Log operativo para auditoría (§64.2 patrón — fire-and-forget).
+    try {
+      await db.collection('operations_log').add({
+        type: 'transito_safety_net_run',
+        transitoCanceladasRevertidas: r4.revertidas.length,
+        transitoCanceladasErrors: r4.errors.length,
+        transitoCruzadas: r5.migradas.length,
+        transitoCruzadasErrors: r5.errors.length,
+        timestamp: new Date(),
+      });
+    } catch (_e) {
+      /* non-fatal */
+    }
+  }
+);
 
 /**
  * v1277: applyRepartoManualCF — callable HTTPS para que Pablo/admin aplique

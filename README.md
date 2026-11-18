@@ -4798,6 +4798,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
   - Workflow: `.github/workflows/diagnose-sap-check-fields.yml`.
   - Script read-only: `scripts/diagnose_sap_check_deposit_fields.py`.
 
+### E3 reparto-dep12 (2026-11-18) — SAP auto-send skip enTransito + safety-net
+
+- **Antes**: `buildQuotationPayload` del CF `onPedidoConfirmedSendToSap` sólo filtraba por `state==='confirmed' + qty>0`. Sin red de seguridad para tránsito.
+- **Cambio**: con el flag `dep12_reparto_enabled` ON, el payload SAP skippea líneas `enTransito=true` (mix → envía solo físicas; all tránsito → `reason='all_transito'`). Nuevo CF `scheduledTransitoSafetyNet` cada 60 min invoca `scanCancelledTransito` + `scanDep12ToDep11Transitions` como red de seguridad. Comportamiento con flag OFF: idéntico al pre-E3.
+- **Verificación**: 6 unit tests PASS (`tests/functions/auto-send-sap-skip-transito.test.js`); suite completa 4227/4227.
+- **Detalle**: `docs/CHANGELOG-reparto-dep12-e3-sap-auto-send.md`.
+
 ### v1556 (2026-11-16) — Cartera (Seguimiento del CRM) abierto a todos los vendedores con scope propio
 
 - **Antes**: el botón "📊 Cartera" (`#seguimiento-btn`) solo lo veían `admin / gerente / interno` (Santiago y Ioannis). Los VDEs (Mauricio, Gonzalo, Federico, PACHI) nunca veían el botón — comentario explícito en `index.html:20282` desde 2026-07-28: "Vendedores externos NUNCA tienen acceso".
