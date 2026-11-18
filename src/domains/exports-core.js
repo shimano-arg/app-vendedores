@@ -686,11 +686,32 @@ window.exportMasterClientes = async function () {
       : scopeSet.size === 1
         ? [...scopeSet][0].split(' ')[0]
         : 'mis-zonas-' + scopeSet.size;
-  const fname = 'Masterfile_Clientes_SAP_' + scopeLbl + '_' + ts + '.xlsx';
-  await downloadXlsx(fname, [
-    { name: 'Clientes habilitados SAP', rows: rowsFiltered },
-    { name: 'Resumen por zona', rows: resumenRows },
-  ]);
+  // v1565 (2026-11-18): remap a las 17 columnas exactas por pedido Mariano.
+  // Nombres y orden son fijos. Columnas sin fuente estable quedan vacias
+  // (ej. ULTIMA_VISITA/CONTACTO_FECHA requiere agregado adicional desde
+  // visits; ver docs/CHANGELOG-exports-columns-refactor.md para el listado).
+  /** @type {Array<Record<string, any>>} */
+  const rowsMariano = rowsFiltered.map((r) => ({
+    CARDCODE_SAP: r['CardCode SAP'] || '',
+    NOMBRE_TIENDA: r['Nombre tienda'] || '',
+    TIPO_CLIENTE: r.Tipo || '', // v1565: Tipo (Cliente actual / Provisorio).
+    PROVINCIA: r.Provincia || '',
+    LOCALIDAD: r['Localidad (mapa)'] || r['Localidad declarada'] || '',
+    DIRECCION: r.Direccion || '',
+    TIPO_DE_CLIENTE: r['Tipo de cliente'] || '', // Ficha Cliente (clasif).
+    'TAMAÑO': r['Tamaño'] || r.Tamano || '',
+    ESPECIALIZACION: r['Especialización'] || r.Especializacion || '',
+    TIPO_DE_LOCAL: r['Tipo de local'] || '',
+    PREFERENCIAS_CONTACTO: r['Preferencia de contacto'] || '',
+    CREDITO_CHEQUE: r['Crédito cheque (ARS)'] || '',
+    FACTURACION_ACUMULADA_12MESES: r['Monto total (12m)'] || '',
+    'FRECUENCIA_COMPRA(DIAS)': r['Frecuencia (días entre compras)'] || '',
+    ULTIMA_COMPRA: r['Última compra'] || '',
+    VENDEDOR_ASIGNADO: r['Vendedor externo (VDE)'] || '',
+    'ULTIMA_VISITA/CONTACTO_FECHA': '', // v1565 pendiente: requiere query extra a visits.
+  }));
+  const fname = 'Master Clientes_' + scopeLbl + '_' + ts + '.xlsx';
+  await downloadXlsx(fname, [{ name: 'Master Clientes', rows: rowsMariano }]);
   showSyncTag(
     rows.length +
       ' clientes exportados' +
@@ -940,15 +961,14 @@ window.confirmMonthPicker = function () {
   pendingExportType = null;
   if (!tipo) return;
   try {
+    // v1565 (2026-11-18): opciones eliminadas del modal (ALTAS, VENTAS_ART_CLI,
+    // STOCK_ASIG, PENDIENTE_ASIG_PABLO, INFRACCIONES_MELI). Dispatcher reducido.
     if (tipo === 'VENTAS') exportVentasForMonth(anio, monthIdx);
     else if (tipo === 'VISITAS') exportVisitasForMonth(anio, monthIdx);
     else if (tipo === 'RENDICIONES') exportRendicionesForMonth(anio, monthIdx);
     else if (tipo === 'RUTAS') exportRutasForMonth(anio, monthIdx);
-    else if (tipo === 'ALTAS') exportAltasForMonth(anio, monthIdx);
     else if (tipo === 'BACKORDER') exportBackorderForMonth(anio, monthIdx);
-    else if (tipo === 'STOCK_ASIG') exportStockAsigForMonth(anio, monthIdx);
     else if (tipo === 'PEDIDOS_MES') exportPedidosMesForMonth(anio, monthIdx);
-    else if (tipo === 'VENTAS_ART_CLI') exportVentasArtCliForMonth(anio, monthIdx);
     else alert('Tipo desconocido: ' + tipo);
   } catch (e) {
     console.error('export ' + tipo, e);
@@ -1154,40 +1174,25 @@ async function exportVisitasForMonth(anio, monthIdx) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'App Vendedores Shimano';
   wb.created = new Date();
-  const ws = wb.addWorksheet('Visitas y Contactos', { views: [{ state: 'frozen', ySplit: 1 }] });
+  // v1565 (2026-11-18): 16 columnas exactas por pedido Mariano. Hoja "VISITAS".
+  const ws = wb.addWorksheet('VISITAS', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = [
-    { header: 'Fecha', key: 'fecha', width: 12 },
-    { header: 'Mes', key: 'mes', width: 10 },
-    { header: 'Anio', key: 'anio', width: 8 },
-    { header: 'Vendedor', key: 'vendedor', width: 22 },
-    { header: 'Owner Email', key: 'email', width: 28 },
-    { header: 'Interaccion', key: 'interaccion', width: 12 },
-    { header: 'Forma Contacto', key: 'formaContacto', width: 22 },
-    { header: 'Resultado Contacto', key: 'resultadoCt', width: 16 },
-    { header: 'Comentario', key: 'coment', width: 30 },
-    { header: 'Provincia', key: 'provincia', width: 16 },
-    { header: 'Localidad', key: 'localidad', width: 18 },
-    { header: 'Tienda', key: 'tienda', width: 28 },
-    { header: 'Tipo', key: 'tipo', width: 12 },
-    { header: 'Local', key: 'local', width: 12 },
-    { header: 'Tamano', key: 'tamano', width: 10 },
-    { header: 'Fidelidad', key: 'fidelidad', width: 10 },
-    { header: 'Relevancia', key: 'relev', width: 10 },
+    { header: 'FECHA_DE_VISITAS', key: 'fecha', width: 14 },
+    { header: 'VENDEDOR', key: 'vendedor', width: 22 },
+    { header: 'INTERACCION', key: 'interaccion', width: 12 },
+    { header: 'TIPO', key: 'tipo', width: 12 },
+    { header: 'LOCAL', key: 'local', width: 12 },
+    { header: 'TAMAÑO', key: 'tamano', width: 10 },
+    { header: 'FIDELIDAD', key: 'fidelidad', width: 10 },
+    { header: 'RELEVANCIA', key: 'relev', width: 10 },
     { header: 'POP', key: 'pop', width: 8 },
-    { header: 'Necesidad Puntual', key: 'nec', width: 22 },
-    { header: 'Oportunidad', key: 'oportu', width: 24 },
-    { header: 'Mas Vendido', key: 'masVe', width: 24 },
-    { header: 'Mas Preguntan', key: 'masPr', width: 24 },
-    { header: 'Ayuda Tienda', key: 'ayuda', width: 22 },
-    { header: 'Tipo Venta', key: 'tipoVenta', width: 12 },
-    { header: 'Pond Mostrador', key: 'pMost', width: 10 },
-    { header: 'Pond Ecommerce', key: 'pEcom', width: 10 },
-    { header: 'Competencia', key: 'compe', width: 16 },
-    { header: 'GPS Status', key: 'gpsSt', width: 12 },
-    { header: 'GPS Dist (m)', key: 'gpsDist', width: 10 },
-    { header: 'Foto frente', key: 'foto', width: 22 },
-    { header: 'En nombre de VDE', key: 'onBehalf', width: 12 },
-    { header: 'Cargado Por', key: 'createdBy', width: 24 },
+    { header: 'MAS_VENDIDO', key: 'masVe', width: 24 },
+    { header: 'MAS_PREGUNTAN', key: 'masPr', width: 24 },
+    { header: 'AYUDA_TIENDA', key: 'ayuda', width: 22 },
+    { header: 'TIPO_DE_VENTA', key: 'tipoVenta', width: 14 },
+    { header: 'PONDERACION_MOSTRADOR', key: 'pMost', width: 14 },
+    { header: 'PONDERACION_ECOMMERCE', key: 'pEcom', width: 14 },
+    { header: 'FOTO_FRENTE', key: 'foto', width: 22 },
   ];
   ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
   ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0C4A6E' } };
@@ -1214,38 +1219,25 @@ async function exportVisitasForMonth(anio, monthIdx) {
     }
     const row = ws.addRow({
       fecha: v.fecha || '',
-      mes: v.mes || '',
-      anio: v.anio || '',
       vendedor: titleCase(v.vendor || ''),
-      email: v.ownerEmail || '',
       interaccion: interaccionLbl,
-      formaContacto: formaContactoLbl,
-      resultadoCt: resultadoCtLbl,
-      coment: v.comentario || '',
-      provincia: titleCase(v.provincia || ''),
-      localidad: v.localidad || '',
-      tienda: v.tienda || '',
       tipo: v.tipo || '',
       local: v.local || '',
       tamano: v.tamano || '',
       fidelidad: v.fidelidad || '',
       relev: v.relevancia || '',
       pop: v.pop || '',
-      nec: v.necesidadPuntual || '',
-      oportu: v.oportunidad || '',
       masVe: v.masVendido || '',
       masPr: v.masPreguntan || '',
       ayuda: v.ayudaTienda || '',
       tipoVenta: v.tipoVenta === 'MOSTRADO' ? 'MOSTRADOR' : v.tipoVenta || '',
       pMost: v.ponderacionMostrado || '',
       pEcom: v.ponderacionEcommerce || '',
-      compe: v.competencia || '',
-      gpsSt: v.gpsStatus || '',
-      gpsDist: v.gpsDistanceM != null ? v.gpsDistanceM : '',
       foto: '', // celda vacia - imagen encima
-      onBehalf: v.onBehalfOf ? 'SI' : 'NO',
-      createdBy: v.createdByDisplayName || v.createdByEmail || '',
     });
+    // v1565: formaContacto/resultadoCt siguen computados para uso futuro (no exportadas).
+    void formaContactoLbl;
+    void resultadoCtLbl;
     row.height = ROW_H;
     row.alignment = { vertical: 'middle', wrapText: true };
     if (v.frenteLocal && typeof v.frenteLocal === 'string') {
@@ -1278,7 +1270,7 @@ async function exportVisitasForMonth(anio, monthIdx) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Shimano_Visitas_' + periodLabel(anio, monthIdx) + '.xlsx';
+    a.download = 'VISITAS_' + periodLabel(anio, monthIdx) + '.xlsx';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1335,25 +1327,19 @@ async function exportRendicionesForMonth(anio, monthIdx) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'App Vendedores Shimano';
   wb.created = new Date();
+  // v1565 (2026-11-18): 10 columnas exactas por pedido Mariano. Hoja "Rendiciones".
   const ws = wb.addWorksheet('Rendiciones', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = [
-    { header: 'Fecha', key: 'fecha', width: 12 },
-    { header: 'Tipo', key: 'tipo', width: 10 },
-    { header: 'Vendedor', key: 'vendedor', width: 26 },
-    { header: 'Owner Email', key: 'email', width: 28 },
-    { header: 'Concepto', key: 'concepto', width: 18 },
-    { header: 'N Ticket', key: 'numTicket', width: 14 },
-    { header: 'Modo pago', key: 'modoPago', width: 14 },
-    { header: 'Tipo gasto', key: 'tipoGasto', width: 24 },
-    { header: 'Division', key: 'division', width: 14 },
-    { header: 'Importe', key: 'importe', width: 12 },
-    { header: 'Moneda', key: 'moneda', width: 10 },
-    { header: 'Importe USD', key: 'importeUsd', width: 12 },
-    { header: 'Observaciones', key: 'obs', width: 30 },
-    { header: 'Foto ticket', key: 'foto', width: 22 },
-    { header: 'Estado', key: 'estado', width: 18 },
-    { header: 'Aprobador', key: 'aprobador', width: 28 },
-    { header: 'Aprobado en', key: 'aprobadoEn', width: 14 },
+    { header: 'FECHA_DE_RENDICION', key: 'fecha', width: 14 },
+    { header: 'TIPO', key: 'tipo', width: 10 },
+    { header: 'VENDEDOR', key: 'vendedor', width: 26 },
+    { header: 'CONCEPTO', key: 'concepto', width: 20 },
+    { header: 'N° TICKET', key: 'numTicket', width: 14 },
+    { header: 'TIPO_DE_GASTO', key: 'tipoGasto', width: 20 },
+    { header: 'IMPORTE', key: 'importe', width: 12 },
+    { header: 'OBSERVACIONES', key: 'obs', width: 30 },
+    { header: 'FOTO_TICKET', key: 'foto', width: 22 },
+    { header: 'ESTADO', key: 'estado', width: 18 },
   ];
   ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
   ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7E22CE' } };
@@ -1375,25 +1361,19 @@ async function exportRendicionesForMonth(anio, monthIdx) {
     const obsStr =
       (r.observaciones || r.notas || '') +
       (isGasto ? '' : r.solicitadoPor ? ' | Solicitado por: ' + r.solicitadoPor : '');
+    // v1565: 10 columnas exactas. Campos legacy (email, modoPago, division, moneda,
+    // importeUsd, aprobador, aprobadoEn) ya no se exportan por pedido Mariano.
     const row = ws.addRow({
       fecha: it.fecha,
       tipo: r.tipo || '',
       vendedor: r.ownerName || r.vendorName || r.ownerEmail || '',
-      email: r.ownerEmail || '',
       concepto: conceptStr,
       numTicket: r.numeroTicket || '',
-      modoPago: r.modoPago || '',
       tipoGasto: r.tipoGasto || '',
-      division: r.divisionGasto || '',
       importe: r.importe != null ? r.importe : '',
-      moneda: r.moneda || 'PESOS',
-      importeUsd: r.importeUsd != null && r.importeUsd !== 0 ? r.importeUsd : '',
       obs: obsStr,
       foto: '', // celda vacia - encima va la imagen
       estado: r.status || r.estado || '',
-      aprobador: r.approverEmail || r.aprobador || '',
-      aprobadoEn:
-        r.approvedAt && r.approvedAt.toDate ? r.approvedAt.toDate().toISOString().slice(0, 10) : '',
     });
     row.height = ROW_H;
     row.alignment = { vertical: 'middle', wrapText: true };
@@ -1461,7 +1441,7 @@ async function exportRendicionesForMonth(anio, monthIdx) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'Shimano_Rendiciones_' + periodLabel(anio, monthIdx) + '.xlsx';
+    a.download = 'Rendiciones_' + periodLabel(anio, monthIdx) + '.xlsx';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2031,37 +2011,53 @@ window.exportBackorderAll = async function () {
     Pedidos: '',
   };
   rows.push(totalRow);
+  // v1565 (2026-11-18): 2 hojas exactas por pedido Mariano.
+  // "Backorder_Clientes" (SKU, NOMBRE_DEL_PRODUCTO, CANTIDAD_BACKORDER,
+  //   SUBTOTAL, CLIENTE, ID_PEDIDO) + "Backorder_SKU" (SKU, CANTIDAD_BACKORDER,
+  //   SUBTOTAL, PROMEDIO_VENTA_3M). Columna PROMEDIO_VENTA_3M queda vacia
+  //   (requiere agregado BQ fuera del alcance de este PR; documentado en
+  //   docs/CHANGELOG-exports-columns-refactor.md). Resumen interno conservado
+  //   y aprovechado para el agregado por SKU.
+  /** @type {Array<Record<string, any>>} */
+  const rowsClientes = rows
+    .filter((r) => (r.Cliente || '') !== 'TOTAL')
+    .map((r) => ({
+      SKU: r.SKU || '',
+      NOMBRE_DEL_PRODUCTO: r.Producto || '',
+      CANTIDAD_BACKORDER: Number(r.Cantidad_Pendiente_BO) || 0,
+      SUBTOTAL: Number(r.Subtotal_BO_ARS) || 0,
+      CLIENTE: r.Cliente || '',
+      ID_PEDIDO: r.Pedidos || '',
+    }));
+  /** @type {Map<string, {qty: number, sub: number, nombre: string}>} */
+  const skuAgg = new Map();
+  for (const r of rowsClientes) {
+    const sku = String(r.SKU || '').trim();
+    if (!sku) continue;
+    const prev = skuAgg.get(sku) || { qty: 0, sub: 0, nombre: r.NOMBRE_DEL_PRODUCTO };
+    prev.qty += Number(r.CANTIDAD_BACKORDER) || 0;
+    prev.sub += Number(r.SUBTOTAL) || 0;
+    if (!prev.nombre && r.NOMBRE_DEL_PRODUCTO) prev.nombre = r.NOMBRE_DEL_PRODUCTO;
+    skuAgg.set(sku, prev);
+  }
+  /** @type {Array<Record<string, any>>} */
+  const rowsSku = [];
+  for (const [sku, agg] of skuAgg) {
+    rowsSku.push({
+      SKU: sku,
+      CANTIDAD_BACKORDER: agg.qty,
+      SUBTOTAL: Math.round(agg.sub),
+      PROMEDIO_VENTA_3M: '', // v1565 pendiente: requiere agregado BQ (ver changelog).
+    });
+    void resumenRows;
+  }
+  rowsSku.sort((a, b) => (b.SUBTOTAL || 0) - (a.SUBTOTAL || 0));
   const today = new Date().toISOString().slice(0, 10);
-  const fname = 'Shimano_Backorder_Snapshot_' + today + '.xlsx';
-  downloadXlsx(
-    fname,
-    [
-      { name: 'Resumen', rows: resumenRows },
-      { name: 'Backorder', rows },
-    ],
-    {
-      // Pintar la fila TOTAL de la hoja Backorder + fila 1 (TOTAL) de Resumen.
-      cellStyler: (cell, columnName, _value, rowIndex) => {
-        // Hoja Resumen: fila TOTAL = rowIndex 0 (primera data row post header).
-        // Hoja Backorder: fila TOTAL = ultima row (rowIndex === rows.length - 1).
-        // No tenemos acceso al nombre de la hoja en el styler, pero pintamos
-        // por celda: si columnName=='Metrica' y es 'TOTAL Backorder ARS...',
-        // o si columnName=='Cliente' y el valor incluye 'TOTAL'.
-        const txt = String(cell.value || '');
-        if (
-          (columnName === 'Metrica' && txt.includes('TOTAL Backorder')) ||
-          (columnName === 'Cliente' && txt.includes('TOTAL'))
-        ) {
-          cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF991B1B' } }; // red-800
-        }
-        // Celdas de la MISMA FILA TOTAL (los numeros)
-        if (rowIndex === 0 && columnName === 'Valor') {
-          cell.font = { bold: true };
-        }
-      },
-    }
-  );
+  const fname = 'BACKORDER_' + today + '.xlsx';
+  downloadXlsx(fname, [
+    { name: 'Backorder_Clientes', rows: rowsClientes },
+    { name: 'Backorder_SKU', rows: rowsSku },
+  ]);
   showSyncTag(
     'Export Backorder listo (' +
       (rows.length - 1) +
@@ -2485,36 +2481,26 @@ async function exportPedidosMesForMonth(anio, monthIdx) {
       if (!l) return;
       const qty = Number(l.qty) || 0;
       const precio = Number(l.priceAtCreation || l.precio || 0);
+      // v1565 (2026-11-18): 8 columnas exactas por pedido Mariano.
       rows.push({
-        Fecha_Pedido: fecha,
-        Mes: p.month || '',
-        Stage: p.stage || '',
-        Cliente: p.clientName || '',
-        Nombre_Local_Fantasia: nombreLocalFantasia,
-        CardCode: p.clientCardCode || '',
-        Provincia: p.province || '',
-        Localidad: p.locName || '',
-        // v1534: vendedor del master actual (fallback vendorAssigned, después ownerVendor).
-        Vendedor: scope.vendorColumnForPedido(p),
+        FECHA_DE_PEDIDO: fecha,
+        CLIENTE: p.clientName || '',
+        ID_PEDIDO: p._fsId || '',
         SKU: l.code || '',
-        Producto: l.desc || l.name || '',
-        Cantidad: qty,
-        Cantidad_Open: Number(l.qtyOpen) || 0,
-        Cantidad_Invoiced: Number(l.qtyInvoiced) || 0,
-        Cantidad_Cancelled: Number(l.qtyCancelled) || 0,
-        Estado_Linea: l.state || '',
-        Precio_Unit_ARS: precio,
-        Subtotal_ARS: Math.round(qty * precio),
-        Cerrado: p.closedAt ? 'SI' : 'NO',
-        Pedido_ID: p._fsId || '',
-        Linea_Idx: idx,
-        SQ_DocNum: p.transferidoSAP ? p.transferidoSAP.docNum || '' : '',
+        NOMBRE_DEL_PRODUCTO: l.desc || l.name || '',
+        CANTIDAD: qty,
+        SUBTOTAL: Math.round(qty * precio),
+        LOCALIDAD: p.locName || '',
       });
+      // v1565: nombreLocalFantasia + idx siguen computados (no exportados).
+      void nombreLocalFantasia;
+      void idx;
+      void scope;
     });
   }
-  rows.sort((a, b) => (a.Fecha_Pedido || '').localeCompare(b.Fecha_Pedido || ''));
-  const fname = 'Shimano_PedidosDelMes_' + periodLabel(anio, monthIdx) + '.xlsx';
-  downloadXlsx(fname, [{ name: 'Pedidos', rows }]);
+  rows.sort((a, b) => (a.FECHA_DE_PEDIDO || '').localeCompare(b.FECHA_DE_PEDIDO || ''));
+  const fname = 'PEDIDOS DEL MES_' + periodLabel(anio, monthIdx) + '.xlsx';
+  downloadXlsx(fname, [{ name: 'PEDIDOS DEL MES', rows }]);
   showSyncTag('Export Pedidos del mes listo (' + rows.length + ' lineas)', 2400);
 }
 

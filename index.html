@@ -4428,22 +4428,24 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
            pasa a title (tooltip) o aviso al click. Nueva categoria
            "Pendiente de Asignacion - Pablo"; "Stock Asignado" viejo renombrado
            a "Stock Asignado - lineas". -->
+      <!-- v1565 (2026-11-18): modal depurado por pedido Mariano. 5 opciones eliminadas
+           (Altas de clientes, Ventas x articulo x cliente/vendedor, Pendiente de
+           Asignacion - Pablo, Infracciones MELI (MAP), Stock Asignado - lineas).
+           Renames: Visitas y Contactos -> VISITAS; Masterfile Clientes -> Master
+           Clientes; Backorder -> BACKORDER; Pedidos del mes -> PEDIDOS DEL MES.
+           Nombre "Rendiciones" sin cambio. -->
       <div class="export-options">
         <div class="exp-opt" data-exp-kind="VISITAS" title="Visitas presenciales + contactos no presenciales (WhatsApp/Tel/SMS) con fotos del frente embebidas." onclick="closeExportDialog();showMonthPicker('VISITAS')">
           <div class="exp-icon" style="background:var(--color-accent-violet)"></div>
-          <div class="exp-body"><h3>Visitas y Contactos</h3></div>
+          <div class="exp-body"><h3>VISITAS</h3></div>
         </div>
         <div class="exp-opt" data-exp-kind="RENDICIONES" title="Gastos rendidos y anticipos del periodo con fotos de tickets embebidas." onclick="closeExportDialog();showMonthPicker('RENDICIONES')">
           <div class="exp-icon" style="background:var(--color-warning)"></div>
           <div class="exp-body"><h3>Rendiciones</h3></div>
         </div>
-        <div class="exp-opt" data-exp-kind="ALTAS" title="Solicitudes de alta: comercio, CUIT, estado, aprobador." onclick="closeExportDialog();showMonthPicker('ALTAS')">
-          <div class="exp-icon" style="background:#0891b2"></div>
-          <div class="exp-body"><h3>Altas de clientes</h3></div>
-        </div>
         <div class="exp-opt" data-exp-kind="MASTER" title="Listado completo de tiendas con zona, vendedor, direccion y estado." onclick="closeExportDialog();exportMasterClientes()">
           <div class="exp-icon" style="background:#1e3a8a"></div>
-          <div class="exp-body"><h3>Masterfile Clientes</h3></div>
+          <div class="exp-body"><h3>Master Clientes</h3></div>
         </div>
         <div class="exp-opt" data-exp-kind="PRECIOS_STOCK" title="SKUs con precio y unidades libres para la venta (fisico dep 11 − reservas)." onclick="closeExportDialog();exportPreciosStock()">
           <div class="exp-icon" style="background:#0d9488"></div>
@@ -4451,36 +4453,11 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
         </div>
         <div class="exp-opt" data-exp-kind="BACKORDER" title="Lineas state=BO abiertas en todos los pedidos-app. Snapshot del estado actual." onclick="closeExportDialog();exportBackorderAll()">
           <div class="exp-icon" style="background:#c2410c"></div>
-          <div class="exp-body"><h3>Backorder</h3></div>
-        </div>
-        <!-- v1396: nuevo primary. Repartos abiertos (ingresos_reparto pending/in_progress). -->
-        <div class="exp-opt" data-exp-kind="PENDIENTE_ASIG_PABLO" title="Repartos abiertos (ingresos_reparto pending/in_progress): SKU, fisico, unidades a repartir, clientes en cola." onclick="closeExportDialog();exportPendienteDeAsignacionPablo()">
-          <div class="exp-icon" style="background:#b45309"></div>
-          <div class="exp-body"><h3>Pendiente de Asignaci&oacute;n - Pablo</h3></div>
-        </div>
-        <!-- v1396: viejo "Stock Asignado" renombrado a "Stock Asignado - lineas" (auxiliar).
-             Mantiene computeBackorderRawLines FIFO + columnas Fecha_Pedido/Cliente/SKU/Qty/Estado_Real. -->
-        <div class="exp-opt" data-exp-kind="STOCK_ASIG" title="Lineas ASIG + confirmed + BO virtual_ASIG post-FIFO. Snapshot auxiliar — para el flujo nuevo usar 'Pendiente de Asignacion - Pablo'." onclick="closeExportDialog();exportStockAsigAll()">
-          <div class="exp-icon" style="background:var(--color-accent-violet)"></div>
-          <div class="exp-body"><h3>Stock Asignado - l&iacute;neas</h3></div>
+          <div class="exp-body"><h3>BACKORDER</h3></div>
         </div>
         <div class="exp-opt" data-exp-kind="PEDIDOS_MES" title="Pedidos creados en el mes/anio: cliente, vendedor, fecha, SKUs, unidades, ARS, estado." onclick="closeExportDialog();showMonthPicker('PEDIDOS_MES')">
           <div class="exp-icon" style="background:#1e40af"></div>
-          <div class="exp-body"><h3>Pedidos del mes</h3></div>
-        </div>
-        <!-- v1233 server-side via generateVentasReportCF. Admin/gerente only + tarda 30-60s —
-             aviso al click en el handler onclick (no en el listado). -->
-        <div class="exp-opt" data-exp-kind="VENTAS_ART_CLI" title="4 hojas: productos vendidos/NO vendidos por VDE + clientes CON/SIN compra. Fuente SAP via BigQuery." onclick="window._ventasArtCliClick()">
-          <div class="exp-icon" style="background:#047857"></div>
-          <div class="exp-body"><h3>Ventas &times; art&iacute;culo &times; cliente / vendedor</h3></div>
-        </div>
-        <!-- v1413 §51 (2026-10-22): resumen historico MAP MELI. Mariano-only.
-             Lee doc 'meli_infracciones_resumen/current' publicado por el
-             pipeline MI (map-daily.yml) y genera xlsx client-side con formato
-             exacto (ver mercado-intelligence/scripts/export_infracciones_meli_formato.py). -->
-        <div class="exp-opt" data-exp-kind="INFRACCIONES_MELI" id="exp-opt-infracciones-meli" style="display:none" title="Historico MAP: publicaciones unicas por cliente debajo del precio sugerido desde que arrancamos a controlar. Solo Mariano." onclick="closeExportDialog();exportInfraccionesMeli()">
-          <div class="exp-icon" style="background:#dc2626"></div>
-          <div class="exp-body"><h3>Infracciones MELI (MAP)</h3></div>
+          <div class="exp-body"><h3>PEDIDOS DEL MES</h3></div>
         </div>
       </div>
     </div>
