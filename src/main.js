@@ -163,6 +163,7 @@ import {
 import {
   buildPopupStockSkuLineas,
   renderPopupStockSkuPlainText,
+  renderPopupStockSkuPlainTextMultiBlock,
 } from './pure/popup-stock-sku-lineas.js';
 import {
   formatProductCatLineParts,
@@ -709,6 +710,7 @@ const phase0 = {
     STOCK_LABELS,
     buildPopupStockSkuLineas,
     renderPopupStockSkuPlainText,
+    renderPopupStockSkuPlainTextMultiBlock,
     buildWaitlistExportRows,
     isStockAsignadoItem,
     dispParaLineaReview,

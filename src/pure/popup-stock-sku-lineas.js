@@ -119,3 +119,48 @@ export function renderPopupStockSkuPlainText(breakdown) {
     .join('\n');
   return body + '\n\n' + formula;
 }
+
+/**
+ * v1562 reparto-dep12 §E4.1: popup con DOS bloques (físico + tránsito) cuando
+ * el feature flag dep12 está activo Y hay unidades en tránsito. Fuera de ese
+ * caso, cae al render §103 de 1 bloque (compat).
+ *
+ * @param {import('./stock-breakdown.js').StockBreakdown} breakdown
+ * @param {{dep12FlagOn?: boolean}} [opts]
+ * @returns {string}
+ */
+export function renderPopupStockSkuPlainTextMultiBlock(breakdown, opts) {
+  const flagOn = opts && opts.dep12FlagOn === true;
+  const b = breakdown || /** @type {any} */ ({});
+  const transitoDep12 = Number(b.transitoDep12) || 0;
+  if (!flagOn || transitoDep12 === 0) {
+    return renderPopupStockSkuPlainText(breakdown);
+  }
+  const fisico = Number(b.fisicoDep11) || 0;
+  const asigFisico = Number(b.asignadas && b.asignadas.totalFisico) || 0;
+  const confFisico = Number(b.confirmadasSinFacturar && b.confirmadasSinFacturar.totalFisico) || 0;
+  const libre = Number(b.libre) || 0;
+  const asigTransito = Number(b.asignadas && b.asignadas.totalTransito) || 0;
+  const confTransito =
+    Number(b.confirmadasSinFacturar && b.confirmadasSinFacturar.totalTransito) || 0;
+  const libreTransito = Number(b.libreTransito) || 0;
+  const bo = Number((b.backorderApp && b.backorderApp.total) || 0);
+  const lines = [];
+  lines.push('━━━ Físico (en depósito) ━━━');
+  lines.push('Stock físico: ' + fisico);
+  if (bo > 0) lines.push('En back order: ' + bo);
+  lines.push('Pedidos asignados en depósito: ' + asigFisico + ' (reservan)');
+  lines.push('Pedidos confirmados sin facturar en depósito: ' + confFisico + ' (reservan)');
+  lines.push('Libre para la venta ahora: ' + libre);
+  lines.push('Cuenta: ' + fisico + ' − ' + asigFisico + ' − ' + confFisico + ' = ' + libre);
+  lines.push('');
+  lines.push('━━━ Tránsito (cruzando Uruguay, llega ~7 días) ━━━');
+  lines.push('En tránsito: ' + transitoDep12);
+  lines.push('Pedidos asignados en tránsito: ' + asigTransito + ' (reservan)');
+  lines.push('Pedidos confirmados sin facturar en tránsito: ' + confTransito);
+  lines.push('Libre tránsito: ' + libreTransito);
+  lines.push(
+    'Cuenta: ' + transitoDep12 + ' − ' + asigTransito + ' − ' + confTransito + ' = ' + libreTransito
+  );
+  return lines.join('\n');
+}

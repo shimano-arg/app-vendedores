@@ -17092,6 +17092,21 @@ window.renderBackordersTab = function(){
       // v1122 (2026-09-30): boton ELIMINAR (SAP) para casos como SKUs descontinuados.
       // Warning explicito: la SQ SAP sigue viva. Solo cierra la linea en Firestore.
       const _isConfirmedApp = c.source === 'app' && c.state === 'confirmed';
+      // v1562 reparto-dep12 §E4.1: badge TRANSITO. Suma de qtyOpen de líneas
+      // con enTransito=true asociadas a este cliente+SKU. Con flag OFF nunca
+      // hay enTransito=true en prod → badge no aparece. Defensivo.
+      {
+        const _pedIds = Array.isArray(c.pedidoIds) ? c.pedidoIds : [];
+        let _qtyTransito = 0;
+        for (const _p of _pedIds) {
+          if (_p && _p.enTransito === true) {
+            _qtyTransito += Number(_p.qtyOpen || _p.qty || 0);
+          }
+        }
+        if (_qtyTransito > 0) {
+          html += ' <span class="badge-transito" title="Unidades cruzando Uruguay — llegan en ~7 dias. Al llegar al deposito, se asignan automaticamente al cliente.">&#9992; ' + Math.round(_qtyTransito) + '</span>';
+        }
+      }
       if (!_isConfirmedApp && c.source === 'app' && _pedidoIdsForCancel.length > 0) {
         // v876 (2026-09-11) SEC: fix CodeQL js/incomplete-sanitization alert #29.
         // Antes el escape manual .replace(/'/g,"\\'") no escapaba backslash primero
@@ -33637,9 +33652,16 @@ window.queryStockLive = function(code, btn){
         // (bug reportado 29/10 para TRX301B: fisico 16, asig 7, libre 2 —
         // faltaban las 7u confirmadas sin SAP de ORDEN 419 + 615). Fuente
         // única: window.__phase0.pure.renderPopupStockSkuPlainText.
+        // v1562 reparto-dep12 §E4.1: si feature flag dep12 ON y hay tránsito,
+        // usar multi-block (2 fórmulas). Caso contrario, 1 bloque (§103).
+        const _flagOn = window._dep12FlagCached === true;
+        const _renderMulti = window.__phase0 && window.__phase0.pure
+          && window.__phase0.pure.renderPopupStockSkuPlainTextMultiBlock;
         const _renderFn = window.__phase0 && window.__phase0.pure
           && window.__phase0.pure.renderPopupStockSkuPlainText;
-        if (typeof _renderFn === 'function') {
+        if (typeof _renderMulti === 'function') {
+          status = _renderMulti(_bk, { dep12FlagOn: _flagOn });
+        } else if (typeof _renderFn === 'function') {
           status = _renderFn(_bk);
         } else {
           // Fallback inline si el bundle no cargó (SW stale pre-v1520).
