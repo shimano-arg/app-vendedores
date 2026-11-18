@@ -4717,6 +4717,82 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E4.3 v1565 (2026-11-18) — Reparto dep 12 §E4.3: Export Pablo con columna "En tránsito" (Opción 1 safe)
+
+**Scope UI**: nueva **columna 10 "En tránsito"** al final del Excel editable del reparto (`window.exportRepartoManualExcel`). Decisión arquitectónica: **Opción 1 — columna al FINAL**. No toca la fórmula `VueleABackorder = C-E-G` por posición existente. Informativa, protegida, con estilo visual diferenciado (header azul, celdas celeste + texto azul). Con flag `dep12_reparto_enabled` OFF (default) la columna muestra 0 — defensiva. Cuando se prenda via Panel Control, los valores aparecen automáticamente sin re-deploy.
+
+**Archivos**: `src/pure/reparto-excel-export-rows.js` (shape + dep opcional `getQtyTransitoParaCliente`), `src/domains/exports-reparto.js` (ws.columns + fila 10 estilo + inyección de la fn), `tests/unit/audit/reparto-export-transito-column.test.js` (5 tests: shape, fixture, flag-off, orden ÚLTIMO, fórmula intacta). Bundle rebuilt.
+
+**Precedente**: PR #1365 documentaba N/A (diferido pendiente de brainstorm). Este PR reemplaza al #1365 con la implementación real. Ver `docs/CHANGELOG-reparto-dep12-e4-3-export.md`.
+
+### feat E5 v1564 (2026-11-18) — Reparto dep 12 §E5: script revert + guía activación + §107 CLAUDE.md
+
+**Cierre del feature `dep12_reparto_enabled`**. No toca código de producción: solo agrega un script de rollback admin + guía en este README + nueva sección §107 en CLAUDE.md con las reglas durables.
+
+#### Cómo activar el feature en producción (Mariano-only)
+
+**Estado actual**: feature deployado a prod con flag OFF. Nada cambia hasta activar.
+
+**Qué hace cuando se prende**:
+
+- La CF de reparto crea `ingresos_reparto` cuando entran unidades al depósito en tránsito (dep 12) si hay back order vigente del SKU.
+- El scanner `scanDep12ToDep11Transitions` pasa las unidades a "en depósito" en cuanto cruzan dep 12 → dep 11.
+- El envío automático a SAP filtra las líneas que todavía están en tránsito (las manda cuando llegan).
+- El modal Stock Asignado, el popup "Stock del SKU" y las cards del Planner muestran el tránsito con badge ✈️.
+
+**Pasos para activar**:
+
+1. Panel de Control (Mariano-only) → sección "Features experimentales" → tocar el toggle "Reparto desde depósito en tránsito".
+2. Confirmar en el diálogo → el flag queda escrito en `app_config/feature_flags.dep12_reparto_enabled = true` con auditoría.
+3. En los próximos 5 min el sync de stock procesa el primer delta dep 12 y empiezan a verse los repartos nuevos.
+
+**Rollback urgente** si algo rompe:
+
+1. Mismo toggle del Panel de Control → tocar → confirmar → queda `false`.
+2. Si hay líneas con el badge ✈️ que ya no deberían reservar nada:
+   - `node scripts/audit/U_revert_dep12_asigs.cjs` (dry-run — no escribe nada, imprime qué haría).
+   - Revisar el resumen.
+   - `node scripts/audit/U_revert_dep12_asigs.cjs --apply` para persistir.
+   - Cada doc tocado guarda `_backfill.U_revert_dep12_asigs_2026-11-18_v1564.previousByIdx` por si hay que revertir el rollback.
+
+**Archivos tocados por E5**:
+
+- `scripts/audit/U_revert_dep12_asigs.cjs` (nuevo, ~210 líneas — admin SDK, dry-run por default, §55 snapshot, §104 guard).
+- `README.md` (esta entry).
+- `CLAUDE.md` (nueva §107 con las reglas durables del feature + tabla `operations_log.type`).
+- `docs/CHANGELOG-reparto-dep12-e5-rollback-docs.md` (detalle completo del cierre).
+
+**Verificación**: dry-run del script U contra prod → 0 writes + listado legible de pedidos afectados.
+
+**Rollback del PR E5**: dropear los 4 archivos listados arriba. Producción no se toca.
+
+### feat E4.2 v1563 (2026-11-18) — Reparto dep 12 §E4.2: Planner card tránsito
+
+- **Antes**: `renderPlannerCard` mostraba el total ARS + badges SAP/SO/ORDEN/🔒 pero sin ninguna señal de cuántas unidades del pedido están en tránsito (`line.enTransito===true`).
+- **Problema**: con el flag ON (previsto por Mariano), las líneas confirmed con `enTransito` reservan dep 12 pero no están disponibles hasta cruzar a dep 11 (~7 días). El Planner tenía que distinguirlas para el vendedor y para Pablo (priorización del reparto).
+- **Cambio**:
+  - CSS en `styles/apple-design.css` (bloque v1563 §E4.2): `.planner-transito-line` azul `#1e40af` + `.planner-badge-transito-full` pill azul. Regla hover-safe `0,3,3` con `!important`.
+  - JS en `index.html:renderPlannerCard`: loop sobre `pedido.lines` suma `_qtyTransitoOpen` vs `_qtyFisicoOpen`. Si 100% tránsito → badge "100% TRÁNSITO". Si mix → línea secundaria "✈️ En tránsito: N u". Sin cambios con `_qtyTransitoOpen=0` (defensivo flag OFF).
+  - Changelog: `docs/CHANGELOG-reparto-dep12-e4-2-planner.md`.
+- **Por qué**: §39 (sin duplicar breakdown — lee `pedido.lines` directo) + §68 (texto sin jerga) + §106 (pill Apple).
+- **Verificación**: 7 tests nuevos (`tests/unit/audit/planner-card-transito.test.js`). Bundle rebuild.
+- **Rollback**: revertir bloque CSS v1563 + 2 edits del renderPlannerCard + test.
+
+### feat E4.1 (2026-11-18) — Reparto dep 12 §E4.1: badge ✈️ + popup 2 fórmulas + toggle Panel Control
+
+- **Antes**: CFs del feature live (E0..E3) con flag OFF. Sin UI que muestre la ASIG en tránsito, sin cuenta separada en el popup, sin forma rápida de prender/apagar el flag.
+- **Problema**: para empezar a usar el feature sin consola Mariano necesita (1) distinguir visualmente qty tránsito vs qty físico en Stock Asignado, (2) ver la fórmula del tránsito aparte en el popup de SKU, (3) tener un toggle en el Panel de Control.
+- **Cambio**: 3 piezas detrás del flag `dep12_reparto_enabled` (OFF default):
+  - **Badge ✈️ TRÁNSITO**: CSS `.badge-transito` pill §106 + hover-safe §62 en `styles/apple-design.css`. `index.html:_renderBackordersTab` suma `pedidoIds[].qtyOpen` donde `enTransito===true` y renderea el badge inline con tooltip §68.
+  - **Popup 2 fórmulas**: nueva export `renderPopupStockSkuPlainTextMultiBlock` en `src/pure/popup-stock-sku-lineas.js` (expuesta en `window.__phase0.pure`). `queryStockLive` prioriza multi-block si flag ON + tránsito > 0; fallback a §103 (1 bloque).
+  - **Toggle Panel Control**: nueva sección "Features experimentales" en `src/domains/panel-control.js` (gate Mariano-only). Hydrate async lee `app_config/feature_flags.dep12_reparto_enabled` y cachea en `window._dep12FlagCached`. Click → confirm §68 + `set(..., {merge:true})` con audit. CSS pill §106.
+  - `firestore.rules`: match nuevo `/app_config/feature_flags` con `read: request.auth != null` + `write: isMariano()`. Catch-all del `app_config/{docId}` excluye `feature_flags` del `isAdmin()` default.
+  - Changelog extendido: `docs/CHANGELOG-reparto-dep12-e4-ui.md`.
+- **Por qué**: Mariano quiere operar el feature sin consola. Las 3 piezas son defensivas con flag OFF — no cambian nada en prod hasta que lo prenda desde el Panel.
+- **Verificación**: 3065 unit tests PASS / 0 FAIL (15 nuevos). Biome + typecheck clean. Bundle rebuilt.
+- **Rollback**: `git revert <sha>`. Flag queda OFF por default. Data sin cambios.
+- **Diferido a E4.2/E4.3** (§5): columna tránsito en Planner, export Pablo con tránsito, forecast (este último no aplica a la app web — vive en `Desktop\FORECAST\` Python separado).
+
 ### feat E2 (2026-11-17) — Reparto dep 12 §E2: CF trigger dep 12 + scanCancelledTransito + reconcile dep12
 
 - **Antes**: `onDep11IncreaseCreateReparto` solo detectaba deltas dep 11. Stock entrando a dep 12 no generaba `ingresos_reparto` hasta que cruzara (~7 días). `applyRepartoManualCore` no marcaba `enTransito=true` en ASIG resultantes.

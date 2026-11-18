@@ -17092,6 +17092,21 @@ window.renderBackordersTab = function(){
       // v1122 (2026-09-30): boton ELIMINAR (SAP) para casos como SKUs descontinuados.
       // Warning explicito: la SQ SAP sigue viva. Solo cierra la linea en Firestore.
       const _isConfirmedApp = c.source === 'app' && c.state === 'confirmed';
+      // v1562 reparto-dep12 §E4.1: badge TRANSITO. Suma de qtyOpen de líneas
+      // con enTransito=true asociadas a este cliente+SKU. Con flag OFF nunca
+      // hay enTransito=true en prod → badge no aparece. Defensivo.
+      {
+        const _pedIds = Array.isArray(c.pedidoIds) ? c.pedidoIds : [];
+        let _qtyTransito = 0;
+        for (const _p of _pedIds) {
+          if (_p && _p.enTransito === true) {
+            _qtyTransito += Number(_p.qtyOpen || _p.qty || 0);
+          }
+        }
+        if (_qtyTransito > 0) {
+          html += ' <span class="badge-transito" title="Unidades cruzando Uruguay — llegan en ~7 dias. Al llegar al deposito, se asignan automaticamente al cliente.">&#9992; ' + Math.round(_qtyTransito) + '</span>';
+        }
+      }
       if (!_isConfirmedApp && c.source === 'app' && _pedidoIdsForCancel.length > 0) {
         // v876 (2026-09-11) SEC: fix CodeQL js/incomplete-sanitization alert #29.
         // Antes el escape manual .replace(/'/g,"\\'") no escapaba backslash primero
@@ -33637,9 +33652,16 @@ window.queryStockLive = function(code, btn){
         // (bug reportado 29/10 para TRX301B: fisico 16, asig 7, libre 2 —
         // faltaban las 7u confirmadas sin SAP de ORDEN 419 + 615). Fuente
         // única: window.__phase0.pure.renderPopupStockSkuPlainText.
+        // v1562 reparto-dep12 §E4.1: si feature flag dep12 ON y hay tránsito,
+        // usar multi-block (2 fórmulas). Caso contrario, 1 bloque (§103).
+        const _flagOn = window._dep12FlagCached === true;
+        const _renderMulti = window.__phase0 && window.__phase0.pure
+          && window.__phase0.pure.renderPopupStockSkuPlainTextMultiBlock;
         const _renderFn = window.__phase0 && window.__phase0.pure
           && window.__phase0.pure.renderPopupStockSkuPlainText;
-        if (typeof _renderFn === 'function') {
+        if (typeof _renderMulti === 'function') {
+          status = _renderMulti(_bk, { dep12FlagOn: _flagOn });
+        } else if (typeof _renderFn === 'function') {
           status = _renderFn(_bk);
         } else {
           // Fallback inline si el bundle no cargó (SW stale pre-v1520).
@@ -36949,6 +36971,35 @@ function renderPlannerCard(pedido, column) {
     const _tooltip = _reasonMap[_r] || ('Pedido cerrado' + (_r ? ' (' + _r + ')' : ''));
     badges.push({ text: '🔒', cls: 'planner-badge planner-badge-closed', title: _tooltip });
   }
+  // v1563 reparto-dep12 §E4.2: sumar qty confirmed en tránsito vs físico.
+  // Línea secundaria "✈️ En tránsito: N u" y badge "100% TRÁNSITO" si todo es tránsito.
+  // Flag OFF + sin líneas enTransito: comportamiento histórico (defensivo).
+  var _qtyTransitoOpen = 0;
+  var _qtyFisicoOpen = 0;
+  if (Array.isArray(pedido.lines)) {
+    for (var _li = 0; _li < pedido.lines.length; _li++) {
+      var _l = pedido.lines[_li];
+      if (!_l || _l.state !== 'confirmed') continue;
+      var _qo = Number(_l.qtyOpen) || 0;
+      if (_qo <= 0) continue;
+      if (_l.enTransito === true) _qtyTransitoOpen += _qo;
+      else _qtyFisicoOpen += _qo;
+    }
+  }
+  if (_qtyTransitoOpen > 0 && _qtyFisicoOpen === 0) {
+    badges.push({
+      text: '100% TRÁNSITO',
+      cls: 'planner-badge-transito-full',
+      title: 'Pedido 100% en tránsito — las unidades están cruzando Uruguay (llegan en ~7 días).',
+    });
+  }
+  var _transitoLineHtml = '';
+  if (_qtyTransitoOpen > 0 && _qtyFisicoOpen > 0) {
+    _transitoLineHtml =
+      '<span class="planner-transito-line" title="Unidades cruzando Uruguay — llegan en ~7 días.">' +
+      '<span class="airplane">✈️</span>En tránsito: ' + _qtyTransitoOpen + ' u' +
+      '</span>';
+  }
   const badgesHtml = badges.map(b => {
     const _titleAttr = b.title ? ' title="' + escapeHtml(b.title) + '"' : '';
     return '<span class="' + b.cls + '"' + _titleAttr + '>' + escapeHtml(b.text) + '</span>';
@@ -36970,6 +37021,7 @@ function renderPlannerCard(pedido, column) {
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
       _ageBadgeHtml +
       '<div class="planner-card-total">' + escapeHtml(total) + '</div>' +
+      _transitoLineHtml +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
       togglesHtml +
     '</div>'

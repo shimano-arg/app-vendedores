@@ -129,6 +129,7 @@ async function logUnifyRejection(deps, errorCode, params, extra, nowMs) {
       },
       extra || {}
     );
+    /** @type {Object<string, any>} */
     const scrubbed = {};
     for (const k of Object.keys(entry)) {
       const v = entry[k];
@@ -163,6 +164,7 @@ async function logUnifyRejection(deps, errorCode, params, extra, nowMs) {
 async function logUnifySuccess(deps, logEntry) {
   if (!deps || !deps.fbDb) return;
   try {
+    /** @type {Object<string, any>} */
     const scrubbed = {};
     for (const k of Object.keys(logEntry || {})) {
       const v = logEntry[k];

@@ -266,6 +266,7 @@ async function logMoveRejection(deps, errorCode, params, extra, nowMs) {
       extra || {}
     );
     // Scrub: strip undefined + function (Firestore rechaza silenciosamente).
+    /** @type {Object<string, any>} */
     const scrubbed = {};
     for (const k of Object.keys(entry)) {
       const v = entry[k];
@@ -304,6 +305,7 @@ async function logMoveSuccess(deps, logEntry) {
   if (!deps || !deps.fbDb) return;
   try {
     // Scrub defensivo (mismo patrón que logMoveRejection).
+    /** @type {Object<string, any>} */
     const scrubbed = {};
     for (const k of Object.keys(logEntry || {})) {
       const v = logEntry[k];

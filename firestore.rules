@@ -734,13 +734,21 @@ service cloud.firestore {
       // Planner Task 2: planner_responsables y planner_config tienen su propio
       // gate de write (isMariano-only). El catch-all `isAdmin()` queda excluido
       // para esos dos docIds para evitar bypass de la restriccion Mariano-only.
-      allow write: if isAdmin() && !(docId in ['planner_responsables', 'planner_config']);
+      allow write: if isAdmin() && !(docId in ['planner_responsables', 'planner_config', 'feature_flags']);
     }
 
     // Planner Kanban Task 2 (2026-09-22): configuracion de responsables del
     // planner. Solo Mariano puede escribir; admin/gerente/Mariano pueden leer.
     match /app_config/planner_responsables {
       allow read: if isAdmin() || isGerente() || isMariano();
+      allow write: if isMariano();
+    }
+
+    // v1562 reparto-dep12 §E4.1: feature flags runtime. Cualquier usuario
+    // autenticado lee (necesario para que los clientes resuelvan el estado
+    // del flag). Solo Mariano puede escribir desde el Panel de Control.
+    match /app_config/feature_flags {
+      allow read: if request.auth != null;
       allow write: if isMariano();
     }
 
