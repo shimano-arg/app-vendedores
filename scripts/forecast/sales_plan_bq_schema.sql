@@ -14,7 +14,8 @@
 -- Tabla: sales_plan_rows
 -- ============================================================
 -- Long format: 1 registro por (familia × SKU × mes).
--- Particionada por `mes` (MONTH) para filtros eficientes "futuro vs pasado".
+-- Particionada por `mes` (DAY, default; alineado con el script
+-- productivo scripts/sync_sales_plan_to_bigquery.py).
 -- Clustered por (familia, sku) para lookups de un SKU específico.
 
 CREATE TABLE IF NOT EXISTS `app-vendedores-shimano.shimano_app.sales_plan_rows` (

@@ -221,7 +221,7 @@ def load_to_bq(bq_client: bigquery.Client, rows: list[dict], dry_run: bool) -> d
         schema=SALES_PLAN_SCHEMA,
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
         time_partitioning=bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.MONTH,
+            type_=bigquery.TimePartitioningType.DAY,
             field='mes',
         ),
         clustering_fields=['familia', 'sku'],
