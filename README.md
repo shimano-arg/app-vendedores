@@ -4717,6 +4717,14 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E4.3 v1565 (2026-11-18) — Reparto dep 12 §E4.3: Export Pablo con columna "En tránsito" (Opción 1 safe)
+
+**Scope UI**: nueva **columna 10 "En tránsito"** al final del Excel editable del reparto (`window.exportRepartoManualExcel`). Decisión arquitectónica: **Opción 1 — columna al FINAL**. No toca la fórmula `VueleABackorder = C-E-G` por posición existente. Informativa, protegida, con estilo visual diferenciado (header azul, celdas celeste + texto azul). Con flag `dep12_reparto_enabled` OFF (default) la columna muestra 0 — defensiva. Cuando se prenda via Panel Control, los valores aparecen automáticamente sin re-deploy.
+
+**Archivos**: `src/pure/reparto-excel-export-rows.js` (shape + dep opcional `getQtyTransitoParaCliente`), `src/domains/exports-reparto.js` (ws.columns + fila 10 estilo + inyección de la fn), `tests/unit/audit/reparto-export-transito-column.test.js` (5 tests: shape, fixture, flag-off, orden ÚLTIMO, fórmula intacta). Bundle rebuilt.
+
+**Precedente**: PR #1365 documentaba N/A (diferido pendiente de brainstorm). Este PR reemplaza al #1365 con la implementación real. Ver `docs/CHANGELOG-reparto-dep12-e4-3-export.md`.
+
 ### feat E5 v1564 (2026-11-18) — Reparto dep 12 §E5: script revert + guía activación + §107 CLAUDE.md
 
 **Cierre del feature `dep12_reparto_enabled`**. No toca código de producción: solo agrega un script de rollback admin + guía en este README + nueva sección §107 en CLAUDE.md con las reglas durables.

@@ -128,9 +128,38 @@ window.exportRepartoManualExcel = async function () {
       w.__phase0.pure.repartoConsolidate &&
       w.__phase0.pure.repartoConsolidate.consolidateClientesBO;
     const filtros = _readFiltrosModalReparto();
+    // v1565 §E4.3: `getQtyTransitoParaCliente` alimenta la nueva columna 10
+    // "En tránsito". Lee de globalPedidos — líneas ASIG con enTransito=true.
+    // Con el feature flag OFF nunca hay líneas así, entonces devuelve 0 y la
+    // columna queda informativa sin romper nada.
+    const getQtyTransitoParaCliente = (cardCode, sku) => {
+      try {
+        const pedidos = Array.isArray(w.globalPedidos) ? w.globalPedidos : [];
+        const cc = String(cardCode || '');
+        const sk = String(sku || '').toUpperCase();
+        if (!cc || !sk) return 0;
+        let total = 0;
+        for (const p of pedidos) {
+          if (!p || p.closedAt) continue;
+          if (String(p.clientCardCode || '') !== cc) continue;
+          const lines = Array.isArray(p.lines) ? p.lines : [];
+          for (const l of lines) {
+            if (!l) continue;
+            if (l.state !== 'ASIG') continue;
+            if (l.enTransito !== true) continue;
+            if (String(l.code || '').toUpperCase() !== sk) continue;
+            total += Number(l.qtyOpen) || 0;
+          }
+        }
+        return total;
+      } catch (_e) {
+        return 0;
+      }
+    };
     const result = pureMod.computeRepartoExcelExportRows(ingresos, filtros, {
       getStockFisico: _getStockFisico,
       consolidateFn: typeof consolidateFn === 'function' ? consolidateFn : undefined,
+      getQtyTransitoParaCliente,
     });
     if (!result.rows.length) {
       alert(
@@ -154,6 +183,9 @@ window.exportRepartoManualExcel = async function () {
       { header: 'Eliminar', key: 'Eliminar', width: 12 },
       { header: 'Reparto ID', key: 'RepartoId', width: 24 },
       { header: 'CardCode', key: 'CardCode', width: 16 },
+      // v1565 §E4.3 (Opción 1 safe): columna 10 al FINAL. NO toca la fórmula
+      // VueleABackorder (sigue siendo =C-E-G). Informativa + protegida gris.
+      { header: 'En tránsito', key: 'EnTransito', width: 14 },
     ];
 
     const headerRow = ws.getRow(1);
@@ -179,6 +211,12 @@ window.exportRepartoManualExcel = async function () {
       pattern: 'solid',
       fgColor: { argb: 'FF888888' },
     };
+    // v1565 §E4.3: col 10 "En tránsito" header en gris + fondo celeste suave.
+    headerRow.getCell(10).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1E40AF' },
+    };
 
     for (let i = 0; i < result.rows.length; i++) {
       const r = result.rows[i];
@@ -196,6 +234,7 @@ window.exportRepartoManualExcel = async function () {
           Eliminar: null,
           RepartoId: '',
           CardCode: '',
+          EnTransito: null, // v1565 §E4.3: fila aviso no participa.
         });
         row.eachCell((cell) => {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEB99' } };
@@ -216,6 +255,7 @@ window.exportRepartoManualExcel = async function () {
         Eliminar: r.Eliminar,
         RepartoId: r.RepartoId,
         CardCode: r.CardCode,
+        EnTransito: Number(r.EnTransito) || 0, // v1565 §E4.3: col 10 informativa.
       });
       row.getCell(6).value = {
         formula: r.VueleABackorder.replace(/^=/, ''),
@@ -234,6 +274,9 @@ window.exportRepartoManualExcel = async function () {
       row.getCell(8).font = { color: { argb: 'FF888888' }, size: 10 };
       row.getCell(9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
       row.getCell(9).font = { color: { argb: 'FF888888' }, size: 10 };
+      // v1565 §E4.3: celda 10 "En tránsito" con fondo celeste suave + texto azul.
+      row.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+      row.getCell(10).font = { color: { argb: 'FF1E40AF' }, bold: true, size: 10 };
       row.getCell(1).protection = { locked: true };
       row.getCell(2).protection = { locked: true };
       row.getCell(3).protection = { locked: true };
@@ -243,6 +286,7 @@ window.exportRepartoManualExcel = async function () {
       row.getCell(7).protection = { locked: false };
       row.getCell(8).protection = { locked: true };
       row.getCell(9).protection = { locked: true };
+      row.getCell(10).protection = { locked: true }; // v1565 §E4.3: informativa.
     }
 
     ws.views = [{ state: 'frozen', ySplit: 1 }];
@@ -254,7 +298,8 @@ window.exportRepartoManualExcel = async function () {
     // Las celdas bloqueadas (Codigo, Cliente, Backorder, Stock, VueleABO, RepartoId,
     // CardCode) siguen bloqueadas; sort y filter trabajan sobre el conjunto completo.
     const _lastRow = (result.rows ? result.rows.length : 0) + 1; // +1 por header
-    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: _lastRow, column: 9 } };
+    // v1565 §E4.3: autoFilter abarca hasta col 10 "En tránsito".
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: _lastRow, column: 10 } };
 
     await ws.protect('', {
       selectLockedCells: true,
