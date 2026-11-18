@@ -3818,3 +3818,122 @@ Referencias: `#planner-header-btn`, `#reclamos-header-btn`, `#panel-control-btn`
 **Precedente**: v1540 agregó «Pedidos del mes» al header sin su bloque pill; quedó como rectángulo en mayúsculas al lado de botones pill. Mariano lo marcó el 2026-11-02 (v1546).
 
 **Cómo verificar**: antes de cerrar un PR que agrega un botón, abrir la app en el navegador y compararlo con los vecinos; agregar un test de contrato que exija el bloque pill en `apple-design.css` (ver `tests/unit/audit/pedidos-mes-btn-apple-v1546.test.js`). Recordar que `apple-design.css` usa CRLF.
+
+## 107. Reparto desde depósito en tránsito (dep 12) (2026-11-18, v1564)
+
+Contexto operativo: la mercadería viaja de Uruguay (dep 12) a Argentina (dep 11) ~7 días. El feature reserva las unidades en tránsito a clientes con back order vigente ANTES de que lleguen físicamente, para que Pablo no reparta dos veces. Detrás del flag `app_config/feature_flags.dep12_reparto_enabled` (OFF default).
+
+### Regla fuerte
+
+Cuando `isDep12RepartoEnabled(flags) === true`:
+
+1. Los ingresos a dep 12 (detectados por `detectStockIncreases.dep12Deltas` en `src/pure/detect-stock-increases.js`) crean `ingresos_reparto` con `warehouse: 12` + `source: 'dep12'` si hay BO vigente del SKU. Dedupe por `(sku, source='dep12')` + `status in [pending, in_progress]`.
+2. Al aplicar el reparto (`applyRepartoManualCore`) sobre un ingreso con `source='dep12'`, las ASIG resultantes llevan `enTransito: true` + `asigAtTransito: nowIso`.
+3. `lineReservesStock('ASIG')` sobre línea `enTransito=true`: reserva stock del bucket tránsito (dep 12), **ignora** el TTL soft de 7d de `asigAt`, y aplica hard cap **30d** desde `asigAtTransito || asigAt || pedido.createdAt`.
+4. `lineReservesStock('confirmed')` sobre línea `enTransito=true`: reserva stock del bucket tránsito, ignora soft 7d, aplica hard cap **60d**.
+5. SAP auto-send (`functions/core/auto-send-sap-core.js:buildQuotationPayload`) **filtra** líneas `enTransito=true` del payload SL. El cliente (`src/domains/sap-auto-send-listener.js`) también filtra como optimización pre-callable. Si TODAS las líneas son tránsito, el auto-send no se dispara (`sap_autosend_skipped_all_transito`); si hay mix, va solo lo físico (`sap_autosend_partial_transito`).
+6. Scanner `scanDep12ToDep11Transitions` (en `functions/core/reparto-transito-core.js`) flipea `enTransito: false` + `enDep11At: nowIso` cuando `fisicoDep11 >= qtyTransitoDemanda` del SKU. FIFO por `asigAtTransito` ASC. `runTransaction` §58 strict (reads antes de writes) + §104 re-lectura (si cambió post-scan, skip). Idempotente.
+7. Scanner `scanCancelledTransito` revierte ASIG `enTransito=true` → BO cuando dep 12 baja sin suba equivalente en dep 11 (cancelación en tránsito). FIFO + fail-safe por pedido (una tx con error no bloquea las otras). `closedReason='asig_transito_cancelada'`.
+8. Scheduled CF `scheduledTransitoSafetyNet` corre cada 60 min como red de seguridad por si el trigger `onDep11IncreaseCreateReparto` pierde un snapshot.
+
+### Cuando el flag está OFF (default actual)
+
+Comportamiento histórico 100%:
+
+- `createIngresosRepartoFromDelta` skip el bloque dep 12 (early return por check del flag).
+- Los scanners `scanDep12ToDep11Transitions` + `scanCancelledTransito` chequean el flag al inicio y hacen skip con log informativo.
+- `scheduledTransitoSafetyNet` loguea `scheduledTransitoSafetyNet skip` y no ejecuta.
+- El filter del SAP auto-send sigue dejando pasar todo (no hay líneas `enTransito=true` en prod porque nunca se setearon).
+
+### Fail-open (§77 + §89)
+
+- Si `getStockBreakdown` lee un snapshot sin `transitoDep12` populated → `libreTransito=0` + sub-totales `*.totalTransito=0` (defensivo). El breakdown no rompe.
+- Si `lineReservesStock` ve `enTransito=true` sin ninguna fecha de referencia válida (`asigAtTransito/asigAt/createdAt`) → reserva (fail-open §64.2) + invoca `opts.log('transito_source_missing', {sku, pedidoId, lineIndex, hasAsigAt, hasAsigAtTransito, hasCreatedAt})` si el callback está disponible. No bloquea.
+
+### Shape de datos (prohibido modificar sin plan)
+
+- `app_config/stock_snapshot.warehouseBreakdown`: JSON string `{sku: {11: N, 12: M, ...}}`. El shape JSON string + los números por warehouse son contrato del sync Python v368+ (precedente) + del CF v1451 (§65).
+- `pedidos.lines[i]` con flag ON puede llevar los campos nuevos `enTransito: boolean`, `asigAtTransito: ISO`, `enDep11At: ISO`.
+
+### Prohibido
+
+- Cambiar el shape de `warehouseBreakdown` del snapshot (JSON string `{sku: {11: N, 12: M, ...}}`). Rompe el sync Python + el CF `syncSapCatalogStockCF` + los detectores de delta.
+- Reimplementar lógica de `enTransito` fuera de `lineReservesStock` + `getStockBreakdown` + los 3 scanners de `reparto-transito-core.js`. Todo consumidor nuevo lee del breakdown (§39).
+- Mutaciones a `pedidos.lines[].enTransito` desde el cliente directo. Todo flip se hace server-side via `scanDep12ToDep11Transitions` / `scanCancelledTransito` o CF nueva con el mismo pattern.
+- Bajar hard cap 30d (ASIG) o 60d (confirmed) sin plan de audit que confirme que no hay líneas legacy acumuladas (si se baja, lo que estaba arriba del cap deja de reservar automáticamente).
+- Tocar el flag `app_config/feature_flags.dep12_reparto_enabled` desde cualquier otro rol que no sea Mariano (rules firestore bloquean + toggle UI está gateado por email).
+
+### Archivos vivos
+
+**Pure (cliente + espejo server)** §57:
+
+- `src/pure/warehouse-constants.js` + `functions/core/warehouse-constants.js`
+- `src/pure/detect-stock-increases.js` + `functions/core/detect-stock-increases.js`
+- `src/pure/stock-breakdown.js` v8 + `functions/core/pedido-snapshot-core.js`
+- `src/pure/stock-realmente-disponible.js` + mirror en `functions/core/pedido-snapshot-core.js`
+- `src/pure/feature-flags.js` + `functions/core/feature-flags.js`
+- `src/pure/popup-stock-sku-lineas.js` (`renderPopupStockSkuPlainTextMultiBlock`) + mirror si corresponde
+
+**Server-only**:
+
+- `functions/core/reparto-transito-core.js` — 3 scanners §58 strict (`createIngresosRepartoFromDelta` extendida dep12, `scanCancelledTransito`, `scanDep12ToDep11Transitions`).
+- `functions/core/auto-send-sap-core.js` — filter `enTransito` en `buildQuotationPayload` detrás del flag (`deps.dep12Enabled`).
+- `functions/index.js` — exports:
+  - `onDep11IncreaseCreateReparto` (trigger `onDocumentWritten` sobre `app_config/stock_snapshot`, extendida para invocar los 3 scanners cuando el flag está ON).
+  - `onStockSnapshotWrittenReparto` (alias nuevo del mismo handler, reserva de nombre para refactor).
+  - `scheduledTransitoSafetyNet` (nueva CF `onSchedule` every 60 minutes).
+  - `onPedidoConfirmedSendToSap` wrapper pasa `dep12Enabled` al core.
+
+**Cliente**:
+
+- `src/domains/sap-auto-send-listener.js` — filter `enTransito` cliente (optimización pre-callable).
+- `src/domains/panel-control.js` — toggle Mariano-only `#dep12-flag-toggle` + hydrate async con cache `window._dep12FlagCached`.
+- `index.html`:
+  - `_renderBackordersTab` badge ✈️ TRÁNSITO en el modal Stock Asignado.
+  - `queryStockLive` popup "Stock del SKU" con 2 fórmulas via `renderPopupStockSkuPlainTextMultiBlock`.
+  - `renderPlannerCard` línea secundaria "✈️ En tránsito: N u" + badge pill "100% TRÁNSITO".
+
+**Infra**:
+
+- `styles/apple-design.css` — `.badge-transito`, `.planner-transito-line`, `.planner-badge-transito-full`, `#dep12-flag-toggle.btn-zonas` (todos pill §106 + hover-safe §62).
+- `firestore.rules` — match `/app_config/feature_flags` con `read: authenticated` + `write: isMariano()`. El catch-all `/app_config/{docId}` excluye `feature_flags`.
+
+**Operaciones**:
+
+- `scripts/audit/U_revert_dep12_asigs.cjs` — rollback admin para apagar el feature + limpiar líneas residuales (§55 snapshot + §104 guard).
+
+### `operations_log.type` del feature
+
+Para debug / audit en Firestore:
+
+| type | Cuándo |
+|---|---|
+| `dep12_reconcile_ingresos` | `createIngresosRepartoFromDelta` creó un ingreso con `source='dep12'`. |
+| `asig_cruzo_a_fisico` | `scanDep12ToDep11Transitions` flipó una línea `enTransito: false`. |
+| `transito_cancelado` | `scanCancelledTransito` revirtió una ASIG en tránsito a BO. |
+| `transito_safety_net_run` | `scheduledTransitoSafetyNet` corrió (every 60 min). |
+| `dep12_flag_changed` | Toggle Panel Control escribió el flag con audit (`dep12FlagChangedAt/By`). |
+| `transito_source_missing` | `lineReservesStock` encontró `enTransito=true` sin fechas de referencia válidas. Fail-open — diagnóstico. |
+
+### Rollback del feature entero
+
+1. Flag OFF via Panel Control (Mariano-only) o directo en Firestore: solo Mariano puede escribir `app_config/feature_flags`.
+2. Si quedan ASIG `enTransito=true` vivas: `node scripts/audit/U_revert_dep12_asigs.cjs --apply`.
+3. Si hay que revertir el revert: cada doc tocado por U guarda `_backfill.U_revert_dep12_asigs_<fecha>_<version>.previousByIdx` con los valores previos — reversible.
+
+### Precedente
+
+- Plan completo: `docs/superpowers/plans/2026-11-17-reparto-dep12.md`.
+- Loop E0-E5 (2026-11-17 / 2026-11-18). Sin incidentes en prod — flag OFF default garantizó 0 impacto durante los 5 merges.
+- Decisiones FIX §11 aplicadas en cada etapa (feature flag, §58 strict + re-lectura, FIFO `asigAtTransito`, log AWAIT de rechazos, fail-open por fuente faltante).
+
+### Cómo debugear si Mariano reporta algo con el feature
+
+1. Ver estado del flag: `firebase firestore:get app_config/feature_flags --project=app-vendedores-shimano` → campo `dep12_reparto_enabled`.
+2. Si está en `true`: query `operations_log` filtrada por los types del feature (tabla arriba) en los últimos 60 min para ver qué pasó.
+3. Casos típicos:
+   - "no veo tránsito en el modal Stock Asignado" → chequear que el flag esté ON + que el VDE tenga el bundle v1562+ cargado (`window.APP_VERSION`).
+   - "pedí algo y me lo mandó a SAP sin stock físico" → chequear `operations_log type='sap_autosend_partial_transito'` para ese pedidoId; la línea tránsito debería haber quedado fuera del payload.
+   - "stock tránsito trabado que no cruza nunca" → chequear `scheduledTransitoSafetyNet` logs cada 60 min; si corre bien y no flipea, es porque `fisicoDep11 < qtyTransito` del SKU (todavía no llegó el stock físico).
+   - "quiero apagar todo ya" → toggle OFF + script U con --apply.
+
