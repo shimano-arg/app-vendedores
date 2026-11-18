@@ -42,14 +42,32 @@ import time
 from datetime import date, datetime, timezone
 from typing import Any, Iterable
 
+# Deps externas lazy (firebase_admin + google-cloud-bigquery + google-auth):
+# el módulo tiene que importar en CI sin estas deps (tests Python son "solo
+# stdlib" per workflow test-and-lint). Las deps reales se chequean en main()
+# antes de usar firestore/bigquery.
+_DEPS_OK = True
+_DEPS_ERR: Exception | None = None
 try:
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-    from google.cloud import bigquery
-    from google.oauth2 import service_account
+    import firebase_admin  # type: ignore
+    from firebase_admin import credentials, firestore  # type: ignore
+    from google.cloud import bigquery  # type: ignore
+    from google.oauth2 import service_account  # type: ignore
 except Exception as e:  # pragma: no cover - env setup
-    print(f'[fatal] deps missing: {e}', file=sys.stderr)
-    sys.exit(2)
+    _DEPS_OK = False
+    _DEPS_ERR = e
+    firebase_admin = None  # type: ignore
+    credentials = None  # type: ignore
+    firestore = None  # type: ignore
+    bigquery = None  # type: ignore
+    service_account = None  # type: ignore
+
+
+def _require_deps() -> None:
+    """Chequea que las deps externas estén instaladas. Llamar antes de main()."""
+    if not _DEPS_OK:
+        print(f'[fatal] deps missing: {_DEPS_ERR}', file=sys.stderr)
+        sys.exit(2)
 
 
 BQ_PROJECT = 'app-vendedores-shimano'
@@ -194,19 +212,22 @@ def expand_cache_to_rows(familia: str, cache: dict, loaded_at_iso: str) -> list[
 # BigQuery load
 # ============================================================
 
-SALES_PLAN_SCHEMA = [
-    bigquery.SchemaField('familia', 'STRING', mode='REQUIRED'),
-    bigquery.SchemaField('sku', 'STRING', mode='REQUIRED'),
-    bigquery.SchemaField('description', 'STRING', mode='NULLABLE'),
-    bigquery.SchemaField('moq', 'INTEGER', mode='NULLABLE'),
-    bigquery.SchemaField('mes', 'DATE', mode='REQUIRED'),
-    bigquery.SchemaField('cantidad', 'INTEGER', mode='REQUIRED'),
-    bigquery.SchemaField('source_year_month', 'STRING', mode='NULLABLE'),
-    bigquery.SchemaField('source_filename', 'STRING', mode='NULLABLE'),
-    bigquery.SchemaField('uploaded_by', 'STRING', mode='NULLABLE'),
-    bigquery.SchemaField('snapshot_at', 'TIMESTAMP', mode='NULLABLE'),
-    bigquery.SchemaField('loaded_at', 'TIMESTAMP', mode='REQUIRED'),
-]
+# Schema lazy — bigquery.SchemaField requiere la dep externa, por eso vive
+# en una fn que solo se llama desde main() tras _require_deps().
+def _get_sales_plan_schema():
+    return [
+        bigquery.SchemaField('familia', 'STRING', mode='REQUIRED'),
+        bigquery.SchemaField('sku', 'STRING', mode='REQUIRED'),
+        bigquery.SchemaField('description', 'STRING', mode='NULLABLE'),
+        bigquery.SchemaField('moq', 'INTEGER', mode='NULLABLE'),
+        bigquery.SchemaField('mes', 'DATE', mode='REQUIRED'),
+        bigquery.SchemaField('cantidad', 'INTEGER', mode='REQUIRED'),
+        bigquery.SchemaField('source_year_month', 'STRING', mode='NULLABLE'),
+        bigquery.SchemaField('source_filename', 'STRING', mode='NULLABLE'),
+        bigquery.SchemaField('uploaded_by', 'STRING', mode='NULLABLE'),
+        bigquery.SchemaField('snapshot_at', 'TIMESTAMP', mode='NULLABLE'),
+        bigquery.SchemaField('loaded_at', 'TIMESTAMP', mode='REQUIRED'),
+    ]
 
 
 def load_to_bq(bq_client: bigquery.Client, rows: list[dict], dry_run: bool) -> dict:
@@ -218,7 +239,7 @@ def load_to_bq(bq_client: bigquery.Client, rows: list[dict], dry_run: bool) -> d
         return {'written': 0, 'dry_run': True, 'total_rows': len(rows)}
 
     job_config = bigquery.LoadJobConfig(
-        schema=SALES_PLAN_SCHEMA,
+        schema=_get_sales_plan_schema(),
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
         time_partitioning=bigquery.TimePartitioning(
             type_=bigquery.TimePartitioningType.DAY,
@@ -243,6 +264,7 @@ def load_to_bq(bq_client: bigquery.Client, rows: list[dict], dry_run: bool) -> d
 # ============================================================
 
 def main() -> int:
+    _require_deps()
     dry_run = os.environ.get('DRY_RUN', '').lower() in ('true', '1', 'yes')
     loaded_at_iso = now_iso()
     t0 = time.monotonic()
