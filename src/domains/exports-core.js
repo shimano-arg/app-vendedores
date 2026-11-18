@@ -2130,14 +2130,18 @@ window.exportBackorderAll = async function () {
       if (now - ms > 90 * DAY_MS) continue;
       for (const l of p.lines) {
         if (!l || !l.code) continue;
-        // sólo cuento líneas facturadas/entregadas (state cancelled o sin
-        // qtyOpen=0 implican que la venta se concretó).
-        const st = l.state || '';
-        if (st === 'BO' || st === 'ASIG') continue;
-        const q = Number(l.qty) || 0;
-        if (q <= 0) continue;
+        // v1567 (2026-11-18): fix PROMEDIO_VENTA_3M. Sólo cuento unidades
+        // REALMENTE facturadas en SAP (l.qtyInvoiced), NO l.qty (que incluye
+        // lo pedido pero no facturado). Patrón idéntico al de
+        // src/domains/planner/compute-column.js:16 (regla 'facturar').
+        // Reporte Mariano 2026-11-18: SKU 032737 mostraba promedio=33 sin
+        // haber traído ni vendido una sola unidad (confirmado en PowerBI).
+        // Causa raíz: la fórmula vieja contaba l.qty con state!=BO/ASIG,
+        // es decir sumaba líneas 'confirmed' + 'cancelled' con qty pedida.
+        const qi = Number(l.qtyInvoiced) || 0;
+        if (qi <= 0) continue;
         const sku = String(l.code).trim().toUpperCase();
-        qtySum90.set(sku, (qtySum90.get(sku) || 0) + q);
+        qtySum90.set(sku, (qtySum90.get(sku) || 0) + qi);
       }
     }
     // divido por 3 meses → promedio mensual
