@@ -44,11 +44,11 @@ describe('exports-core usa el alcance por rol', () => {
     expect(bodyOf('window.exportBackorderAll = ')).toMatch(/filterPedidos\(/);
     expect(bodyOf('window.exportStockAsigAll = ')).toMatch(/filterPedidos\(/);
   });
-  it('Pedidos del mes: columna Vendedor sale del master, no de ownerVendor', () => {
-    const b = bodyOf('async function exportPedidosMesForMonth(');
-    expect(b).toMatch(/Vendedor:\s*scope\.vendorColumnForPedido\(p\)/);
-    expect(b).not.toMatch(/Vendedor:\s*p\.ownerVendor/);
-  });
+  // v1565/v1566 (2026-11-18): Mariano pidió rework de columnas de PEDIDOS DEL
+  // MES.xlsx. Shape nuevo: FECHA_DE_PEDIDO | CLIENTE | ID_PEDIDO | SKU |
+  // NOMBRE_DEL_PRODUCTO | CANTIDAD | SUBTOTAL | LOCALIDAD. Columna "Vendedor"
+  // eliminada por pedido explícito. Test legacy removido — el filtrado por
+  // alcance sigue aplicando vía `filterPedidos(...)` (ver test anterior).
   it('Visitas: el vendedor consulta por ownerUid y se filtra por rol', () => {
     const b = bodyOf('async function exportVisitasForMonth(');
     expect(b).toMatch(/where\('ownerUid', '==', /);

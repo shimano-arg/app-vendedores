@@ -175,7 +175,7 @@ describe('v1565 §refactor exports — columnas exactas por export', () => {
       'LOCALIDAD:',
       'DIRECCION:',
       'TIPO_DE_CLIENTE:',
-      "'TAMAÑO':",
+      'TAMAÑO:', // v1566: biome auto-fix removió quotes del key literal
       'ESPECIALIZACION:',
       'TIPO_DE_LOCAL:',
       'PREFERENCIAS_CONTACTO:',
