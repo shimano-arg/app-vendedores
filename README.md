@@ -4717,6 +4717,47 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E5 v1564 (2026-11-18) — Reparto dep 12 §E5: script revert + guía activación + §107 CLAUDE.md
+
+**Cierre del feature `dep12_reparto_enabled`**. No toca código de producción: solo agrega un script de rollback admin + guía en este README + nueva sección §107 en CLAUDE.md con las reglas durables.
+
+#### Cómo activar el feature en producción (Mariano-only)
+
+**Estado actual**: feature deployado a prod con flag OFF. Nada cambia hasta activar.
+
+**Qué hace cuando se prende**:
+
+- La CF de reparto crea `ingresos_reparto` cuando entran unidades al depósito en tránsito (dep 12) si hay back order vigente del SKU.
+- El scanner `scanDep12ToDep11Transitions` pasa las unidades a "en depósito" en cuanto cruzan dep 12 → dep 11.
+- El envío automático a SAP filtra las líneas que todavía están en tránsito (las manda cuando llegan).
+- El modal Stock Asignado, el popup "Stock del SKU" y las cards del Planner muestran el tránsito con badge ✈️.
+
+**Pasos para activar**:
+
+1. Panel de Control (Mariano-only) → sección "Features experimentales" → tocar el toggle "Reparto desde depósito en tránsito".
+2. Confirmar en el diálogo → el flag queda escrito en `app_config/feature_flags.dep12_reparto_enabled = true` con auditoría.
+3. En los próximos 5 min el sync de stock procesa el primer delta dep 12 y empiezan a verse los repartos nuevos.
+
+**Rollback urgente** si algo rompe:
+
+1. Mismo toggle del Panel de Control → tocar → confirmar → queda `false`.
+2. Si hay líneas con el badge ✈️ que ya no deberían reservar nada:
+   - `node scripts/audit/U_revert_dep12_asigs.cjs` (dry-run — no escribe nada, imprime qué haría).
+   - Revisar el resumen.
+   - `node scripts/audit/U_revert_dep12_asigs.cjs --apply` para persistir.
+   - Cada doc tocado guarda `_backfill.U_revert_dep12_asigs_2026-11-18_v1564.previousByIdx` por si hay que revertir el rollback.
+
+**Archivos tocados por E5**:
+
+- `scripts/audit/U_revert_dep12_asigs.cjs` (nuevo, ~210 líneas — admin SDK, dry-run por default, §55 snapshot, §104 guard).
+- `README.md` (esta entry).
+- `CLAUDE.md` (nueva §107 con las reglas durables del feature + tabla `operations_log.type`).
+- `docs/CHANGELOG-reparto-dep12-e5-rollback-docs.md` (detalle completo del cierre).
+
+**Verificación**: dry-run del script U contra prod → 0 writes + listado legible de pedidos afectados.
+
+**Rollback del PR E5**: dropear los 4 archivos listados arriba. Producción no se toca.
+
 ### feat E4.2 v1563 (2026-11-18) — Reparto dep 12 §E4.2: Planner card tránsito
 
 - **Antes**: `renderPlannerCard` mostraba el total ARS + badges SAP/SO/ORDEN/🔒 pero sin ninguna señal de cuántas unidades del pedido están en tránsito (`line.enTransito===true`).
