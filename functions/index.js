@@ -74,6 +74,11 @@ import { fetchStockLiveCore } from './core/fetch-stock-live-core.js';
 // v1277 dual mode → v1278 FIFO disabled → v1279 FIFO deleted.
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
+// R01 Fase 2 (v1557-dev 2026-11-18): CFs callable que reemplazan el flow
+// cliente-side de volverAListaEspera + waitlistUnificarOrden. Garantizan
+// §42 via lock atómico. Hoy el frontend NO las invoca (migración queda
+// para Fase 3); el deploy A hace las CFs disponibles en Cloud Run.
+import { movePedidoToWaitlistCore } from './core/move-pedido-to-waitlist-core.js';
 // v774 (2026-09-02): notif email al enviar oferta a SAP (pedido Mariano).
 import { buildEmailContent, sendEmail, shouldNotify } from './core/notify-quotation-sent-core.js';
 import { extractAffectedSkus, recalcSnapshotForSkus } from './core/pedido-snapshot-core.js';
@@ -132,6 +137,10 @@ import { handleSyncSapPayments } from './core/sync-sap-payments-core.js';
 // v1053 (2026-09-24): detección SQs cerradas manualmente en SAP (Close Document).
 import { syncSapQuotationClosures } from './core/sync-sap-quotation-closures-core.js';
 import { handleTriggerRendicionesEmailManual } from './core/trigger-rendiciones-email-core.js';
+// R01 Fase 2 (v1557-dev 2026-11-18): CF callable para unificar waitlists
+// cross-vendor server-side (D12.2 Q4). Reemplaza waitlistUnificarOrden
+// cliente-side. Hoy el frontend NO la invoca.
+import { unifyWaitlistsCore } from './core/unify-waitlists-core.js';
 // E10 §stock-servidor-atomico (2026-10-23)
 import { updatePedidoLinesCore } from './core/update-pedido-lines-core.js';
 // v1280 (2026-10-14): TTL 7d waitlists stock-asignado-batch.
@@ -4311,6 +4320,121 @@ export const disableTotpGate = onCall(
       }
       console.error('disableTotpGate unexpected', e);
       throw new HttpsError('internal', 'error inesperado');
+    }
+  }
+);
+
+/**
+ * R01 Fase 2 (v1557-dev 2026-11-18) — movePedidoToWaitlistCF.
+ *
+ * Mueve un pedido `stage='pending'` sin SAP a `/revision_waitlist` y
+ * elimina el pedido atómicamente. Garantiza §42 (a lo sumo 1 waitlist
+ * abierta por cardCode) via lock atómico `revision_waitlist_locks/{cardCode}`
+ * escrito dentro de la misma `runTransaction` (§58 ALL reads before writes).
+ *
+ * Fail-closed H2: si la pre-tx query falla Y el lock está vacío, rechaza
+ * con `failed-precondition` + `{reason: 'preflight-unverifiable'}`. No
+ * crea nunca un waitlist "fantasma".
+ *
+ * Permisos: admin/gerente/interno OR VDE owner OR VDE con
+ * `assignedVendorUid === auth.uid`.
+ *
+ * Reemplaza (cuando el frontend se migre en Fase 3) el flow cliente-side
+ * `volverAListaEspera` en index.html. Hoy el frontend NO invoca este CF.
+ */
+export const movePedidoToWaitlistCF = onCall(
+  { region: REGION, cors: true, enforceAppCheck: false, memory: '256MiB', timeoutSeconds: 30 },
+  async (/** @type {any} */ req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const data = req.data || {};
+    try {
+      const r = await movePedidoToWaitlistCore(
+        {
+          fbDb: getFirestore(),
+          log: (/** @type {any} */ m, /** @type {any} */ extra) => console.log(m, extra || {}),
+          now: () => Date.now(),
+        },
+        { auth, pedidoId: String(data.pedidoId || '') }
+      );
+      return r;
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      if (e && /** @type {any} */ (e)._errorCode) {
+        // Propagar `_errorData` del core como `details` del HttpsError
+        // para que el cliente pueda distinguir sub-casos del mismo code
+        // (ej. failed-precondition con reason='preflight-unverifiable'
+        // vs 'stage cambió mid-tx') sin string-matchear el message.
+        const errData = /** @type {any} */ (e)._errorData || undefined;
+        throw new HttpsError(/** @type {any} */ (e)._errorCode, e.message || 'move fallo', errData);
+      }
+      console.error('movePedidoToWaitlistCF unexpected', e);
+      throw new HttpsError('internal', 'move fallo: ' + (e?.message || String(e)));
+    }
+  }
+);
+
+/**
+ * R01 Fase 2 (v1557-dev 2026-11-18) — unifyWaitlistsCF.
+ *
+ * Unifica múltiples waitlists del mismo cardCode en una (target). Las
+ * absorbidas pasan a `stage='consumed'`. El servidor construye el
+ * `unifiedPayload` server-side (D12.2 Q4 — NO confía en el cliente).
+ *
+ * Mismas garantías de §42/§58 que movePedidoToWaitlistCF. Campos
+ * inmutables: ownerUid, assignedVendorUid, assignedVendorEmail,
+ * ownerVendor, clientCardCode, createdAt del target.
+ *
+ * Permisos (D12.2 Q4): admin/gerente/interno OR VDE con ownership
+ * (assignedVendorUid === auth.uid OR ownerUid === auth.uid) en target
+ * Y todos los absorbidos.
+ *
+ * Reemplaza (cuando el frontend se migre en Fase 3) el flow cliente-side
+ * `waitlistUnificarOrden` en index.html. Hoy el frontend NO invoca este CF.
+ */
+export const unifyWaitlistsCF = onCall(
+  { region: REGION, cors: true, enforceAppCheck: false, memory: '256MiB', timeoutSeconds: 60 },
+  async (/** @type {any} */ req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const data = req.data || {};
+    try {
+      const r = await unifyWaitlistsCore(
+        {
+          fbDb: getFirestore(),
+          now: () => Date.now(),
+        },
+        {
+          auth,
+          targetWaitlistId: String(data.targetWaitlistId || ''),
+          absorbedWaitlistIds: Array.isArray(data.absorbedWaitlistIds)
+            ? data.absorbedWaitlistIds
+            : [],
+        }
+      );
+      return r;
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      if (e && /** @type {any} */ (e)._errorCode) {
+        const errData = /** @type {any} */ (e)._errorData || undefined;
+        throw new HttpsError(
+          /** @type {any} */ (e)._errorCode,
+          e.message || 'unify fallo',
+          errData
+        );
+      }
+      console.error('unifyWaitlistsCF unexpected', e);
+      throw new HttpsError('internal', 'unify fallo: ' + (e?.message || String(e)));
     }
   }
 );
