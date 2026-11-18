@@ -4717,6 +4717,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### feat E4.1 (2026-11-18) — Reparto dep 12 §E4.1: badge ✈️ + popup 2 fórmulas + toggle Panel Control
+
+- **Antes**: CFs del feature live (E0..E3) con flag OFF. Sin UI que muestre la ASIG en tránsito, sin cuenta separada en el popup, sin forma rápida de prender/apagar el flag.
+- **Problema**: para empezar a usar el feature sin consola Mariano necesita (1) distinguir visualmente qty tránsito vs qty físico en Stock Asignado, (2) ver la fórmula del tránsito aparte en el popup de SKU, (3) tener un toggle en el Panel de Control.
+- **Cambio**: 3 piezas detrás del flag `dep12_reparto_enabled` (OFF default):
+  - **Badge ✈️ TRÁNSITO**: CSS `.badge-transito` pill §106 + hover-safe §62 en `styles/apple-design.css`. `index.html:_renderBackordersTab` suma `pedidoIds[].qtyOpen` donde `enTransito===true` y renderea el badge inline con tooltip §68.
+  - **Popup 2 fórmulas**: nueva export `renderPopupStockSkuPlainTextMultiBlock` en `src/pure/popup-stock-sku-lineas.js` (expuesta en `window.__phase0.pure`). `queryStockLive` prioriza multi-block si flag ON + tránsito > 0; fallback a §103 (1 bloque).
+  - **Toggle Panel Control**: nueva sección "Features experimentales" en `src/domains/panel-control.js` (gate Mariano-only). Hydrate async lee `app_config/feature_flags.dep12_reparto_enabled` y cachea en `window._dep12FlagCached`. Click → confirm §68 + `set(..., {merge:true})` con audit. CSS pill §106.
+  - `firestore.rules`: match nuevo `/app_config/feature_flags` con `read: request.auth != null` + `write: isMariano()`. Catch-all del `app_config/{docId}` excluye `feature_flags` del `isAdmin()` default.
+  - Changelog extendido: `docs/CHANGELOG-reparto-dep12-e4-ui.md`.
+- **Por qué**: Mariano quiere operar el feature sin consola. Las 3 piezas son defensivas con flag OFF — no cambian nada en prod hasta que lo prenda desde el Panel.
+- **Verificación**: 3065 unit tests PASS / 0 FAIL (15 nuevos). Biome + typecheck clean. Bundle rebuilt.
+- **Rollback**: `git revert <sha>`. Flag queda OFF por default. Data sin cambios.
+- **Diferido a E4.2/E4.3** (§5): columna tránsito en Planner, export Pablo con tránsito, forecast (este último no aplica a la app web — vive en `Desktop\FORECAST\` Python separado).
+
 ### feat E2 (2026-11-17) — Reparto dep 12 §E2: CF trigger dep 12 + scanCancelledTransito + reconcile dep12
 
 - **Antes**: `onDep11IncreaseCreateReparto` solo detectaba deltas dep 11. Stock entrando a dep 12 no generaba `ingresos_reparto` hasta que cruzara (~7 días). `applyRepartoManualCore` no marcaba `enTransito=true` en ASIG resultantes.

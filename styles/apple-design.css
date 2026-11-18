@@ -7328,3 +7328,59 @@ html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
   }
 }
 /* dashboard-ventas-apple:end */
+
+/* v1562 reparto-dep12 §E4.1: badge TRANSITO para modal Stock Asignado */
+.badge-transito {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-left: 4px;
+}
+#backorders-modal tbody tr:hover td .badge-transito,
+#backorders-modal tbody tr:focus-within td .badge-transito,
+#backorders-modal tbody tr.highlighted td .badge-transito,
+#backorders-modal tbody tr.selected td .badge-transito {
+  background: #dbeafe !important;
+  color: #1e40af !important;
+}
+/* v1562 reparto-dep12 §E4.1:end */
+
+/* v1562 reparto-dep12 §E4.1: toggle feature flag en Panel Control (§106 pill) */
+#dep12-flag-toggle.btn-zonas {
+  background: #22c55e !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  transition: background 150ms ease-out, transform 100ms ease-out !important;
+}
+#dep12-flag-toggle.btn-zonas[data-enabled="false"] {
+  background: #6b7280 !important;
+}
+#dep12-flag-toggle.btn-zonas[data-loading="true"] {
+  background: #94a3b8 !important;
+  cursor: wait !important;
+}
+#dep12-flag-toggle.btn-zonas:hover {
+  filter: brightness(1.08) !important;
+}
+#dep12-flag-toggle.btn-zonas:active {
+  transform: scale(0.97) !important;
+}
+#dep12-flag-toggle.btn-zonas:disabled {
+  opacity: 0.7 !important;
+  cursor: not-allowed !important;
+}
+/* v1562 reparto-dep12 §E4.1 toggle:end */

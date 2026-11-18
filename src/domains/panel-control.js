@@ -935,14 +935,94 @@ window.renderPanelControl = function () {
   html += _renderPedidosSection();
   html += _renderBackorderSection();
   html += _renderOpsLogSection();
-  // v1140 (2026-10-05): botón "Mercado Libre" reubicado al header del mapa
-  // (junto a Planner y Panel de Control) con mismo estilo pill Apple. Antes
-  // vivía acá dentro del Panel como "Herramientas Mariano-only". Dejo el
-  // bloque vacío por si en el futuro se suman más herramientas Mariano-only.
+  if (_isMarianoEmail()) {
+    html += _renderFeaturesExperimentalesSection();
+  }
   html +=
     '<div style="text-align:right;font-size:10.5px;color:var(--text-muted);margin-top:8px">Renderizado ' +
     _escHtml(new Date().toLocaleTimeString('es-AR')) +
     ' - Click "Refrescar" para actualizar</div>';
   html += '</div>';
   body.innerHTML = html;
+  if (_isMarianoEmail()) {
+    _hydrateDep12FlagToggle();
+  }
 };
+
+// === v1562 reparto-dep12 §E4.1: Features experimentales =====================
+
+function _renderFeaturesExperimentalesSection() {
+  let out =
+    '<div style="margin-top:20px;padding-top:16px;border-top:1.5px solid var(--border-subtle)">';
+  out +=
+    '<div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Features experimentales</div>';
+  out +=
+    '<div class="pc-card" style="background:var(--bg-elevated);border:1.5px solid var(--border-subtle);border-radius:8px;padding:14px 16px">';
+  out +=
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">';
+  out += '<div style="flex:1;min-width:260px">';
+  out +=
+    '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Reparto desde depósito en tránsito</div>';
+  out +=
+    '<div style="font-size:11px;color:var(--text-muted);line-height:1.5">Las unidades que cruzan Uruguay (~7 días) se reservan automáticamente a clientes con back order. Afecta el flujo real de producción: usarlo con criterio.</div>';
+  out += '</div>';
+  out +=
+    '<button id="dep12-flag-toggle" class="btn-zonas" data-enabled="false" data-loading="true">Cargando…</button>';
+  out += '</div></div></div>';
+  return out;
+}
+
+async function _hydrateDep12FlagToggle() {
+  const btn = document.getElementById('dep12-flag-toggle');
+  if (!btn) return;
+  let enabled = false;
+  try {
+    const doc = await window.fbDb.doc('app_config/feature_flags').get();
+    enabled = Boolean(doc.exists && doc.data() && doc.data().dep12_reparto_enabled);
+  } catch (e) {
+    console.warn('[panel-control] dep12_flag read fail', e);
+    btn.textContent = 'No se pudo leer el estado';
+    btn.dataset.loading = 'false';
+    btn.disabled = true;
+    return;
+  }
+  window._dep12FlagCached = enabled === true;
+  _updateDep12FlagButton(btn, enabled);
+  btn.onclick = () => _handleDep12FlagToggle(btn, enabled);
+}
+
+function _updateDep12FlagButton(btn, enabled) {
+  btn.dataset.enabled = String(enabled);
+  btn.dataset.loading = 'false';
+  btn.disabled = false;
+  btn.textContent = enabled ? 'Activado · tocá para apagar' : 'Apagado · tocá para activar';
+}
+
+async function _handleDep12FlagToggle(btn, currentEnabled) {
+  const next = !currentEnabled;
+  const msg = next
+    ? '¿Activar reparto desde tránsito? Las unidades cruzando Uruguay van a empezar a reservarse automáticamente a clientes con back order. Afecta producción.'
+    : '¿Apagar reparto desde tránsito? Las unidades en tránsito dejan de reservarse automáticamente a clientes con back order.';
+  if (!window.confirm(msg)) return;
+  btn.disabled = true;
+  btn.textContent = next ? 'Activando…' : 'Apagando…';
+  try {
+    const user = window.currentUser || {};
+    await window.fbDb.doc('app_config/feature_flags').set(
+      {
+        dep12_reparto_enabled: next,
+        dep12FlagChangedAt: new Date().toISOString(),
+        dep12FlagChangedBy: user.email || user.uid || 'unknown',
+      },
+      { merge: true }
+    );
+    window._dep12FlagCached = next === true;
+    _updateDep12FlagButton(btn, next);
+    btn.onclick = () => _handleDep12FlagToggle(btn, next);
+  } catch (e) {
+    console.error('[panel-control] dep12_flag write fail', e);
+    window.alert('No se pudo guardar el cambio. Volvé a intentar; si sigue, avisale a Mariano.');
+    _updateDep12FlagButton(btn, currentEnabled);
+    btn.onclick = () => _handleDep12FlagToggle(btn, currentEnabled);
+  }
+}
