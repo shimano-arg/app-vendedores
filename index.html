@@ -36971,6 +36971,35 @@ function renderPlannerCard(pedido, column) {
     const _tooltip = _reasonMap[_r] || ('Pedido cerrado' + (_r ? ' (' + _r + ')' : ''));
     badges.push({ text: '🔒', cls: 'planner-badge planner-badge-closed', title: _tooltip });
   }
+  // v1563 reparto-dep12 §E4.2: sumar qty confirmed en tránsito vs físico.
+  // Línea secundaria "✈️ En tránsito: N u" y badge "100% TRÁNSITO" si todo es tránsito.
+  // Flag OFF + sin líneas enTransito: comportamiento histórico (defensivo).
+  var _qtyTransitoOpen = 0;
+  var _qtyFisicoOpen = 0;
+  if (Array.isArray(pedido.lines)) {
+    for (var _li = 0; _li < pedido.lines.length; _li++) {
+      var _l = pedido.lines[_li];
+      if (!_l || _l.state !== 'confirmed') continue;
+      var _qo = Number(_l.qtyOpen) || 0;
+      if (_qo <= 0) continue;
+      if (_l.enTransito === true) _qtyTransitoOpen += _qo;
+      else _qtyFisicoOpen += _qo;
+    }
+  }
+  if (_qtyTransitoOpen > 0 && _qtyFisicoOpen === 0) {
+    badges.push({
+      text: '100% TRÁNSITO',
+      cls: 'planner-badge-transito-full',
+      title: 'Pedido 100% en tránsito — las unidades están cruzando Uruguay (llegan en ~7 días).',
+    });
+  }
+  var _transitoLineHtml = '';
+  if (_qtyTransitoOpen > 0 && _qtyFisicoOpen > 0) {
+    _transitoLineHtml =
+      '<span class="planner-transito-line" title="Unidades cruzando Uruguay — llegan en ~7 días.">' +
+      '<span class="airplane">✈️</span>En tránsito: ' + _qtyTransitoOpen + ' u' +
+      '</span>';
+  }
   const badgesHtml = badges.map(b => {
     const _titleAttr = b.title ? ' title="' + escapeHtml(b.title) + '"' : '';
     return '<span class="' + b.cls + '"' + _titleAttr + '>' + escapeHtml(b.text) + '</span>';
@@ -36992,6 +37021,7 @@ function renderPlannerCard(pedido, column) {
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
       _ageBadgeHtml +
       '<div class="planner-card-total">' + escapeHtml(total) + '</div>' +
+      _transitoLineHtml +
       '<div class="planner-card-badges">' + badgesHtml + '</div>' +
       togglesHtml +
     '</div>'

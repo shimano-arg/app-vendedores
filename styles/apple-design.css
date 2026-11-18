@@ -7384,3 +7384,37 @@ html[data-theme="dark"] #planner-board-modal #planner-board-modal-body {
   cursor: not-allowed !important;
 }
 /* v1562 reparto-dep12 §E4.1 toggle:end */
+
+/* v1563 reparto-dep12 §E4.2 Planner tránsito:begin */
+.planner-transito-line {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #1e40af;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+body.dark .planner-transito-line {
+  color: #93c5fd;
+}
+.planner-transito-line .airplane {
+  margin-right: 2px;
+}
+.planner-badge-transito-full {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  background: #1e40af;
+  color: #ffffff;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-left: 6px;
+}
+.planner-card:hover .planner-badge-transito-full,
+.planner-card:focus-within .planner-badge-transito-full {
+  background: #1e40af !important;
+  color: #ffffff !important;
+}
+/* v1563 reparto-dep12 §E4.2 Planner tránsito:end */
