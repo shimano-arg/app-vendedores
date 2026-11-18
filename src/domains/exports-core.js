@@ -120,7 +120,9 @@ window.exportMasterClientes = async function () {
     const vSnap = await fbDb.collection('visits').get();
     vSnap.forEach((d) => {
       const v = d.data() || {};
-      const cc = String(v.cardCode || v.clientCardCode || '').trim().toUpperCase();
+      const cc = String(v.cardCode || v.clientCardCode || '')
+        .trim()
+        .toUpperCase();
       if (!cc) return;
       const raw = v.fecha || v.date || v.visitDate || v.createdAt || v.timestamp || null;
       let fechaIso = null;
@@ -128,8 +130,11 @@ window.exportMasterClientes = async function () {
         if (!raw) fechaIso = null;
         else if (typeof raw === 'string') fechaIso = raw;
         else if (raw && typeof raw.toDate === 'function') fechaIso = raw.toDate().toISOString();
-        else if (raw && typeof raw.seconds === 'number') fechaIso = new Date(raw.seconds * 1000).toISOString();
-      } catch { fechaIso = null; }
+        else if (raw && typeof raw.seconds === 'number')
+          fechaIso = new Date(raw.seconds * 1000).toISOString();
+      } catch {
+        fechaIso = null;
+      }
       if (!fechaIso) return;
       const prev = ultimaVisitaIdx.get(cc);
       if (!prev || String(fechaIso) > String(prev)) ultimaVisitaIdx.set(cc, fechaIso);
@@ -695,7 +700,7 @@ window.exportMasterClientes = async function () {
     if (entries.length === 0) return '-';
     return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
   }
-  const resumenRows = Object.entries(byZone)
+  const _resumenRows = Object.entries(byZone)
     .map(([z, d]) => ({
       'Zona / Vendedor': z,
       'Total tiendas': d.total,
@@ -728,8 +733,8 @@ window.exportMasterClientes = async function () {
     LOCALIDAD: r['Localidad (mapa)'] || r['Localidad declarada'] || '',
     DIRECCION: r.Direccion || '',
     TIPO_DE_CLIENTE: r['Tipo de cliente'] || '', // Ficha Cliente (clasif).
-    'TAMAÑO': r['Tamaño'] || r.Tamano || '',
-    ESPECIALIZACION: r['Especialización'] || r.Especializacion || '',
+    TAMAÑO: r.Tamaño || r.Tamano || '',
+    ESPECIALIZACION: r.Especialización || r.Especializacion || '',
     TIPO_DE_LOCAL: r['Tipo de local'] || '',
     PREFERENCIAS_CONTACTO: r['Preferencia de contacto'] || '',
     CREDITO_CHEQUE: r['Crédito cheque (ARS)'] || '',
@@ -739,7 +744,9 @@ window.exportMasterClientes = async function () {
     VENDEDOR_ASIGNADO: r['Vendedor externo (VDE)'] || '',
     // v1566: formato DD/MM/YYYY desde el max(fecha) agregado en ultimaVisitaIdx.
     'ULTIMA_VISITA/CONTACTO_FECHA': (() => {
-      const cc = String(r['CardCode SAP'] || '').trim().toUpperCase();
+      const cc = String(r['CardCode SAP'] || '')
+        .trim()
+        .toUpperCase();
       const iso = cc ? ultimaVisitaIdx.get(cc) : null;
       if (!iso) return '';
       try {
@@ -752,7 +759,9 @@ window.exportMasterClientes = async function () {
           '/' +
           d.getFullYear()
         );
-      } catch { return ''; }
+      } catch {
+        return '';
+      }
     })(),
   }));
   const fname = 'Master Clientes_' + scopeLbl + '_' + ts + '.xlsx';
@@ -1588,7 +1597,7 @@ async function exportRutasForMonth(anio, monthIdx) {
 // ============================================================
 // ALTAS: solicitudes de alta de cliente del periodo
 // ============================================================
-async function exportAltasForMonth(anio, monthIdx) {
+async function _exportAltasForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Altas...');
   let snap;
   try {
@@ -1784,7 +1793,7 @@ async function exportBackorderForMonth(anio, monthIdx) {
   showSyncTag('Export Backorder listo (' + rows.length + ' lineas)', 2400);
 }
 
-async function exportStockAsigForMonth(anio, monthIdx) {
+async function _exportStockAsigForMonth(anio, monthIdx) {
   showSyncTag('Generando export de Stock Asignado...');
   // v1100: delega al módulo puro modo asignacion. Coincide con el modal.
   const pedidos = _iteratePedidosMes(anio, monthIdx);
@@ -2093,24 +2102,32 @@ window.exportBackorderAll = async function () {
   try {
     const now = Date.now();
     const DAY_MS = 86400000;
-    const _arrAll = typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
+    const _arrAll =
+      typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos) ? globalPedidos : [];
     /** @type {Map<string, number>} */
     const qtySum90 = new Map();
     for (const p of _arrAll) {
       if (!p || !Array.isArray(p.lines)) continue;
       // fecha de facturación / entrega al SAP: preferir sapInvoiceDate /
       // transferidoSAP.docDate / closedAt / confirmedAt.
-      const _rawDate = (p.transferidoSAP && (p.transferidoSAP.docDate || p.transferidoSAP.date))
-        || p.sapInvoiceDate || p.closedAt || p.confirmedAt || null;
+      const _rawDate =
+        (p.transferidoSAP && (p.transferidoSAP.docDate || p.transferidoSAP.date)) ||
+        p.sapInvoiceDate ||
+        p.closedAt ||
+        p.confirmedAt ||
+        null;
       if (!_rawDate) continue;
       let ms = null;
       try {
         if (typeof _rawDate === 'string') ms = new Date(_rawDate).getTime();
-        else if (_rawDate && typeof _rawDate.toDate === 'function') ms = _rawDate.toDate().getTime();
+        else if (_rawDate && typeof _rawDate.toDate === 'function')
+          ms = _rawDate.toDate().getTime();
         else if (_rawDate && typeof _rawDate.seconds === 'number') ms = _rawDate.seconds * 1000;
-      } catch { ms = null; }
+      } catch {
+        ms = null;
+      }
       if (!ms || Number.isNaN(ms)) continue;
-      if ((now - ms) > 90 * DAY_MS) continue;
+      if (now - ms > 90 * DAY_MS) continue;
       for (const l of p.lines) {
         if (!l || !l.code) continue;
         // sólo cuento líneas facturadas/entregadas (state cancelled o sin
@@ -2481,7 +2498,7 @@ function _resolveFantasiaForPedido(p) {
 
 // v1233 (2026-10-09): reporte "Ventas x articulo x cliente/vendedor" via CF.
 // Admin/gerente only. Tarda ~30-60s (BQ query + exceljs build server-side).
-async function exportVentasArtCliForMonth(anio, monthIdx) {
+async function _exportVentasArtCliForMonth(anio, monthIdx) {
   if (monthIdx === null || monthIdx === undefined) {
     alert('Elegí un MES específico (no "Todo el año") — este reporte es mensual.');
     return;
