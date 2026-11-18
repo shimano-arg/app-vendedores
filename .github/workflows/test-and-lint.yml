@@ -179,27 +179,30 @@ jobs:
       - name: Install functions deps
         run: cd functions && npm ci
 
-      # Suite D8 Capa 2: auth-secrets-emulator.test.js (dual-write + anti-replay
-      # de TOTP) + d8-emulator-ampliado.test.js (disableTotpCore + rate_limits
-      # reales + legacy sha256 roundtrip). Ambos usan REQUIRE_EMULATOR=1 para
-      # gating explicito del `if (emulatorAvailable) describe(...)`.
-      - name: Emulator integration tests (D8 Capa 2)
+      # Suite emulator Capa 2: auth-secrets-emulator.test.js (D8 dual-write +
+      # anti-replay de TOTP) + d8-emulator-ampliado.test.js (D8 disableTotpCore
+      # + rate_limits + legacy sha256) + waitlist-lock-concurrency.emulator
+      # (R01 §42 F-C01, hardening 2026-11-18: lock atómico
+      # revision_waitlist_locks bajo carga concurrente real, T1-T8). Todos
+      # usan REQUIRE_EMULATOR=1 para gating explicito.
+      - name: Emulator integration tests (D8 Capa 2 + R01 lock concurrency)
         env:
           REQUIRE_EMULATOR: '1'
         run: >-
           npx --yes firebase-tools@14.27.0 emulators:exec --project demo-ci --only firestore
-          "npx vitest run tests/functions/auth-secrets-emulator.test.js tests/functions/d8-emulator-ampliado.test.js --reporter=default --reporter=json --outputFile=emulator-report.json || true"
+          "npx vitest run tests/functions/auth-secrets-emulator.test.js tests/functions/d8-emulator-ampliado.test.js tests/functions/waitlist-lock-concurrency.emulator.test.js --reporter=default --reporter=json --outputFile=emulator-report.json || true"
 
-      # Gate anti-falso-positivo (D8 hardening informe 012). Verifica:
+      # Gate anti-falso-positivo (D8 hardening informe 012 + F-C01 2026-11-18).
+      # Verifica:
       #  (a) El reporte JSON existe (si vitest crasheo antes de escribirlo,
       #      require() aborta con MODULE_NOT_FOUND = step falla).
-      #  (b) numTotalTests >= 12. Con emulator funcionando los 2 archivos
-      #      ejecutan 14 tests reales (auth-secrets-emulator 3 + d8-emulator-
-      #      ampliado 11). Si emulator no arranca, solo corren los gating docs
-      #      (1 + 2 = 3 tests) y este umbral lo detecta.
+      #  (b) numTotalTests >= 20. Con emulator operativo los 3 archivos
+      #      ejecutan: auth-secrets-emulator 3 + d8-emulator-ampliado 11 +
+      #      waitlist-lock-concurrency 9 (1 gating + 8 T1-T8) = 23 tests.
+      #      Si emulator no arranca, solo corren los gating docs (~3) y este
+      #      umbral lo detecta.
       #  (c) numFailedTests == 0.
-      #  (d) Ambos archivos esperados presentes en testResults (si vitest
-      #      por bug/renaming no matchea alguno, el gate detecta).
+      #  (d) Los 3 archivos esperados presentes en testResults.
       - name: Gate emulator (archivos presentes + minimo ejecutados + sin fallas)
         run: |
           node -e '
@@ -219,14 +222,15 @@ jobs:
             const expected = [
               "tests/functions/auth-secrets-emulator.test.js",
               "tests/functions/d8-emulator-ampliado.test.js",
+              "tests/functions/waitlist-lock-concurrency.emulator.test.js",
             ];
             const missing = expected.filter((e) => !files.some((f) => f.endsWith(e)));
             if (missing.length) {
               console.error("FAIL: archivos esperados ausentes del reporte:", missing.join(", "));
               process.exit(1);
             }
-            if (n < 12) {
-              console.error(`FAIL: solo ${n} tests ejecutados (esperado >= 12 con emulator operativo)`);
+            if (n < 20) {
+              console.error(`FAIL: solo ${n} tests ejecutados (esperado >= 20 con emulator operativo + F-C01)`);
               process.exit(1);
             }
             if (failed > 0) {

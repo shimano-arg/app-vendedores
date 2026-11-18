@@ -45,10 +45,14 @@ function makeMockDb() {
       docs,
     };
   }
-  function buildQuery(name, filters) {
+  function buildQuery(name, filters, limitN) {
     return {
       where(field, _op, value) {
-        return buildQuery(name, filters.concat([{ field, value }]));
+        return buildQuery(name, filters.concat([{ field, value }]), limitN);
+      },
+      limit(n) {
+        // adversarial fix 2026-11-18: soporte para `.limit(n)` (H2 core edit).
+        return buildQuery(name, filters, typeof n === 'number' ? n : null);
       },
       async get() {
         // H2 adversarial: permite inyectar fallo de query por colección.
@@ -65,7 +69,18 @@ function makeMockDb() {
           err.code = failedWhereGet.code || 'permission-denied';
           throw err;
         }
-        return makeQuerySnap(name, filters);
+        const snap = makeQuerySnap(name, filters);
+        if (typeof limitN === 'number' && limitN > 0 && snap.docs.length > limitN) {
+          const limited = snap.docs.slice(0, limitN);
+          return {
+            forEach(cb) {
+              limited.forEach(cb);
+            },
+            size: limited.length,
+            docs: limited,
+          };
+        }
+        return snap;
       },
     };
   }
@@ -90,7 +105,7 @@ function makeMockDb() {
         return { id };
       },
       where(field, _op, value) {
-        return buildQuery(name, [{ field, value }]);
+        return buildQuery(name, [{ field, value }], null);
       },
       async get() {
         return makeQuerySnap(name, []);
@@ -872,11 +887,22 @@ describe('movePedidoToWaitlistCore — H2 adversarial (8 escenarios)', () => {
     ).rejects.toMatchObject({ _errorCode: 'failed-precondition' });
     // Pedido NO fue borrado (fail-closed).
     expect(db._store.has('pedidos/H2-E3')).toBe(true);
-    // Operations_log registró rejected_preflight_unverifiable.
+    // H-M08 (hardening 2026-11-18): el logger centralizado reemplazó el tipo
+    // legacy `move_pedido_rejected_preflight_unverifiable` por el tipo
+    // unificado `move_pedido_rejected` con `errorCode` + `reason` en el
+    // extra. El tipo `move_pedido_pre_query_failed` (informativo, fire-
+    // and-forget) sigue igual.
     const ops = Array.from(db._store.entries())
       .filter(([k]) => k.startsWith('operations_log/'))
       .map(([, v]) => v);
-    expect(ops.some((o) => o.type === 'move_pedido_rejected_preflight_unverifiable')).toBe(true);
+    expect(
+      ops.some(
+        (o) =>
+          o.type === 'move_pedido_rejected' &&
+          o.errorCode === 'failed-precondition' &&
+          o.reason === 'preflight-unverifiable'
+      )
+    ).toBe(true);
     expect(ops.some((o) => o.type === 'move_pedido_pre_query_failed')).toBe(true);
     // NO se creó waitlist.
     const wls = Array.from(db._store.keys()).filter((k) => k.startsWith('revision_waitlist/'));
@@ -1024,5 +1050,400 @@ describe('movePedidoToWaitlistCore — H2 adversarial (8 escenarios)', () => {
     expect(r.newWaitlistId).not.toBe('H2-E8-stale');
     const lock = db._store.get('revision_waitlist_locks/C-H2-E8');
     expect(lock.waitlistId).toBe(r.newWaitlistId);
+  });
+});
+
+/**
+ * adversarial fix 2026-11-18 — tests nuevos post auditoría R01 Hardening.
+ * H3 (re-check permisos mid-tx), H4 (cap 50 pre-tx abiertas),
+ * M2 (qtyOpen inválido: NaN, Infinity, negativo, 0, null, "5", "abc").
+ */
+describe('movePedidoToWaitlistCore — H3 adversarial (re-check permisos mid-tx)', () => {
+  it('H3-1: VDE pierde assignedVendorUid entre pre-fetch y tx → permission-denied', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-vde', 'vendedor');
+    db._store.set('pedidos/ped-h3', {
+      stage: 'pending',
+      ownerUid: 'otro',
+      assignedVendorUid: 'uid-vde',
+      clientCardCode: 'C-H3',
+      lines: [{ code: 'A', qty: 1, precio: 100 }],
+      transferidoSAP: null,
+    });
+    let readCount = 0;
+    const origCollection = db.collection;
+    db.collection = function (name) {
+      const col = origCollection.call(db, name);
+      if (name === 'pedidos') {
+        const origDocFn = col.doc;
+        col.doc = function (id) {
+          const ref = origDocFn.call(col, id);
+          if (id === 'ped-h3') {
+            const origGet = ref.get;
+            ref.get = async function () {
+              readCount++;
+              if (readCount >= 2) {
+                return {
+                  exists: true,
+                  data: () => ({
+                    stage: 'pending',
+                    ownerUid: 'otro',
+                    assignedVendorUid: 'otro-vde-nuevo',
+                    clientCardCode: 'C-H3',
+                    lines: [{ code: 'A', qty: 1, precio: 100 }],
+                    transferidoSAP: null,
+                  }),
+                };
+              }
+              return origGet.call(ref);
+            };
+          }
+          return ref;
+        };
+      }
+      return col;
+    };
+    await expect(
+      movePedidoToWaitlistCore(
+        { fbDb: db, now: () => 1700000000000 },
+        { auth: { uid: 'uid-vde', token: {} }, pedidoId: 'ped-h3' }
+      )
+    ).rejects.toMatchObject({ _errorCode: 'permission-denied' });
+  });
+
+  it('H3-2: admin no se ve afectado por re-check (isPrivileged)', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-h3b', { ownerUid: 'otro', assignedVendorUid: 'otro' });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-h3b' }
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('movePedidoToWaitlistCore — H4 adversarial (cap pre-tx abiertas)', () => {
+  it('H4-1: >50 waitlists abiertas del cardCode → failed-precondition + mensaje humano §68', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    for (let i = 0; i < 51; i++) {
+      db._store.set('revision_waitlist/wl-many-' + i, {
+        clientCardCode: 'C-H4',
+        stage: 'active',
+        closedAt: null,
+        items: [{ code: 'X', qty: 1, precio: 10 }],
+        createdAt: '2026-11-15T00:00:00Z',
+        ownerUid: 'uid-admin',
+        assignedVendorUid: 'uid-vde',
+      });
+    }
+    seedPedido(db, 'ped-h4', { clientCardCode: 'C-H4' });
+    try {
+      await movePedidoToWaitlistCore(
+        { fbDb: db, now: () => 1700000000000 },
+        { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-h4' }
+      );
+      throw new Error('expected failed-precondition');
+    } catch (e) {
+      expect(e._errorCode).toBe('failed-precondition');
+      expect(e.message).toMatch(/demasiados/i);
+      expect(e.message).toMatch(/Mariano/);
+      expect(db._store.has('pedidos/ped-h4')).toBe(true);
+    }
+  });
+
+  it('H4-2: 50 exactas → OK (en el límite)', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    for (let i = 0; i < 50; i++) {
+      db._store.set('revision_waitlist/wl-50-' + i, {
+        clientCardCode: 'C-H4-50',
+        stage: 'active',
+        closedAt: null,
+        items: [{ code: 'X', qty: 1, precio: 10 }],
+        createdAt: '2026-11-15T00:00:00Z',
+        ownerUid: 'uid-admin',
+        assignedVendorUid: 'uid-vde',
+      });
+    }
+    seedPedido(db, 'ped-h4b', { clientCardCode: 'C-H4-50' });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-h4b' }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.unified).toBe(true);
+    expect(r.absorbedWaitlistIds.length).toBe(49);
+  });
+});
+
+describe('movePedidoToWaitlistCore — M2 adversarial (qtyOpen inválido)', () => {
+  it('M2-1: qtyOpen=NaN → línea skipeada', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-nan', {
+      clientCardCode: 'C-M2',
+      lines: [
+        { code: 'A', qty: 2, qtyOpen: NaN, precio: 100 },
+        { code: 'B', qty: 3, qtyOpen: 3, precio: 200 },
+      ],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-nan' }
+    );
+    expect(r.ok).toBe(true);
+    const wl = db._store.get('revision_waitlist/' + r.newWaitlistId);
+    expect(wl.items.length).toBe(1);
+    expect(wl.items[0].code).toBe('B');
+  });
+
+  it('M2-2: qtyOpen=Infinity → línea skipeada', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-inf', {
+      clientCardCode: 'C-M2b',
+      lines: [{ code: 'A', qty: 2, qtyOpen: Infinity, precio: 100 }],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-inf' }
+    );
+    expect(r.ok).toBe(true);
+    const wl = db._store.get('revision_waitlist/' + r.newWaitlistId);
+    expect(wl.items.length).toBe(0);
+  });
+
+  it('M2-3: qtyOpen=negativo → línea skipeada', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-neg', {
+      clientCardCode: 'C-M2c',
+      lines: [{ code: 'A', qty: 2, qtyOpen: -5, precio: 100 }],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-neg' }
+    );
+    const wl = db._store.get('revision_waitlist/' + r.newWaitlistId);
+    expect(wl.items.length).toBe(0);
+  });
+
+  it('M2-4: qtyOpen=0 → línea skipeada (preserva comportamiento histórico)', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-zero', {
+      clientCardCode: 'C-M2d',
+      lines: [{ code: 'A', qty: 2, qtyOpen: 0, precio: 100 }],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-zero' }
+    );
+    const wl = db._store.get('revision_waitlist/' + r.newWaitlistId);
+    expect(wl.items.length).toBe(0);
+  });
+
+  it('M2-5: qtyOpen=null → fallback a qty=2 válido', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-null', {
+      clientCardCode: 'C-M2e',
+      lines: [{ code: 'A', qty: 2, qtyOpen: null, precio: 100 }],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-null' }
+    );
+    const wl = db._store.get('revision_waitlist/' + r.newWaitlistId);
+    expect(wl.items.length).toBe(1);
+    expect(wl.items[0].qty).toBe(2);
+  });
+
+  it('M2-6: qtyOpen="5" (string numérico) → convertido a 5', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-str', {
+      clientCardCode: 'C-M2f',
+      lines: [{ code: 'A', qty: 2, qtyOpen: '5', precio: 100 }],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-str' }
+    );
+    const wl = db._store.get('revision_waitlist/' + r.newWaitlistId);
+    expect(wl.items.length).toBe(1);
+    expect(wl.items[0].qty).toBe(5);
+  });
+
+  it('M2-7: qtyOpen="abc" (NaN) → línea skipeada', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-abc', {
+      clientCardCode: 'C-M2g',
+      lines: [{ code: 'A', qty: 2, qtyOpen: 'abc', precio: 100 }],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-abc' }
+    );
+    const wl = db._store.get('revision_waitlist/' + r.newWaitlistId);
+    expect(wl.items.length).toBe(0);
+  });
+
+  it('M2-8: G4 — cardCode vacío → waitlist se crea sin lock (comportamiento legacy)', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-m2-nocc', {
+      clientCardCode: '',
+      lines: [{ code: 'A', qty: 1, precio: 10 }],
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-m2-nocc' }
+    );
+    expect(r.ok).toBe(true);
+    // Lock NO se crea (cardCode vacío).
+    const lockKeys = Array.from(db._store.keys()).filter((k) =>
+      k.startsWith('revision_waitlist_locks/')
+    );
+    expect(lockKeys.length).toBe(0);
+  });
+});
+
+describe('movePedidoToWaitlistCore — H1 adversarial round 2 (snapshot-token lock)', () => {
+  it('H1-M-A: lock updatedAt cambió entre pre-tx y tx → concurrent-waitlist-detected', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-h1m', { clientCardCode: 'C-H1M' });
+    db._store.set('revision_waitlist_locks/C-H1M', {
+      cardCode: 'C-H1M',
+      waitlistId: 'wl-foo',
+      updatedAt: '2026-11-18T10:00:00.000Z',
+      updatedBy: 'uid-prev',
+      lastOperation: 'create',
+      _version: 1,
+    });
+    db._store.set('revision_waitlist/wl-foo', {
+      clientCardCode: 'C-H1M',
+      stage: 'active',
+      closedAt: null,
+      items: [{ code: 'X', qty: 1, precio: 10 }],
+      createdAt: '2026-11-17T00:00:00Z',
+      ownerUid: 'uid-admin',
+      assignedVendorUid: 'uid-vde',
+    });
+    // Interceptar el 2do .get() del lock (dentro del tx) para devolver un
+    // updatedAt distinto (simula move concurrente que actualizó el lock).
+    let lockReadCount = 0;
+    const origCollection = db.collection;
+    db.collection = function (name) {
+      const col = origCollection.call(db, name);
+      if (name === 'revision_waitlist_locks') {
+        const origDocFn = col.doc;
+        col.doc = function (id) {
+          const ref = origDocFn.call(col, id);
+          if (id === 'C-H1M') {
+            const origGet = ref.get;
+            ref.get = async function () {
+              lockReadCount++;
+              if (lockReadCount >= 2) {
+                return {
+                  exists: true,
+                  data: () => ({
+                    cardCode: 'C-H1M',
+                    waitlistId: 'wl-foo',
+                    updatedAt: '2026-11-18T10:05:00.000Z',
+                    updatedBy: 'uid-concurrent',
+                    lastOperation: 'unify',
+                    _version: 1,
+                  }),
+                };
+              }
+              return origGet.call(ref);
+            };
+          }
+          return ref;
+        };
+      }
+      return col;
+    };
+    await expect(
+      movePedidoToWaitlistCore(
+        { fbDb: db, now: () => 1700000000000 },
+        { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-h1m' }
+      )
+    ).rejects.toMatchObject({ _errorCode: 'failed-precondition' });
+  });
+
+  it('H1-M-B: lock NO existía pre-tx pero existe mid-tx → concurrent-lock-created', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-h1mb', { clientCardCode: 'C-H1MB' });
+    let lockReadCount = 0;
+    const origCollection = db.collection;
+    db.collection = function (name) {
+      const col = origCollection.call(db, name);
+      if (name === 'revision_waitlist_locks') {
+        const origDocFn = col.doc;
+        col.doc = function (id) {
+          const ref = origDocFn.call(col, id);
+          if (id === 'C-H1MB') {
+            const origGet = ref.get;
+            ref.get = async function () {
+              lockReadCount++;
+              if (lockReadCount >= 2) {
+                return {
+                  exists: true,
+                  data: () => ({
+                    cardCode: 'C-H1MB',
+                    waitlistId: 'wl-creada-concurrent',
+                    updatedAt: '2026-11-18T10:05:00.000Z',
+                    updatedBy: 'uid-move-concurrent',
+                    lastOperation: 'create',
+                    _version: 1,
+                  }),
+                };
+              }
+              return origGet.call(ref);
+            };
+          }
+          return ref;
+        };
+      }
+      return col;
+    };
+    await expect(
+      movePedidoToWaitlistCore(
+        { fbDb: db, now: () => 1700000000000 },
+        { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-h1mb' }
+      )
+    ).rejects.toMatchObject({ _errorCode: 'failed-precondition' });
+  });
+
+  it('H1-M-C: lock sin updatedAt (legacy pre-hardening) → OK backwards compat', async () => {
+    const db = makeMockDb();
+    seedRole(db, 'uid-admin', 'admin');
+    seedPedido(db, 'ped-h1mc', { clientCardCode: 'C-H1MC' });
+    db._store.set('revision_waitlist/wl-existente-legacy', {
+      clientCardCode: 'C-H1MC',
+      stage: 'active',
+      closedAt: null,
+      items: [{ code: 'A', qty: 1, precio: 10 }],
+      createdAt: '2026-11-17T00:00:00Z',
+      ownerUid: 'uid-admin',
+      assignedVendorUid: 'uid-vde',
+    });
+    db._store.set('revision_waitlist_locks/C-H1MC', {
+      cardCode: 'C-H1MC',
+      waitlistId: 'wl-existente-legacy',
+      // no updatedAt (lock legacy pre-hardening)
+    });
+    const r = await movePedidoToWaitlistCore(
+      { fbDb: db, now: () => 1700000000000 },
+      { auth: { uid: 'uid-admin', token: {} }, pedidoId: 'ped-h1mc' }
+    );
+    expect(r.ok).toBe(true);
   });
 });
