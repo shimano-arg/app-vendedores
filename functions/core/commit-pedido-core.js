@@ -1391,6 +1391,28 @@ function accumulateCancelAsigMutations(pending, payload, snapshots, newPedidoId,
         pedidoOrigenId,
       });
     }
+
+    // ATK-002 (2026-11-19): cross-reference clientCardCode. Un VDE hostil
+    // puede enviar payload con cardCode='C001' (su cliente) + asigRefs
+    // apuntando a pedidos de OTROS clientes/VDEs. Los 6 checks (A-F) validan
+    // sku + state + qty pero NO el vínculo con el cliente. Acá cerramos el
+    // gap: el pedido origen debe pertenecer al mismo clientCardCode del
+    // payload. Si no, abort con ASIG_REF_INVALID.
+    //
+    // Compat legacy: si el pedido origen no tiene clientCardCode persistido
+    // (pre-v946), fail-open — no bloquea. Mismo criterio que SEC-M6.
+    const payloadCardCode = String(payload.cardCode || '').trim();
+    const snapData = /** @type {any} */ (snap && snap.data) || {};
+    const origenCardCode = String(snapData.clientCardCode || '').trim();
+    if (payloadCardCode && origenCardCode && payloadCardCode !== origenCardCode) {
+      throwError('ASIG_REF_INVALID', 'pedido origen pertenece a otro cliente', {
+        reason: 'CROSS_CLIENT_CARDCODE_MISMATCH',
+        pedidoOrigenId,
+        payloadCardCode,
+        origenCardCode,
+      });
+    }
+
     const pw = getOrInitPendingWrite(
       pending,
       pedidoOrigenId,
