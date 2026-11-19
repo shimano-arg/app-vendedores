@@ -1507,8 +1507,25 @@ export const dashboardVentasCF = onCall(
     if (!ALLOWED_DOMAINS.has(domain)) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
+    // SEC-M11 (2026-11-19): rate limiting BQ consistente con rate-limit-core
+    // existente (sapProxy, updateAsigLineState, etc.). Preset en RATE_LIMITS.
+    const _db = getFirestore();
+    const _rl = await checkAndIncrementRateLimit(
+      { fbDb: _db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'dashboardVentasCF',
+      RATE_LIMITS.dashboardVentasCF.threshold,
+      RATE_LIMITS.dashboardVentasCF.windowMs
+    );
+    if (!_rl.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rl.count}/${_rl.threshold}). Reintentá después de ${_rl.resetAt}.`,
+        { resetAt: _rl.resetAt, threshold: _rl.threshold }
+      );
+    }
     try {
-      const db = getFirestore();
+      const db = _db;
       /** @type {any} */
       let bq = null;
       return await dashboardVentasCore(
@@ -1594,8 +1611,24 @@ export const pedidosDelMesCF = onCall(
     if (!ALLOWED_DOMAINS.has(domain)) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
+    // SEC-M11 (2026-11-19): rate limiting BQ — ver dashboardVentasCF.
+    const _db = getFirestore();
+    const _rl = await checkAndIncrementRateLimit(
+      { fbDb: _db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'pedidosDelMesCF',
+      RATE_LIMITS.pedidosDelMesCF.threshold,
+      RATE_LIMITS.pedidosDelMesCF.windowMs
+    );
+    if (!_rl.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rl.count}/${_rl.threshold}). Reintentá después de ${_rl.resetAt}.`,
+        { resetAt: _rl.resetAt, threshold: _rl.threshold }
+      );
+    }
     try {
-      const db = getFirestore();
+      const db = _db;
       /** @type {any} */
       let bq = null;
       return await pedidosDelMesCore(
@@ -2125,6 +2158,22 @@ export const closeSqsManuallyCF = onCall(
     const role = roleSnap.exists ? (roleSnap.data() || {}).role : '';
     if (role !== 'admin') {
       throw new HttpsError('permission-denied', 'solo admin');
+    }
+    // SEC-M13 (2026-11-19): rate limiting SL login/logout. Protege contra
+    // abuso de pooled SAP SL sessions.
+    const _rlClose = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'closeSqsManuallyCF',
+      RATE_LIMITS.closeSqsManuallyCF.threshold,
+      RATE_LIMITS.closeSqsManuallyCF.windowMs
+    );
+    if (!_rlClose.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rlClose.count}/${_rlClose.threshold}). Reintentá después de ${_rlClose.resetAt}.`,
+        { resetAt: _rlClose.resetAt, threshold: _rlClose.threshold }
+      );
     }
     const pedidoIds = Array.isArray(request.data && request.data.pedidoIds)
       ? request.data.pedidoIds.filter(
@@ -3460,6 +3509,22 @@ export const generateVentasReportCF = onCall(
     const role = roleSnap.exists ? (roleSnap.data() || {}).role : '';
     if (role !== 'admin' && role !== 'gerente') {
       throw new HttpsError('permission-denied', 'solo admin/gerente');
+    }
+    // SEC-M12 (2026-11-19): rate limiting generateVentasReportCF — 1GiB
+    // memory + BQ scan completo del mes. Preset windowMs=24h evita abuso.
+    const _rlReport = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'generateVentasReportCF',
+      RATE_LIMITS.generateVentasReportCF.threshold,
+      RATE_LIMITS.generateVentasReportCF.windowMs
+    );
+    if (!_rlReport.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rlReport.count}/${_rlReport.threshold}). Reintentá después de ${_rlReport.resetAt}.`,
+        { resetAt: _rlReport.resetAt, threshold: _rlReport.threshold }
+      );
     }
     const year = Number(request.data && request.data.year);
     const month = Number(request.data && request.data.month);
