@@ -387,9 +387,16 @@ def sl_login(cfg: dict, session: requests.Session) -> None:
 
 
 def resolve_pesca_group_code(cfg: dict, session: requests.Session) -> int:
-    """Lookup dinamico del ItemsGroupCode del grupo PESCA."""
+    """Lookup dinamico del ItemsGroupCode del grupo PESCA.
+
+    2026-11-19: usa sl_get_with_retry para sobrevivir a RemoteDisconnected
+    (post-400 u otros kicks de SAP SL).
+    """
     path = "/b1s/v1/ItemGroups?$filter=GroupName eq 'PESCA'&$select=Number,GroupName"
-    resp = session.get(f"{cfg['url']}{path}", timeout=30)
+    resp = sl_get_with_retry(session, f"{cfg['url']}{path}", 'resolve_pesca_group_code', timeout=30)
+    if resp is None:
+        log('[FATAL] no pude resolver grupo PESCA: todos los retries fallaron')
+        sys.exit(6)
     if not resp.ok:
         log(f"[FATAL] no pude resolver grupo PESCA: HTTP {resp.status_code}")
         sys.exit(6)
@@ -422,10 +429,13 @@ def probe_bike_udfs(cfg: dict, session: requests.Session, group_code: int) -> li
     rejected = []
     for udf in BIKE_UDF_MAP.keys():
         path = f"/b1s/v1/Items?$filter=ItemsGroupCode eq {group_code}&$select=ItemCode,{udf}&$top=1"
-        try:
-            resp = session.get(f"{cfg['url']}{path}", timeout=30)
-        except Exception as e:
-            log(f'[UDF-probe] {udf}: excepcion {type(e).__name__} - skip')
+        # 2026-11-19: sl_get_with_retry sobrevive al RemoteDisconnected
+        # entre probes (SAP cierra la conexión tras cada 400 del probe).
+        resp = sl_get_with_retry(
+            session, f"{cfg['url']}{path}", f'probe_bike_udfs/{udf}', timeout=30
+        )
+        if resp is None:
+            log(f'[UDF-probe] {udf}: retries agotados - skip')
             rejected.append(udf)
             continue
         if resp.status_code == 200:
@@ -444,6 +454,67 @@ def probe_bike_udfs(cfg: dict, session: requests.Session, group_code: int) -> li
     return working
 
 
+def sl_get_with_retry(
+    session: requests.Session,
+    url: str,
+    caller: str,
+    timeout: int = 30,
+    headers: dict | None = None,
+    max_retries: int = 2,
+    retry_delay_s: float = 2.0,
+):
+    """2026-11-19 fix post incidente BQ: GET helper con retry ante
+    RemoteDisconnected / ConnectionError.
+
+    Causa raíz del incidente: SAP SL cierra la conexión TCP después de
+    responder HTTP 400 (Items UDF inválido). El `session.get` del próximo
+    helper que reutiliza la conexión pooleada falla con
+    `urllib3.exceptions.ProtocolError('Connection aborted', RemoteDisconnected)`.
+    El wrapper `requests` lo traduce a `requests.exceptions.ConnectionError`.
+
+    Mitigation: ante ese tipo de error, cerramos el pool + sleep + retry.
+    `session.close()` descarta todas las conexiones pooleadas → el próximo
+    request abre un socket nuevo.
+
+    Devuelve `requests.Response` o None (si todos los retries fallaron).
+    Nunca propaga la excepción al caller cuando es ConnectionError —
+    deja al caller decidir el fallback. Otros RequestException sí se
+    propagan sin retry (TLS, DNS, etc).
+    """
+    attempts = 0
+    while attempts <= max_retries:
+        try:
+            if headers:
+                return session.get(url, timeout=timeout, headers=headers)
+            return session.get(url, timeout=timeout)
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+            attempts += 1
+            if attempts > max_retries:
+                log(
+                    f'[sl_get_with_retry/{caller}] agotados {max_retries} retries - '
+                    f'ultimo error: {type(e).__name__}: {str(e)[:120]}'
+                )
+                return None
+            log(
+                f'[sl_get_with_retry/{caller}] intento {attempts}/{max_retries + 1} fallo '
+                f'({type(e).__name__}); cerrando conexion pooleada + sleep {retry_delay_s}s'
+            )
+            try:
+                session.close()
+            except Exception:
+                pass
+            time.sleep(retry_delay_s)
+        except requests.exceptions.RequestException as e:
+            # Otros errores (TLS, DNS, timeout) propagados sin retry aqui —
+            # el caller decide.
+            log(
+                f'[sl_get_with_retry/{caller}] RequestException no-retriable: '
+                f'{type(e).__name__}: {str(e)[:120]}'
+            )
+            raise
+    return None
+
+
 def resolve_bike_group_code(cfg: dict, session: requests.Session) -> int:
     """v777: lookup dinamico del ItemsGroupCode del grupo BIKE.
 
@@ -453,9 +524,20 @@ def resolve_bike_group_code(cfg: dict, session: requests.Session) -> int:
     contra 3.729 SKUs facturados y es estable. Si un user renombra el
     grupo en SAP (nombre es texto libre), el sync sigue andando en vez
     de caerse en silencio. Loguea warning para que quede visible.
+
+    2026-11-19: usa sl_get_with_retry para sobrevivir al RemoteDisconnected
+    post-400 (ver sl_get_with_retry docstring). Antes, tras el 400 del items
+    UDF-probe, SAP cierra la conexión TCP; esta llamada fallaba cold con
+    `ConnectionError: RemoteDisconnected` y abortaba el workflow entero.
     """
     path = "/b1s/v1/ItemGroups?$filter=GroupName eq 'BIKE'&$select=Number,GroupName"
-    resp = session.get(f"{cfg['url']}{path}", timeout=30)
+    resp = sl_get_with_retry(session, f"{cfg['url']}{path}", 'resolve_bike_group_code', timeout=30)
+    if resp is None:
+        log(
+            f'[WARN] lookup BIKE: todos los retries fallaron — '
+            f'fallback a codigo {BIKE_ITEMS_GROUP_CODE_FALLBACK}'
+        )
+        return BIKE_ITEMS_GROUP_CODE_FALLBACK
     if not resp.ok:
         log(f"[WARN] lookup BIKE HTTP {resp.status_code} — fallback a codigo {BIKE_ITEMS_GROUP_CODE_FALLBACK}")
         return BIKE_ITEMS_GROUP_CODE_FALLBACK
@@ -3145,6 +3227,17 @@ def main():
     except (Exception, SystemExit) as e:
         log(f'[ITEMS] fallo con UDFs (probable nombre distinto en SAP): {e}')
         log('[ITEMS] reintentando sin UDFs (fallback a catalogo local solo)')
+        # 2026-11-19: SAP SL cierra la conexión TCP tras responder HTTP 400.
+        # El próximo session.get que reuse la conexión pooleada falla con
+        # RemoteDisconnected. Antes de reintentar + de continuar con los
+        # siguientes helpers (resolve_bike_group_code, etc.), descartamos
+        # el pool de conexiones y volvemos a loguear SL para asegurar
+        # cookies/B1SESSION fresh.
+        try:
+            session.close()
+        except Exception:
+            pass
+        sl_login(cfg, session)
         items = sl_fetch_all(
             cfg, session, '/b1s/v1/Items', 'ITEMS',
             select_fields=item_select_base,
