@@ -1371,9 +1371,7 @@ describe('revision_waitlist_locks — server-side only', () => {
   });
 
   it('admin NO puede read (bypass solo Admin SDK)', async () => {
-    await assertFails(
-      getDoc(doc(authedDb(UID.admin), 'revision_waitlist_locks', 'C30718510291'))
-    );
+    await assertFails(getDoc(doc(authedDb(UID.admin), 'revision_waitlist_locks', 'C30718510291')));
   });
 
   it('admin NO puede write (bypass solo Admin SDK)', async () => {
@@ -1385,9 +1383,7 @@ describe('revision_waitlist_locks — server-side only', () => {
   });
 
   it('VDE NO puede read', async () => {
-    await assertFails(
-      getDoc(doc(authedDb(UID.vendor), 'revision_waitlist_locks', 'C30718510291'))
-    );
+    await assertFails(getDoc(doc(authedDb(UID.vendor), 'revision_waitlist_locks', 'C30718510291')));
   });
 
   it('VDE NO puede write', async () => {
@@ -1405,9 +1401,7 @@ describe('revision_waitlist_locks — server-side only', () => {
   });
 
   it('anon NO puede read ni write', async () => {
-    await assertFails(
-      getDoc(doc(anonDb(), 'revision_waitlist_locks', 'C30718510291'))
-    );
+    await assertFails(getDoc(doc(anonDb(), 'revision_waitlist_locks', 'C30718510291')));
     await assertFails(
       setDoc(doc(anonDb(), 'revision_waitlist_locks', 'C99999'), {
         cardCode: 'C99999',
