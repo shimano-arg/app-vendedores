@@ -429,7 +429,7 @@ function toMs(v) {
   if (!v) return null;
   if (typeof v === 'string') {
     const n = Date.parse(v);
-    return isNaN(n) ? null : n;
+    return Number.isNaN(n) ? null : n;
   }
   if (typeof v === 'number') return v;
   // Firestore Timestamp

@@ -368,9 +368,14 @@ export function getStockBreakdown(sku, deps, opts) {
     fisicoRestante -= take;
   }
   asigRaw.sort((a, b) => _tsOrInf(a.asigAt) - _tsOrInf(b.asigAt));
+  // v1403 §40.11 (post-reconcile): el agregado per-linea (qtyEntregable,
+  // sobreAsignada) se persiste en asigDetalle. Los totales del bucket
+  // quedaron removidos del shape top-level en v1395+ (ver tests
+  // asignadas-fifo.test.js _version=7). No se agregan asigTotalEntregable /
+  // asigTotalSobre: cleanup biome noUnusedVariables (PR #1131 v1395 las
+  // introdujo; nadie las consume post-loop), limpieza 2026-11-19 para
+  // destrabar CI de PRs #1375, #1376, #1377.
   const asigDetalle = [];
-  let asigTotalEntregable = 0;
-  let asigTotalSobre = 0;
   for (const a of asigRaw) {
     const entregable = Math.min(a.qtyNominal, Math.max(0, fisicoRestante));
     const sobre = a.qtyNominal - entregable;
@@ -385,8 +390,6 @@ export function getStockBreakdown(sku, deps, opts) {
       qtyEntregable: entregable,
       sobreAsignada: sobre,
     });
-    asigTotalEntregable += entregable;
-    asigTotalSobre += sobre;
   }
   const asignadas = {
     total: asignadasBase.total,
