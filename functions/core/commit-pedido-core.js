@@ -721,6 +721,34 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
           libreSnapshot: libreSnapshotMap,
           qtyPedida: qtyPedidaMap,
         });
+        // SEC-H4 iter2 (HARDENING5 BATCH 1, 2026-11-19): propagar TOO_MANY_SKUS.
+        // El core fetch-stock-live-core devuelve
+        //   { ok:false, errorCode:'TOO_MANY_SKUS', snapshotFallback:true }
+        // cuando el payload supera el cap (MAX_SKUS_PER_REQUEST=250). El bloque
+        // histórico que sigue trataba cualquier snapshotFallback como "SL caído,
+        // seguí con snapshot". Para TOO_MANY_SKUS queremos señal explícita al
+        // cliente (no silenciar un abuso de payload). El throwError propaga por
+        // el catch externo del runTransaction y pasa por logCommitRejection
+        // (§64.2) con _logExtra para auditoría.
+        if (liveStockResult && liveStockResult.errorCode === 'TOO_MANY_SKUS') {
+          throwError(
+            'TOO_MANY_SKUS',
+            'El pedido supera el máximo de SKUs permitidos por request. Dividilo en pedidos más chicos.',
+            {
+              requested: skusUnicos.length,
+              cap: 250,
+              liveReason: liveStockResult.reason || 'cap_exceeded',
+              canRefresh: false,
+              // §64.2 (v1448): metadata server-side para el log del catch.
+              _logExtra: {
+                requested: skusUnicos.length,
+                cap: 250,
+                liveReason: liveStockResult.reason || 'cap_exceeded',
+                liveError: liveStockResult.error || null,
+              },
+            }
+          );
+        }
         if (liveStockResult && liveStockResult.ok && !liveStockResult.snapshotFallback) {
           // Override fisico dep11 con valor live para los SKUs fetched.
           for (const sku of liveStockResult.skusLive || []) {
@@ -763,7 +791,13 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
           });
         }
       } catch (e) {
-        if (e && e._errorCode === 'SAP_UNAVAILABLE') throw e;
+        // SEC-H4 iter2 (HARDENING5 BATCH 1, 2026-11-19): propagar también
+        // TOO_MANY_SKUS. Sin este re-throw, el error quedaría silenciado
+        // en el log y el pedido continuaría usando snapshot stale — habilita
+        // el abuso que el cap buscaba bloquear.
+        if (e && (e._errorCode === 'SAP_UNAVAILABLE' || e._errorCode === 'TOO_MANY_SKUS')) {
+          throw e;
+        }
         (deps.log || (() => {}))('commitPedidoCore live SL error (ignored, cae a snapshot)', {
           err: (e && e.message) || String(e),
         });
