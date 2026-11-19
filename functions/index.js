@@ -1803,6 +1803,17 @@ export const fetchStockLiveCF = onCall(
         timeoutMs: typeof data.timeoutMs === 'number' ? data.timeoutMs : undefined,
       }
     );
+    // SEC-H4 (HARDENING5 BATCH 1, 2026-11-19): traducir cap excedido a invalid-argument.
+    // El core devuelve { ok:false, errorCode:'TOO_MANY_SKUS' } sin invocar al SL;
+    // acá lo exponemos al cliente como error explícito en vez de un snapshotFallback
+    // silencioso (mejor señal + previene retries ciegos con el mismo payload).
+    if (result && result.ok === false && result.errorCode === 'TOO_MANY_SKUS') {
+      throw new HttpsError(
+        'invalid-argument',
+        result.error || 'demasiados SKUs por request',
+        { errorCode: 'TOO_MANY_SKUS', requested: skus.length }
+      );
+    }
     // operations_log entry fire-and-forget para auditar performance real.
     try {
       const logEntry = {
