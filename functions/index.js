@@ -1808,11 +1808,31 @@ export const fetchStockLiveCF = onCall(
     // acá lo exponemos al cliente como error explícito en vez de un snapshotFallback
     // silencioso (mejor señal + previene retries ciegos con el mismo payload).
     if (result && result.ok === false && result.errorCode === 'TOO_MANY_SKUS') {
-      throw new HttpsError(
-        'invalid-argument',
-        result.error || 'demasiados SKUs por request',
-        { errorCode: 'TOO_MANY_SKUS', requested: skus.length }
-      );
+      // SEC-H4 iter2 (HARDENING5 BATCH 1, 2026-11-19): logging AWAIT antes del throw.
+      // §64.2 CLAUDE.md: "TODO rechazo de la CF debe pasar por logging centralizado
+      // AWAIT, no fire-and-forget". El bloque de logging previo venía DESPUÉS del
+      // throw y nunca se ejecutaba. Mismo shape que logCommitRejection (type,
+      // errorCode, userId, userEmail, timestamp) + contexto específico de la CF.
+      try {
+        await db.collection('operations_log').add({
+          type: 'cf_rejected',
+          errorCode: 'TOO_MANY_SKUS',
+          cf: 'fetchStockLiveCF',
+          userId: auth && auth.uid ? auth.uid : null,
+          userEmail: email || null,
+          requested: Array.isArray(skus) ? skus.length : 0,
+          cap: 250,
+          reason: result.reason || 'cap_exceeded',
+          timestamp: new Date(),
+        });
+      } catch (_logErr) {
+        // fail-safe: no bloquear el throw por falla de log.
+        console.warn('operations_log write failed (fetchStockLiveCF TOO_MANY_SKUS)', _logErr);
+      }
+      throw new HttpsError('invalid-argument', result.error || 'demasiados SKUs por request', {
+        errorCode: 'TOO_MANY_SKUS',
+        requested: skus.length,
+      });
     }
     // operations_log entry fire-and-forget para auditar performance real.
     try {
