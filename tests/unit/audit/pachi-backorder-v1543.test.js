@@ -24,10 +24,12 @@ describe('v1543 — PACHI ve Backorder en solo lectura', () => {
     expect(HTML).toMatch(/asigBkBtn\.style\.display = \(userRole === 'admin'\) \? '' : 'none'/);
   });
 
-  it('acciones del modal siguen desactivadas; Exportar y Gráficos habilitados', () => {
+  it('acciones del modal siguen desactivadas; Gráficos habilitado (Exportar removido v1568)', () => {
     expect(HTML).toMatch(
-      /body\.is-pachi-restricted #backorders-modal button\.bo-btn:not\(\.bo-btn-cancel\):not\(\.bo-btn-close\):not\(#btn-export-stock-asig\):not\(#btn-backorders-graficos\),\s*\nbody\.is-pachi-restricted #backorders-modal input\[type="checkbox"\]:not\(\.bo-read-only-checkbox\),\s*\nbody\.is-pachi-restricted #btn-crear-pedido-st\{pointer-events:none !important;opacity:0\.5 !important\}/
+      /body\.is-pachi-restricted #backorders-modal button\.bo-btn:not\(\.bo-btn-cancel\):not\(\.bo-btn-close\):not\(#btn-backorders-graficos\),\s*\nbody\.is-pachi-restricted #backorders-modal input\[type="checkbox"\]:not\(\.bo-read-only-checkbox\),\s*\nbody\.is-pachi-restricted #btn-crear-pedido-st\{pointer-events:none !important;opacity:0\.5 !important\}/
     );
+    // v1568: el botón inline "Exportar" fue removido del toolbar unificado.
+    expect(HTML).not.toMatch(/<button id="btn-export-stock-asig"/);
   });
 
   it('Reportes Excel: BACKORDER permitido para PACHI', () => {

@@ -4717,6 +4717,21 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1568 (2026-11-19) — Remover botón «Exportar» del toolbar Backorder / Stock Asignado
+
+- **Antes**: el modal `#backorders-modal` (toolbar unificado que sirve a los modos Backorder y Stock Asignado) tenía un botón inline «Exportar» (`#btn-export-stock-asig`) que abría un sub-menú `openExportStockAsigMenu()` para descargar el Excel.
+- **Problema**: Mariano pidió sacar el acceso inline. El export de Backorder sigue disponible desde el modal «Reportes Excel» (`exportToExcel`, kind `BACKORDER`), que ya respeta scope del usuario (§59/§89) y el gate PACHI (§51). El botón inline duplicaba el acceso con menos controles visibles.
+- **Cambio**:
+  - `index.html`: eliminada la línea `<button id="btn-export-stock-asig" ...>Exportar</button>` del toolbar unificado (post-línea del comentario v1225). El comentario del bloque se actualizó indicando que la función `openExportStockAsigMenu()` + el sub-modal del paso 2 quedan como código vivo sin punto de entrada UI (siguen invocables desde consola si hace falta un acceso administrativo puntual).
+  - `index.html` CSS §19/§45.1: la whitelist `body.is-pachi-restricted #backorders-modal button.bo-btn:not(...)` dejó de excluir `#btn-export-stock-asig` (ya no existe); solo queda `#btn-backorders-graficos` habilitado para PACHI dentro del modal.
+  - `README.md §41 v1543`: la viñeta que listaba los botones habilitados para PACHI pasa a mencionar únicamente «Gráficos» y aclara que el export sigue accesible desde «Reportes Excel» (BACKORDER).
+  - `tests/unit/audit/pachi-backorder-v1543.test.js`: regex de la regla CSS actualizado + nueva aserción `expect(HTML).not.toMatch(/<button id="btn-export-stock-asig"/)` (anti-regresión).
+- **Por qué**: minimizar accesos inline cuando ya existe la ruta canónica (Reportes Excel), simplificar el toolbar en móvil (1 botón menos) y preservar el export sin reimplementarlo (la ruta Reportes Excel cubre VDE/PACHI con el scope correcto, §51/§59/§89).
+- **Alcance intencional**: NO se elimina `openExportStockAsigMenu()` ni `submitExportStockAsigCliente()` (siguen declarados, solo sin trigger UI). Si en el futuro vuelve a aparecer el acceso inline, basta restaurar el `<button>` con el mismo `onclick`. Rollback trivial via `git revert`.
+- **Verificación**: inspección manual del toolbar en los dos modos (Backorder y Stock Asignado); grep de `btn-export-stock-asig` en `index.html` no devuelve declaraciones del botón (solo el handler y sub-modal "Descargar Excel" interno); test `pachi-backorder-v1543` pasa con el nuevo regex + aserción negativa. Sin cambios en `src/domains/*`, no requiere `node build.js`.
+- **Deploy**: Pages via squash-merge (§20). No requiere `firebase deploy` (sin cambios en funciones ni rules).
+- **Rollback**: `git revert` del commit v1568. Re-expone el botón inline con el mismo id + handler.
+
 ### feat E4.3 v1565 (2026-11-18) — Reparto dep 12 §E4.3: Export Pablo con columna "En tránsito" (Opción 1 safe)
 
 **Scope UI**: nueva **columna 10 "En tránsito"** al final del Excel editable del reparto (`window.exportRepartoManualExcel`). Decisión arquitectónica: **Opción 1 — columna al FINAL**. No toca la fórmula `VueleABackorder = C-E-G` por posición existente. Informativa, protegida, con estilo visual diferenciado (header azul, celdas celeste + texto azul). Con flag `dep12_reparto_enabled` OFF (default) la columna muestra 0 — defensiva. Cuando se prenda via Panel Control, los valores aparecen automáticamente sin re-deploy.
@@ -5236,7 +5251,7 @@ Archivos: `bigquery/views/v_rentabilidad_pesca.sql`, `scripts/apply_v_rentabilid
   - `index.html` `applyRolePermissions`: `#backorders-btn` visible para admin **o** PACHI (`isPachiRestricted(uid)`). Para los demás vendedores no cambia nada.
   - CSS `body.is-pachi-restricted`:
     - se saca `#backorders-btn` de la lista de botones ocultos de v1478;
-    - en `#backorders-modal` siguen desactivados las casillas, "Generar Backorder" y "Crear Pedido Desde Stock Asignado", pero ahora quedan habilitados "Exportar" (`#btn-export-stock-asig`) y "Gráficos" (`#btn-backorders-graficos`).
+    - en `#backorders-modal` siguen desactivados las casillas, "Generar Backorder" y "Crear Pedido Desde Stock Asignado", pero queda habilitado "Gráficos" (`#btn-backorders-graficos`). [v1568] El botón inline "Exportar" fue removido del toolbar; el export sigue disponible desde "Reportes Excel" (kind `BACKORDER`).
   - Reportes Excel: se suma `BACKORDER` a lo permitido para PACHI en tres lugares: la regla CSS, `_pachiAllowedKinds` y `exportToExcel` (`src/domains/exports-core.js`).
   - Stock Asignado sigue oculto para PACHI.
 - **Por qué no ve clientes ajenos**:
