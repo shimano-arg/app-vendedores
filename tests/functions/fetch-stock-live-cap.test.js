@@ -88,10 +88,9 @@ describe('SEC-H4 — fetchStockLiveCore cap MAX_SKUS_PER_REQUEST', () => {
   it('T2 — skus.length === 251 (cap + 1) rechaza con TOO_MANY_SKUS, NO invoca SL', async () => {
     const fetchFn = makeFetchMock();
     const acquireSpy = vi.fn(async () => 'COOKIE_X');
-    const r = await fetchStockLiveCore(
-      makeDeps(fetchFn, { acquireSlCookie: acquireSpy }),
-      { skus: genSkus(251) }
-    );
+    const r = await fetchStockLiveCore(makeDeps(fetchFn, { acquireSlCookie: acquireSpy }), {
+      skus: genSkus(251),
+    });
     expect(r.ok).toBe(false);
     expect(r.errorCode).toBe('TOO_MANY_SKUS');
     expect(r.reason).toBe('cap_exceeded');
@@ -107,10 +106,9 @@ describe('SEC-H4 — fetchStockLiveCore cap MAX_SKUS_PER_REQUEST', () => {
   it('T3 — skus.length === 0 (empty) mantiene comportamiento histórico', async () => {
     const fetchFn = makeFetchMock();
     const acquireSpy = vi.fn(async () => 'COOKIE_X');
-    const r = await fetchStockLiveCore(
-      makeDeps(fetchFn, { acquireSlCookie: acquireSpy }),
-      { skus: [] }
-    );
+    const r = await fetchStockLiveCore(makeDeps(fetchFn, { acquireSlCookie: acquireSpy }), {
+      skus: [],
+    });
     expect(r.ok).toBe(true);
     expect(r.errorCode).toBeUndefined();
     expect(r.reason).toBe('ok');
@@ -130,10 +128,11 @@ describe('SEC-H4 — fetchStockLiveCore cap MAX_SKUS_PER_REQUEST', () => {
     const skus = genSkus(10_000);
     const libreSnapshot = Object.fromEntries(skus.map((s) => [s, 1000]));
     const qtyPedida = Object.fromEntries(skus.map((s) => [s, 1]));
-    const r = await fetchStockLiveCore(
-      makeDeps(fetchFn, { acquireSlCookie: acquireSpy }),
-      { skus, libreSnapshot, qtyPedida }
-    );
+    const r = await fetchStockLiveCore(makeDeps(fetchFn, { acquireSlCookie: acquireSpy }), {
+      skus,
+      libreSnapshot,
+      qtyPedida,
+    });
     expect(r.ok).toBe(false);
     expect(r.errorCode).toBe('TOO_MANY_SKUS');
     expect(r.slRequests).toBe(0);

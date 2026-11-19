@@ -116,11 +116,7 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
       // ownerUid → VDEs cross-vendor quedaban bloqueados.
       const isPrivileged =
         auth.role === 'admin' || auth.role === 'gerente' || auth.role === 'interno';
-      if (
-        !isPrivileged &&
-        data.ownerUid !== auth.uid &&
-        data.assignedVendorUid !== auth.uid
-      ) {
+      if (!isPrivileged && data.ownerUid !== auth.uid && data.assignedVendorUid !== auth.uid) {
         return {
           ok: false,
           errorCode: 'PERMISSION_DENIED',
@@ -148,8 +144,7 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
         return {
           ok: false,
           errorCode: 'PERMISSION_DENIED',
-          message:
-            'Pedido en estado confirmed no es editable; revertir a pending primero',
+          message: 'Pedido en estado confirmed no es editable; revertir a pending primero',
         };
       }
       // Construir newLines a partir del original con los cambios whitelist.
@@ -220,12 +215,7 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
             ok: false,
             errorCode: 'VALIDATION_ERROR',
             message:
-              'invariante R9 violado: qtyOpen (' +
-              qo +
-              ') > qty (' +
-              q +
-              ') en lineIndex ' +
-              i,
+              'invariante R9 violado: qtyOpen (' + qo + ') > qty (' + q + ') en lineIndex ' + i,
           };
         }
       }
