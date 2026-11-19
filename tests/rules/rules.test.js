@@ -1479,8 +1479,17 @@ describe('SEC-M1: revision_waitlist.update hasOnly', () => {
   it('VDE puede ejecutar "Unificar orden" (items + unifiedFrom + updatedAt)', async () => {
     await assertSucceeds(
       updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
-        items: [{ code: 'SKU1', qty: 2 }, { code: 'SKU2', qty: 1 }],
-        unifiedFrom: [{ source: 'creacion_manual', timestamp: '2026-11-19T00:00:00.000Z', by: 'vde@shimano.com.ar' }],
+        items: [
+          { code: 'SKU1', qty: 2 },
+          { code: 'SKU2', qty: 1 },
+        ],
+        unifiedFrom: [
+          {
+            source: 'creacion_manual',
+            timestamp: '2026-11-19T00:00:00.000Z',
+            by: 'vde@shimano.com.ar',
+          },
+        ],
         updatedAt: '2026-11-19T00:00:00.000Z',
       })
     );
@@ -1529,7 +1538,7 @@ describe('SEC-M1: revision_waitlist.update hasOnly', () => {
   it('VDE puede re-resolver vendor en target legacy pre-§44 (assignedVendorUid vacío)', async () => {
     await seedDoc('revision_waitlist/wl_sec_m1_legacy', {
       ownerUid: UID.vendor,
-      assignedVendorUid: '',  // ← legacy pre-§44 (campo existe pero vacío)
+      assignedVendorUid: '', // ← legacy pre-§44 (campo existe pero vacío)
       clientCardCode: 'C30718510291',
       clientName: 'TEST LEGACY',
       stage: 'active',
