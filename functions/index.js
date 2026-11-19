@@ -1365,8 +1365,12 @@ export const applyRepartoManualCF = onCall(
         );
       }
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): rol lookup via Firestore puede
+      // fallar con error que incluye path `/roles/<uid>`. Log full al servidor;
+      // mensaje generico ES al cliente.
       if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'no se pudo validar rol: ' + (e?.message || String(e)));
+      console.error('[applyRepartoManualCF:roleLookup]', e);
+      throw new HttpsError('internal', 'no se pudo validar rol');
     }
     const data = req.data || {};
     const ingresoId = String(data.ingresoId || '').trim();
@@ -1403,8 +1407,14 @@ export const applyRepartoManualCF = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core `reparto-core.js` tira
+      // business errors + Firestore tx errors nativos. El `.message` crudo
+      // filtra docIds/paths. Log full al servidor; mensaje generico ES al
+      // cliente. Business errors (`e._errorCode`) no aplican aca — el core
+      // actual no los expone.
       if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'reparto fallo: ' + (e?.message || String(e)));
+      console.error('[applyRepartoManualCF:general]', e);
+      throw new HttpsError('internal', 'reparto fallo, reintenta en unos segundos');
     }
   }
 );
@@ -1463,12 +1473,16 @@ export const releaseAsigCF = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core puede tirar business
+      // errors (`e._errorCode` + message pre-sanitizado por mkErr) o
+      // Firestore tx errors nativos. BUSINESS re-throw preservado;
+      // INFRASTRUCTURE log full + mensaje generico ES.
       if (e instanceof HttpsError) throw e;
       if (e && e._errorCode) {
         throw new HttpsError(e._errorCode, e.message || 'release asig fallo');
       }
-      console.error('releaseAsigCF unexpected error', e);
-      throw new HttpsError('internal', 'release asig fallo: ' + (e?.message || String(e)));
+      console.error('[releaseAsigCF:general]', e);
+      throw new HttpsError('internal', 'release asig fallo, reintenta en unos segundos');
     }
   }
 );
@@ -2983,9 +2997,12 @@ export const setupGetMovimientos = onCall(
         fetchedAtIso: new Date().toISOString(),
       };
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): fetch a sistema SETUP externo
+      // puede fallar con mensajes que incluyen URL + body. Log full al
+      // servidor; mensaje generico ES al cliente.
       if (e instanceof HttpsError) throw e;
-      console.error('setupGetMovimientos unexpected error', e);
-      throw new HttpsError('internal', String(e && e.message ? e.message : e));
+      console.error('[setupGetMovimientos:general]', e);
+      throw new HttpsError('internal', 'error al procesar movimientos');
     }
   }
 );
@@ -3255,33 +3272,41 @@ export const triggerPlannerSync = onCall(
           ...r,
         });
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el summary se retorna al cliente
+      // (admin/gerente/interno). Los cores sync-* tiran errors con URL SL,
+      // companyDB, docEntries SAP → leak de infra. Log full al servidor;
+      // mensaje generico en el summary.
+      console.error('[triggerPlannerSync:invoices]', e);
       summary.errors.push({
         step: 'invoices',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar facturas',
       });
     }
     try {
       summary.orders = await syncSapOrders(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:orders]', e);
       summary.errors.push({
         step: 'orders',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar ordenes de venta',
       });
     }
     try {
       summary.payments = await handleSyncSapPayments(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:payments]', e);
       summary.errors.push({
         step: 'payments',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar cobranzas',
       });
     }
     try {
       summary.closures = await syncSapQuotationClosures(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:closures]', e);
       summary.errors.push({
         step: 'closures',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar cierres de cotizacion',
       });
     }
     console.log('triggerPlannerSync summary', summary);
@@ -4537,8 +4562,11 @@ export const movePedidoToWaitlistCF = onCall(
         const errData = /** @type {any} */ (e)._errorData || undefined;
         throw new HttpsError(/** @type {any} */ (e)._errorCode, e.message || 'move fallo', errData);
       }
-      console.error('movePedidoToWaitlistCF unexpected', e);
-      throw new HttpsError('internal', 'move fallo: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): Firestore tx errors nativos
+      // pueden filtrar docIds/paths. Log full al servidor; mensaje generico
+      // ES. Business errors (_errorCode + _errorData) preservados arriba.
+      console.error('[movePedidoToWaitlistCF:general]', e);
+      throw new HttpsError('internal', 'operacion fallo, reintenta en unos segundos');
     }
   }
 );
@@ -4597,8 +4625,11 @@ export const unifyWaitlistsCF = onCall(
           errData
         );
       }
-      console.error('unifyWaitlistsCF unexpected', e);
-      throw new HttpsError('internal', 'unify fallo: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): Firestore tx errors nativos
+      // pueden filtrar docIds/paths de los waitlists absorbidos. Log full
+      // al servidor; mensaje generico ES. Business errors preservados arriba.
+      console.error('[unifyWaitlistsCF:general]', e);
+      throw new HttpsError('internal', 'unify fallo, reintenta en unos segundos');
     }
   }
 );
