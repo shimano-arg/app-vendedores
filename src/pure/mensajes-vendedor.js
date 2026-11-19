@@ -102,6 +102,10 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto:
       'No pudimos consultar el stock al sistema porque no responde. Esperá un minuto y volvé a intentar.',
   },
+  TOO_MANY_SKUS: {
+    texto:
+      'El pedido es muy grande y supera el máximo de productos permitido. Dividilo en pedidos más chicos y volvé a intentar.',
+  },
   INTERNAL: {
     texto:
       'Hubo un error inesperado al confirmar el pedido. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
