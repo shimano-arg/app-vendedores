@@ -114,6 +114,62 @@ describe('BATCH B.1 SEC-H2 observe-only guard', () => {
     expect(h2Logs).toHaveLength(0);
   });
 
+  // ============================================================
+  // BATCH B.2c (2026-11-19): markers agregados en B.2a y B.2b
+  // ============================================================
+  it('B.2c T1: pedido con _commitVersion=autoConfirmPending_v1 NO loguea', async () => {
+    const db = makeFakeDb({});
+    const deps = makeDeps(db);
+    const before = { stage: 'pending' };
+    const after = {
+      stage: 'confirmed',
+      _commitVersion: 'autoConfirmPending_v1',
+      lines: [{ code: 'X', qty: 1, state: 'confirmed', precio: 100 }],
+      clientCardCode: 'C001',
+      clientName: 'CLIENT',
+      ownerUid: 'u1',
+    };
+    await handleAutoSendSap('p-auto', before, after, deps);
+    const h2Logs = db._opsLog().filter((l) => l.type === 'sec_h2_commit_version_missing');
+    expect(h2Logs).toHaveLength(0);
+  });
+
+  it('B.2c T2: pedido con _commitVersion=confirmDefinitivo_v1 NO loguea', async () => {
+    const db = makeFakeDb({});
+    const deps = makeDeps(db);
+    const before = { stage: 'pending' };
+    const after = {
+      stage: 'confirmed',
+      _commitVersion: 'confirmDefinitivo_v1',
+      lines: [{ code: 'X', qty: 1, state: 'confirmed', precio: 100 }],
+      clientCardCode: 'C001',
+      clientName: 'CLIENT',
+      ownerUid: 'u1',
+    };
+    await handleAutoSendSap('p-def', before, after, deps);
+    const h2Logs = db._opsLog().filter((l) => l.type === 'sec_h2_commit_version_missing');
+    expect(h2Logs).toHaveLength(0);
+  });
+
+  it('B.2c T3: marker desconocido (confirmDefinitivo_v2_fake) SIGUE logueando', async () => {
+    // Guard adversarial: un marker "parecido" no bypasea.
+    const db = makeFakeDb({});
+    const deps = makeDeps(db);
+    const before = { stage: 'pending' };
+    const after = {
+      stage: 'confirmed',
+      _commitVersion: 'confirmDefinitivo_v2_fake',
+      lines: [{ code: 'X', qty: 1, state: 'confirmed', precio: 100 }],
+      clientCardCode: 'C001',
+      clientName: 'ATACANTE',
+      ownerUid: 'u1',
+    };
+    await handleAutoSendSap('p-fake2', before, after, deps);
+    const h2Logs = db._opsLog().filter((l) => l.type === 'sec_h2_commit_version_missing');
+    expect(h2Logs).toHaveLength(1);
+    expect(h2Logs[0]._commitVersion).toBe('confirmDefinitivo_v2_fake');
+  });
+
   it('B.1 T2: pedido SIN _commitVersion loguea sec_h2_commit_version_missing', async () => {
     const db = makeFakeDb({});
     const deps = makeDeps(db);

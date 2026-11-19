@@ -426,7 +426,14 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   // (sin _commitVersion), podemos actuar sin bloquear prod mientras tanto.
   const COMMIT_VERSION_VALID_SET = new Set([
     'commitPedidoCore_v1',
-    // Agregar futuros markers de otros paths server a medida que B.2 los migra.
+    // BATCH B.2c (2026-11-19): markers agregados por los paths server
+    // migrados en B.2a (auto-confirm-pending-core) y B.2b
+    // (confirm-pedido-definitivo-core, CF nueva).
+    'autoConfirmPending_v1',
+    'confirmDefinitivo_v1',
+    // Pendiente futuro (B.3): activar guard hard — hoy sigue siendo
+    // observe-only, bloqueamos recién cuando prod opere ~1 semana con el
+    // set completo y 0 falsos positivos observados.
   ]);
   if (afterData && afterData.stage === 'confirmed' && !afterData.transferidoSAP) {
     const _cv = afterData._commitVersion;
