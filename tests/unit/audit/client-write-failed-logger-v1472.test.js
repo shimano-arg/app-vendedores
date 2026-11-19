@@ -42,7 +42,12 @@ describe('v1472 §70 — _logClientWriteFailed logger instalado', () => {
   it('T4 el logger respeta rules (userUid obligatorio = auth.uid)', () => {
     const rules = readFileSync('firestore.rules', 'utf8');
     const idx = rules.indexOf('/operations_log/');
-    const slice = rules.slice(idx, idx + 500);
+    // A2.3 (2026-11-19) agrega ~800 chars de comentario + whitelist + type
+    // guard entre `/operations_log/` y `request.resource.data.userUid`. El
+    // contrato "userUid == auth.uid" sigue vigente: busco en todo el bloque
+    // `/operations_log/` hasta la próxima `match /`.
+    const next = rules.indexOf('match /', idx + 10);
+    const slice = next > 0 ? rules.slice(idx, next) : rules.slice(idx, idx + 3000);
     expect(slice).toMatch(/userUid == request\.auth\.uid/);
   });
 
