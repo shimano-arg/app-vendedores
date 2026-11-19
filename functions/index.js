@@ -1994,12 +1994,27 @@ export const geminiOcrProxy = onCall(
         request.data
       );
     } catch (e) {
-      if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
-        const err = /** @type {{code: string, message: string}} */ (e);
-        throw new HttpsError(/** @type {any} */ (err.code), err.message);
-      }
-      console.error('geminiOcrProxy unexpected error', e);
-      throw new HttpsError('internal', 'Error interno geminiOcrProxy');
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core puede propagar
+      // `fetch a Gemini fallo: <msg>` con URL conteniendo `?key=<API_KEY>`.
+      // Nunca re-propagar `err.message` crudo. Whitelist de codes canónicos
+      // HttpsError; fallback `internal` + mensaje genérico ES.
+      console.error('[geminiOcrProxy:general]', e);
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'deadline-exceeded',
+        'unavailable',
+        'failed-precondition',
+        'resource-exhausted',
+        'not-found',
+      ]);
+      const errAny = /** @type {any} */ (e);
+      const codeIn = String(errAny && errAny.code ? errAny.code : '');
+      const code = SAFE_CODES.has(codeIn) ? codeIn : 'internal';
+      throw new HttpsError(/** @type {any} */ (code), 'OCR fallo, reintenta en unos segundos', {
+        errorCode: 'GEMINI_OCR_FAILED',
+      });
     }
   }
 );
