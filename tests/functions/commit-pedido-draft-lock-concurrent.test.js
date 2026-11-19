@@ -220,7 +220,7 @@ describe('§64.3 draft lock atómico — prevención de doble-click concurrente'
   it('T4 — findExistingByDraftId pre-tx (fast path) sigue andando', async () => {
     const state = baseState();
     // Pre-poblar pedido con _draftId (simulando flow legacy pedidos.add previo).
-    state.pedidos['legacyPedido'] = {
+    state.pedidos.legacyPedido = {
       _draftId: BASE_PAYLOAD.draftId,
       clientCardCode: 'C001',
       lines: [{ code: 'SKU-A', qty: 2, state: 'confirmed' }],

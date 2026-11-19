@@ -139,7 +139,7 @@ function baseStateWithStock(sku, fisico, pedidos = []) {
 describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
   it('T1 — confirmar desde waitlist X única abierta → OK + waitlist consumed/closedAt in same tx', async () => {
     const state = baseStateWithStock('SKU-A', 10, []);
-    state.revision_waitlist['wl_X'] = {
+    state.revision_waitlist.wl_X = {
       clientCardCode: 'C001',
       orderNumber: 445,
       items: [{ code: 'SKU-A', qty: 3 }],
@@ -189,7 +189,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
 
   it('T3 — confirmar X excluyéndola + otra Y abierta → CLIENT_HAS_OPEN_WAITLIST con id Y', async () => {
     const state = baseStateWithStock('SKU-A', 10, []);
-    state.revision_waitlist['wl_X'] = {
+    state.revision_waitlist.wl_X = {
       clientCardCode: 'C001',
       orderNumber: 445,
       items: [{ code: 'SKU-A', qty: 3 }],
@@ -197,7 +197,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
       stage: 'pending',
       createdAt: '2026-10-23T10:00:00Z',
     };
-    state.revision_waitlist['wl_Y'] = {
+    state.revision_waitlist.wl_Y = {
       clientCardCode: 'C001',
       orderNumber: 446,
       items: [{ code: 'SKU-B', qty: 2 }],
@@ -225,7 +225,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
 
   it('T4 — origen=manual con waitlistOrigenId (waitlist→pending flow): excluye self', async () => {
     const state = baseStateWithStock('SKU-A', 10, []);
-    state.revision_waitlist['wl_X'] = {
+    state.revision_waitlist.wl_X = {
       clientCardCode: 'C001',
       orderNumber: 445,
       items: [{ code: 'SKU-A', qty: 1 }],
@@ -252,7 +252,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
 
   it('T5 — origen=manual SIN waitlistOrigenId: comportamiento histórico (todas abiertas bloquean)', async () => {
     const state = baseStateWithStock('SKU-A', 10, []);
-    state.revision_waitlist['wl_X'] = {
+    state.revision_waitlist.wl_X = {
       clientCardCode: 'C001',
       orderNumber: 445,
       items: [{}],
@@ -299,13 +299,13 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
 
   it('T7 — idempotencia: segundo commit mismo draftId → OK sin writes nuevos', async () => {
     const state = baseStateWithStock('SKU-A', 10, []);
-    state.pedidos['already_123'] = {
+    state.pedidos.already_123 = {
       _draftId: 'd_T7',
       stage: 'confirmed',
       clientCardCode: 'C001',
       lines: [{ code: 'SKU-A', qty: 1, state: 'confirmed' }],
     };
-    state.revision_waitlist['wl_X'] = {
+    state.revision_waitlist.wl_X = {
       clientCardCode: 'C001',
       items: [{}],
       closedAt: null,
@@ -340,7 +340,7 @@ describe('v<X> §57 commitPedidoCore con waitlistOrigenId', () => {
     // adivinar). El cliente SIEMPRE debe mandar waitlistOrigenId cuando
     // origen=cpst.
     const state = baseStateWithStock('SKU-A', 10, []);
-    state.revision_waitlist['wl_self'] = {
+    state.revision_waitlist.wl_self = {
       clientCardCode: 'C001',
       orderNumber: 524,
       items: [{ code: 'SKU-A', qty: 1 }],
