@@ -2990,11 +2990,28 @@ def main():
     # Config SL
     cfg = get_sl_config(db)
     session = requests.Session()
-    session.verify = not sl_insecure
+    # 2026-11-19: Seidor renovo el cert Tomcat el 2026-11-17 y el server no
+    # envia la raiz "Go Daddy Root CA - G2" en la cadena (manda hoja → R1v1 →
+    # R1, falta G2). Python/urllib3 no puede cerrar la cadena → self-signed
+    # error. Fix Node oficial (PR #1374, functions/certs/godaddy_bundle.pem)
+    # agrega el bundle al trust store de Node via NODE_EXTRA_CA_CERTS. Para
+    # Python usamos el mismo PEM como `verify=<path>` cuando SL_CA_BUNDLE
+    # esta seteada, sino conservamos el comportamiento SL_INSECURE historico
+    # (bypass total) como fallback.
+    sl_ca_bundle = os.environ.get('SL_CA_BUNDLE', '').strip()
     if sl_insecure:
+        session.verify = False
         import urllib3
         urllib3.disable_warnings(InsecureRequestWarning)
         log('[SL] SSL verify OFF (SL_INSECURE=true)')
+    elif sl_ca_bundle:
+        if not os.path.exists(sl_ca_bundle):
+            log(f'[FATAL] SL_CA_BUNDLE apunta a un archivo inexistente: {sl_ca_bundle}')
+            sys.exit(2)
+        session.verify = sl_ca_bundle
+        log(f'[SL] SSL verify usando CA bundle custom: {sl_ca_bundle}')
+    else:
+        session.verify = True
     sl_login(cfg, session)
 
     # Ventana historica

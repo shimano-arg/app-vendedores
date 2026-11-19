@@ -98,4 +98,10 @@ jobs:
           SL_INSECURE: ${{ inputs.sl_insecure }}
           SL_MAX_DOCS: ${{ inputs.max_docs }}
           HISTORY_MONTHS: ${{ inputs.history_months }}
+          # 2026-11-19: alineado con functions/certs/godaddy_bundle.pem (fix Node
+          # PR #1374). Seidor renovo el cert Tomcat el 2026-11-17 y su cadena
+          # no incluye el root Go Daddy G2 → urllib3 reporta "self-signed" y
+          # falla en sl_login. Apuntando session.verify al PEM provisto por
+          # Seidor cerramos la cadena manteniendo TLS validado.
+          SL_CA_BUNDLE: functions/certs/godaddy_bundle.pem
         run: python scripts/sync_sap_to_bigquery.py
