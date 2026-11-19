@@ -272,8 +272,64 @@ service cloud.firestore {
       // Pablo. Un VDE que NO es el assignedVendorUid (otro VDE) no puede
       // update aunque la haya visto en su sidebar (filtrado client-side
       // por §59 pero defensiva server-side via rule).
+      // SEC-C1 (Fase 2B, 2026-11-18): VDI (`isInterno()`) tambien recibe
+      // whitelist, identica al VDE (30 campos). El flow operativo del VDI
+      // (Santi/Ioannis) toca los mismos campos que el VDE — pero puede
+      // operar sobre pedidos AJENOS (sin ownerUid/assignedVendorUid check).
+      // Antes del fix: blanket update habilitaba mutar transferidoSAP (CHAIN-01
+      // commission fraud), assignedVendorUid (viola §44), orderNumberPrev,
+      // netAmountArs, discountPct. Admin/gerente mantienen blanket (recovery
+      // humano post-incidente).
+      // SEC-C1 Opcion A.2 (2026-11-19 — autorizada expresamente por Mariano):
+      // whitelist extendida con 6 campos (transferidoSAP + 5 audit) + guard
+      // semantico sobre transferidoSAP: solo permitido si via=='app_only'
+      // (auto-confirm 100% BO legitimo) o si el campo se esta deleteando
+      // (FieldValue.delete() tras revert). Bloquea CHAIN-01: via='sap_sl' o
+      // 'service_layer' desde cliente. Cubre 3 flows pre-existentes rotos
+      // en VDE+VDI post-whitelist original (H-01 auto-confirm 100% BO
+      // index.html:39009, H-02 volverAPendientes app_only index.html:39936,
+      // H-03 confirmarDefinitivo auto-split index.html:39509).
       allow update: if isAdminOrGerente()
-        || isInterno()
+        || (
+          isInterno()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            // Delivery info (VDI edita logistica post-envio para el VDE)
+            'formaEntrega', 'deliveryDetails',
+            // Contenido del pedido
+            'lines', 'netAmountArs', 'subtotalArs', 'discountPct', 'discountSnapshot',
+            'condicionPago',
+            // Transiciones de estado (waitlist -> pending -> confirmed)
+            'stage', 'confirmedAt', 'finalizedAt', 'closedAt',
+            // Metadata del pedido
+            'observaciones', 'notes', 'clientNotes', 'updatedAt', 'updatedBy',
+            'month', 'monthIdx', 'year',
+            // orderNumber: decision Mariano 2026-09-14 (Sprint 1 Q2)
+            'orderNumber',
+            // Planner Kanban
+            'plannerStage', 'plannerHistory', 'plannerEmails',
+            'plannerAttachments', 'paidStatus', 'paidAmount', 'paidToDate',
+            // Sync SAP payments escribe desde CF syncSapPaymentsToApp
+            'invoicedAmount', 'paidSyncedAt',
+            // SEC-C1 Opcion A.2: transferidoSAP (con guard abajo, solo via=='app_only' o delete)
+            'transferidoSAP',
+            // Audit del revert (volverAPendientes app_only, index.html:39936-39947)
+            'revertedFromConfirmedAt', 'revertedBy',
+            'previousSapDocNum', 'previousSapDocEntryCancelled',
+            // Audit del auto-split (confirmarDefinitivo preCheck, index.html:39509)
+            'autoSplitByStock'
+          ])
+          // SEC-C1 Opcion A.2: guard semantico transferidoSAP solo via='app_only' o delete
+          // (1) campo no modificado, OR (2) campo borrado (FieldValue.delete), OR
+          // (3) campo con via='app_only'. Bloquea via='sap_sl' y variantes CHAIN-01.
+          && (
+            !('transferidoSAP' in request.resource.data.diff(resource.data).affectedKeys())
+            || !('transferidoSAP' in request.resource.data)
+            || (
+              request.resource.data.get(['transferidoSAP', 'via'], '') == 'app_only'
+              && request.resource.data.get(['transferidoSAP', 'docEntry'], null) == null
+            )
+          )
+        )
         || (
           isVendor()
           && (
@@ -299,8 +355,24 @@ service cloud.firestore {
             'plannerAttachments', 'paidStatus', 'paidAmount', 'paidToDate',
             // Fase 2 v1035 (2026-09-22): sync SAP payments escribe estos
             // fields desde el CF syncSapPaymentsToApp cada 15min.
-            'invoicedAmount', 'paidSyncedAt'
+            'invoicedAmount', 'paidSyncedAt',
+            // SEC-C1 Opcion A.2: transferidoSAP (con guard abajo, solo via=='app_only' o delete)
+            'transferidoSAP',
+            // Audit del revert (volverAPendientes app_only)
+            'revertedFromConfirmedAt', 'revertedBy',
+            'previousSapDocNum', 'previousSapDocEntryCancelled',
+            // Audit del auto-split (confirmarDefinitivo preCheck)
+            'autoSplitByStock'
           ])
+          // SEC-C1 Opcion A.2: guard semantico transferidoSAP (ver comentario en isInterno arriba)
+          && (
+            !('transferidoSAP' in request.resource.data.diff(resource.data).affectedKeys())
+            || !('transferidoSAP' in request.resource.data)
+            || (
+              request.resource.data.get(['transferidoSAP', 'via'], '') == 'app_only'
+              && request.resource.data.get(['transferidoSAP', 'docEntry'], null) == null
+            )
+          )
         );
       allow delete: if isAdminOrGerente() || isInterno();
     }
