@@ -382,8 +382,52 @@ service cloud.firestore {
         || resource.data.fromUid == request.auth.uid
         || isAdmin() || isGerente()
       );
-      allow create: if request.auth != null && request.resource.data.fromUid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.targetUid == request.auth.uid;
+      // A2.2 (SEC-M2 / SEC-NIGHT-R-04, 2026-11-19): hasOnly + guard sobre
+      // `fromUid` para que un usuario autenticado NO pueda sembrar
+      // notifications con campos fuera del shape legitimo (ej. inyectar
+      // `type='admin_override'` + payload confuso al targetUid).
+      //
+      // Whitelist 35 campos derivada del inventario real de los 10 call-sites
+      // (ver RESPUESTAS/BATCH_A2_2_NOTIFICATIONS_ANALISIS.md): 4 creator +
+      // 2 target + 6 content + 11 payload + 4 state + 8 handler-specific
+      // (approvedBy, rejectedBy, derivedToUid, etc.). Server-side (CFs Admin
+      // SDK) bypassa rules.
+      //
+      // Guard: `fromUid == auth.uid` ya preservado (no cambia). Un VDE sigue
+      // pudiendo crear notifs pero no puede falsificar remitente.
+      allow create: if request.auth != null
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          // Creator
+          'fromUid', 'fromEmail', 'fromName', 'fromDisplayName',
+          'createdByUid', 'createdByEmail',
+          // Target
+          'targetUid', 'targetEmail',
+          'derivedToUid', 'derivedToEmail',
+          // Content
+          'type', 'subtype', 'title', 'body', 'message', 'description',
+          // Payload / metadata
+          'tienda', 'localidad', 'provincia', 'vendor', 'mes', 'anio',
+          'clientName', 'rendicionId', 'pedidoId',
+          'minutesInPending', 'ageMinutes', 'relatedTaskId',
+          // Approval flow (rendiciones)
+          'approvedBy', 'approvedByEmail',
+          'rejectedBy', 'rejectedByEmail',
+          // State (presente al crear: valores iniciales)
+          'status', 'read',
+          // Server-only (tolerado si el cliente lo manda, pero realmente lo
+          // escribe el server). No bloquea porque es serverTimestamp inocuo.
+          'createdAt'
+        ]);
+      // A2.2 UPDATE: solo el target puede marcar estado + solo campos state.
+      // Pre-A2.2 el update era blanket sobre todo el doc — un target
+      // malicioso podia reescribir `title`, `body`, `type` del doc + cambiar
+      // `targetUid` a otro user para "ocultar" la notif. Ahora cerrado a 3
+      // campos de estado (`status`, `doneAt`, `readAt`).
+      allow update: if request.auth != null
+        && resource.data.targetUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['status', 'doneAt', 'readAt', 'read']);
       allow delete: if isAdminOrGerente()
         || (request.auth != null && resource.data.targetUid == request.auth.uid);
     }
