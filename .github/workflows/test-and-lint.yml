@@ -83,6 +83,15 @@ jobs:
 
       # C9-D4 (2026-11-03): tests Python (solo stdlib, sin red ni credenciales).
       # Cubren los guards de scripts destructivos y helpers de los syncs.
+      #
+      # 2026-11-19: agregado `pip install requests` porque el helper
+      # `scripts/sl_http_helpers.py` (fix post-incidente BQ) usa
+      # `requests.exceptions.ConnectionError/ChunkedEncodingError/SSLError`.
+      # El helper es independiente de los imports pesados (google-cloud-bigquery
+      # + firebase-admin) justamente para que el test corra sin esas deps,
+      # pero sí necesita requests (stdlib ecosystem estándar).
+      - name: Install Python test deps
+        run: python3 -m pip install --user requests
       - name: Python tests
         run: |
           set -e

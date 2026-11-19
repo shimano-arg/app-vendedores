@@ -110,7 +110,9 @@ import {
 } from './core/reparto-core.js';
 // v1278 (2026-10-14): migracion ASIG → BO + create ingresos_reparto para
 // SKUs con stock libre. Switchover al reparto manual.
-import { migrateAsigToBOAndCreateReparto } from './core/reparto-migration-core.js';
+// Cleanup biome 2026-11-19: import removido (nunca se usa post-switchover v1279
+// — FIFO auto eliminado reemplazado por reparto manual). Si en el futuro se
+// necesita, re-importar desde ./core/reparto-migration-core.js.
 // E2 reparto-dep12 (2026-11-17): scanners dep 12 detrás de feature flag.
 import {
   loadFeatureFlagsDoc,

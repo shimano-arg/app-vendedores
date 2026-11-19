@@ -103,5 +103,54 @@ jobs:
           # no incluye el root Go Daddy G2 → urllib3 reporta "self-signed" y
           # falla en sl_login. Apuntando session.verify al PEM provisto por
           # Seidor cerramos la cadena manteniendo TLS validado.
+          # Fix Python: PR #1389 (mergeado en main 2026-11-19).
           SL_CA_BUNDLE: functions/certs/godaddy_bundle.pem
         run: python scripts/sync_sap_to_bigquery.py
+
+      - name: Notify failure (email a erbinomariano@gmail.com)
+        # 2026-11-19 fix post-incidente BQ: cuando el sync falla, mandamos email
+        # para no perder 3 días silenciosos como en el incidente 2026-11-17 que
+        # no se notó hasta el refresh manual de Power BI el 2026-11-19.
+        # Patrón replicado de sync-sap-catalog-stock.yml (v1456 §60 UPDATE).
+        if: ${{ failure() }}
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_FROM: bot.shimano.pesca@gmail.com
+          MAIL_TO: erbinomariano@gmail.com
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import os, smtplib
+          from email.mime.text import MIMEText
+          pwd = os.environ.get('GMAIL_APP_PASSWORD', '')
+          if not pwd:
+              print('::warning::GMAIL_APP_PASSWORD no configurada; skip notify')
+              raise SystemExit(0)
+          body = (
+              f"Workflow 'Sync SAP to BigQuery' fallo.\n\n"
+              f"Repo:    {os.environ.get('REPO','')}\n"
+              f"Trigger: {os.environ.get('TRIGGER','')}\n"
+              f"Run:     {os.environ.get('RUN_URL','')}\n\n"
+              f"Impacto: tablas sap_*_raw en BigQuery desactualizadas →\n"
+              f"Power BI muestra datos viejos para toda la organización.\n\n"
+              f"Revisa los logs del run para causa raiz (conexion SL, SSL,\n"
+              f"HTTP 400 por schema items, timeout, etc.).\n\n"
+              f"Si el fallo persiste cada 30 min, considerar pausar el cron\n"
+              f"(comentar schedule en .github/workflows/sync-sap-to-bigquery.yml)\n"
+              f"hasta resolver la causa."
+          )
+          msg = MIMEText(body, 'plain', 'utf-8')
+          msg['Subject'] = (
+              f"[APP VENDEDORES] Sync SAP → BigQuery FALLO "
+              f"({os.environ.get('TRIGGER','?')}, run {os.environ.get('RUN_ID','')})"
+          )
+          msg['From'] = os.environ.get('MAIL_FROM', '')
+          msg['To']   = os.environ.get('MAIL_TO', '')
+          with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as s:
+              s.login(os.environ['MAIL_FROM'], pwd)
+              s.send_message(msg)
+          print(f"notify email enviado a {os.environ.get('MAIL_TO','')}")
+          PY
