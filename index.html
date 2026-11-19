@@ -2632,8 +2632,11 @@ body.is-pachi-restricted [data-drawer-action="sap"],
 body.is-pachi-restricted [data-drawer-action="rutas"]{display:none !important}
 /* Backorder "solo lectura": todos los botones de acción dentro del modal.
    La escritura server-side se bloquea en rules Firestore + CF (defense in depth). */
-/* v1543: "Exportar" y "Gráficos" quedan habilitados (solo leen datos). */
-body.is-pachi-restricted #backorders-modal button.bo-btn:not(.bo-btn-cancel):not(.bo-btn-close):not(#btn-export-stock-asig):not(#btn-backorders-graficos),
+/* v1543: "Exportar" y "Gráficos" quedan habilitados (solo leen datos).
+   v1568 (2026-11-19): el botón "Exportar" fue removido del toolbar unificado;
+   el único botón habilitado en el modal para PACHI queda "Gráficos". El export
+   de Backorder sigue accesible desde "Reportes Excel" (kind BACKORDER). */
+body.is-pachi-restricted #backorders-modal button.bo-btn:not(.bo-btn-cancel):not(.bo-btn-close):not(#btn-backorders-graficos),
 body.is-pachi-restricted #backorders-modal input[type="checkbox"]:not(.bo-read-only-checkbox),
 body.is-pachi-restricted #btn-crear-pedido-st{pointer-events:none !important;opacity:0.5 !important}
 /* v1478 (2026-10-27): ampliación perfil PACHI — ocultar botones de header que
@@ -6462,10 +6465,12 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
             </select>
           </div>
           <div style="text-align:center;flex-shrink:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <!-- v1225 (2026-10-09): 2 botones de export unificados en 1. Al tocar
-                 abre modal pequeno con 2 opciones. El viejo id btn-export-stock-asig-cliente
-                 queda eliminado; el gate de modo asignacion ahora lo hace openExportMenu. -->
-            <button id="btn-export-stock-asig" class="bo-btn" onclick="openExportStockAsigMenu()">Exportar</button>
+            <!-- v1568 (2026-11-19): botón "Exportar" removido del toolbar unificado
+                 del modal Backorder/Stock Asignado (pedido Mariano). El export sigue
+                 disponible desde el modal "Reportes Excel" (kind BACKORDER). La
+                 función openExportStockAsigMenu() y el sub-modal del paso 2 quedan
+                 como código vivo sin punto de entrada UI; pueden invocarse desde
+                 consola si hiciera falta un acceso administrativo puntual. -->
             <button id="btn-backorders-graficos" class="bo-btn" onclick="openBackordersGraficos()" title="Ver graficos de top clientes + top SKUs con mas backorder">Gr&aacute;ficos</button>
             <!-- v1212 (2026-10-08): boton "Reparto" eliminado. La funcionalidad
                  se movio inline a cada row del Stock Asignado (control [-] NN [+])
@@ -7287,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1567';
+const APP_VERSION = 'v1568';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
