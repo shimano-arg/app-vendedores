@@ -1914,12 +1914,33 @@ export const updateAsigLineStateCF = onCall(
         request.data
       );
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core `asig-recycle-core.js`
+      // tira `{code, message}` con mensajes pre-sanitizados (hardcoded) —
+      // esos son OK propagar. Pero un error nativo (Firestore tx) también
+      // puede tener forma `{code, message}` en algunas versiones del SDK
+      // con message conteniendo doc paths. Whitelist de codes canónicos
+      // HttpsError: si no entra, degradamos a 'internal' + mensaje genérico.
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'not-found',
+        'failed-precondition',
+        'already-exists',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+        'aborted',
+        'out-of-range',
+      ]);
       if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
         const err = /** @type {{code: string, message: string}} */ (e);
-        throw new HttpsError(/** @type {any} */ (err.code), err.message);
+        if (SAFE_CODES.has(String(err.code))) {
+          throw new HttpsError(/** @type {any} */ (err.code), err.message);
+        }
       }
-      console.error('updateAsigLineStateCF unexpected error', e);
-      throw new HttpsError('internal', 'Error interno updateAsigLineState');
+      console.error('[updateAsigLineStateCF:general]', e);
+      throw new HttpsError('internal', 'error interno al actualizar estado');
     }
   }
 );
@@ -3123,10 +3144,28 @@ export const resendPlannerEmail = onCall(
         log: console,
       });
     } catch (err) {
-      if (err?.code && err?.message) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el fallback previo exponía
+      // `err?.message` en el campo `details` del HttpsError (que el SDK
+      // callable sí entrega al cliente). Si nodemailer fallaba con SMTP
+      // error ("Invalid login: 535-5.7.8 Username and Password not
+      // accepted"), el username SMTP quedaba expuesto. Log full server-side;
+      // sin `details`.
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'not-found',
+        'failed-precondition',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+        'aborted',
+      ]);
+      if (err?.code && err?.message && SAFE_CODES.has(String(err.code))) {
         throw new HttpsError(err.code, err.message);
       }
-      throw new HttpsError('internal', 'Resend failed', { detail: err?.message });
+      console.error('[resendPlannerEmail:general]', err);
+      throw new HttpsError('internal', 'reenvio fallo, reintenta en unos segundos');
     }
   }
 );
@@ -3383,9 +3422,30 @@ export const triggerRendicionesEmailManual = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el handler puede fallar con
+      // errors del fetch a GitHub API (PAT dispatch workflow); el message
+      // puede filtrar el path `repos/<owner>/<repo>/actions/workflows/
+      // <file>/dispatches`. Whitelist de codes canónicos; mensaje genérico
+      // ES al cliente.
+      console.error('[triggerRendicionesEmailManual:general]', e);
       const err = /** @type {any} */ (e);
-      console.error('[triggerRendicionesEmailManual] error', err);
-      throw new HttpsError(err.code || 'internal', err.message || String(err));
+      if (err instanceof HttpsError) throw err;
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'failed-precondition',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+      ]);
+      if (err && err.code && SAFE_CODES.has(String(err.code)) && typeof err.message === 'string') {
+        throw new HttpsError(err.code, err.message);
+      }
+      throw new HttpsError(
+        'internal',
+        'error al disparar el envio de rendiciones, avisale a Mariano'
+      );
     }
   }
 );
@@ -3921,9 +3981,11 @@ export const commitPedidoCF = onCall(
       // El cliente lo interpreta por `errorCode`.
       return r;
     } catch (e) {
-      // Error inesperado (no de negocio). Log + throw.
-      console.error('commitPedidoCF unexpected', e);
-      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): error inesperado (no de negocio).
+      // El `.message` puede contener paths Firestore, URL SL o payloads SAP.
+      // Log full al servidor; mensaje genérico ES al cliente.
+      console.error('[commitPedidoCF:general]', e);
+      throw new HttpsError('internal', 'error inesperado, reintenta en unos segundos');
     }
   }
 );
@@ -3972,8 +4034,11 @@ export const updatePedidoLinesCF = onCall(
       );
       return r;
     } catch (e) {
-      console.error('updatePedidoLinesCF unexpected', e);
-      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el `.message` de errors
+      // de Firestore tx puede filtrar docIds + colecciones. Log full
+      // al servidor; mensaje genérico ES al cliente.
+      console.error('[updatePedidoLinesCF:general]', e);
+      throw new HttpsError('internal', 'error inesperado al guardar lineas');
     }
   }
 );
