@@ -342,6 +342,12 @@ export async function autoConfirmPendingPedidos({
           stage: 'confirmed',
           finalizedAt: finalizedAtIso,
           finalizedBy: 'auto/' + minutes + 'min-timeout',
+          // BATCH B.2 SEC-H2 (2026-11-19): marker server-side legítimo. El
+          // trigger onPedidoConfirmedSendToSap (B.1 observe-only por ahora)
+          // valida contra el set {commitPedidoCore_v1, autoConfirmPending_v1,
+          // ...}. Un VDE hostil con devtools no puede setear este marker
+          // porque las rules A2.1 lo prohíben en create y A1.1 en update.
+          _commitVersion: 'autoConfirmPending_v1',
           autoConfirmed: {
             triggeredAt: finalizedAtIso,
             reason: 'pending_timeout',

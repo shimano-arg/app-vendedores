@@ -486,4 +486,56 @@ describe('autoConfirmPendingPedidos', () => {
     );
     expect(confirmUpdates).toHaveLength(1);
   });
+
+  // ============================================================
+  // BATCH B.2 SEC-H2 (2026-11-19): marker _commitVersion
+  // ============================================================
+  it('B.2 SEC-H2: setea _commitVersion=autoConfirmPending_v1 al promover pending→confirmed', async () => {
+    const pedidos = [
+      {
+        id: 'p-b2',
+        data: {
+          stage: 'pending',
+          confirmedAt: new Date(NOW_MS - 15 * 60 * 1000).toISOString(),
+          clientCardCode: 'C001',
+          clientName: 'CLIENT',
+          ownerUid: 'u1',
+          lines: [{ code: 'SKU-1', qty: 1, state: 'confirmed', precio: 100 }],
+        },
+      },
+    ];
+    const fbDb = makeFbDbStub({
+      pedidos,
+      config: { enabled: true, minutes: 10 },
+    });
+    await autoConfirmPendingPedidos({ fbDb, now: nowFn });
+    const confirmed = fbDb._store.pedidos.find((p) => p.id === 'p-b2');
+    expect(confirmed.data.stage).toBe('confirmed');
+    expect(confirmed.data._commitVersion).toBe('autoConfirmPending_v1');
+  });
+
+  it('B.2 SEC-H2: _commitVersion presente en updatesLog para audit trail', async () => {
+    const pedidos = [
+      {
+        id: 'p-audit',
+        data: {
+          stage: 'pending',
+          confirmedAt: new Date(NOW_MS - 15 * 60 * 1000).toISOString(),
+          clientCardCode: 'C001',
+          clientName: 'CLIENT',
+          ownerUid: 'u1',
+          lines: [{ code: 'SKU-1', qty: 1, state: 'confirmed', precio: 100 }],
+        },
+      },
+    ];
+    const fbDb = makeFbDbStub({
+      pedidos,
+      config: { enabled: true, minutes: 10 },
+    });
+    await autoConfirmPendingPedidos({ fbDb, now: nowFn });
+    const updates = fbDb._store.updatesLog.filter((u) => u.id === 'p-audit');
+    const confirmUpdate = updates.find((u) => u.patch.stage === 'confirmed');
+    expect(confirmUpdate).toBeDefined();
+    expect(confirmUpdate.patch._commitVersion).toBe('autoConfirmPending_v1');
+  });
 });
