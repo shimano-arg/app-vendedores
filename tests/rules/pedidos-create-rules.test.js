@@ -42,19 +42,30 @@ beforeEach(async () => {
   await seedCanonicalRoles();
 });
 
-// §67 Fase 1 (v1454): tests de compat positivo (rule actual). Ya pasa con la
-// rule vigente sin requerir `_commitVersion`.
-describe('/pedidos — v1454 §67 Fase 1 compat (rule actual)', () => {
-  it('vendor puede crear pedido con _commitVersion (post-§67, flow CF OK)', async () => {
-    await assertSucceeds(
+// §67 Fase 1 (v1454): tests de compat positivo (rule actual).
+//
+// A2.1 (SEC-H3+H7+H8, 2026-11-19): la rule `pedidos.create` ahora bloquea
+// `_commitVersion` como campo server-only (vector SEC-H2 defense-in-depth).
+// El 1er test se INVIRTIÓ: VDE directo ya no puede sembrar _commitVersion.
+// Flow legítimo (commitPedidoCF via Admin SDK) sigue escribiéndolo porque
+// Admin SDK bypassa rules. El 2do test sigue positivo (sin _commitVersion).
+describe('/pedidos — v1454 §67 Fase 1 compat + A2.1 (rule actual)', () => {
+  it('A2.1 SEC-H2: vendor NO puede crear pedido con _commitVersion (server-only, bloquea bypass)', async () => {
+    // Pre-A2.1 este test esperaba assertSucceeds — asumía que el VDE podía
+    // setear `_commitVersion` como parte del payload cliente. Post-A2.1
+    // `_commitVersion` es SERVER-ONLY (solo lo setea buildPedidoDocData via
+    // Admin SDK en commitPedidoCF). Un VDE con devtools no puede sembrarlo
+    // → cierra uno de los paths del vector SEC-H2.
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-v67-cf-ok'), {
         ownerUid: UID.vendor,
         _commitVersion: 'commitPedidoCore_v1',
       })
     );
   });
-  it('vendor puede crear pedido sin _commitVersion (hasta activar Fase 2)', async () => {
-    // Esta aserción se INVIERTE cuando se active la rule deny-legacy.
+  it('vendor puede crear pedido sin _commitVersion', async () => {
+    // Happy path cliente-side: el flow legítimo no setea `_commitVersion`
+    // (lo hace la CF via Admin SDK).
     await assertSucceeds(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-v67-sin-marker'), {
         ownerUid: UID.vendor,

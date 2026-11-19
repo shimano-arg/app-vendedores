@@ -207,6 +207,30 @@ service cloud.firestore {
       // seteado por admin+gerente. La CF ademas hace fresh lookup a
       // roles/{ownerUid}.vendor (defensa en profundidad), pero cerrar el
       // create al nivel de rule ya bloquea el vector de fraude.
+      //
+      // A2.1 (SEC-H3 + SEC-H7/R-01 + SEC-H8/R-02, 2026-11-19): hasOnly()
+      // estricto + guards semanticos contra sembrar campos server-only.
+      //
+      // Contexto: todos los flows legitimos de create (incluido waitlist ->
+      // pending) pasan por commitPedidoCF (Admin SDK, bypassa rules). El
+      // fallback legacy `pedidos.add` directo desde cliente fue eliminado en
+      // v1454 §67 (quedo como codigo muerto en if(false) para rollback).
+      // Entonces un VDE honesto NUNCA dispara esta rule; solo la dispara un
+      // atacante con devtools/curl/Postman.
+      //
+      // Guards:
+      // - hasOnly(whitelist 38 campos legitimos): bloquea campos arbitrarios.
+      // - stage != 'confirmed': bloquea SEC-H2 en el create path (defense in
+      //   depth; la CF commitPedidoCF puede crear con stage='confirmed' via
+      //   Admin SDK, pero un cliente directo nunca).
+      // - transferidoSAP, sapLinkage, sendingSapLock, _commitVersion,
+      //   _draftId, transferError, orderNumberPrev: SERVER-ONLY. VDE nunca.
+      // - assignedVendorUid: null OR self (nunca ajeno — SEC-H7).
+      // - ownerVendor: null OR self (preservado de v991).
+      //
+      // Lista de campos permitidos derivada de audit de
+      // `commitPedidoCore.buildPedidoDocData` (SERVER) + client-side docData
+      // construction (ver BATCH_A2_1_PEDIDOS_CREATE_ANALISIS.md en RESPUESTAS).
       allow create: if isAdminOrGerente()
         || (
           isVendor()
@@ -216,14 +240,119 @@ service cloud.firestore {
             || request.resource.data.ownerVendor == null
             || request.resource.data.ownerVendor == myVendorKey()
           )
+          // A2.1: whitelist estricto
+          && request.resource.data.keys().hasOnly([
+            // Ownership
+            'ownerUid', 'ownerEmail', 'ownerVendor',
+            'cargadoPorUid', 'cargadoPorEmail',
+            'createdByUid', 'createdByEmail', 'createdByDisplayName',
+            'onBehalfOf',
+            // Vendedor master (§44/§46)
+            'vendorAssigned', 'assignedVendorUid', 'assignedVendorEmail',
+            'assignedVendorReason',
+            // Cliente
+            'clientCardCode', 'clientName', 'clientProvince', 'clientLocality',
+            'key', 'tipo', 'province', 'locName',
+            // Contenido
+            'lines', 'subtotalArs', 'netAmountArs',
+            'discountPct', 'discountSnapshot',
+            'condicionPago', 'formaEntrega', 'observaciones',
+            // Estado (stage='confirmed' bloqueado via guard separado abajo)
+            'stage', 'origen', 'source',
+            'confirmedAt', 'createdAt', 'closedAt', 'closedReason',
+            // Metadata
+            'orderNumber', 'month', 'monthIdx', 'year',
+            'schemaVersion', 'waitlistOrigenId', 'bypassAsigGate',
+            // Review flags (CPST)
+            'hasSkusToReview', 'skusToReviewCount'
+          ])
+          // A2.1 SEC-H2 defense-in-depth: VDE no puede crear ya confirmado
+          && (
+            !('stage' in request.resource.data)
+            || request.resource.data.stage != 'confirmed'
+          )
+          // A2.1 SEC-H8: bloquear campos SAP server-only
+          && !('transferidoSAP' in request.resource.data)
+          && !('sapLinkage' in request.resource.data)
+          && !('sendingSapLock' in request.resource.data)
+          && !('_commitVersion' in request.resource.data)
+          && !('_draftId' in request.resource.data)
+          && !('transferError' in request.resource.data)
+          && !('orderNumberPrev' in request.resource.data)
+          // A2.1 SEC-H7: assignedVendorUid null OR self
+          && (
+            !('assignedVendorUid' in request.resource.data)
+            || request.resource.data.assignedVendorUid == null
+            || request.resource.data.assignedVendorUid == request.auth.uid
+          )
         )
         || (isInterno()
             && request.resource.data.ownerUid == request.auth.uid
-            && request.resource.data.onBehalfOf == false)
+            && request.resource.data.onBehalfOf == false
+            // A2.1: whitelist identico al VDE (interno no necesita campos SAP)
+            && request.resource.data.keys().hasOnly([
+              'ownerUid', 'ownerEmail', 'ownerVendor',
+              'cargadoPorUid', 'cargadoPorEmail',
+              'createdByUid', 'createdByEmail', 'createdByDisplayName',
+              'onBehalfOf',
+              'vendorAssigned', 'assignedVendorUid', 'assignedVendorEmail',
+              'assignedVendorReason',
+              'clientCardCode', 'clientName', 'clientProvince', 'clientLocality',
+              'key', 'tipo', 'province', 'locName',
+              'lines', 'subtotalArs', 'netAmountArs',
+              'discountPct', 'discountSnapshot',
+              'condicionPago', 'formaEntrega', 'observaciones',
+              'stage', 'origen', 'source',
+              'confirmedAt', 'createdAt', 'closedAt', 'closedReason',
+              'orderNumber', 'month', 'monthIdx', 'year',
+              'schemaVersion', 'waitlistOrigenId', 'bypassAsigGate',
+              'hasSkusToReview', 'skusToReviewCount'
+            ])
+            && (
+              !('stage' in request.resource.data)
+              || request.resource.data.stage != 'confirmed'
+            )
+            && !('transferidoSAP' in request.resource.data)
+            && !('sapLinkage' in request.resource.data)
+            && !('sendingSapLock' in request.resource.data)
+            && !('_commitVersion' in request.resource.data)
+            && !('_draftId' in request.resource.data)
+            && !('transferError' in request.resource.data)
+            && !('orderNumberPrev' in request.resource.data))
         || (isInterno()
             && request.resource.data.createdByUid == request.auth.uid
             && request.resource.data.onBehalfOf == true
-            && isMyPartnerVDE(request.resource.data.ownerUid));
+            && isMyPartnerVDE(request.resource.data.ownerUid)
+            // A2.1: whitelist identico (partner flow)
+            && request.resource.data.keys().hasOnly([
+              'ownerUid', 'ownerEmail', 'ownerVendor',
+              'cargadoPorUid', 'cargadoPorEmail',
+              'createdByUid', 'createdByEmail', 'createdByDisplayName',
+              'onBehalfOf',
+              'vendorAssigned', 'assignedVendorUid', 'assignedVendorEmail',
+              'assignedVendorReason',
+              'clientCardCode', 'clientName', 'clientProvince', 'clientLocality',
+              'key', 'tipo', 'province', 'locName',
+              'lines', 'subtotalArs', 'netAmountArs',
+              'discountPct', 'discountSnapshot',
+              'condicionPago', 'formaEntrega', 'observaciones',
+              'stage', 'origen', 'source',
+              'confirmedAt', 'createdAt', 'closedAt', 'closedReason',
+              'orderNumber', 'month', 'monthIdx', 'year',
+              'schemaVersion', 'waitlistOrigenId', 'bypassAsigGate',
+              'hasSkusToReview', 'skusToReviewCount'
+            ])
+            && (
+              !('stage' in request.resource.data)
+              || request.resource.data.stage != 'confirmed'
+            )
+            && !('transferidoSAP' in request.resource.data)
+            && !('sapLinkage' in request.resource.data)
+            && !('sendingSapLock' in request.resource.data)
+            && !('_commitVersion' in request.resource.data)
+            && !('_draftId' in request.resource.data)
+            && !('transferError' in request.resource.data)
+            && !('orderNumberPrev' in request.resource.data));
       // v747 (2026-08-31): relajada la rule de update/delete para internos.
       // Antes: internos solo podian update pedidos donde eran ownerUid
       // (onBehalfOf=false) o createdByUid (onBehalfOf=true). Bug reportado
