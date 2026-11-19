@@ -24,6 +24,67 @@
 
 const WHITELISTED_LINE_FIELDS = new Set(['precio', 'qty', 'qtyOpen', 'notas']);
 
+// SEC-H5 (HARDENING5 BATCH 1, 2026-11-19): rangos de validación para evitar
+// inyección de NaN / negativos / strings / overflow. Caps:
+//  - qty/qtyOpen: 0..10000 (ningún pedido real supera 10k unidades por línea).
+//  - precio: 0..10_000_000 ARS (10M por unidad es más que cualquier producto SAP).
+const LINE_LIMITS = {
+  QTY_MIN: 0,
+  QTY_MAX: 10000,
+  PRECIO_MIN: 0,
+  PRECIO_MAX: 10_000_000,
+};
+
+/**
+ * Valida rangos de los campos editables en el change. Null-safe: un campo
+ * ausente (!= null) no dispara. Un campo presente debe ser Number.isFinite
+ * y estar dentro del rango.
+ * @param {any} change
+ * @returns {string|null} Mensaje de error si inválido, null si OK.
+ */
+function _validateLineRanges(change) {
+  if (change.qty != null) {
+    const q = Number(change.qty);
+    if (!Number.isFinite(q) || q < LINE_LIMITS.QTY_MIN || q > LINE_LIMITS.QTY_MAX) {
+      return (
+        'qty fuera de rango [' +
+        LINE_LIMITS.QTY_MIN +
+        ', ' +
+        LINE_LIMITS.QTY_MAX +
+        ']: ' +
+        change.qty
+      );
+    }
+  }
+  if (change.qtyOpen != null) {
+    const qo = Number(change.qtyOpen);
+    if (!Number.isFinite(qo) || qo < LINE_LIMITS.QTY_MIN || qo > LINE_LIMITS.QTY_MAX) {
+      return (
+        'qtyOpen fuera de rango [' +
+        LINE_LIMITS.QTY_MIN +
+        ', ' +
+        LINE_LIMITS.QTY_MAX +
+        ']: ' +
+        change.qtyOpen
+      );
+    }
+  }
+  if (change.precio != null) {
+    const p = Number(change.precio);
+    if (!Number.isFinite(p) || p < LINE_LIMITS.PRECIO_MIN || p > LINE_LIMITS.PRECIO_MAX) {
+      return (
+        'precio fuera de rango [' +
+        LINE_LIMITS.PRECIO_MIN +
+        ', ' +
+        LINE_LIMITS.PRECIO_MAX +
+        ']: ' +
+        change.precio
+      );
+    }
+  }
+  return null;
+}
+
 /**
  * @param {UpdatePedidoLinesDeps} deps
  * @param {any} payload
@@ -48,10 +109,18 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
         return { ok: false, errorCode: 'NOT_FOUND', message: 'pedido no existe' };
       }
       const data = snap.data() || {};
-      // Ownership check: VDE solo su pedido, admin/gerente any.
+      // SEC-H5 (HARDENING5 BATCH 1, 2026-11-19) §44/§46/§59/§63:
+      // El VDE que edita puede ser ownerUid O assignedVendorUid del cliente
+      // master. Caso canónico: Gonzalo-BROBRO — orden cargada por Pablo pero
+      // Gonzalo es el VDE del master del cliente. Antes solo chequeaba
+      // ownerUid → VDEs cross-vendor quedaban bloqueados.
       const isPrivileged =
         auth.role === 'admin' || auth.role === 'gerente' || auth.role === 'interno';
-      if (!isPrivileged && data.ownerUid !== auth.uid) {
+      if (
+        !isPrivileged &&
+        data.ownerUid !== auth.uid &&
+        data.assignedVendorUid !== auth.uid
+      ) {
         return {
           ok: false,
           errorCode: 'PERMISSION_DENIED',
@@ -68,6 +137,19 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
             'Pedido ya en SAP (SQ #' +
             (trans.docNum || trans.docEntry) +
             '); para modificar, contactar a admin que lo edita en SAP',
+        };
+      }
+      // SEC-H5 (HARDENING5 BATCH 1, 2026-11-19) — vector V-N3 Data Integrity:
+      // pedido stage='confirmed' NO es editable. Race con onPedidoConfirmedSendToSap:
+      // entre que el trigger arma el payload SAP y hace el POST, un edit al precio/qty
+      // dejaría Firestore con un valor distinto del enviado a SAP → divergencia BI +
+      // fraude ocultable. Para modificar un confirmed hay que revertirlo a pending.
+      if (data.stage === 'confirmed') {
+        return {
+          ok: false,
+          errorCode: 'PERMISSION_DENIED',
+          message:
+            'Pedido en estado confirmed no es editable; revertir a pending primero',
         };
       }
       // Construir newLines a partir del original con los cambios whitelist.
@@ -100,6 +182,16 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
             };
           }
         }
+        // SEC-H5 (HARDENING5 BATCH 1, 2026-11-19): validar rangos ANTES de
+        // aplicar. Rechaza NaN, negativos, strings no-numéricos, overflow.
+        const rangeErr = _validateLineRanges(change);
+        if (rangeErr) {
+          return {
+            ok: false,
+            errorCode: 'VALIDATION_ERROR',
+            message: rangeErr,
+          };
+        }
         // Aplicar cambios whitelist.
         const line = newLines[li];
         for (const field of WHITELISTED_LINE_FIELDS) {
@@ -113,6 +205,29 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
           lineIndex: li,
           changes: Object.keys(change).filter((k) => k !== 'lineIndex'),
         });
+      }
+      // SEC-H5 (HARDENING5 BATCH 1, 2026-11-19) §54 R9: invariante qtyOpen ≤ qty
+      // por línea. Un edit que setee qtyOpen > qty queda prohibido server-side.
+      // Se chequea DESPUÉS de aplicar todos los cambios para permitir edits
+      // compuestos consistentes (ej. qty:20 + qtyOpen:15 pasa; qty:10 + qtyOpen:15
+      // falla).
+      for (let i = 0; i < newLines.length; i++) {
+        const ln = newLines[i];
+        const q = Number(ln.qty || 0);
+        const qo = Number(ln.qtyOpen || 0);
+        if (qo > q) {
+          return {
+            ok: false,
+            errorCode: 'VALIDATION_ERROR',
+            message:
+              'invariante R9 violado: qtyOpen (' +
+              qo +
+              ') > qty (' +
+              q +
+              ') en lineIndex ' +
+              i,
+          };
+        }
       }
       tx.update(pedidoRef, {
         lines: newLines,
