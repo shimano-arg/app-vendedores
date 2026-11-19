@@ -18,10 +18,10 @@
  * la env var se desalinea, estas pruebas lo pillan antes de deployar.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { X509Certificate } from 'node:crypto';
-import { describe, it, expect } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const BUNDLE_PATH = resolve(REPO_ROOT, 'functions', 'certs', 'godaddy_bundle.pem');
@@ -114,7 +114,7 @@ describe('SAP TLS bundle — contenido y shape', () => {
       expect(
         notAfter > umbral,
         `cert vence en menos de 30 dias: ${x.subject} (vence ${x.validTo}). ` +
-          'Coordinar renovacion con Seidor y rotar functions/certs/godaddy_bundle.pem.',
+          'Coordinar renovacion con Seidor y rotar functions/certs/godaddy_bundle.pem.'
       ).toBe(true);
     }
   });
@@ -168,7 +168,10 @@ describe('SAP TLS bundle — alineacion con .env.example (versioned)', () => {
     const projectLine = projectText
       .split('\n')
       .find((l) => l.trim().startsWith('NODE_EXTRA_CA_CERTS='));
-    expect(projectLine, 'el .env.<project> local existe pero no declara NODE_EXTRA_CA_CERTS').toBeDefined();
+    expect(
+      projectLine,
+      'el .env.<project> local existe pero no declara NODE_EXTRA_CA_CERTS'
+    ).toBeDefined();
     const projectValue = projectLine.split('=', 2)[1].trim();
     expect(projectValue).toBe(EXPECTED_RUNTIME_PATH);
   });

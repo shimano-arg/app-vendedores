@@ -309,11 +309,16 @@ export function getStockBreakdown(sku, deps, opts) {
     fisicoRestante -= take;
   }
   // ASIG FIFO por asigAt ASC. Nulos al final.
+  // v1403 §40.11 espejo pure (sincronizado con pedido-snapshot-core.js
+  // §57): el agregado per-linea (qtyEntregable, sobreAsignada) se
+  // persiste en asigDetalle. Los totales del bucket quedaron removidos
+  // del shape top-level en v1395+ (_version=7 en tests). Cleanup biome
+  // noUnusedVariables (PR #1131 v1395 las introdujo; nadie las consume
+  // post-loop), limpieza 2026-11-19 para destrabar CI de PRs #1375,
+  // #1376, #1377.
   asigRaw.sort((a, b) => _tsOrInf(a.asigAt) - _tsOrInf(b.asigAt));
   /** @type {AsigDetalleItem[]} */
   const asigDetalle = [];
-  let asigTotalEntregable = 0;
-  let asigTotalSobre = 0;
   for (const a of asigRaw) {
     const entregable = Math.min(a.qtyNominal, Math.max(0, fisicoRestante));
     const sobre = a.qtyNominal - entregable;
@@ -328,8 +333,6 @@ export function getStockBreakdown(sku, deps, opts) {
       qtyEntregable: entregable,
       sobreAsignada: sobre,
     });
-    asigTotalEntregable += entregable;
-    asigTotalSobre += sobre;
   }
   /** @type {AsignadasBucket} */
   const asignadas = {
