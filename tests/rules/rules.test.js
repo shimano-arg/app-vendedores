@@ -1353,3 +1353,65 @@ describe('/rendiciones duplicado_detectado bypass (v934 MED-13 VULN-707)', () =>
     );
   });
 });
+
+// ============================================================
+// A1.3 (2026-11-19): revision_waitlist_locks — colección 100%
+// server-side (Admin SDK only). Rules: allow read/write = false
+// para cualquier cliente. CFs movePedidoToWaitlistCF /
+// unifyWaitlistsCF + scripts W/Y usan Admin SDK y bypassean.
+// ============================================================
+describe('revision_waitlist_locks — server-side only', () => {
+  beforeEach(async () => {
+    await seedDoc('revision_waitlist_locks/C30718510291', {
+      cardCode: 'C30718510291',
+      waitlistId: 'wl_test',
+      ownerUid: UID.vendor,
+      createdAt: '2026-11-19T00:00:00.000Z',
+    });
+  });
+
+  it('admin NO puede read (bypass solo Admin SDK)', async () => {
+    await assertFails(
+      getDoc(doc(authedDb(UID.admin), 'revision_waitlist_locks', 'C30718510291'))
+    );
+  });
+
+  it('admin NO puede write (bypass solo Admin SDK)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.admin), 'revision_waitlist_locks', 'C99999'), {
+        cardCode: 'C99999',
+      })
+    );
+  });
+
+  it('VDE NO puede read', async () => {
+    await assertFails(
+      getDoc(doc(authedDb(UID.vendor), 'revision_waitlist_locks', 'C30718510291'))
+    );
+  });
+
+  it('VDE NO puede write', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist_locks', 'C99999'), {
+        cardCode: 'C99999',
+      })
+    );
+  });
+
+  it('interno NO puede read', async () => {
+    await assertFails(
+      getDoc(doc(authedDb(UID.interno), 'revision_waitlist_locks', 'C30718510291'))
+    );
+  });
+
+  it('anon NO puede read ni write', async () => {
+    await assertFails(
+      getDoc(doc(anonDb(), 'revision_waitlist_locks', 'C30718510291'))
+    );
+    await assertFails(
+      setDoc(doc(anonDb(), 'revision_waitlist_locks', 'C99999'), {
+        cardCode: 'C99999',
+      })
+    );
+  });
+});
