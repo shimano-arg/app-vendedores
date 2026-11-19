@@ -129,6 +129,15 @@ apps/*/.env.local
 apps/*/.env.*.local
 apps/*/*.tsbuildinfo
 apps/*/next-env.d.ts
+
+# Fix SSL SAP 2026-11-19: functions/.env.<project> es consumido por Firebase
+# Gen 2 en el deploy (env vars del container Cloud Run). Hoy solo tiene
+# NODE_EXTRA_CA_CERTS=path, pero por disciplina no commiteamos .env de
+# functions/ por si en el futuro alguien suma SAP_SL_PASSWORD u otro secret
+# para testing local. El bundle PEM SI se commitea (certs publicos GoDaddy).
+functions/.env
+functions/.env.*
+!functions/.env.example
 # Claude config local de cada app (settings con permisos de agente, no secrets).
 apps/*/.claude/
 
