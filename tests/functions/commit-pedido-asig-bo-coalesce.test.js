@@ -208,8 +208,8 @@ function baseState({ asigCount = 15, boCount = 2, backfill = {} } = {}) {
   const wh = {};
   for (let i = 0; i < Math.max(asigCount, 20); i++) wh['ASIG_SKU_' + i] = { 11: 10 };
   for (let i = 0; i < Math.max(boCount, 20); i++) wh['BO_SKU_' + i] = { 11: 10 };
-  wh['ASIG_SKU_CPST'] = { 11: 10 };
-  wh['SKU_CPST'] = { 11: 10 };
+  wh.ASIG_SKU_CPST = { 11: 10 };
+  wh.SKU_CPST = { 11: 10 };
   return {
     app_config: {
       stock_snapshot: {

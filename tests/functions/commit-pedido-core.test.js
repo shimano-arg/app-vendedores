@@ -274,7 +274,7 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
   describe('Idempotencia por draftId', () => {
     it('mismo draftId devuelve mismo pedidoId (no crea duplicado)', async () => {
       const state = baseStateWithStock('SKU-A', 10, []);
-      state.pedidos['existing_123'] = {
+      state.pedidos.existing_123 = {
         _draftId: 'd_dup',
         stage: 'confirmed',
         clientCardCode: 'C001',

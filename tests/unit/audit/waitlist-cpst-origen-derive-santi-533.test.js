@@ -81,7 +81,7 @@ describe('v1466 §64 hotfix Santi 2026-10-26 — waitlist CPST origen fallback',
       'LDM64TE5031530G',
     ]);
     // SKU reportado por Santi.
-    expect(map['LDM54TE4028015S']).toEqual([
+    expect(map.LDM54TE4028015S).toEqual([
       {
         pedidoId: '1EAWK48bxRGikz0L1rus',
         lineIndex: 14,
