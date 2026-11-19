@@ -55,6 +55,10 @@ from io import BytesIO
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
+# Helper reutilizable aislado para que tests unit no dependan de los
+# imports pesados de BQ/Firebase (ver docstring del helper).
+from sl_http_helpers import sl_get_with_retry as _sl_get_with_retry
+
 try:
     import firebase_admin
     from firebase_admin import credentials, firestore
@@ -463,56 +467,25 @@ def sl_get_with_retry(
     max_retries: int = 2,
     retry_delay_s: float = 2.0,
 ):
-    """2026-11-19 fix post incidente BQ: GET helper con retry ante
-    RemoteDisconnected / ConnectionError.
+    """Wrapper del helper reutilizable aislado en `sl_http_helpers.py`.
 
-    Causa raíz del incidente: SAP SL cierra la conexión TCP después de
-    responder HTTP 400 (Items UDF inválido). El `session.get` del próximo
-    helper que reutiliza la conexión pooleada falla con
-    `urllib3.exceptions.ProtocolError('Connection aborted', RemoteDisconnected)`.
-    El wrapper `requests` lo traduce a `requests.exceptions.ConnectionError`.
+    2026-11-19 fix post incidente BQ: GET con retry ante RemoteDisconnected.
+    La implementación real vive en `scripts/sl_http_helpers.py` para que
+    tests unit no dependan de `google-cloud-bigquery` / `firebase-admin`
+    (que este script importa top-level con sys.exit si faltan).
 
-    Mitigation: ante ese tipo de error, cerramos el pool + sleep + retry.
-    `session.close()` descarta todas las conexiones pooleadas → el próximo
-    request abre un socket nuevo.
-
-    Devuelve `requests.Response` o None (si todos los retries fallaron).
-    Nunca propaga la excepción al caller cuando es ConnectionError —
-    deja al caller decidir el fallback. Otros RequestException sí se
-    propagan sin retry (TLS, DNS, etc).
+    Inyecta el `log()` del script productivo (timestamps ISO) al helper puro.
     """
-    attempts = 0
-    while attempts <= max_retries:
-        try:
-            if headers:
-                return session.get(url, timeout=timeout, headers=headers)
-            return session.get(url, timeout=timeout)
-        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
-            attempts += 1
-            if attempts > max_retries:
-                log(
-                    f'[sl_get_with_retry/{caller}] agotados {max_retries} retries - '
-                    f'ultimo error: {type(e).__name__}: {str(e)[:120]}'
-                )
-                return None
-            log(
-                f'[sl_get_with_retry/{caller}] intento {attempts}/{max_retries + 1} fallo '
-                f'({type(e).__name__}); cerrando conexion pooleada + sleep {retry_delay_s}s'
-            )
-            try:
-                session.close()
-            except Exception:
-                pass
-            time.sleep(retry_delay_s)
-        except requests.exceptions.RequestException as e:
-            # Otros errores (TLS, DNS, timeout) propagados sin retry aqui —
-            # el caller decide.
-            log(
-                f'[sl_get_with_retry/{caller}] RequestException no-retriable: '
-                f'{type(e).__name__}: {str(e)[:120]}'
-            )
-            raise
-    return None
+    return _sl_get_with_retry(
+        session,
+        url,
+        caller,
+        timeout=timeout,
+        headers=headers,
+        max_retries=max_retries,
+        retry_delay_s=retry_delay_s,
+        log=log,
+    )
 
 
 def resolve_bike_group_code(cfg: dict, session: requests.Session) -> int:
