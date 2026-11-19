@@ -342,7 +342,7 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
   describe('CLIENT_HAS_OPEN_WAITLIST', () => {
     it('rechaza si cliente tiene waitlist abierto (origen=manual)', async () => {
       const state = baseStateWithStock('SKU-A', 10, []);
-      state.revision_waitlist['wl_1'] = {
+      state.revision_waitlist.wl_1 = {
         clientCardCode: 'C001',
         orderNumber: 445,
         items: [{ code: 'X' }],
@@ -368,7 +368,7 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
 
     it('pasa si origen=cpst (waitlist esperado para CPST, excluida por waitlistOrigenId §57)', async () => {
       const state = baseStateWithStock('SKU-A', 10, []);
-      state.revision_waitlist['wl_1'] = {
+      state.revision_waitlist.wl_1 = {
         clientCardCode: 'C001',
         orderNumber: 445,
         items: [{}],
@@ -449,7 +449,7 @@ describe('commitPedidoCore — E2 §stock-servidor-atomico', () => {
       // §57 (2026-10-23): cpst requiere waitlistOrigenId. Agregamos el doc
       // en revision_waitlist como el que originó el pedido.
       state.revision_waitlist = state.revision_waitlist || {};
-      state.revision_waitlist['wl_cpst_asig'] = {
+      state.revision_waitlist.wl_cpst_asig = {
         clientCardCode: 'C001',
         orderNumber: 500,
         items: [{ code: 'SKU-A', qty: 3 }],
