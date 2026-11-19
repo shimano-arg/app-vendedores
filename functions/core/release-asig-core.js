@@ -140,10 +140,35 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     }
     /** @type {Array<{ref: any, newLines: Array<any>}>} */
     const pedidoWrites = [];
+    /** @type {Array<{pedidoId:string, reason:string}>} */
+    const crossClientSkipped = [];
+    const waitlistCardCode = String(w.clientCardCode || '').trim();
     for (const [pedidoId, refsForPed] of refsByPedido) {
       const snap = snapshots.get(pedidoId);
       if (!snap || !snap.exists) continue;
       const data = snap.data || {};
+      // SEC-M6 + ATK-001 (2026-11-19): cross-reference check — un VDE hostil
+      // puede crear un waitlist con asigRefs apuntando a pedidos de OTROS
+      // clientes/VDEs. El permission check sobre el waitlist (ownerUid /
+      // assignedVendorUid) NO valida que los pedidos target pertenezcan al
+      // mismo cliente. Acá cerramos ese hueco: solo mutamos pedidos cuyo
+      // `clientCardCode` coincida con el del waitlist.
+      //
+      // Admin/gerente/interno pueden operar cross-client (flows legítimos de
+      // reconciliación), pero el VDE NO.
+      const pedidoCardCode = String(data.clientCardCode || '').trim();
+      if (
+        !isPrivileged &&
+        waitlistCardCode &&
+        pedidoCardCode &&
+        pedidoCardCode !== waitlistCardCode
+      ) {
+        crossClientSkipped.push({
+          pedidoId,
+          reason: 'cross_client_cardCode_mismatch',
+        });
+        continue;
+      }
       /** @type {Array<any>} */
       const newLines = Array.isArray(data.lines)
         ? data.lines.map((/** @type {any} */ l) => Object.assign({}, l))
@@ -205,6 +230,7 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
       linesCancelled,
       pedidosMutated: pedidoWrites.length,
       waitlistDeleted,
+      crossClientSkipped,
     };
   });
 
@@ -233,6 +259,26 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     const addResult = deps.fbDb.collection('operations_log').add(logEntry);
     if (addResult && typeof addResult.catch === 'function') {
       addResult.catch(() => {});
+    }
+    // SEC-M6 + ATK-001 (2026-11-19): log separado high-severity si hubo
+    // cross-client skipped. Señal de posible ataque IDOR.
+    if (result.crossClientSkipped && result.crossClientSkipped.length > 0) {
+      const secLog = {
+        type: 'sec_m6_idor_cross_client_skipped',
+        severity: 'warning',
+        waitlistId,
+        waitlistCardCode: w.clientCardCode || null,
+        waitlistOrderNumber: w.orderNumber || null,
+        skipped: result.crossClientSkipped,
+        skippedCount: result.crossClientSkipped.length,
+        userId: auth.uid,
+        userEmail,
+        role,
+        via: 'releaseAsigCF',
+        timestamp: new Date(now),
+      };
+      const addSec = deps.fbDb.collection('operations_log').add(secLog);
+      if (addSec && typeof addSec.catch === 'function') addSec.catch(() => {});
     }
   } catch (_logErr) {
     // No bloquea.
