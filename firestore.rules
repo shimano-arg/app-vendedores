@@ -1002,7 +1002,15 @@ service cloud.firestore {
     // espera es colaborativa por naturaleza -> cualquier reader edita.
     match /revision_waitlist/{docId} {
       allow read: if isReader();
-      allow create: if isReader() && request.resource.data.ownerUid == request.auth.uid;
+      // HARDENING 6 F9 ATK-001 (2026-11-20): fail-closed clientCardCode.
+      // Antes: el create aceptaba docs sin clientCardCode -> §59 (filtro VDE
+      // por assignedVendorUid) + §42 (unificacion) no podian scopear la
+      // waitlist a un cliente real. Un VDE podia inyectar waitlists huerfanos
+      // visibles cross-vendor. Ahora: clientCardCode debe ser string no vacio.
+      allow create: if isReader()
+                     && request.resource.data.ownerUid == request.auth.uid
+                     && request.resource.data.clientCardCode is string
+                     && request.resource.data.clientCardCode.size() > 0;
       // v926 (2026-09-14, SecAudit Sprint 1 E1.4 HIGH-06): split update/delete.
       // Antes: update+delete abiertos a cualquier reader (@shimano). Un viewer
       // o VDE hostil podia wipear la lista de espera entera con un forEach

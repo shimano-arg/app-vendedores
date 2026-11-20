@@ -1061,6 +1061,7 @@ describe('/revision_waitlist (v926 E1.4 HIGH-06)', () => {
       setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-new'), {
         ownerUid: UID.vendor,
         items: [],
+        clientCardCode: 'C001',
       })
     );
   });
@@ -1430,5 +1431,47 @@ describe('H6 F9 D1-H1 + D2-H2', () => {
   it('D2-H2: regresion — vendor SIGUE leyendo otro app_config/* (stock_snapshot)', async () => {
     await seedDoc('app_config/stock_snapshot', { foo: 'bar' });
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'app_config', 'stock_snapshot')));
+  });
+});
+
+// ============================================================
+// HARDENING 6 F9 ATK-001 — fail-closed revision_waitlist.create
+// clientCardCode obligatorio
+// ============================================================
+describe('H6 F9 ATK-001 fail-closed', () => {
+  it('ATK-001: vendor crea waitlist con clientCardCode populated OK', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-atk-ok'), {
+        ownerUid: UID.vendor,
+        clientCardCode: 'C20175569635',
+        items: [],
+      })
+    );
+  });
+  it('ATK-001: vendor NO puede crear waitlist con clientCardCode="" (string vacio)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-atk-empty'), {
+        ownerUid: UID.vendor,
+        clientCardCode: '',
+        items: [],
+      })
+    );
+  });
+  it('ATK-001: vendor NO puede crear waitlist con clientCardCode=null', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-atk-null'), {
+        ownerUid: UID.vendor,
+        clientCardCode: null,
+        items: [],
+      })
+    );
+  });
+  it('ATK-001: vendor NO puede crear waitlist SIN campo clientCardCode (huerfano)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-atk-missing'), {
+        ownerUid: UID.vendor,
+        items: [],
+      })
+    );
   });
 });
