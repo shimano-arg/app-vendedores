@@ -1747,3 +1747,45 @@ describe('H6 F9 HARD6-F4-S3 + D18 roles.update', () => {
     );
   });
 });
+
+// ============================================================
+// HARDENING 6 F9-ITER S1 — 'vendor' removido del whitelist Editor Full
+// client_master.update (A9 regresion §102).
+// ============================================================
+describe('H6 F9-ITER S1 vendor locked', () => {
+  beforeEach(async () => {
+    // FichaClienteEditor con flag fichaClienteEditorFull=true (editor "Full").
+    await seedDoc('roles/' + UID.interno, {
+      email: 'interno@shimano.com.ar',
+      role: 'interno',
+      fichaClienteEditorFull: true,
+    });
+    await seedDoc('client_master/cm-iter-s1', {
+      cliTipo: 'A',
+      vendor: 'VDE_GONZALO',
+    });
+  });
+  it('F9-ITER S1: FichaClienteEditor NO puede mutar vendor (cerrado §102 regresion)', async () => {
+    // Antes del fix: Editor Full podia reasignar zona VDE de cualquier cliente
+    // via Ficha. Ahora: `vendor` NO esta en el whitelist S1 -> rechazado.
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'client_master', 'cm-iter-s1'), {
+        vendor: 'VDE_HACKEADO',
+      })
+    );
+  });
+  it('F9-ITER S1: admin SI puede mutar vendor (blanket preservado)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'client_master', 'cm-iter-s1'), {
+        vendor: 'VDE_OTRO',
+      })
+    );
+  });
+  it('F9-ITER S1: gerente SI puede mutar vendor (blanket preservado)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.gerente), 'client_master', 'cm-iter-s1'), {
+        vendor: 'VDE_OTRO',
+      })
+    );
+  });
+});

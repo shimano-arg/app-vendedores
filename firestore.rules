@@ -533,8 +533,16 @@ service cloud.firestore {
       // podia escribir campos administrativos (cardCodeSap, precaucion,
       // datos SAP) de un cliente. Ahora:
       // - admin/gerente: blanket.
-      // - FichaClienteEditor: hasOnly whitelist 24 campos "safe editor".
+      // - FichaClienteEditor: hasOnly whitelist 23 campos "safe editor".
       // - isReader (defaultDelivery): preservado (defaultDelivery hasOnly).
+      // HARDENING 6 F9-ITER HARD6-F4-S1 (2026-11-20): REMOVIDO 'vendor' del
+      // whitelist Editor Full. Antes: el whitelist S1 incluia 'vendor' ->
+      // FichaClienteEditor (flag fichaClienteEditorFull=true) podia reasignar
+      // la zona VDE (vendor) de cualquier cliente -> re-abre regresion §102
+      // (BUEN PIQUE: zona + vendedor del master deben coincidir). Ahora:
+      // solo admin/gerente/interno via blanket (fuera del hasOnly) pueden
+      // reasignar vendor. La reasignacion legitima vive en el modal Reasignar
+      // Zonas (admin) y en vendor_overrides (admin/gerente), no en Ficha.
       allow update: if isAdminOrGerente()
         || (isFichaClienteEditor()
             && request.resource.data.diff(resource.data).affectedKeys()
@@ -542,8 +550,8 @@ service cloud.firestore {
                  // Perfil comercial (Ficha Cliente tab Clasificacion):
                  'cliTipo', 'fidelidad', 'prefContacto', 'tamano',
                  'especializacion', 'tipoLocal', 'creditoCheque',
-                 // Metadata del cliente (safe):
-                 'vendor', 'provincia', 'localidad', 'clientName',
+                 // Metadata del cliente (safe) — SIN 'vendor' (A9 F9-ITER):
+                 'provincia', 'localidad', 'clientName',
                  'notas', 'contactos', 'horarios', 'apertura', 'cierre',
                  'condPago', 'descObs', 'datosContacto',
                  // Audit:
