@@ -408,7 +408,7 @@ export function isEligibleForAutoSend(beforeData, afterData) {
  * @param {any} beforeData snapshot antes del write
  * @param {any} afterData snapshot despues del write
  * @param {CoreDeps} deps
- * @returns {Promise<{result: string, docNum?: number, docEntry?: number, error?: string, reason?: string, degradedCount?: number}>}
+ * @returns {Promise<{result: string, docNum?: number, docEntry?: number, error?: string, reason?: string, degradedCount?: number, missingSkus?: Array<string>}>}
  */
 export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   const log = deps.sl.log || (() => {});
