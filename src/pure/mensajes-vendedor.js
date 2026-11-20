@@ -120,6 +120,14 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'No pudimos confirmar el pedido porque una de las reservas del cliente cambió. Volvé a entrar a Stock Asignado y rearmá la selección; si sigue, avisale a Mariano.',
   },
 
+  // §91 (Fix D12 2026-11-20) commitPedidoCF: el descuento calculado en
+  // pantalla no coincide con el detalle. Puede pasar si el vendedor forzó
+  // valores desde la consola o si hubo un bug en el cálculo cliente.
+  DISCOUNT_COHERENCE_MISMATCH: {
+    texto:
+      'El descuento del pedido no coincide con el detalle de la pantalla. Cerrá el pedido y volvé a abrirlo para recalcular; si sigue, avisale a Mariano.',
+  },
+
   // releaseAsigCF errorCodes (quitar producto / rechazo CPST).
   RELEASE_PERMISSION_DENIED: {
     texto:
@@ -154,6 +162,7 @@ export const PALABRAS_PROHIBIDAS = Object.freeze([
   'VALIDATION_ERROR',
   'PERMISSION_DENIED',
   'SAP_UNAVAILABLE',
+  'DISCOUNT_COHERENCE_MISMATCH',
   // Jerga técnica.
   'snapshot',
   'transacción',
