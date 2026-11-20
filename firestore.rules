@@ -999,6 +999,18 @@ service cloud.firestore {
                     || (isReader() && resource.data.ownerUid == request.auth.uid);
     }
 
+    // R01 Fase 1 (v1557-dev 2026-11-17, integrado 2026-11-19 A1.3): locks
+    // atomicos para garantizar §42 (a lo sumo 1 waitlist abierta por
+    // cardCode). Colección 100% server-side: solo las CFs
+    // movePedidoToWaitlistCF / unifyWaitlistsCF escriben via Admin SDK
+    // dentro de runTransaction. Los scripts W_waitlist_lock_drift +
+    // Y_seed_waitlist_locks también usan Admin SDK (bypassa rules).
+    // Nunca cliente.
+    match /revision_waitlist_locks/{cardCode} {
+      allow read: if false;
+      allow write: if false;
+    }
+
     // MERCADOLIBRE (v>=997) -- solo Mariano lee, nadie escribe desde client.
     // La escritura la hace el GHA sync-to-app.yml del repo mercado-intelligence
     // con SA (Admin SDK bypasea rules).

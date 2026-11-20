@@ -1,0 +1,78 @@
+name: Audit Waitlist Lock Drift
+
+# R01 Fase 1 (v1557-dev 2026-11-17): corre scripts/audit/W_waitlist_lock_drift.cjs
+# a diario para detectar drift entre `revision_waitlist_locks/{cardCode}` y
+# `revision_waitlist` abiertas. Falla si totalDrift > 0 para que Mariano vea
+# el workflow rojo y revise manualmente (Fase 1 no permite --apply automático).
+#
+# Categorías vigiladas:
+#   LOCK_WITHOUT_WAITLIST  lock apunta a doc inexistente.
+#   LOCK_POINTS_TO_CLOSED  lock stale (target consumed/closed).
+#   MULTIPLE_OPEN_WAITLISTS  viola §42 (N>=2 abiertas por cardCode).
+#   WAITLIST_WITHOUT_LOCK  pre-existentes sin lock (esperable pre-seed Fase 2).
+#   LOCK_MISMATCHED  lock apunta a X pero hay otro abierto Y del mismo cardCode.
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT  JSON del service account con roles/datastore.viewer
+#     (least-privilege, R01 Fase 2 §Obs1). El script W solo hace .get() sobre
+#     revision_waitlist y revision_waitlist_locks — no requiere write ni admin.
+#     Si el SA ya está configurado con datastore.user, funcionará pero es más
+#     permisivo de lo necesario; migrar a datastore.viewer cuando se autorice.
+
+on:
+  schedule:
+    - cron: '47 7 * * *'    # cada día 07:47 UTC (04:47 ART, antes de operación).
+  workflow_dispatch:         # botón "Run workflow" para pruebas.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-waitlist-lock-drift
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install firebase-admin
+        run: |
+          mkdir -p functions
+          cd functions
+          [ -f package.json ] || npm init -y
+          npm install --no-save firebase-admin
+
+      - name: Setup GCP credentials
+        run: |
+          echo "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" > /tmp/sa.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json" >> $GITHUB_ENV
+
+      - name: Run drift detector (JSON mode)
+        id: drift
+        run: |
+          node scripts/audit/W_waitlist_lock_drift.cjs --json > /tmp/drift.json
+          cat /tmp/drift.json
+          TOTAL=$(node -e "const d = require('/tmp/drift.json'); console.log(d.totalDrift || 0)")
+          echo "total_drift=$TOTAL" >> $GITHUB_OUTPUT
+
+      - name: Fail if drift > 0
+        if: steps.drift.outputs.total_drift != '0'
+        run: |
+          echo "::error::Drift detectado (total=${{ steps.drift.outputs.total_drift }}). Revisar /tmp/drift.json."
+          exit 2
+
+      - name: Upload drift report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report-${{ github.run_id }}
+          path: /tmp/drift.json
+          retention-days: 30
