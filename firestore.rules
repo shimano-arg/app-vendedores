@@ -338,7 +338,59 @@ service cloud.firestore {
 
     match /operations_log/{logId} {
       allow read: if isAdmin() || isViewer();
-      allow create: if request.auth != null && request.resource.data.userUid == request.auth.uid;
+      // A2.3 (SEC-M3 / SEC-NIGHT-R-06, 2026-11-19): hasOnly + guard userUid
+      // + guard type contra falsificación de eventos privilegiados.
+      //
+      // Pre-A2.3: cliente podía crear log con `type='admin_override'` o
+      // sembrar `userRole='admin'` para hacer appear que un admin autorizó
+      // una acción. Post-A2.3:
+      //   - hasOnly(whitelist): solo los campos que los call-sites reales
+      //     escriben (ver RESPUESTAS/BATCH_A2_3_OPERATIONS_LOG_ANALISIS.md).
+      //   - userUid == auth.uid: preservado (no falsificar actor).
+      //   - type: limitado al set CLIENT (4 types). Los types SERVER
+      //     (bo_absorbed, commit_pedido_warning, pedido_deleted, etc.) solo
+      //     los escribe Admin SDK bypassando rules.
+      //
+      // Set CLIENT (4 types permitidos):
+      //   - 'asig_huerfana'                    (index.html orchestration)
+      //   - 'commitPedidoCF_fallback_legacy'   (index.html diag)
+      //   - 'client_confirm_exception'         (catch del commit flow)
+      //   - 'client_write_failed'              (§70 defensa write logger)
+      // Además `logOp()` del audit panel usa campos genéricos (action +
+      // entityType) sin `type` — se permite si `type` NO está en el doc
+      // (uso legacy del audit panel).
+      allow create: if request.auth != null
+        && request.resource.data.userUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          // Identity
+          'userUid', 'userEmail', 'userRole',
+          // Timestamp
+          'timestamp', 'createdAt',
+          // Legacy audit panel shape (logOp)
+          'action', 'entityType', 'entityName', 'details',
+          // Discriminated type (CLIENT set validado abajo)
+          'type',
+          // Contexto compartido
+          'sku', 'pedidoId', 'lineIndex', 'motivo',
+          'lineState', 'lineQtyOpen', 'qtyEsperada', 'qtyFaltanteSku',
+          'clientName', 'cardCode', 'orderNumber', 'orderKey',
+          'waitlistOrigenId', 'draftId', 'via', 'appVersion',
+          'clientVersion',
+          // client_confirm_exception
+          'errStack', 'code', 'email',
+          // client_write_failed (§70)
+          'collection', 'documentId', 'errMessage', 'errCode',
+          'op', 'handler', 'clientCardCode', 'batchRefsCount'
+        ])
+        && (
+          !('type' in request.resource.data)
+          || request.resource.data.type in [
+            'asig_huerfana',
+            'commitPedidoCF_fallback_legacy',
+            'client_confirm_exception',
+            'client_write_failed'
+          ]
+        );
       allow update, delete: if false;
     }
 
