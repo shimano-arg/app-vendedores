@@ -61,6 +61,12 @@ import { createBoundedCache } from './core/bounded-cache.js';
 import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
 // E2 §stock-servidor-atomico (2026-10-23)
 import { commitPedidoCore } from './core/commit-pedido-core.js';
+// §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
+// §61 (v1440) destrabó con rule abierta. Cierra el parche.
+import {
+  CONFIRM_DEFINITIVO_RESULT,
+  confirmPedidoDefinitivoCore,
+} from './core/confirm-pedido-definitivo-core.js';
 import { dashboardVentasCore } from './core/dashboard-ventas-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
@@ -96,8 +102,6 @@ import {
   RATE_LIMITS,
   recordAuthGateResult,
 } from './core/rate-limit-core.js';
-// §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
-// §61 (v1440) destrabó con rule abierta. Cierra el parche.
 import { releaseAsigCore } from './core/release-asig-core.js';
 import { checkNewRendicionDuplicate } from './core/rendicion-duplicate-core.js';
 // v1277 (2026-10-14): reparto manual por Pablo. Reemplaza progresivamente al
@@ -1469,6 +1473,95 @@ export const releaseAsigCF = onCall(
       }
       console.error('releaseAsigCF unexpected error', e);
       throw new HttpsError('internal', 'release asig fallo: ' + (e?.message || String(e)));
+    }
+  }
+);
+
+/**
+ * BATCH B.2b SEC-H2 (2026-11-19) — confirmPedidoDefinitivoCF
+ *
+ * Callable que un pedido pase de `stage='pending'` a `stage='confirmed'`.
+ * Reemplaza el call-site cliente directo `src/domains/pedidos-modal.js`
+ * que escribía `pedidos.update({stage:'confirmed'})` sin pasar por un
+ * backend confiable (vector SEC-H2 HIGH-P0).
+ *
+ * El core escribe `_commitVersion='confirmDefinitivo_v1'` como marker
+ * server-side. El trigger `onPedidoConfirmedSendToSap` (B.1 observe-only
+ * hoy, B.3 guard hard futuro) valida el marker para enviar a SAP.
+ *
+ * Permisos: admin/gerente/interno blanket + VDE con ownerUid o
+ * assignedVendorUid propio (patrón §44/§46/§59/§63).
+ *
+ * Idempotencia: segundo invocado sobre pedido ya confirmed con marker
+ * propio devuelve OK sin re-escribir.
+ */
+export const confirmPedidoDefinitivoCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const email = String(auth.token?.email || '').toLowerCase();
+    const domain = email.split('@')[1] || '';
+    // Mismos dominios que commitPedidoCF (PACHI usa gmail.com).
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
+      throw new HttpsError('permission-denied', 'dominio no permitido');
+    }
+    const data = req.data || {};
+    const pedidoId = String(data.pedidoId || '').trim();
+    if (!pedidoId) {
+      throw new HttpsError('invalid-argument', 'pedidoId requerido');
+    }
+    try {
+      const db = getFirestore();
+      // Resolver rol del caller (patrón §89 server resuelve).
+      const roleSnap = await db.doc(`roles/${auth.uid}`).get();
+      const callerRole = String((roleSnap.data() || {}).role || '').toLowerCase();
+      const r = await confirmPedidoDefinitivoCore(
+        {
+          pedidoId,
+          callerUid: auth.uid,
+          callerEmail: email,
+          callerRole,
+        },
+        {
+          fbDb: db,
+          now: () => Date.now(),
+        }
+      );
+      // Mapeo de result a HttpsError para que el cliente reciba un code
+      // útil + evitar leak de contexto server-side (§64.2).
+      if (
+        r.result === CONFIRM_DEFINITIVO_RESULT.OK ||
+        r.result === CONFIRM_DEFINITIVO_RESULT.OK_IDEMPOTENT
+      ) {
+        return r;
+      }
+      if (r.result === CONFIRM_DEFINITIVO_RESULT.NOT_FOUND) {
+        throw new HttpsError('not-found', 'pedido no encontrado');
+      }
+      if (r.result === CONFIRM_DEFINITIVO_RESULT.PERMISSION_DENIED) {
+        throw new HttpsError('permission-denied', r.reason || 'sin permiso');
+      }
+      if (r.result === CONFIRM_DEFINITIVO_RESULT.INVALID_STAGE) {
+        throw new HttpsError('failed-precondition', r.reason || 'stage inválido');
+      }
+      if (r.result === CONFIRM_DEFINITIVO_RESULT.ALREADY_IN_SAP) {
+        throw new HttpsError('failed-precondition', 'pedido ya en SAP');
+      }
+      throw new HttpsError('internal', 'confirm definitivo fallo');
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      console.error('confirmPedidoDefinitivoCF unexpected error', e);
+      throw new HttpsError('internal', 'confirm definitivo fallo: ' + (e?.message || String(e)));
     }
   }
 );

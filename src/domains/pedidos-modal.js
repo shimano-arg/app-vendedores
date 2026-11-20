@@ -1035,15 +1035,42 @@ window.doConfirmDefinitivoFromReview = function () {
   const list = pending[key] || [];
   const entry = list[idx];
   if (!entry) return;
+  // BATCH B.2b SEC-H2 (2026-11-19): migrado de `pedidos.update` directo a
+  // CF `confirmPedidoDefinitivoCF`. La CF server-side valida permisos,
+  // transición de estado, pedido no en SAP, y escribe el marker
+  // `_commitVersion='confirmDefinitivo_v1'` necesario para que el trigger
+  // onPedidoConfirmedSendToSap (post-B.3 guard hard) acepte la transición.
+  //
+  // Un VDE con devtools ya no puede setear stage='confirmed' directo porque
+  // las rules A1.1 lo bloquean en update; esta CF es ahora el ÚNICO path
+  // legítimo cliente-side.
   if (entry._fsId && currentUser) {
-    fbDb
-      .collection('pedidos')
-      .doc(entry._fsId)
-      .update({ stage: 'confirmed', finalizedAt: new Date().toISOString() })
+    const callable = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('confirmPedidoDefinitivoCF');
+    callable({ pedidoId: entry._fsId })
       .then(() => showSyncTag('Pedido confirmado definitivamente'))
       .catch((e) => {
         console.error('confirm def', e);
-        alert('Error: ' + (e.message || e));
+        // Mapeo de errorCode → mensaje usable por el vendedor (§68).
+        const _msg = e && e.message ? String(e.message) : String(e);
+        const _code = e && e.code ? String(e.code) : '';
+        let _user = 'No pudimos confirmar el pedido. Volvé a intentar.';
+        if (_code === 'permission-denied') {
+          _user = 'No tenés permiso para confirmar este pedido.';
+        } else if (_code === 'failed-precondition') {
+          if (/SAP/i.test(_msg)) {
+            _user = 'Este pedido ya está en SAP. No se puede re-confirmar sin revertirlo primero.';
+          } else {
+            _user = 'El pedido no está en estado que permita confirmación definitiva.';
+          }
+        } else if (_code === 'not-found') {
+          _user = 'No encontramos el pedido. Puede haber sido borrado.';
+        } else if (_code === 'unauthenticated') {
+          _user = 'Cerrá sesión y volvé a entrar; después intentá de nuevo.';
+        }
+        alert(_user + '\n\nCódigo técnico: ' + (_code || 'UNKNOWN'));
       });
   }
   if (!confirmed[key]) confirmed[key] = [];
