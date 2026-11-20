@@ -1862,3 +1862,70 @@ describe('H6 F9-ITER ATK-001 regex + update', () => {
     );
   });
 });
+
+// ============================================================
+// HARDENING 6 F9-ITER S3 + D18 — create path /roles/{uid} auditado.
+// Verifica que un admin no-Mariano no puede crear un doc /roles/{uid_victima}
+// con fichaClienteEditorFull=true ni con internalPartnerUid arbitrario.
+// El create actual exige hasOnly([email,displayName,role,vendor,createdAt]) +
+// uid == auth.uid, lo que ya cierra el vector; estos tests lo blindan.
+// ============================================================
+describe('H6 F9-ITER S3+D18 create path /roles', () => {
+  it('F9-ITER S3 create: Mariano puede crearse como admin via bootstrap email', async () => {
+    // Bootstrap: solo bot.shimano.pesca@gmail.com con google.com provider +
+    // email_verified=true puede autocrearse como admin.
+    const bootDb = authedDb('uid-boot', {
+      email: 'bot.shimano.pesca@gmail.com',
+      email_verified: true,
+      firebase: { sign_in_provider: 'google.com' },
+    });
+    await assertSucceeds(
+      setDoc(doc(bootDb, 'roles', 'uid-boot'), {
+        email: 'bot.shimano.pesca@gmail.com',
+        displayName: 'Boot',
+        role: 'admin',
+        createdAt: new Date(),
+      })
+    );
+  });
+  it('F9-ITER S3 create: admin no-Mariano NO puede crear /roles/{otro} con fichaClienteEditorFull=true', async () => {
+    // Un admin (no Mariano) intenta crear directamente el doc de otra victima.
+    // Falla por 2 motivos:
+    // 1) uid del path != request.auth.uid (el create exige == uid).
+    // 2) fichaClienteEditorFull no esta en el hasOnly del create (5 campos).
+    await assertFails(
+      setDoc(doc(authedDb(UID.admin), 'roles', 'uid-victima'), {
+        email: 'victima@shimano.com.ar',
+        displayName: 'Victima',
+        role: 'unassigned',
+        fichaClienteEditorFull: true,
+      })
+    );
+  });
+  it('F9-ITER S3 create: fresh uid NO puede crearse con fichaClienteEditorFull=true (fuera del hasOnly de 5 campos)', async () => {
+    // Un usuario nuevo intenta crearse a si mismo con el flag -> rechaza
+    // porque el hasOnly del create solo admite [email, displayName, role,
+    // vendor, createdAt]. Esto cierra el vector de escalada via create.
+    const freshDb = authedDb('uid-fresh-iter');
+    await assertFails(
+      setDoc(doc(freshDb, 'roles', 'uid-fresh-iter'), {
+        email: 'fresh@shimano.com.ar',
+        displayName: 'Fresh',
+        role: 'unassigned',
+        fichaClienteEditorFull: true,
+      })
+    );
+  });
+  it('F9-ITER S3 create: fresh uid NO puede crearse con internalPartnerUid (D18 hijack)', async () => {
+    // Mismo vector pero intentando setear internalPartnerUid en create.
+    const freshDb = authedDb('uid-fresh-iter-d18');
+    await assertFails(
+      setDoc(doc(freshDb, 'roles', 'uid-fresh-iter-d18'), {
+        email: 'fresh2@shimano.com.ar',
+        displayName: 'Fresh2',
+        role: 'unassigned',
+        internalPartnerUid: UID.vendor,
+      })
+    );
+  });
+});
