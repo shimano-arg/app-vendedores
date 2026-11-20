@@ -398,3 +398,85 @@ describe('handleAutoSendSap — contrato: nuevo constant AUTO_SEND_RESULT', () =
     expect(occurrences).toHaveLength(1);
   });
 });
+
+// FIX HIGH Adversarial (incidente Federico 2026-11-20): preservar
+// reconcileAttempts + reconcileMaxRetriesAt del transferidoSAP previo.
+// Sin esto, CAPA (c) reinicia attempts a 0 cada vez que re-degrada →
+// reconcile loop infinito (96 ticks/día contra SL).
+describe('handleAutoSendSap — CAPA (c) preserva reconcileAttempts en re-degradación', () => {
+  it('T21 — CAPA (c) preserva reconcileAttempts previo (fix loop infinito)', async () => {
+    // Pedido que ya fue reconciliado 3 veces y vuelve a caer en sap_item_not_found.
+    const pedidoReDegradado = {
+      ...validPedido,
+      transferidoSAP: undefined, // reconcile acaba de borrar
+    };
+    // Inyectamos en el store el pedido con transferidoSAP previo (antes del reconcile).
+    // handleAutoSendSap hace docRef.update() — después verificamos el estado final.
+    const prevTransferidoSAP = {
+      via: 'app_only',
+      reason: 'sap_item_not_found_all_lines',
+      requiresManualResend: true,
+      missingSkus: ['SKU_INEXISTENTE_A', 'SKU_INEXISTENTE_B'],
+      reconcileAttempts: 3,
+      reconcileLastAt: '2026-11-20T10:00:00.000Z',
+    };
+    const after = { ...pedidoReDegradado, transferidoSAP: prevTransferidoSAP };
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/pRedegraded': { ...after } },
+      slScenarios: {
+        itemsNotFound: ['NUEVO1', 'NUEVO2'],
+      },
+    });
+    const before = { ...pedidoReDegradado, transferidoSAP: prevTransferidoSAP };
+    // El wasReconciled path pasa el after SIN transferidoSAP.
+    await handleAutoSendSap('pRedegraded', before, { ...pedidoReDegradado }, deps);
+    // Verificar estado final del doc: transferidoSAP re-escrito CON reconcileAttempts preservado.
+    const finalState = deps.fbDb._dump()['pedidos/pRedegraded'];
+    expect(finalState.transferidoSAP).toBeDefined();
+    expect(finalState.transferidoSAP.requiresManualResend).toBe(true);
+    expect(finalState.transferidoSAP.reconcileAttempts).toBe(3);
+  });
+
+  it('T22 — CAPA (c) sin reconcileAttempts previo NO setea el campo (zero regresión)', async () => {
+    // Primer intento: pedido no viene del reconcile (es la primera degradación).
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/pFirstDegrade': { ...validPedido } },
+      slScenarios: {
+        itemsNotFound: ['NUEVO1', 'NUEVO2'],
+      },
+    });
+    await handleAutoSendSap('pFirstDegrade', null, { ...validPedido }, deps);
+    const finalState = deps.fbDb._dump()['pedidos/pFirstDegrade'];
+    expect(finalState.transferidoSAP).toBeDefined();
+    // No hay attempts previo → campo no se agrega.
+    expect(finalState.transferidoSAP.reconcileAttempts).toBeUndefined();
+    expect(finalState.transferidoSAP.requiresManualResend).toBe(true);
+  });
+
+  it('T23 — CAPA (c) preserva reconcileMaxRetriesAt previo (si ya alcanzó max)', async () => {
+    const prevT = {
+      via: 'app_only',
+      reason: 'sap_item_not_found_all_lines',
+      requiresManualResend: true,
+      missingSkus: ['SKU_INEXISTENTE_A'],
+      reconcileAttempts: 5,
+      reconcileMaxRetriesAt: '2026-11-21T08:00:00.000Z',
+    };
+    const pedidoMaxRetries = {
+      ...validPedido,
+      transferidoSAP: prevT,
+    };
+    const deps = makeDeps({
+      dbDocs: { 'pedidos/pMax': { ...pedidoMaxRetries } },
+      slScenarios: {
+        itemsNotFound: ['NUEVO1', 'NUEVO2'],
+      },
+    });
+    const after = { ...pedidoMaxRetries, transferidoSAP: undefined };
+    await handleAutoSendSap('pMax', pedidoMaxRetries, after, deps);
+    const finalState = deps.fbDb._dump()['pedidos/pMax'];
+    expect(finalState.transferidoSAP).toBeDefined();
+    expect(finalState.transferidoSAP.reconcileAttempts).toBe(5);
+    expect(finalState.transferidoSAP.reconcileMaxRetriesAt).toBe('2026-11-21T08:00:00.000Z');
+  });
+});

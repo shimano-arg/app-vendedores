@@ -986,7 +986,19 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
         }
       }
       // Marcar pedido app_only + líneas con _degradedReason.
+      // FIX HIGH Adversarial (incidente Federico 2026-11-20): preservar
+      // reconcileAttempts + reconcileMaxRetriesAt del transferidoSAP previo.
+      // Sin esto, CAPA (c) reinicia attempts a 0 cada vez que re-degrada →
+      // reconcile loop infinito (96 ticks/día).
       try {
+        const prevT =
+          afterData && afterData.transferidoSAP && typeof afterData.transferidoSAP === 'object'
+            ? afterData.transferidoSAP
+            : null;
+        const prevAttempts =
+          prevT && typeof prevT.reconcileAttempts === 'number' ? prevT.reconcileAttempts : null;
+        const prevMaxRetriesAt =
+          prevT && prevT.reconcileMaxRetriesAt ? prevT.reconcileMaxRetriesAt : null;
         const degradedSkusSet = new Set(sapNotFoundDegraded.map((d) => d.itemCode));
         const updatedLines = (afterData.lines || []).map((/** @type {any} */ l) => {
           const code = String((l && l.code) || '').toUpperCase();
@@ -999,16 +1011,20 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
           }
           return l;
         });
+        /** @type {any} */
+        const newTransferidoSAP = {
+          via: 'app_only',
+          reason: 'sap_item_not_found_all_lines',
+          transferredAt: new Date(now).toISOString(),
+          transferredBy: 'cf-auto/' + sessionId,
+          missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
+          requiresManualResend: true,
+        };
+        if (prevAttempts !== null) newTransferidoSAP.reconcileAttempts = prevAttempts;
+        if (prevMaxRetriesAt) newTransferidoSAP.reconcileMaxRetriesAt = prevMaxRetriesAt;
         await docRef.update({
           lines: updatedLines,
-          transferidoSAP: {
-            via: 'app_only',
-            reason: 'sap_item_not_found_all_lines',
-            transferredAt: new Date(now).toISOString(),
-            transferredBy: 'cf-auto/' + sessionId,
-            missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
-            requiresManualResend: true,
-          },
+          transferidoSAP: newTransferidoSAP,
           sendingSapLock: deps.FieldValue.delete(),
         });
       } catch (_markErr) {
