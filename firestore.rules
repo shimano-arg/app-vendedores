@@ -45,12 +45,29 @@ service cloud.firestore {
     }
 
     // Section MERCADOLIBRE (Mariano-only). Ver docs/specs/2026-09-18-mercadolibre-crm-section-design.md
+    // HARDENING 6 F9-ITER-2 (2026-11-20): guard contra token sin email.
+    // Antes: `request.auth.token.email in [...]` tiraba "Null value error"
+    // cuando el token no traia email (tests con authedDb(uid) sin
+    // tokenExtras, o cuentas anonimas con auth.uid pero sin email). Al ser
+    // evaluada como primer branch de las OR (ej. roles.update C-hibrida S3+D18),
+    // el error propagaba y Firestore devolvia PERMISSION_DENIED aunque el
+    // segundo branch (admin no-Mariano) hubiera fallado tambien. Ahora el
+    // guard `'email' in request.auth.token.keys()` es chequeo de existencia
+    // de la key antes de hacer el `in [...]`, deja la expresion safe y
+    // permite que el OR caiga al segundo branch con una condicion booleana.
     function isMariano() {
+      // HARDENING 6 F9-ITER-2 (2026-11-20): safe check contra tokens sin
+      // email. Antes: `request.auth.token.email in [...]` tiraba "Null value
+      // error" / "Property email is undefined on object" cuando el token no
+      // traia email (tests con authedDb(uid) sin tokenExtras). El patron
+      // `'email' in request.auth.token` chequea existencia de la key en el
+      // map safe antes del acceso al valor, previniendo "Property undefined".
       return request.auth != null
-        && request.auth.token.email in [
-          'erbinomariano@gmail.com',
-          'mariano.erbino@shimano.com.ar'
-        ];
+        && 'email' in request.auth.token
+        && (
+          request.auth.token.email == 'erbinomariano@gmail.com'
+          || request.auth.token.email == 'mariano.erbino@shimano.com.ar'
+        );
     }
 
     // v1420 §54 (2026-10-22): editores de Ficha Cliente opt-in. Usuarios con
@@ -100,11 +117,12 @@ service cloud.firestore {
     // src/domains/exports-core.js (INFRACCIONES_MELI_READERS).
     function canReadInfraccionesMeli() {
       return request.auth != null
-        && request.auth.token.email in [
-          'erbinomariano@gmail.com',
-          'mariano.erbino@shimano.com.ar',
-          'diego.valsi@shimano.uy'
-        ];
+        && 'email' in request.auth.token
+        && (
+          request.auth.token.email == 'erbinomariano@gmail.com'
+          || request.auth.token.email == 'mariano.erbino@shimano.com.ar'
+          || request.auth.token.email == 'diego.valsi@shimano.uy'
+        );
     }
 
     match /roles/{uid} {

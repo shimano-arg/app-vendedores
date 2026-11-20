@@ -673,8 +673,14 @@ describe('/client_applications', () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-huerfano')));
   });
   it('vendor crea alta propia', async () => {
+    // HARDENING 6 F9 D1-H1 (v89df6b68, 2026-11-20): create requiere status
+    // in ['pending_approval', 'approved']. El test pre-D1-H1 omitia status
+    // -> "Property status is undefined on object". Ahora envia pending_approval.
     await assertSucceeds(
-      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), { ownerUid: UID.vendor })
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), {
+        ownerUid: UID.vendor,
+        status: 'pending_approval',
+      })
     );
   });
   // v991 (SecAudit run-1 HIGH #6): create rule valida assignedVendor
@@ -1637,11 +1643,14 @@ describe('H6 F9 HARD6-F4-S2 client_applications', () => {
   });
   it('S2: vendor VDE sigue update acotado por whitelist VDE (regresion v926 HIGH-09)', async () => {
     // Vendor es el assignedVendor del doc -> whitelist VDE (leadEstado, geo).
+    // v926 HIGH-09 guard: leadEstadoBy debe coincidir con token.email. Hay que
+    // pasarle el email en tokenExtras para que la rule no rechace por mismatch.
+    const vendorEmail = 'uid-vendor@shimano.com.ar';
     await assertSucceeds(
-      updateDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-s2'), {
+      updateDoc(doc(authedDb(UID.vendor, { email: vendorEmail }), 'client_applications', 'ca-s2'), {
         leadEstado: 'contactado',
         leadEstadoAt: new Date(),
-        leadEstadoBy: 'uid-vendor@shimano.com.ar',
+        leadEstadoBy: vendorEmail,
       })
     );
   });

@@ -115,10 +115,19 @@ describe('SEC-04 — create de roles/{uid}', () => {
     );
   });
 
-  it('R8: admin conserva el update de roles (asignar rol y flag de editor)', async () => {
+  it('R8: admin conserva el update de roles (asignar rol — flag editor solo Mariano post-HARD6-F4-S3)', async () => {
+    // Pre-HARD6 (v15703dfb, 2026-11-20): este test usaba admin para ambos
+    // campos. Post-HARD6-F4-S3+D18: fichaClienteEditorFull solo lo escribe
+    // Mariano (vector S3 cerrado). Este test se divide: admin sigue pudiendo
+    // asignar rol (flow Panel Usuarios); Mariano asigna el flag editor.
     await assertSucceeds(
       updateDoc(doc(authedDb(UID.admin), 'roles', UID.vendor), {
         role: 'vendedor',
+      })
+    );
+    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+    await assertSucceeds(
+      updateDoc(doc(marianoDb, 'roles', UID.vendor), {
         fichaClienteEditorFull: true,
       })
     );
@@ -149,18 +158,29 @@ describe('SEC-04 — isFichaClienteEditor() exige rol con lectura', () => {
   });
 
   it('F3: interno CON el flag (caso legítimo Ioannis/Santiago) → puede editar', async () => {
+    // HARDENING 6 F9 HARD6-F4-S1 (2026-11-20): Editor Full ya no es blanket;
+    // tiene hasOnly whitelist (23 campos safe). Antes el test seedeaba
+    // address:'x' y usaba setDoc con solo los 3 campos de ficha -> implicito
+    // DELETE de 'address' -> diff.affectedKeys() incluia 'address' (NO en
+    // whitelist) -> fail. Ahora usamos updateDoc (patch, no sobreescribe).
     await seedRole('uid-editor-ok', 'interno', { fichaClienteEditorFull: true });
     await seedDoc('client_master/cli-3', { address: 'x' });
     await assertSucceeds(
-      setDoc(doc(authedDb('uid-editor-ok'), 'client_master', 'cli-3'), fichaCompleta)
+      updateDoc(doc(authedDb('uid-editor-ok'), 'client_master', 'cli-3'), fichaCompleta)
     );
   });
 
   it('F4: admin y gerente conservan la edición de fichas', async () => {
+    // HARDENING 6 F9 HARD6-F4-S1: admin/gerente siguen blanket (fuera del
+    // hasOnly), asi que setDoc sigue funcionando — pero el test crea el doc
+    // vacio fresh para no chocar con el seed. Tambien usamos updateDoc por
+    // consistencia con F3 (patch de ficha).
     await seedDoc('client_master/cli-4', { address: 'x' });
-    await assertSucceeds(setDoc(doc(authedDb(UID.admin), 'client_master', 'cli-4'), fichaCompleta));
     await assertSucceeds(
-      setDoc(doc(authedDb(UID.gerente), 'client_master', 'cli-4'), fichaCompleta)
+      updateDoc(doc(authedDb(UID.admin), 'client_master', 'cli-4'), fichaCompleta)
+    );
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.gerente), 'client_master', 'cli-4'), fichaCompleta)
     );
   });
 });
