@@ -96,6 +96,9 @@ import {
   RATE_LIMITS,
   recordAuthGateResult,
 } from './core/rate-limit-core.js';
+// (incidente Federico 2026-11-20, v1568+): reconcile pedidos app_only con
+// reason='sap_item_not_found_all_lines' cuando Mariano crea el alta SAP.
+import { reconcileAppOnlyCore } from './core/reconcile-app-only-core.js';
 // §63 (2026-10-23) v1442: endpoint único cross-vendor para los 2 flows que
 // §61 (v1440) destrabó con rule abierta. Cierra el parche.
 import { releaseAsigCore } from './core/release-asig-core.js';
@@ -2339,6 +2342,58 @@ export const resolvePedidoCardCodeCF = onSchedule(
       console.log('resolvePedidoCardCodeCF summary', r);
     } catch (e) {
       console.error('resolvePedidoCardCodeCF unexpected error', e);
+    }
+  }
+);
+
+// (incidente Federico 2026-11-20, v1568+): reconcile pedidos app_only con
+// reason='sap_item_not_found_all_lines'. Scheduler cada 15 min + fail-open
+// §77 si snapshot stale/falta. Reusa trigger onPedidoConfirmedSendToSap via
+// DELETE transferidoSAP (que activa el onDocumentWritten).
+export const reconcilePedidosAppOnlyCF = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 0,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async () => {
+    const db = getFirestore();
+    const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    try {
+      const result = await reconcileAppOnlyCore({
+        fbDb: db,
+        FieldValue,
+        now: Date.now,
+        runId,
+        log: (msg, extra) => console.log(msg, extra || {}),
+        snapshotMaxAgeMs: 30 * 60 * 1000,
+        maxAttempts: 5,
+      });
+      console.log('reconcilePedidosAppOnlyCF done', { runId, ...result });
+      // Summary log a operations_log (fire-and-forget).
+      try {
+        await db.collection('operations_log').add({
+          type: 'reconcile_app_only_run',
+          runId,
+          processed: result.processed,
+          reDispatched: result.reDispatched,
+          skipped: result.skipped,
+          maxRetriesExceeded: result.maxRetriesExceeded,
+          errorsCount: (result.errors || []).length,
+          timestamp: new Date(),
+        });
+      } catch (_logErr) {
+        /* non-fatal */
+      }
+    } catch (e) {
+      console.error('reconcilePedidosAppOnlyCF uncaught', {
+        runId,
+        err: (e && e.message) || String(e),
+        stack: (e && e.stack && e.stack.split('\n').slice(0, 3).join('\n')) || null,
+      });
     }
   }
 );
