@@ -88,6 +88,7 @@ export const AUTO_SEND_RESULT = /** @type {const} */ ({
   SKIP_NO_LINES: 'skip_no_lines', // pedido sin lineas confirmed
   SKIP_STOCK_RECHECK_ALL_DEGRADED: 'skip_stock_recheck_all_degraded', // v1051: re-check live stock SAP degradó TODAS las líneas confirmed → skip envío (queda app_only)
   SKIP_STOCK_RECHECK_PARTIAL_DEGRADED: 'skip_stock_recheck_partial_degraded', // v1179 (incident Ricardo Blanco Goitia 2026-10-07): recheck degradó al menos 1 línea → NO enviar silent-degradado, requiere intervencion manual
+  SKIP_SAP_ITEM_NOT_FOUND_ALL_LINES: 'skip_sap_item_not_found_all_lines', // (incidente Federico 2026-11-20) CAPA (c) edge case: TODAS las confirmed caen en sap_item_not_found y keptLines=0 → marca pedido app_only sin sapPost + email a Mariano
   SENT_OK: 'sent_ok', // envio exitoso a SAP
   SENT_OK_PARTIAL_STOCK: 'sent_ok_partial_stock', // v1051 (DEPRECATED v1179): ya no se dispara — el gate ahora bloquea antes del POST
   SENT_OK_IDEMPOTENT: 'sent_ok_idempotent', // v1006: SAP ya tenia SQ con este NumAtCard, no re-POST
@@ -902,6 +903,117 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
           err: _markErr && _markErr.message,
         });
       }
+    } else if (onlySapNotFound && stockCheck.keptLines.length === 0) {
+      // (incidente Federico 2026-11-20) CAPA (c) edge case: TODAS las líneas
+      // confirmed cayeron en `sap_item_not_found` → no hay nada que mandar al
+      // SL. El bloqueo pre-v1480 §72 (SKU_NOT_IN_SAP_CATALOG) prevenía este
+      // escenario rechazando el pedido en commitPedidoCF; al removerlo, hay
+      // que manejarlo acá: marcar el pedido como `app_only` sin sapPost,
+      // avisar a Mariano, y liberar el lock (NO reintentable automático —
+      // espera al alta SAP de los SKUs).
+      //
+      // Semántica app_only: el pedido existe en la app (BO + confirmed sin
+      // backing SAP), pero no tiene SQ generado. Cuando Mariano agregue los
+      // SKUs al catalog, un reenvío manual o el próximo trigger pueden
+      // crear la SQ (el listener `isEligibleForAutoSend` chequea
+      // `!transferidoSAP`, y acá sí lo escribimos — pero con via='app_only'
+      // y `requiresManualResend` para que el admin vea el badge).
+      log('[auto-send] ALL confirmed lines sap_item_not_found → app_only sin sapPost', {
+        pedidoId,
+        degradedCount: sapNotFoundDegraded.length,
+        missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
+      });
+      // operations_log: mismo type que el branch anterior para poder auditar
+      // ambos casos con un solo filter.
+      try {
+        if (deps.fbDb && typeof deps.fbDb.collection === 'function') {
+          await deps.fbDb.collection('operations_log').add({
+            type: 'sap_item_not_found_degraded',
+            subtype: 'all_lines_app_only',
+            pedidoId,
+            cardCode: (afterData && afterData.clientCardCode) || null,
+            clientName: (afterData && afterData.clientName) || null,
+            missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
+            degradedCount: sapNotFoundDegraded.length,
+            keptCount: 0,
+            timestamp: new Date(now),
+          });
+        }
+      } catch (_logErr) {
+        log('[auto-send] operations_log sap_item_not_found_all write failed', {
+          pedidoId,
+          err: _logErr && _logErr.message,
+        });
+      }
+      // Email alerta a Mariano (fire-and-forget).
+      if (typeof deps.sendAlertEmail === 'function') {
+        try {
+          deps
+            .sendAlertEmail({
+              to: 'erbinomariano@gmail.com',
+              subject: `[app-vendedores] Pedido app_only: TODOS los SKUs faltantes en SAP catalog (${sapNotFoundDegraded.length})`,
+              text:
+                `Pedido ${pedidoId} (cliente ${(afterData && afterData.clientName) || '?'}): ` +
+                `${sapNotFoundDegraded.length} SKU(s) NO existen en sap_products y ninguna otra línea quedó para mandar.\n\n` +
+                sapNotFoundDegraded
+                  .map((d) => `  - ${d.itemCode} (req ${d.requested})`)
+                  .join('\n') +
+                `\n\nEl pedido quedó marcado como app_only sin SQ. ` +
+                `Cuando BI agregue estos SKUs al catalog, reenviar manual desde el Panel SAP.`,
+            })
+            .catch((/** @type {any} */ _e) => {
+              log('[auto-send] sendAlertEmail failed (all_lines_app_only)', {
+                pedidoId,
+                err: _e && _e.message,
+              });
+            });
+        } catch (_e) {
+          /* no bloquear */
+        }
+      }
+      // Marcar pedido app_only + líneas con _degradedReason.
+      try {
+        const degradedSkusSet = new Set(sapNotFoundDegraded.map((d) => d.itemCode));
+        const updatedLines = (afterData.lines || []).map((/** @type {any} */ l) => {
+          const code = String((l && l.code) || '').toUpperCase();
+          if (degradedSkusSet.has(code)) {
+            return {
+              ...l,
+              _degradedReason: 'sap_item_not_found_app_only',
+              _degradedAt: new Date(now).toISOString(),
+            };
+          }
+          return l;
+        });
+        await docRef.update({
+          lines: updatedLines,
+          transferidoSAP: {
+            via: 'app_only',
+            reason: 'sap_item_not_found_all_lines',
+            transferredAt: new Date(now).toISOString(),
+            transferredBy: 'cf-auto/' + sessionId,
+            missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
+            requiresManualResend: true,
+          },
+          sendingSapLock: deps.FieldValue.delete(),
+        });
+      } catch (_markErr) {
+        log('[auto-send] mark app_only all_lines failed', {
+          pedidoId,
+          err: _markErr && _markErr.message,
+        });
+      }
+      try {
+        await sapLogout(session, deps.sl);
+      } catch {
+        /* swallow */
+      }
+      return {
+        result: AUTO_SEND_RESULT.SKIP_SAP_ITEM_NOT_FOUND_ALL_LINES,
+        reason: 'all_lines_sap_item_not_found',
+        degradedCount: sapNotFoundDegraded.length,
+        missingSkus: sapNotFoundDegraded.map((d) => d.itemCode),
+      };
     }
     /** @type {{status: number, body: any, headers: any} | null} */
     let resp = null;
