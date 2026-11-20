@@ -126,6 +126,18 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'No pudimos confirmar el pedido porque una de las reservas del cliente cambió. Volvé a entrar a Stock Asignado y rearmá la selección; si sigue, avisale a Mariano.',
   },
 
+  // SEC-M5 HARDENING5 B2 (2026-11-19) — nuevos errorCodes de sanitizacion
+  // en Cloud Functions. Mapean a mensajes genericos ES al VDE, sin filtrar
+  // detalle interno (URL endpoints, docIds Firestore, SMTP usernames).
+  GEMINI_OCR_FAILED: {
+    texto:
+      'No pudimos procesar el ticket. Volvé a sacar la foto o cargalo manual; si sigue, avisale a Mariano.',
+  },
+  EMAIL_SEND_FAILED: {
+    texto:
+      'No pudimos enviar el mail. Volvé a intentar en un minuto; si sigue pasando, avisale a Mariano.',
+  },
+
   // releaseAsigCF errorCodes (quitar producto / rechazo CPST).
   RELEASE_PERMISSION_DENIED: {
     texto:

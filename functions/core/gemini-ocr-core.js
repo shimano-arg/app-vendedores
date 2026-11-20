@@ -305,18 +305,34 @@ export async function runGeminiOcr(deps, auth, input) {
         message: `Gemini tardo mas de ${Math.round(timeoutMs / 1000)}s. Reintentar o completar manual.`,
       };
     }
+    // SEC-M5 (HARDENING5 B2, 2026-11-19): el `errAny.message` del fetch puede
+    // contener la URL completa del endpoint Gemini con `?key=<API_KEY>` en el
+    // query string (patrones node-fetch/undici "request to <URL> failed").
+    // Log interno completo a Cloud Logging; mensaje genérico al wrapper.
     const errAny = /** @type {any} */ (e);
+    log('[gemini-ocr-core:fetchError]', {
+      err: errAny && errAny.message ? errAny.message : String(errAny),
+      stack: errAny && errAny.stack,
+    });
     throw {
-      code: 'internal',
-      message: 'fetch a Gemini fallo: ' + (errAny.message || errAny),
+      code: 'unavailable',
+      message: 'Gemini no responde. Reintentar o completar manual.',
     };
   }
   clearTimeout(timeoutId);
 
   if (!r.ok) {
+    // SEC-M5 (HARDENING5 B2, 2026-11-19): el body de respuesta Gemini puede
+    // incluir detalles internos del endpoint. Lo mantenemos en el log (snippet
+    // ya recortado a 200 chars) pero NO lo propagamos al cliente — mensaje
+    // genérico por status class.
     const errTxt = await r.text().catch(() => '');
-    log('[gemini] non-2xx response', { status: r.status, snippet: errTxt.slice(0, 200) });
-    throw { code: 'internal', message: 'Gemini API ' + r.status + ': ' + errTxt.slice(0, 200) };
+    log('[gemini-ocr-core:non2xx]', { status: r.status, snippet: errTxt.slice(0, 200) });
+    const transient = r.status === 429 || r.status >= 500;
+    throw {
+      code: transient ? 'unavailable' : 'internal',
+      message: 'Gemini no respondio bien. Reintentar o completar manual.',
+    };
   }
 
   // 5) Parse response
