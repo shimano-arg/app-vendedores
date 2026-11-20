@@ -572,6 +572,11 @@ service cloud.firestore {
       // vendor, o admin+gerente overrides. Formulario publico
       // (submittedByPublicForm) sigue permitido sin auth para el flow web
       // externo.
+      // HARDENING 6 F9 D1-H1 (2026-11-20): validar status en create auth.
+      // Antes: el create autenticado aceptaba cualquier valor de status
+      // (approved, rejected, custom) -> un VDE podia auto-aprobar un alta
+      // saltando el flow admin. Ahora: status DEBE existir y estar en
+      // {pending_approval, approved}. Si es approved, solo admin/gerente.
       allow create: if (
                    request.auth != null
                    && request.resource.data.ownerUid == request.auth.uid
@@ -579,6 +584,11 @@ service cloud.firestore {
                      !('assignedVendor' in request.resource.data)
                      || request.resource.data.assignedVendor == null
                      || request.resource.data.assignedVendor == myVendorKey()
+                     || isAdminOrGerente()
+                   )
+                   && request.resource.data.status in ['pending_approval', 'approved']
+                   && (
+                     request.resource.data.status == 'pending_approval'
                      || isAdminOrGerente()
                    )
                  )
@@ -735,8 +745,12 @@ service cloud.firestore {
       // vendedores que no la necesitan.
       // E3 stock_snapshot_shadow_v3: shadow del snapshot app-source, admin/gerente
       // (info operacional del sync, no relevante a vendedores hasta cutover E5).
-      allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini'] && isAdminOrGerente())
-                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'planner_responsables', 'planner_config']) && isReader())
+      // HARDENING 6 F9 D2-H2 (2026-11-20): bloquear google_maps a non-admin.
+      // Antes: google_maps (api key de Maps) era legible por cualquier reader
+      // -> VDE/VDI leia la API key, potencial abuso/quota draining. Ahora:
+      // solo admin+gerente leen (similar a sap_integration + gemini).
+      allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'google_maps'] && isAdminOrGerente())
+                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'google_maps', 'planner_responsables', 'planner_config']) && isReader())
                   || (docId == 'planner_config' && request.auth != null)
                   || (docId == 'planner_responsables' && (isAdmin() || isGerente() || isMariano()));
       // Planner Task 2: planner_responsables y planner_config tienen su propio

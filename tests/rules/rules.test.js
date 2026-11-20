@@ -683,6 +683,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-mine'), {
         ownerUid: UID.vendor,
         assignedVendor: 'VDE_GONZALO',
+        status: 'pending_approval',
       })
     );
   });
@@ -691,6 +692,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-null'), {
         ownerUid: UID.vendor,
         assignedVendor: null,
+        status: 'pending_approval',
       })
     );
   });
@@ -699,6 +701,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-spoof'), {
         ownerUid: UID.vendor,
         assignedVendor: 'VDE_OTRO',
+        status: 'pending_approval',
       })
     );
   });
@@ -707,6 +710,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-admin-assign'), {
         ownerUid: UID.admin,
         assignedVendor: 'VDE_OTRO',
+        status: 'pending_approval',
       })
     );
   });
@@ -1351,5 +1355,80 @@ describe('/rendiciones duplicado_detectado bypass (v934 MED-13 VULN-707)', () =>
         status: 'pending_approval',
       })
     );
+  });
+});
+
+// ============================================================
+// HARDENING 6 F9 D1-H1 — status validation en client_applications.create auth
+// HARDENING 6 F9 D2-H2 — block google_maps en app_config
+// ============================================================
+describe('H6 F9 D1-H1 + D2-H2', () => {
+  // D1-H1: status obligatorio en {pending_approval, approved}; approved solo admin.
+  it('D1-H1: vendor crea alta con status=pending_approval (flow normal) OK', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-h1-ok'), {
+        ownerUid: UID.vendor,
+        assignedVendor: 'VDE_GONZALO',
+        status: 'pending_approval',
+      })
+    );
+  });
+  it('D1-H1: admin crea alta con status=approved OK (admin override)', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-h1-admin-ap'), {
+        ownerUid: UID.admin,
+        assignedVendor: 'VDE_GONZALO',
+        status: 'approved',
+      })
+    );
+  });
+  it('D1-H1: vendor NO puede crear alta con status=approved (auto-aprobacion bypass admin)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-h1-vde-ap'), {
+        ownerUid: UID.vendor,
+        assignedVendor: 'VDE_GONZALO',
+        status: 'approved',
+      })
+    );
+  });
+  it('D1-H1: vendor NO puede crear alta con status=rejected (valor fuera del set)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-h1-rej'), {
+        ownerUid: UID.vendor,
+        assignedVendor: 'VDE_GONZALO',
+        status: 'rejected',
+      })
+    );
+  });
+  it('D1-H1: vendor NO puede crear alta con status=null', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-h1-null'), {
+        ownerUid: UID.vendor,
+        assignedVendor: 'VDE_GONZALO',
+        status: null,
+      })
+    );
+  });
+  it('D1-H1: vendor NO puede crear alta SIN campo status', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-h1-missing'), {
+        ownerUid: UID.vendor,
+        assignedVendor: 'VDE_GONZALO',
+      })
+    );
+  });
+
+  // D2-H2: google_maps bloqueado a non-admin.
+  it('D2-H2: vendor NO puede leer app_config/google_maps', async () => {
+    await seedDoc('app_config/google_maps', { apiKey: 'AIzaSy_dummy' });
+    await assertFails(getDoc(doc(authedDb(UID.vendor), 'app_config', 'google_maps')));
+  });
+  it('D2-H2: admin SI puede leer app_config/google_maps', async () => {
+    await seedDoc('app_config/google_maps', { apiKey: 'AIzaSy_dummy' });
+    await assertSucceeds(getDoc(doc(authedDb(UID.admin), 'app_config', 'google_maps')));
+  });
+  it('D2-H2: regresion — vendor SIGUE leyendo otro app_config/* (stock_snapshot)', async () => {
+    await seedDoc('app_config/stock_snapshot', { foo: 'bar' });
+    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'app_config', 'stock_snapshot')));
   });
 });
