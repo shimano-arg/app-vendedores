@@ -48,6 +48,14 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "detectedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "stage", "order": "ASCENDING" },
+        { "fieldPath": "transferidoSAP.requiresManualResend", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
