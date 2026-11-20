@@ -487,3 +487,30 @@ describe('autoConfirmPendingPedidos', () => {
     expect(confirmUpdates).toHaveLength(1);
   });
 });
+
+// ============================================================
+// HARDENING 6 F9 D11-HIGH-01 (2026-11-20): _commitVersion en updatePayload
+// ============================================================
+describe('H6 F9 D11-HIGH-01 _commitVersion', () => {
+  it('D11-HIGH-01: updatePayload incluye _commitVersion al pasar a confirmed', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [pedidoDoc({ id: 'ver_1', data: { confirmedAt: isoMinutesAgo(15) } })],
+    });
+    await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    const upd = fbDb._store.updatesLog.find(
+      (u) => u.id === 'ver_1' && u.patch.stage === 'confirmed'
+    );
+    expect(upd).toBeTruthy();
+    expect(upd.patch._commitVersion).toBeDefined();
+  });
+  it('D11-HIGH-01: _commitVersion === "autoConfirmPendingCore_v1" (string exacto)', async () => {
+    const fbDb = makeFbDbStub({
+      pedidos: [pedidoDoc({ id: 'ver_2', data: { confirmedAt: isoMinutesAgo(15) } })],
+    });
+    await autoConfirmPendingPedidos({ fbDb, FieldValue, now: nowFn });
+    const upd = fbDb._store.updatesLog.find(
+      (u) => u.id === 'ver_2' && u.patch.stage === 'confirmed'
+    );
+    expect(upd.patch._commitVersion).toBe('autoConfirmPendingCore_v1');
+  });
+});

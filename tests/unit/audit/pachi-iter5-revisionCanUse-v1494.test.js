@@ -81,9 +81,11 @@ describe('v1494 §93 — rules revision_waitlist create admite PACHI', () => {
   it('T20 rules.revision_waitlist.create requiere isReader + ownerUid', () => {
     const idx = RULES.indexOf('match /revision_waitlist/{docId}');
     expect(idx).toBeGreaterThan(0);
-    const slice = RULES.slice(idx, idx + 500);
+    // H6 F9 ATK-001 (v1480): slice ampliado porque la rule ahora incluye
+    // guard adicional de clientCardCode (string no vacio).
+    const slice = RULES.slice(idx, idx + 1000);
     expect(slice).toMatch(
-      /allow create: if isReader\(\) && request\.resource\.data\.ownerUid == request\.auth\.uid/
+      /allow create: if isReader\(\)\s*[\s\S]*request\.resource\.data\.ownerUid == request\.auth\.uid/
     );
   });
 

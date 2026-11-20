@@ -90,7 +90,9 @@ describe('v1501 §93 — client_master.update acepta PACHI via isFichaClienteEdi
     expect(start).toBeGreaterThan(0);
     const slice = RULES.slice(start, RULES.indexOf('allow delete:', start) + 100);
     const updateBlock = slice.slice(slice.indexOf('allow update:'));
-    expect(updateBlock).toMatch(/isAdminOrGerente\(\)\s*\|\|\s*isFichaClienteEditor\(\)/);
+    // H6 F9 HARD6-F4-S1 (v1480): isFichaClienteEditor() ahora va envuelto en
+    // sub-expresion con hasOnly(). PACHI sigue cubierto; la invocacion persiste.
+    expect(updateBlock).toMatch(/isAdminOrGerente\(\)\s*\|\|\s*\(?\s*isFichaClienteEditor\(\)/);
   });
 
   it('match /client_master allow create sigue invocando isFichaClienteEditor()', () => {

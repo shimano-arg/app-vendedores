@@ -45,12 +45,29 @@ service cloud.firestore {
     }
 
     // Section MERCADOLIBRE (Mariano-only). Ver docs/specs/2026-09-18-mercadolibre-crm-section-design.md
+    // HARDENING 6 F9-ITER-2 (2026-11-20): guard contra token sin email.
+    // Antes: `request.auth.token.email in [...]` tiraba "Null value error"
+    // cuando el token no traia email (tests con authedDb(uid) sin
+    // tokenExtras, o cuentas anonimas con auth.uid pero sin email). Al ser
+    // evaluada como primer branch de las OR (ej. roles.update C-hibrida S3+D18),
+    // el error propagaba y Firestore devolvia PERMISSION_DENIED aunque el
+    // segundo branch (admin no-Mariano) hubiera fallado tambien. Ahora el
+    // guard `'email' in request.auth.token.keys()` es chequeo de existencia
+    // de la key antes de hacer el `in [...]`, deja la expresion safe y
+    // permite que el OR caiga al segundo branch con una condicion booleana.
     function isMariano() {
+      // HARDENING 6 F9-ITER-2 (2026-11-20): safe check contra tokens sin
+      // email. Antes: `request.auth.token.email in [...]` tiraba "Null value
+      // error" / "Property email is undefined on object" cuando el token no
+      // traia email (tests con authedDb(uid) sin tokenExtras). El patron
+      // `'email' in request.auth.token` chequea existencia de la key en el
+      // map safe antes del acceso al valor, previniendo "Property undefined".
       return request.auth != null
-        && request.auth.token.email in [
-          'erbinomariano@gmail.com',
-          'mariano.erbino@shimano.com.ar'
-        ];
+        && 'email' in request.auth.token
+        && (
+          request.auth.token.email == 'erbinomariano@gmail.com'
+          || request.auth.token.email == 'mariano.erbino@shimano.com.ar'
+        );
     }
 
     // v1420 §54 (2026-10-22): editores de Ficha Cliente opt-in. Usuarios con
@@ -100,11 +117,12 @@ service cloud.firestore {
     // src/domains/exports-core.js (INFRACCIONES_MELI_READERS).
     function canReadInfraccionesMeli() {
       return request.auth != null
-        && request.auth.token.email in [
-          'erbinomariano@gmail.com',
-          'mariano.erbino@shimano.com.ar',
-          'diego.valsi@shimano.uy'
-        ];
+        && 'email' in request.auth.token
+        && (
+          request.auth.token.email == 'erbinomariano@gmail.com'
+          || request.auth.token.email == 'mariano.erbino@shimano.com.ar'
+          || request.auth.token.email == 'diego.valsi@shimano.uy'
+        );
     }
 
     match /roles/{uid} {
@@ -170,9 +188,27 @@ service cloud.firestore {
       // reglas de read y create no se tocan (create ya los excluye por el
       // hasOnly de 5 campos de SEC-04). affectedKeys() cubre alta/edición/baja
       // de esos campos (una eliminación de campo también aparece en el diff).
-      allow update: if isAdmin()
-                     && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled']);
+      // HARDENING 6 F9 HARD6-F4-S3 + D18 (2026-11-20): C-hibrida en roles.update.
+      // - Mariano (isMariano()): puede escribir cualquier campo (incluido
+      //   fichaClienteEditorFull + internalPartnerUid). Es la persona que
+      //   asigna partnership VDI<->VDE + habilita editores de ficha.
+      // - Admin no-Mariano: NO puede escribir fichaClienteEditorFull (vector
+      //   de escalada a Ficha Cliente cross-cliente) ni internalPartnerUid
+      //   (hijack de partnership VDI, D18: un admin podia reasignar el
+      //   partner VDI de un vendedor a si mismo y leer rendiciones ajenas).
+      // - Ambos siguen bloqueados en S04b (passwordHash/salt/totpSecret/totpEnabled).
+      allow update: if (isMariano()
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                             .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled']))
+                     || (isAdmin()
+                         && !isMariano()
+                         && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny([
+                                'passwordHash', 'passwordSalt',
+                                'totpSecret', 'totpEnabled',
+                                'fichaClienteEditorFull',
+                                'internalPartnerUid'
+                              ]));
       allow delete: if isAdmin();
     }
 
@@ -509,8 +545,39 @@ service cloud.firestore {
               'clienteDireccion',
               'updatedAt', 'updatedBy'
             ]));
+      // HARDENING 6 F9 HARD6-F4-S1 (2026-11-20): estratificar hasOnly por tipo
+      // de editor. Antes: isFichaClienteEditor() tenia blanket update (cualquier
+      // campo de la ficha). Riesgo: un user con flag fichaClienteEditorFull=true
+      // podia escribir campos administrativos (cardCodeSap, precaucion,
+      // datos SAP) de un cliente. Ahora:
+      // - admin/gerente: blanket.
+      // - FichaClienteEditor: hasOnly whitelist 23 campos "safe editor".
+      // - isReader (defaultDelivery): preservado (defaultDelivery hasOnly).
+      // HARDENING 6 F9-ITER HARD6-F4-S1 (2026-11-20): REMOVIDO 'vendor' del
+      // whitelist Editor Full. Antes: el whitelist S1 incluia 'vendor' ->
+      // FichaClienteEditor (flag fichaClienteEditorFull=true) podia reasignar
+      // la zona VDE (vendor) de cualquier cliente -> re-abre regresion §102
+      // (BUEN PIQUE: zona + vendedor del master deben coincidir). Ahora:
+      // solo admin/gerente/interno via blanket (fuera del hasOnly) pueden
+      // reasignar vendor. La reasignacion legitima vive en el modal Reasignar
+      // Zonas (admin) y en vendor_overrides (admin/gerente), no en Ficha.
       allow update: if isAdminOrGerente()
-        || isFichaClienteEditor()
+        || (isFichaClienteEditor()
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly([
+                 // Perfil comercial (Ficha Cliente tab Clasificacion):
+                 'cliTipo', 'fidelidad', 'prefContacto', 'tamano',
+                 'especializacion', 'tipoLocal', 'creditoCheque',
+                 // Metadata del cliente (safe) — SIN 'vendor' (A9 F9-ITER):
+                 'provincia', 'localidad', 'clientName',
+                 'notas', 'contactos', 'horarios', 'apertura', 'cierre',
+                 'condPago', 'descObs', 'datosContacto',
+                 // Audit:
+                 'updatedAt', 'updatedBy', 'updatedByUid',
+                 'updatedByFichaEditor',
+                 // DefaultDelivery (también lo escriben editores):
+                 'defaultDelivery'
+               ]))
         || (isReader()
             && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['defaultDelivery'])
@@ -572,6 +639,11 @@ service cloud.firestore {
       // vendor, o admin+gerente overrides. Formulario publico
       // (submittedByPublicForm) sigue permitido sin auth para el flow web
       // externo.
+      // HARDENING 6 F9 D1-H1 (2026-11-20): validar status en create auth.
+      // Antes: el create autenticado aceptaba cualquier valor de status
+      // (approved, rejected, custom) -> un VDE podia auto-aprobar un alta
+      // saltando el flow admin. Ahora: status DEBE existir y estar en
+      // {pending_approval, approved}. Si es approved, solo admin/gerente.
       allow create: if (
                    request.auth != null
                    && request.resource.data.ownerUid == request.auth.uid
@@ -579,6 +651,11 @@ service cloud.firestore {
                      !('assignedVendor' in request.resource.data)
                      || request.resource.data.assignedVendor == null
                      || request.resource.data.assignedVendor == myVendorKey()
+                     || isAdminOrGerente()
+                   )
+                   && request.resource.data.status in ['pending_approval', 'approved']
+                   && (
+                     request.resource.data.status == 'pending_approval'
                      || isAdminOrGerente()
                    )
                  )
@@ -624,7 +701,31 @@ service cloud.firestore {
       // por assignedVendor pero update no lo hacia. Ahora vendor solo puede
       // update si es el assignedVendor del lead o el owner del doc, Y si
       // toca leadEstadoBy el valor debe ser SU token.email (no forjable).
-      allow update: if isAdminOrGerente() || isInterno()
+      // HARDENING 6 F9 HARD6-F4-S2 (2026-11-20): endurecer admin/gerente/interno
+      // con hasOnly whitelist. Antes: blanket update para admin/gerente/interno
+      // -> escritura arbitraria de cualquier campo (incluido inyeccion de
+      // audit/metadata adversarial). Ahora: hasOnly con whitelist amplia
+      // (approvedAt, approvedBy, status, assignedVendor, cardCodeSap,
+      // manualSapPending, rejectionReason, + campos operativos). Ownership
+      // (ownerUid) y el campo tecnico submittedByPublicForm siguen bloqueados.
+      allow update: if ((isAdminOrGerente() || isInterno())
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                           .hasOnly([
+                             // Admin approval fields:
+                             'status', 'approvedAt', 'approvedBy',
+                             'rejectionReason', 'rejectedAt', 'rejectedBy',
+                             'assignedVendor', 'cardCodeSap',
+                             'manualSapPending', 'manualSapPendingAt', 'manualSapPendingBy',
+                             // Operativo compartido (ver whitelist VDE abajo):
+                             'leadEstado', 'leadEstadoAt', 'leadEstadoBy',
+                             'comercio', 'titular', 'cuit', 'fantasia',
+                             'calle', 'localidad', 'localidadFinal',
+                             'lat', 'lng',
+                             'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt',
+                             'precaucion', 'precaucionReason', 'precaucionAt', 'precaucionBy',
+                             // Audit:
+                             'updatedAt', 'updatedBy'
+                           ]))
                      || (isReader()
                          && (
                            // Vendor scope: solo leads suyos o donde es owner.
@@ -735,8 +836,12 @@ service cloud.firestore {
       // vendedores que no la necesitan.
       // E3 stock_snapshot_shadow_v3: shadow del snapshot app-source, admin/gerente
       // (info operacional del sync, no relevante a vendedores hasta cutover E5).
-      allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini'] && isAdminOrGerente())
-                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'planner_responsables', 'planner_config']) && isReader())
+      // HARDENING 6 F9 D2-H2 (2026-11-20): bloquear google_maps a non-admin.
+      // Antes: google_maps (api key de Maps) era legible por cualquier reader
+      // -> VDE/VDI leia la API key, potencial abuso/quota draining. Ahora:
+      // solo admin+gerente leen (similar a sap_integration + gemini).
+      allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'google_maps'] && isAdminOrGerente())
+                  || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'google_maps', 'planner_responsables', 'planner_config']) && isReader())
                   || (docId == 'planner_config' && request.auth != null)
                   || (docId == 'planner_responsables' && (isAdmin() || isGerente() || isMariano()));
       // Planner Task 2: planner_responsables y planner_config tienen su propio
@@ -988,7 +1093,20 @@ service cloud.firestore {
     // espera es colaborativa por naturaleza -> cualquier reader edita.
     match /revision_waitlist/{docId} {
       allow read: if isReader();
-      allow create: if isReader() && request.resource.data.ownerUid == request.auth.uid;
+      // HARDENING 6 F9 ATK-001 (2026-11-20): fail-closed clientCardCode.
+      // Antes: el create aceptaba docs sin clientCardCode -> §59 (filtro VDE
+      // por assignedVendorUid) + §42 (unificacion) no podian scopear la
+      // waitlist a un cliente real. Un VDE podia inyectar waitlists huerfanos
+      // visibles cross-vendor. Ahora: clientCardCode debe ser string no vacio.
+      // HARDENING 6 F9-ITER ATK-001 (2026-11-20): regex SAP format
+      // ^C[0-9]+$ (cardCodes reales de prod: C20..., C30..., todos con
+      // prefijo C y digitos). El fail-closed previo aceptaba cualquier
+      // string no vacio -> VDE podia inyectar "FAKE" o "X_HACK" y pasar
+      // §59/§42. Ahora: la regex bloquea valores arbitrarios.
+      allow create: if isReader()
+                     && request.resource.data.ownerUid == request.auth.uid
+                     && request.resource.data.clientCardCode is string
+                     && request.resource.data.clientCardCode.matches('^C[0-9]+$');
       // v926 (2026-09-14, SecAudit Sprint 1 E1.4 HIGH-06): split update/delete.
       // Antes: update+delete abiertos a cualquier reader (@shimano). Un viewer
       // o VDE hostil podia wipear la lista de espera entera con un forEach
@@ -1002,7 +1120,20 @@ service cloud.firestore {
       // ORDEN 178, 3 SQs 2000183/2000184/2000185). Delete queda scoped al
       // owner del doc — no permite wipe masivo (defensa v926 preservada).
       // Admin/gerente/interno siguen pudiendo borrar cualquier doc.
-      allow update: if isReader();
+      // HARDENING 6 F9-ITER ATK-001 (2026-11-20): guard semantico en update.
+      // Si el update MUTA clientCardCode, el valor nuevo debe matchear el
+      // mismo regex SAP ^C[0-9]+$ que aplica a create. Antes: una waitlist
+      // legacy sin cardCode (o con string "FAKE") podia quedar asi via
+      // update - cualquier vector que llevara el doc al core con cardCode
+      // invalido. Ahora: cualquier update del campo valida la forma.
+      allow update: if isReader()
+                     && (
+                       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['clientCardCode'])
+                       || (
+                         request.resource.data.clientCardCode is string
+                         && request.resource.data.clientCardCode.matches('^C[0-9]+$')
+                       )
+                     );
       allow delete: if isAdminOrGerente() || isInterno()
                     || (isReader() && resource.data.ownerUid == request.auth.uid);
     }
