@@ -75,10 +75,14 @@ import { resolveClientVendorServerSide } from './resolve-client-vendor-core.js';
 // PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
 // Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
 import { resolveLineDesc } from './resolve-line-desc-core.js';
-// PR 2 §72 (v1475 2026-10-26) — chequea que cada SKU exista en sap_products
-// catalog ANTES del tx. Rechaza con SKU_NOT_IN_SAP_CATALOG preservando
-// waitlist origen (no la consume). CAPA (b) de la defensa en profundidad.
-import { checkSkusInSapCatalog } from './sku-catalog-check-core.js';
+// (incidente Federico 2026-11-20) CAPA (b) `SKU_NOT_IN_SAP_CATALOG` removida:
+// bloqueaba pedidos legítimos con SKUs todavía no dados de alta en SAP.
+// La red de seguridad real es CAPA (c) en `auto-send-sap-core.js`, que degrada
+// líneas individuales con `sap_item_not_found` sin bloquear el pedido completo
+// (keptLines > 0) y marca el pedido `app_only` cuando TODAS las líneas confirmed
+// caen a `sap_item_not_found` (keptLines === 0, edge case de la misma CAPA c).
+// Si se reintroduce un gate catalog aquí, debe cumplir §77 (fail-open con sourc
+// vacía) + §78 (test Playwright con usuario VDE pre-deploy).
 
 // Threshold de staleness del snapshot stock server-side.
 // v1456 §60 UPDATE (2026-10-25): BAJADO 8h → 30 min. El sync ahora vive en
@@ -369,64 +373,25 @@ export async function commitPedidoCore(deps, payload) {
     );
   }
 
-  // 4.6 PR 2 §72 (2026-10-26): SKU_NOT_IN_SAP_CATALOG gate.
+  // 4.6 Gate `SKU_NOT_IN_SAP_CATALOG` REMOVIDO (incidente Federico 2026-11-20).
   //
-  // Chequeo pre-tx (fuera del runTransaction): si alguna línea tiene un SKU
-  // que no existe en `sap_products/{sku}`, SAP no lo va a aceptar. Rechazamos
-  // ANTES del write para que la waitlist origen NO se marque consumed → el
-  // VDE puede abrir de nuevo la orden, quitar/corregir el SKU problemático y
-  // reintentar sin perder el pedido. CAPA (b) de la defensa en profundidad
-  // (CAPA a = UI de carga bloquea; CAPA c = envío a SAP degrada por race).
-  // Reportado ORDEN 530 SUSANA ANDRILI (EXGTVC66M4AR).
-  const skusForCheck = (payload.lines || [])
-    .map((/** @type {any} */ l) =>
-      String((l && l.sku) || '')
-        .toUpperCase()
-        .trim()
-    )
-    .filter(Boolean);
-  const catalogCheck = await checkSkusInSapCatalog(skusForCheck, deps);
-  // v1480 §77 HOTFIX (2026-10-27): fail-open si el catálogo `sap_products` está
-  // vacío. Precedente 2026-10-26 21:00: colección sin docs bloqueaba 100% de
-  // confirmaciones. Dejamos pasar + log para auditoría; CAPA (c) en
-  // auto-send-sap-core sigue como red de seguridad.
-  if (catalogCheck.catalogEmpty) {
-    try {
-      await deps.fbDb.collection('operations_log').add({
-        type: 'commit_pedido_warning',
-        warningCode: 'catalog_check_skipped',
-        reason: 'sap_products_empty_or_unreadable',
-        checkedCount: catalogCheck.checked,
-        skus: skusForCheck.slice(0, 50),
-        userId: payload.userId || null,
-        userEmail: payload.userEmail || null,
-        cardCode: payload.cardCode || null,
-        draftId: payload.draftId || null,
-        origen: payload.origen || null,
-        clientVersion: payload.clientVersion || null,
-        timestamp: new Date(now),
-      });
-    } catch (_e) {
-      // Non-fatal: no bloquear por fallo de logging.
-      (deps.log || (() => {}))('catalog_check_skipped log failed (non-blocking)', {
-        err: _e && _e.message,
-      });
-    }
-    log('commitPedidoCore catalog_check_skipped (sap_products empty, fail-open)', {
-      draftId: payload.draftId,
-      skusChecked: catalogCheck.checked,
-    });
-  } else if (!catalogCheck.ok) {
-    await logCommitRejection(deps, 'SKU_NOT_IN_SAP_CATALOG', payload, {
-      missingSkus: catalogCheck.missing,
-      checkedCount: catalogCheck.checked,
-    });
-    return makeError(
-      'SKU_NOT_IN_SAP_CATALOG',
-      'Hay productos del pedido que todavía no están cargados en SAP. Quitalos del pedido o avisale a Mariano para que los agregue antes de confirmar.',
-      { missingSkus: catalogCheck.missing }
-    );
-  }
+  // PR 2 §72 (v1475 2026-10-26) agregó un gate pre-tx que rechazaba el pedido
+  // si algún SKU no estaba en `app_config/stock_snapshot.quantities`. Historial
+  // reciente demuestra que es defecto funcional:
+  //   - 2026-10-26 21:00 (v1480 §77): fuente vacía rechazaba 100% confirmaciones.
+  //   - 2026-11-20 (Federico): 25 SKUs legítimos sin alta todavía en SAP → el
+  //     pedido entero rebotaba. Flow correcto es que esas líneas queden en BO y
+  //     el pedido pase como `app_only` hasta el alta SAP.
+  //
+  // Decisión (Opción A diseño Architect): confiar en CAPA (c) de
+  // `auto-send-sap-core.js`, que ya maneja ambos escenarios:
+  //   (c.1) keptLines > 0 → envía lo mandable, deja las degradadas como
+  //         `_degradedReason='sap_item_not_found_app_only'` + email a Mariano.
+  //   (c.2) keptLines === 0 (todas sap_item_not_found) → pedido `app_only` sin
+  //         sapPost + log + email. Edge case agregado junto a este fix.
+  //
+  // CLAUDE.md §77 (fail-open), §78 (Playwright VDE), §89 (datos server-side):
+  // si alguien reintroduce un gate catalog, debe cumplir las 3 antes del merge.
 
   // 5. runTransaction atómica.
   let attempts = 0;
@@ -799,8 +764,10 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   const docLines = [];
 
   // PR 4 §75 (v1477 2026-10-26): catalog map {code → {descripcion}} para
-  // resolver descripción de líneas desde el payload. Lectura paralela post-
-  // SKU_NOT_IN_SAP_CATALOG gate (todos los SKUs ya validados que existen).
+  // resolver descripción de líneas desde el payload. Lectura best-effort:
+  // SKUs que no existen en `sap_products` simplemente caen al fallback del
+  // payload (gate catalog pre-tx removido 2026-11-20, incidente Federico;
+  // CAPA (c) de auto-send-sap-core ya cubre).
   // Si el cliente mandó desc en el payload, se usa; si no, se cae al catálogo.
   /** @type {Record<string, {descripcion: string}>} */
   const catalogDescMap = {};

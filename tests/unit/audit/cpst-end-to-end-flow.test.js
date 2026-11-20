@@ -151,9 +151,9 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
-        // v1475 PR2 §72: sap_products catalog gate — todos los SKUs del test
-        // deben existir en sap_products o commitPedidoCore rechaza con
-        // SKU_NOT_IN_SAP_CATALOG. Fixture incluye los SKUs usados.
+        // Fixture sap_products: usado por PR 4 §75 para resolver descripción
+        // de líneas. Ya no se usa como gate (removido 2026-11-20, incidente
+        // Federico). Mantener para que `catalogDescMap` encuentre descs.
         sap_products: {
           'SKU-A': { itemCode: 'SKU-A' },
           'SKU-A2': { itemCode: 'SKU-A2' },
@@ -237,9 +237,9 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
-        // v1475 PR2 §72: sap_products catalog gate — todos los SKUs del test
-        // deben existir en sap_products o commitPedidoCore rechaza con
-        // SKU_NOT_IN_SAP_CATALOG. Fixture incluye los SKUs usados.
+        // Fixture sap_products: usado por PR 4 §75 para resolver descripción
+        // de líneas. Ya no se usa como gate (removido 2026-11-20, incidente
+        // Federico). Mantener para que `catalogDescMap` encuentre descs.
         sap_products: {
           'SKU-A': { itemCode: 'SKU-A' },
           'SKU-A2': { itemCode: 'SKU-A2' },
@@ -315,9 +315,9 @@ describe('E4 — CPST end-to-end flow con commitPedidoCF', () => {
           },
         },
         ingresos_reparto: {},
-        // v1475 PR2 §72: sap_products catalog gate — todos los SKUs del test
-        // deben existir en sap_products o commitPedidoCore rechaza con
-        // SKU_NOT_IN_SAP_CATALOG. Fixture incluye los SKUs usados.
+        // Fixture sap_products: usado por PR 4 §75 para resolver descripción
+        // de líneas. Ya no se usa como gate (removido 2026-11-20, incidente
+        // Federico). Mantener para que `catalogDescMap` encuentre descs.
         sap_products: {
           'SKU-A': { itemCode: 'SKU-A' },
           'SKU-A2': { itemCode: 'SKU-A2' },
