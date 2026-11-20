@@ -4433,7 +4433,15 @@ export const movePedidoToWaitlistCF = onCall(
     if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
     const email = String(auth.token?.email || '').toLowerCase();
     const domain = email.split('@')[1] || '';
-    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+    // SEC-H6 (2026-11-19): extender gate a gmail.com para alinear con
+    // commitPedidoCF, confirmPedidoDefinitivoCF, dashboardVentasCF, etc.
+    // PACHI (CLAUDE.md §93) usa pachinaba@gmail.com y necesita este flow
+    // también. Riesgo cubierto por capa server-side: el core hace
+    // `roles/{uid}` lookup + permission check (admin/gerente/interno OR
+    // VDE con ownership). Un gmail sin role=vendedor queda bloqueado por
+    // el core. Un VDE legítimo (PACHI incluido) pasa.
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
     const data = req.data || {};
@@ -4488,7 +4496,12 @@ export const unifyWaitlistsCF = onCall(
     if (!auth || !auth.uid) throw new HttpsError('unauthenticated', 'login requerido');
     const email = String(auth.token?.email || '').toLowerCase();
     const domain = email.split('@')[1] || '';
-    if (domain !== 'shimano.com.ar' && domain !== 'shimano.uy') {
+    // SEC-H6 (2026-11-19): extender a gmail.com — ver comentario en
+    // movePedidoToWaitlistCF arriba. Mismo rationale: PACHI (gmail) +
+    // consistency con commitPedidoCF/confirmPedidoDefinitivoCF +
+    // defensa server-side en el core.
+    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
+    if (!ALLOWED_DOMAINS.has(domain)) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
     const data = req.data || {};
