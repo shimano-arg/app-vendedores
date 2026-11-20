@@ -1080,10 +1080,15 @@ service cloud.firestore {
       // por assignedVendorUid) + §42 (unificacion) no podian scopear la
       // waitlist a un cliente real. Un VDE podia inyectar waitlists huerfanos
       // visibles cross-vendor. Ahora: clientCardCode debe ser string no vacio.
+      // HARDENING 6 F9-ITER ATK-001 (2026-11-20): regex SAP format
+      // ^C[0-9]+$ (cardCodes reales de prod: C20..., C30..., todos con
+      // prefijo C y digitos). El fail-closed previo aceptaba cualquier
+      // string no vacio -> VDE podia inyectar "FAKE" o "X_HACK" y pasar
+      // §59/§42. Ahora: la regex bloquea valores arbitrarios.
       allow create: if isReader()
                      && request.resource.data.ownerUid == request.auth.uid
                      && request.resource.data.clientCardCode is string
-                     && request.resource.data.clientCardCode.size() > 0;
+                     && request.resource.data.clientCardCode.matches('^C[0-9]+$');
       // v926 (2026-09-14, SecAudit Sprint 1 E1.4 HIGH-06): split update/delete.
       // Antes: update+delete abiertos a cualquier reader (@shimano). Un viewer
       // o VDE hostil podia wipear la lista de espera entera con un forEach
@@ -1097,7 +1102,20 @@ service cloud.firestore {
       // ORDEN 178, 3 SQs 2000183/2000184/2000185). Delete queda scoped al
       // owner del doc — no permite wipe masivo (defensa v926 preservada).
       // Admin/gerente/interno siguen pudiendo borrar cualquier doc.
-      allow update: if isReader();
+      // HARDENING 6 F9-ITER ATK-001 (2026-11-20): guard semantico en update.
+      // Si el update MUTA clientCardCode, el valor nuevo debe matchear el
+      // mismo regex SAP ^C[0-9]+$ que aplica a create. Antes: una waitlist
+      // legacy sin cardCode (o con string "FAKE") podia quedar asi via
+      // update - cualquier vector que llevara el doc al core con cardCode
+      // invalido. Ahora: cualquier update del campo valida la forma.
+      allow update: if isReader()
+                     && (
+                       !request.resource.data.diff(resource.data).affectedKeys().hasAny(['clientCardCode'])
+                       || (
+                         request.resource.data.clientCardCode is string
+                         && request.resource.data.clientCardCode.matches('^C[0-9]+$')
+                       )
+                     );
       allow delete: if isAdminOrGerente() || isInterno()
                     || (isReader() && resource.data.ownerUid == request.auth.uid);
     }

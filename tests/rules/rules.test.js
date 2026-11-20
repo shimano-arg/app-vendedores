@@ -1789,3 +1789,76 @@ describe('H6 F9-ITER S1 vendor locked', () => {
     );
   });
 });
+
+// ============================================================
+// HARDENING 6 F9-ITER ATK-001 — regex clientCardCode SAP format +
+// validacion guard update (A9 bypass semantico).
+// ============================================================
+describe('H6 F9-ITER ATK-001 regex + update', () => {
+  it('ATK-001 F9-ITER: create con clientCardCode valido C+digitos OK', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-iter-ok'), {
+        ownerUid: UID.vendor,
+        clientCardCode: 'C20175569635',
+        items: [],
+      })
+    );
+  });
+  it('ATK-001 F9-ITER: create con clientCardCode="FAKE" rechaza (no matchea regex)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-iter-fake'), {
+        ownerUid: UID.vendor,
+        clientCardCode: 'FAKE',
+        items: [],
+      })
+    );
+  });
+  it('ATK-001 F9-ITER: create con clientCardCode="X20175569635" (prefijo invalido) rechaza', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-iter-x'), {
+        ownerUid: UID.vendor,
+        clientCardCode: 'X20175569635',
+        items: [],
+      })
+    );
+  });
+  it('ATK-001 F9-ITER: create con clientCardCode="C20A75569635" (digit + letra) rechaza', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-iter-mixed'), {
+        ownerUid: UID.vendor,
+        clientCardCode: 'C20A75569635',
+        items: [],
+      })
+    );
+  });
+  it('ATK-001 F9-ITER: update puede mutar clientCardCode a formato valido OK', async () => {
+    // Waitlist legacy sin cardCode (o con string "FAKE") requiere fix via update.
+    // Admin/interno/gerente pueden modificarlo. VDE con update preservado (update
+    // abierto a isReader por v514) tambien puede, SI el formato es valido.
+    await seedDoc('revision_waitlist/w-iter-upd-ok', {
+      ownerUid: UID.vendor,
+      clientCardCode: 'C20175569635',
+      items: [],
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-iter-upd-ok'), {
+        clientCardCode: 'C20293164852',
+      })
+    );
+  });
+  it('ATK-001 F9-ITER: update NO puede mutar clientCardCode a valor invalido', async () => {
+    // Guard semantico post-ATK-001: aunque la rule update siga abierta a
+    // isReader, no debe aceptar un cardCode invalido (ej. "FAKE"). Si el
+    // test pasa, significa que el update NO valida regex -> deuda documentada.
+    await seedDoc('revision_waitlist/w-iter-upd-fake', {
+      ownerUid: UID.vendor,
+      clientCardCode: 'C20175569635',
+      items: [],
+    });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'w-iter-upd-fake'), {
+        clientCardCode: 'FAKE',
+      })
+    );
+  });
+});
