@@ -289,6 +289,262 @@ describe('/pedidos', () => {
       })
     );
   });
+  // ============================================================
+  // A2.1 (SEC-H3 + SEC-H7/R-01 + SEC-H8/R-02, 2026-11-19): hasOnly + guards
+  // ============================================================
+  // Contexto: `pedidos.create` directo desde cliente fue eliminado en v1454
+  // §67 (todo pasa por commitPedidoCF via Admin SDK). La rule tenia create
+  // abierto a VDE sin hasOnly → un VDE hostil con devtools podia sembrar
+  // campos server-only (transferidoSAP, _commitVersion, sapLinkage, etc.) +
+  // stage='confirmed' → trigger onPedidoConfirmedSendToSap enviaba basura a
+  // SAP. A2.1 cierra el vector con hasOnly(38 campos) + 9 guards semanticos.
+  describe('A2.1: pedidos.create hasOnly + guards', () => {
+    it('A2.1: VDE puede crear con payload legitimo completo (38 campos whitelist)', async () => {
+      // Representante de un payload legitimo de commitPedidoCF client-side.
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-legit'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          ownerEmail: 'vendor@shimano.com.ar',
+          cargadoPorUid: UID.vendor,
+          cargadoPorEmail: 'vendor@shimano.com.ar',
+          createdByUid: UID.vendor,
+          createdByEmail: 'vendor@shimano.com.ar',
+          createdByDisplayName: 'Vendor',
+          onBehalfOf: false,
+          vendorAssigned: 'VDE_GONZALO',
+          assignedVendorUid: UID.vendor,
+          assignedVendorEmail: 'vendor@shimano.com.ar',
+          assignedVendorReason: 'ok',
+          clientCardCode: 'C001',
+          clientName: 'CLIENT',
+          clientProvince: 'BA',
+          clientLocality: 'CABA',
+          key: 'C|BA|CABA|CLIENT|100',
+          tipo: 'C',
+          province: 'BA',
+          locName: 'CABA',
+          lines: [{ code: 'SKU-1', qty: 1 }],
+          subtotalArs: 1000,
+          netAmountArs: 1000,
+          discountPct: 0,
+          condicionPago: 'CONTADO',
+          formaEntrega: 'TRANSPORTISTA',
+          observaciones: '',
+          stage: 'pending',
+          origen: 'manual',
+          source: '',
+          createdAt: '2026-11-19T10:00:00Z',
+          orderNumber: 100,
+          month: '2026-11',
+          monthIdx: 10,
+          year: 2026,
+          schemaVersion: 7,
+          waitlistOrigenId: null,
+          hasSkusToReview: false,
+          skusToReviewCount: 0,
+        })
+      );
+    });
+    it('A2.1: VDE puede crear con payload minimo (ownerUid + ownerVendor + stage=pending)', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-min'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          stage: 'pending',
+        })
+      );
+    });
+    // SEC-H8: bloquear campos SAP server-only
+    it('A2.1 SEC-H8: VDE NO puede crear con transferidoSAP', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-txSap'), {
+          ownerUid: UID.vendor,
+          transferidoSAP: { docNum: 999, via: 'app_only' },
+        })
+      );
+    });
+    it('A2.1 SEC-H8: VDE NO puede crear con sapLinkage', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-sapLink'), {
+          ownerUid: UID.vendor,
+          sapLinkage: { orderDocEntry: 9999 },
+        })
+      );
+    });
+    it('A2.1 SEC-H8: VDE NO puede crear con sendingSapLock', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-lock'), {
+          ownerUid: UID.vendor,
+          sendingSapLock: null,
+        })
+      );
+    });
+    it('A2.1 SEC-H8: VDE NO puede crear con _commitVersion (SEC-H2 bypass)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-ver'), {
+          ownerUid: UID.vendor,
+          _commitVersion: 999,
+        })
+      );
+    });
+    it('A2.1 SEC-H8: VDE NO puede crear con _draftId (server idempotency)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-draft'), {
+          ownerUid: UID.vendor,
+          _draftId: 'fake-draft',
+        })
+      );
+    });
+    it('A2.1 SEC-H8: VDE NO puede crear con transferError', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-txErr'), {
+          ownerUid: UID.vendor,
+          transferError: 'fake error',
+        })
+      );
+    });
+    it('A2.1 SEC-H8: VDE NO puede crear con orderNumberPrev', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-prev'), {
+          ownerUid: UID.vendor,
+          orderNumberPrev: '99',
+        })
+      );
+    });
+    // SEC-H2 defense-in-depth en create
+    it('A2.1 SEC-H2 defense-in-depth: VDE NO puede crear con stage=confirmed', async () => {
+      // Vector CHAIN: VDE crea con stage='confirmed' → trigger
+      // onPedidoConfirmedSendToSap envia a SAP sin pasar por commitPedidoCF.
+      // La CF legitima SI puede crear con stage=confirmed via Admin SDK
+      // (bypassa rules). Esta guard protege el path CLIENT-SIDE.
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-confirmed'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          stage: 'confirmed',
+        })
+      );
+    });
+    it('A2.1 SEC-H2: VDE PUEDE crear con stage=waitlist o stage=pending', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-wl'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          stage: 'waitlist',
+        })
+      );
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-pend'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          stage: 'pending',
+        })
+      );
+    });
+    // SEC-H7: assignedVendorUid
+    it('A2.1 SEC-H7: VDE PUEDE crear con assignedVendorUid=self', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-asg-self'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          assignedVendorUid: UID.vendor,
+        })
+      );
+    });
+    it('A2.1 SEC-H7: VDE PUEDE crear con assignedVendorUid=null', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-asg-null'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          assignedVendorUid: null,
+        })
+      );
+    });
+    it('A2.1 SEC-H7: VDE NO puede crear con assignedVendorUid ajeno', async () => {
+      // Commission fraud: el VDE se intenta robar la asignacion del cliente.
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-asg-ajeno'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          assignedVendorUid: UID.vendorOther,
+        })
+      );
+    });
+    // Campos arbitrarios
+    it('A2.1 hasOnly: VDE NO puede crear con campo random fuera del whitelist', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-a21-rand'), {
+          ownerUid: UID.vendor,
+          ownerVendor: 'VDE_GONZALO',
+          foo: 'bar',
+        })
+      );
+    });
+    // Interno onBehalfOf=false
+    it('A2.1 interno: PUEDE crear con onBehalfOf=false + payload legitimo', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.interno), 'pedidos', 'p-a21-int-self'), {
+          ownerUid: UID.interno,
+          onBehalfOf: false,
+          stage: 'pending',
+          lines: [{ code: 'X', qty: 1 }],
+        })
+      );
+    });
+    it('A2.1 interno: NO puede crear con onBehalfOf=false + transferidoSAP', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.interno), 'pedidos', 'p-a21-int-tx'), {
+          ownerUid: UID.interno,
+          onBehalfOf: false,
+          transferidoSAP: { docNum: 999 },
+        })
+      );
+    });
+    it('A2.1 interno: NO puede crear con onBehalfOf=false + stage=confirmed', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.interno), 'pedidos', 'p-a21-int-conf'), {
+          ownerUid: UID.interno,
+          onBehalfOf: false,
+          stage: 'confirmed',
+        })
+      );
+    });
+    // Interno partner onBehalfOf=true
+    it('A2.1 interno partner: PUEDE crear con onBehalfOf=true + createdByUid=self + partner', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-a21-int-partner'), {
+          ownerUid: UID.vendor,
+          createdByUid: UID.internoPartnered,
+          onBehalfOf: true,
+          stage: 'pending',
+          lines: [{ code: 'X', qty: 1 }],
+        })
+      );
+    });
+    it('A2.1 interno partner: NO puede crear onBehalfOf=true con _commitVersion', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-a21-int-ver'), {
+          ownerUid: UID.vendor,
+          createdByUid: UID.internoPartnered,
+          onBehalfOf: true,
+          _commitVersion: 999,
+        })
+      );
+    });
+    // Admin blanket (preservado — no hay hasOnly porque admin es el recovery)
+    it('A2.1 admin: PUEDE crear con cualquier payload (blanket preservado para recovery)', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.admin), 'pedidos', 'p-a21-admin-any'), {
+          ownerUid: UID.vendorOther,
+          transferidoSAP: { docNum: 1 },
+          stage: 'confirmed',
+          _commitVersion: 999,
+          foo: 'bar',
+        })
+      );
+    });
+  });
   // v918 (Sprint 1 E1.3 HIGH-05): vendor update restringido por hasOnly().
   // vendor delete removido (era abierto por ownership — riesgo: VDE wipe
   // pedidos post-envio a SAP, dejando SQ orfano en SAP sin trace).
