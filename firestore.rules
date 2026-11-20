@@ -170,9 +170,27 @@ service cloud.firestore {
       // reglas de read y create no se tocan (create ya los excluye por el
       // hasOnly de 5 campos de SEC-04). affectedKeys() cubre alta/edición/baja
       // de esos campos (una eliminación de campo también aparece en el diff).
-      allow update: if isAdmin()
-                     && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled']);
+      // HARDENING 6 F9 HARD6-F4-S3 + D18 (2026-11-20): C-hibrida en roles.update.
+      // - Mariano (isMariano()): puede escribir cualquier campo (incluido
+      //   fichaClienteEditorFull + internalPartnerUid). Es la persona que
+      //   asigna partnership VDI<->VDE + habilita editores de ficha.
+      // - Admin no-Mariano: NO puede escribir fichaClienteEditorFull (vector
+      //   de escalada a Ficha Cliente cross-cliente) ni internalPartnerUid
+      //   (hijack de partnership VDI, D18: un admin podia reasignar el
+      //   partner VDI de un vendedor a si mismo y leer rendiciones ajenas).
+      // - Ambos siguen bloqueados en S04b (passwordHash/salt/totpSecret/totpEnabled).
+      allow update: if (isMariano()
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                             .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled']))
+                     || (isAdmin()
+                         && !isMariano()
+                         && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny([
+                                'passwordHash', 'passwordSalt',
+                                'totpSecret', 'totpEnabled',
+                                'fichaClienteEditorFull',
+                                'internalPartnerUid'
+                              ]));
       allow delete: if isAdmin();
     }
 
@@ -509,8 +527,31 @@ service cloud.firestore {
               'clienteDireccion',
               'updatedAt', 'updatedBy'
             ]));
+      // HARDENING 6 F9 HARD6-F4-S1 (2026-11-20): estratificar hasOnly por tipo
+      // de editor. Antes: isFichaClienteEditor() tenia blanket update (cualquier
+      // campo de la ficha). Riesgo: un user con flag fichaClienteEditorFull=true
+      // podia escribir campos administrativos (cardCodeSap, precaucion,
+      // datos SAP) de un cliente. Ahora:
+      // - admin/gerente: blanket.
+      // - FichaClienteEditor: hasOnly whitelist 24 campos "safe editor".
+      // - isReader (defaultDelivery): preservado (defaultDelivery hasOnly).
       allow update: if isAdminOrGerente()
-        || isFichaClienteEditor()
+        || (isFichaClienteEditor()
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly([
+                 // Perfil comercial (Ficha Cliente tab Clasificacion):
+                 'cliTipo', 'fidelidad', 'prefContacto', 'tamano',
+                 'especializacion', 'tipoLocal', 'creditoCheque',
+                 // Metadata del cliente (safe):
+                 'vendor', 'provincia', 'localidad', 'clientName',
+                 'notas', 'contactos', 'horarios', 'apertura', 'cierre',
+                 'condPago', 'descObs', 'datosContacto',
+                 // Audit:
+                 'updatedAt', 'updatedBy', 'updatedByUid',
+                 'updatedByFichaEditor',
+                 // DefaultDelivery (también lo escriben editores):
+                 'defaultDelivery'
+               ]))
         || (isReader()
             && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['defaultDelivery'])
@@ -634,7 +675,31 @@ service cloud.firestore {
       // por assignedVendor pero update no lo hacia. Ahora vendor solo puede
       // update si es el assignedVendor del lead o el owner del doc, Y si
       // toca leadEstadoBy el valor debe ser SU token.email (no forjable).
-      allow update: if isAdminOrGerente() || isInterno()
+      // HARDENING 6 F9 HARD6-F4-S2 (2026-11-20): endurecer admin/gerente/interno
+      // con hasOnly whitelist. Antes: blanket update para admin/gerente/interno
+      // -> escritura arbitraria de cualquier campo (incluido inyeccion de
+      // audit/metadata adversarial). Ahora: hasOnly con whitelist amplia
+      // (approvedAt, approvedBy, status, assignedVendor, cardCodeSap,
+      // manualSapPending, rejectionReason, + campos operativos). Ownership
+      // (ownerUid) y el campo tecnico submittedByPublicForm siguen bloqueados.
+      allow update: if ((isAdminOrGerente() || isInterno())
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                           .hasOnly([
+                             // Admin approval fields:
+                             'status', 'approvedAt', 'approvedBy',
+                             'rejectionReason', 'rejectedAt', 'rejectedBy',
+                             'assignedVendor', 'cardCodeSap',
+                             'manualSapPending', 'manualSapPendingAt', 'manualSapPendingBy',
+                             // Operativo compartido (ver whitelist VDE abajo):
+                             'leadEstado', 'leadEstadoAt', 'leadEstadoBy',
+                             'comercio', 'titular', 'cuit', 'fantasia',
+                             'calle', 'localidad', 'localidadFinal',
+                             'lat', 'lng',
+                             'geoDisplay', 'geoPrecision', 'geoProvider', 'geoAt',
+                             'precaucion', 'precaucionReason', 'precaucionAt', 'precaucionBy',
+                             // Audit:
+                             'updatedAt', 'updatedBy'
+                           ]))
                      || (isReader()
                          && (
                            // Vendor scope: solo leads suyos o donde es owner.

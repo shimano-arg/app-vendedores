@@ -1475,3 +1475,275 @@ describe('H6 F9 ATK-001 fail-closed', () => {
     );
   });
 });
+
+// ============================================================
+// HARDENING 6 F9 HARD6-F4-S1 — client_master.update hasOnly estratificado
+// ============================================================
+describe('H6 F9 HARD6-F4-S1 client_master', () => {
+  beforeEach(async () => {
+    // Un fichaClienteEditor es un interno con el flag fichaClienteEditorFull.
+    await seedDoc('roles/' + UID.interno, {
+      email: 'interno@shimano.com.ar',
+      role: 'interno',
+      fichaClienteEditorFull: true,
+    });
+    await seedDoc('client_master/cm-s1', { cliTipo: 'A', address: 'Dir orig' });
+  });
+  it('S1: admin puede update cualquier campo (blanket) incluido address', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'client_master', 'cm-s1'), {
+        address: 'Nueva direccion',
+        cardCodeSap: 'C20175569635',
+      })
+    );
+  });
+  it('S1: FichaClienteEditor puede update cliTipo + fidelidad (campos ficha)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'client_master', 'cm-s1'), {
+        cliTipo: 'P',
+        fidelidad: 'ALTA',
+      })
+    );
+  });
+  it('S1: FichaClienteEditor puede update defaultDelivery (editor whitelist incluye)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'client_master', 'cm-s1'), {
+        defaultDelivery: { tipo: 'transporte' },
+      })
+    );
+  });
+  it('S1: FichaClienteEditor NO puede update address (campo admin-only)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'client_master', 'cm-s1'), {
+        address: 'Hackeada',
+      })
+    );
+  });
+  it('S1: FichaClienteEditor NO puede update cardCodeSap (campo admin-only)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'client_master', 'cm-s1'), {
+        cardCodeSap: 'C_HACK',
+      })
+    );
+  });
+  it('S1: FichaClienteEditor NO puede update campo ficha + address mezclados (hasOnly estricto)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'client_master', 'cm-s1'), {
+        cliTipo: 'P',
+        address: 'Mezcla',
+      })
+    );
+  });
+  it('S1: FichaClienteEditor puede update todos los campos safe ficha (ej. 5 selects + audit)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'client_master', 'cm-s1'), {
+        cliTipo: 'A',
+        fidelidad: 'MEDIA',
+        prefContacto: 'AMBOS',
+        tamano: 'MEDIANO',
+        especializacion: 'AGUA_DULCE',
+        tipoLocal: 'FISICO',
+        creditoCheque: 1000,
+        updatedBy: 'interno@shimano.com.ar',
+        updatedByUid: UID.interno,
+        updatedAt: new Date(),
+      })
+    );
+  });
+  it('S1: isReader (vendor sin ficha flag) puede update SOLO defaultDelivery (regla preservada)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'client_master', 'cm-s1'), {
+        defaultDelivery: { tipo: 'retiro' },
+      })
+    );
+  });
+  it('S1: isReader (vendor sin ficha flag) NO puede update cliTipo', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'client_master', 'cm-s1'), {
+        cliTipo: 'B',
+      })
+    );
+  });
+  it('S1: unassigned NO puede update ningun campo', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.unassigned), 'client_master', 'cm-s1'), {
+        defaultDelivery: { tipo: 'retiro' },
+      })
+    );
+  });
+});
+
+// ============================================================
+// HARDENING 6 F9 HARD6-F4-S2 — client_applications.update hasOnly admin/interno
+// ============================================================
+describe('H6 F9 HARD6-F4-S2 client_applications', () => {
+  beforeEach(async () => {
+    await seedDoc('client_applications/ca-s2', {
+      ownerUid: UID.vendor,
+      assignedVendor: 'VDE_GONZALO',
+      status: 'pending_approval',
+    });
+  });
+  it('S2: admin puede approve (status + approvedAt + approvedBy)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-s2'), {
+        status: 'approved',
+        approvedAt: new Date(),
+        approvedBy: 'admin@shimano.com.ar',
+      })
+    );
+  });
+  it('S2: admin puede setear cardCodeSap + manualSapPending=false (post-SAP sync)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-s2'), {
+        cardCodeSap: 'C20175569635',
+        manualSapPending: false,
+      })
+    );
+  });
+  it('S2: interno puede reassign (status + assignedVendor)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-s2'), {
+        assignedVendor: 'VDE_OTRO',
+        updatedAt: new Date(),
+      })
+    );
+  });
+  it('S2: admin NO puede cambiar ownerUid (campo fuera del whitelist, bloqueado por hasOnly)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-s2'), {
+        ownerUid: UID.admin,
+      })
+    );
+  });
+  it('S2: interno NO puede cambiar submittedByPublicForm (campo fuera del whitelist)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-s2'), {
+        submittedByPublicForm: true,
+      })
+    );
+  });
+  it('S2: admin puede mezclar varios campos safe (approval + cardCodeSap + updatedAt)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-s2'), {
+        status: 'approved',
+        approvedAt: new Date(),
+        approvedBy: 'admin@shimano.com.ar',
+        cardCodeSap: 'C20175569635',
+        manualSapPending: false,
+        updatedAt: new Date(),
+      })
+    );
+  });
+  it('S2: vendor VDE sigue update acotado por whitelist VDE (regresion v926 HIGH-09)', async () => {
+    // Vendor es el assignedVendor del doc -> whitelist VDE (leadEstado, geo).
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-s2'), {
+        leadEstado: 'contactado',
+        leadEstadoAt: new Date(),
+        leadEstadoBy: 'uid-vendor@shimano.com.ar',
+      })
+    );
+  });
+  it('S2: vendor VDE NO puede status=approved (regresion assignedVendor ownership + hasOnly VDE)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-s2'), {
+        status: 'approved',
+      })
+    );
+  });
+  it('S2: admin NO puede escribir campo arbitrario (ej. hacked: true)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-s2'), {
+        hacked: true,
+      })
+    );
+  });
+  it('S2: admin puede rejectar (status=rejected + rejectedAt + rejectedBy + rejectionReason)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-s2'), {
+        status: 'rejected',
+        rejectedAt: new Date(),
+        rejectedBy: 'admin@shimano.com.ar',
+        rejectionReason: 'Duplicado',
+      })
+    );
+  });
+});
+
+// ============================================================
+// HARDENING 6 F9 HARD6-F4-S3 + D18 — roles.update C-hibrida
+// ============================================================
+describe('H6 F9 HARD6-F4-S3 + D18 roles.update', () => {
+  beforeEach(async () => {
+    // Mariano real (email canonical) con role=admin.
+    await seedDoc('roles/uid-mariano', {
+      email: 'erbinomariano@gmail.com',
+      role: 'admin',
+    });
+    await seedDoc('roles/uid-target', {
+      email: 'target@shimano.com.ar',
+      role: 'vendedor',
+      vendor: 'VDE_TARGET',
+    });
+  });
+  it('S3: Mariano puede escribir fichaClienteEditorFull=true en roles/{uid}', async () => {
+    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+    await assertSucceeds(
+      updateDoc(doc(marianoDb, 'roles', 'uid-target'), {
+        fichaClienteEditorFull: true,
+      })
+    );
+  });
+  it('S3: Mariano puede escribir internalPartnerUid en roles/{uid} (D18 asigna partnership)', async () => {
+    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+    await assertSucceeds(
+      updateDoc(doc(marianoDb, 'roles', 'uid-target'), {
+        internalPartnerUid: UID.internoPartnered,
+      })
+    );
+  });
+  it('S3: admin no-Mariano NO puede escribir fichaClienteEditorFull (escalada a Ficha)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.admin), 'roles', 'uid-target'), {
+        fichaClienteEditorFull: true,
+      })
+    );
+  });
+  it('S3: admin no-Mariano NO puede escribir internalPartnerUid (D18 hijack partnership)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.admin), 'roles', 'uid-target'), {
+        internalPartnerUid: UID.admin,
+      })
+    );
+  });
+  it('S3: admin no-Mariano SI puede escribir campos admin normales (role, vendor)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'roles', 'uid-target'), {
+        role: 'interno',
+      })
+    );
+  });
+  it('S3: Mariano SIGUE sin poder escribir passwordHash (S04b PR-B legacy creds)', async () => {
+    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+    await assertFails(
+      updateDoc(doc(marianoDb, 'roles', 'uid-target'), {
+        passwordHash: 'hack',
+      })
+    );
+  });
+  it('S3: admin no-Mariano SIGUE sin poder escribir totpSecret', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.admin), 'roles', 'uid-target'), {
+        totpSecret: 'hack',
+      })
+    );
+  });
+  it('S3: vendor NO puede update roles/{uid} (gate isAdmin preservado)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'roles', 'uid-target'), {
+        fichaClienteEditorFull: true,
+      })
+    );
+  });
+});
