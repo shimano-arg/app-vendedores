@@ -145,6 +145,14 @@ export const RATE_LIMITS = /** @type {const} */ ({
   // vencer la ventana). Valores aprobados por el responsable.
   setPasswordGate: { threshold: 20, windowMs: 60 * 60 * 1000 }, // 20/hr (scrypt costoso)
   authSecretAdminOp: { threshold: 60, windowMs: 60 * 60 * 1000 }, // 60/hr (setTotp + disableTotp)
+  // SEC-M11/M12/M13 (2026-11-19): CFs sensibles por costo BQ + 1GiB memoria
+  // + SL login/logout. Límites conservadores (3-5x el uso normal operativo).
+  // Admin/gerente comparten estos presets; si un VDE accede (role checks en
+  // el core lo rechazan), el rate limit es defensa en profundidad.
+  dashboardVentasCF: { threshold: 60, windowMs: 60 * 60 * 1000 }, // 60/hr
+  pedidosDelMesCF: { threshold: 120, windowMs: 60 * 60 * 1000 }, // 120/hr
+  closeSqsManuallyCF: { threshold: 20, windowMs: 60 * 60 * 1000 }, // 20/hr (SL)
+  generateVentasReportCF: { threshold: 10, windowMs: 24 * 60 * 60 * 1000 }, // 10/day (1GiB)
 });
 
 /**
