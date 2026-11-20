@@ -18502,6 +18502,16 @@ window._tryCommitPedidoCF = async function(docData){
     clientProvince: docData.clientProvince || null,
     clientLocality: docData.clientLocality || null,
     orderNumber: docData.orderNumber || null,
+    // §91 (Fix D12-CRITICAL-01 2026-11-20): persistir descuento comercial.
+    // Pre-fix: payload NO viajaba -> CF escribia discountPct:0 hardcode ->
+    // SAP recibia DiscountPercent=0 siempre. Ahora el CF usa
+    // resolveDiscountForPersist(payload) para persistir el pct + snapshot
+    // validados. discountPct es autoritativo; discountSnapshot es contexto.
+    // Si ambos vienen y divergen > 0.01, CF rechaza DISCOUNT_COHERENCE_MISMATCH.
+    discountPct: Number(docData.discountPct) || 0,
+    discountSnapshot: (docData.discountSnapshot && typeof docData.discountSnapshot === 'object')
+      ? docData.discountSnapshot
+      : null,
     // §64 (2026-10-23 v1443): snapshot que el cliente usó al armar el pedido.
     // Opcional; si viene, la CF lo loguea en operations_log cuando dispara
     // STOCK_CHANGED, permitiendo comparar lado-a-lado sin inferir. Pedido

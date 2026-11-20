@@ -40,6 +40,11 @@ import {
 import { formatAsigHuerfanaAviso, planCpstOrigenes } from './pure/cpst-origenes-plan.js';
 import { computeCpstRevertPlan, sumRevertUnits } from './pure/cpst-revert-plan.js';
 import { calcClientDiscount } from './pure/discount.js';
+import {
+  resolveAndValidateDiscount,
+  resolveDiscountForPersist,
+  sanitizeDiscountSnapshot,
+} from './pure/discount-validator.js';
 import { findSapDuplicateForProvisorio } from './pure/duplicate.js';
 // v1534 (2026-11-02): alcance por rol de las exportaciones (auditoría 46, Etapa 1).
 import {
@@ -555,6 +560,13 @@ const phase0 = {
       PALABRAS_PROHIBIDAS,
       getMensajeParaErrorCode,
       formatMensajeConCodigo,
+    },
+    // §91 (Fix D12-CRITICAL-01 2026-11-20) — resolver/sanitizador descuento
+    // comercial. Fuente única cliente + servidor (mirror functions/core/).
+    discountValidator: {
+      resolveAndValidateDiscount,
+      resolveDiscountForPersist,
+      sanitizeDiscountSnapshot,
     },
     // PR1 (v1474 2026-10-26 §71) — parse fecha tolerante a múltiples formatos.
     // v1479 (2026-10-27 §76): pedidoDateForPlanner + plannerCutoffIsoForQuery
