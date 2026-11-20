@@ -385,6 +385,20 @@ export function isEligibleForAutoSend(beforeData, afterData) {
   if (lines.length === 0) return { eligible: false, reason: 'no_lines' };
   const allBo = lines.every((/** @type {any} */ l) => l && l.state === 'BO');
   if (allBo) return { eligible: false, reason: 'all_bo' };
+  // RECONCILE PATH (incidente Federico 2026-11-20): si venimos de un reconcile
+  // (CF `reconcilePedidosAppOnlyCF` borró transferidoSAP para re-dispatch
+  // post-alta SAP), el before tenia transferidoSAP.requiresManualResend=true
+  // y el after lo tiene undefined. En ese caso el trigger DEBE re-disparar
+  // aunque beforeStage sea 'confirmed'. Sin este branch, el reconcile deja
+  // pedidos huerfanos (transferidoSAP borrado pero trigger skipea por
+  // no_transition).
+  const wasReconciled =
+    beforeData &&
+    beforeData.transferidoSAP &&
+    beforeData.transferidoSAP.requiresManualResend === true &&
+    !afterData.transferidoSAP;
+  if (wasReconciled) return { eligible: true, reason: 'reconcile_retry' };
+
   // Cambio real de stage: si before ya era 'confirmed', esto es un update
   // secundario (ej: qty edit). Solo procesamos la TRANSICION a confirmed.
   // Excepcion: si before es null (doc created directo como confirmed), procesar.

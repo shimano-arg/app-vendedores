@@ -370,6 +370,63 @@ describe('isEligibleForAutoSend', () => {
       reason: 'no_lines',
     });
   });
+
+  // (Incidente Federico 2026-11-20) reconcile path: la CF reconcilePedidosAppOnlyCF
+  // borra transferidoSAP de un pedido que tenia requiresManualResend=true. El trigger
+  // onPedidoConfirmedSendToSap DEBE re-disparar aunque beforeStage sea 'confirmed',
+  // porque es el unico camino para re-integrar post-alta SAP.
+  it('elegible: reconcile retry (before tiene requiresManualResend, after sin transferidoSAP)', () => {
+    expect(
+      isEligibleForAutoSend(
+        {
+          stage: 'confirmed',
+          transferidoSAP: { via: 'app_only', requiresManualResend: true, missingSkus: ['A', 'B'] },
+          lines: [{ state: 'confirmed', qty: 1 }],
+        },
+        {
+          stage: 'confirmed',
+          // transferidoSAP removido por reconcile
+          lines: [{ state: 'confirmed', qty: 1 }],
+        }
+      )
+    ).toEqual({ eligible: true, reason: 'reconcile_retry' });
+  });
+
+  it('no elegible: reconcile path NO aplica si before.transferidoSAP sin requiresManualResend', () => {
+    // Si el admin hizo revertirTransferenciaSap sobre un pedido con SQ ya creada,
+    // NO es reconcile path (el admin debe saber lo que esta haciendo).
+    expect(
+      isEligibleForAutoSend(
+        {
+          stage: 'confirmed',
+          transferidoSAP: { docNum: 2000456 }, // SQ real, sin requiresManualResend
+          lines: [{ state: 'confirmed', qty: 1 }],
+        },
+        {
+          stage: 'confirmed',
+          lines: [{ state: 'confirmed', qty: 1 }],
+        }
+      )
+    ).toEqual({ eligible: false, reason: 'no_transition' });
+  });
+
+  it('no elegible: reconcile path NO aplica si after sigue teniendo transferidoSAP', () => {
+    // Edit secundario que NO borra transferidoSAP.
+    expect(
+      isEligibleForAutoSend(
+        {
+          stage: 'confirmed',
+          transferidoSAP: { via: 'app_only', requiresManualResend: true, missingSkus: ['A'] },
+          lines: [{ state: 'confirmed', qty: 1 }],
+        },
+        {
+          stage: 'confirmed',
+          transferidoSAP: { via: 'app_only', requiresManualResend: true, missingSkus: ['A'] },
+          lines: [{ state: 'confirmed', qty: 2 }], // solo cambio qty
+        }
+      )
+    ).toEqual({ eligible: false, reason: 'already_sent' });
+  });
 });
 
 // ---- buildQuotationPayload -----------------------------------------------
