@@ -319,6 +319,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // app_only_reconcile_locks (incidente Federico 2026-11-20, v1568+): lock
+    // interno usado por reconcilePedidosAppOnlyCF para evitar que dos
+    // corridas concurrentes del scheduler re-disparen el mismo pedido
+    // app_only dos veces. Solo Admin SDK escribe/lee; cliente nunca toca.
+    match /app_only_reconcile_locks/{pedidoId} {
+      allow read, write: if false;
+    }
+
     // Visits: mismo patrón que pedidos — vendor list solo own.
     match /visits/{visitId} {
       allow get: if isReader();

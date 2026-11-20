@@ -48,12 +48,6 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'No pudimos cargar el tablero de ventas. Volvé a intentar en un minuto; si sigue pasando, avisale a Mariano.',
   },
 
-  // PR 2 §72 — SKU que no existe en SAP catalog.
-  SKU_NOT_IN_SAP_CATALOG: {
-    texto:
-      'Hay productos del pedido que todavía no están cargados en SAP. Quitalos del pedido o avisale a Mariano para que los agregue antes de confirmar.',
-  },
-
   // PR 3 §74 — cliente en master pero vendor sin UID resolvible.
   VENDOR_UID_MISSING: {
     texto:
@@ -210,48 +204,9 @@ export function formatMensajeConCodigo(errorCode, opts) {
   return `${m.texto}\n\nCódigo técnico: ${codeTecnico}`;
 }
 
-/**
- * v1548 (2026-11-03): cartel de SKU_NOT_IN_SAP_CATALOG con la LISTA de
- * productos que SAP rechaza. Antes el vendedor veía "Hay productos del pedido
- * que todavía no están cargados en SAP" sin saber cuáles (caso LOS FERRETIS
- * ORDEN 610, pedido de 124 productos). El servidor ya devuelve
- * `data.missingSkus`; acá se cruza con las líneas del pedido para mostrar la
- * descripción.
- *
- * @param {Array<string>} missing  Códigos que devolvió el servidor.
- * @param {Array<{code?: string, desc?: string}>} [lines]  Líneas del pedido.
- * @param {number} [max]  Cuántos listar antes de resumir "y N más" (default 15).
- * @returns {string}
- */
-export function formatProductosNoCargadosEnSap(missing, lines, max) {
-  const base = getMensajeParaErrorCode('SKU_NOT_IN_SAP_CATALOG').texto;
-  const codes = Array.from(
-    new Set(
-      (Array.isArray(missing) ? missing : [])
-        .map((c) =>
-          String(c || '')
-            .trim()
-            .toUpperCase()
-        )
-        .filter(Boolean)
-    )
-  );
-  if (codes.length === 0) return formatMensajeConCodigo('SKU_NOT_IN_SAP_CATALOG');
-  /** @type {Map<string, string>} */
-  const descByCode = new Map();
-  for (const l of Array.isArray(lines) ? lines : []) {
-    const c = String((l && l.code) || '')
-      .trim()
-      .toUpperCase();
-    if (c && !descByCode.has(c)) descByCode.set(c, String((l && l.desc) || '').trim());
-  }
-  const tope = Number.isFinite(max) && Number(max) > 0 ? Math.floor(Number(max)) : 15;
-  const filas = codes.slice(0, tope).map((c) => {
-    const d = descByCode.get(c);
-    return d ? `• ${c} — ${d}` : `• ${c}`;
-  });
-  if (codes.length > tope) filas.push(`… y ${codes.length - tope} más`);
-  const titulo =
-    codes.length === 1 ? 'Producto a revisar:' : `Productos a revisar (${codes.length}):`;
-  return `${base}\n\n${titulo}\n${filas.join('\n')}\n\nCódigo técnico: SKU_NOT_IN_SAP_CATALOG`;
-}
+// Nota (incidente Federico 2026-11-20): `formatProductosNoCargadosEnSap` fue
+// removida junto con el gate `SKU_NOT_IN_SAP_CATALOG` del CF. Los SKUs sin
+// alta en SAP ya no rechazan el pedido entero: CAPA (c) de
+// `auto-send-sap-core.js` los deja en BO + marca `_degradedReason='sap_item_
+// not_found_app_only'` + manda email a Mariano. El VDE ya no ve un cartel
+// que lo culpe por un SKU recién creado que todavía no llegó al catálogo SAP.
