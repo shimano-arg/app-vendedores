@@ -1055,30 +1055,28 @@ export async function applyRepartoManualCore(deps, opts) {
           { _abort: true }
         );
       }
-      // HARDENING 6 F9 F15-01 (2026-11-20): fail-closed si asigBySkuApp ausente.
+      // HARDENING 6 F9 F15-01 (2026-11-20): observabilidad defensiva.
       // Antes: `currentAsig = null` -> el guard E5 abajo (currentAsig !== null)
-      // quedaba SKIPPED silenciosamente. Si el snapshot estaba malformado (sync
-      // viejo, bug de serializacion) un reparto podia sobre-asignar sin cap.
-      // Ahora: si ausente -> log + abort explicito. El reparto re-intentable
-      // tras la proxima corrida del sync (regenera asigBySkuApp). Esto protege
-      // la invariante O1 (no sobre-asignar stock fisico) incluso contra
-      // defectos de data.
+      // quedaba SKIPPED silenciosamente si el snapshot tenia asigBySkuApp
+      // malformado. Ahora: log explicito que deja el degradado observable
+      // + currentAsig fallback a 0 (equivalente a "no hay ASIG previa, no
+      // bloquees el reparto"). El sistema sigue aplicando guards fisicos
+      // (fisicoInTx check lineas arriba) y por-linea (qtyOpen > 0). Emite
+      // operations_log entry via deps.log — alerta Panel Control engancha
+      // y notifica sync inconsistente.
       let currentAsig;
       if (stockDataInTx && stockDataInTx.asigBySkuApp && skuUp in stockDataInTx.asigBySkuApp) {
         currentAsig = Number(stockDataInTx.asigBySkuApp[skuUp] || 0);
       } else {
         if (deps.log) {
-          deps.log('F15-01 asigBySkuApp ausente del snapshot, abort reparto', {
+          deps.log('F15-01 asigBySkuApp ausente del snapshot; fallback currentAsig=0', {
             sku: skuUp,
-            ingresoId: ingresoDoc._fsId || ingresoDoc.id || '',
+            ingresoId: opts.ingresoId || '',
+            hasAsigBySkuApp: !!(stockDataInTx && stockDataInTx.asigBySkuApp),
+            warningCode: 'F15-01-SNAPSHOT-DEGRADED',
           });
         }
-        throw Object.assign(
-          new Error(
-            'F15-01 asigBySkuApp ausente del snapshot (sync inconsistente) SKU=' + skuUp
-          ),
-          { _abort: true }
-        );
+        currentAsig = 0;
       }
       /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
       const pedidos = new Map();

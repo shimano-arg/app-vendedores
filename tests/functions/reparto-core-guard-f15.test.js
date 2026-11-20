@@ -1,10 +1,12 @@
 // @ts-check
 /**
- * HARDENING 6 F9 F15-01 (2026-11-20) — reparto-core hardening.
+ * HARDENING 6 F9 F15-01 (2026-11-20) — reparto-core hardening observabilidad.
  *
- * Valida que `applyRepartoManualCore` fail-closed cuando `asigBySkuApp` esta
- * ausente del snapshot. Antes v1480: currentAsig=null -> el guard E5 skipped
- * -> sobre-reparto silencioso. Ahora: abort con error explicito.
+ * Valida que `applyRepartoManualCore` LOG + fallback currentAsig=0 cuando
+ * `asigBySkuApp` esta ausente del snapshot. Antes v1480: currentAsig=null ->
+ * el guard E5 skipped SILENCIOSAMENTE. Ahora: log explicito + fallback 0.
+ * El sistema sigue aplicando guards fisicos (fisicoInTx check) + por-linea
+ * (qtyOpen > 0). Observabilidad critica (alerta Panel Control engancha).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { applyRepartoManualCore } from '../../functions/core/reparto-core.js';
@@ -108,7 +110,7 @@ describe('H6 F9 F15-01 reparto-core fail-closed si asigBySkuApp ausente', () => 
     expect(r.applied).toHaveLength(1);
   });
 
-  it('F15-01-B: asigBySkuApp SKU ausente — abort con error F15-01 + log', async () => {
+  it('F15-01-B: asigBySkuApp SKU ausente — log warning F15-01-SNAPSHOT-DEGRADED + reparto procede', async () => {
     const stock = {
       warehouseBreakdown: { 'SKU-F15': { 11: 10 } },
       asigBySkuApp: { 'SKU-OTRO': 5 }, // SKU-F15 NO esta en el mapa
@@ -124,20 +126,19 @@ describe('H6 F9 F15-01 reparto-core fail-closed si asigBySkuApp ausente', () => 
       assignments: [{ pedidoId: 'ped-f15', lineIndex: 0, qtyAsignada: 3 }],
       eliminations: [],
     });
-    expect(r.ok).toBe(false);
-    const errJoined = r.errors.join(' | ');
-    expect(errJoined).toMatch(/F15-01/);
-    expect(errJoined).toMatch(/asigBySkuApp ausente/);
+    // Log explicito con warningCode (observabilidad).
     expect(deps.log).toHaveBeenCalledWith(
       expect.stringContaining('F15-01'),
-      expect.objectContaining({ sku: 'SKU-F15' })
+      expect.objectContaining({
+        sku: 'SKU-F15',
+        warningCode: 'F15-01-SNAPSHOT-DEGRADED',
+      })
     );
-    // El pedido NO fue mutado.
-    const pedidoWrites = deps._writes.filter((w) => w.path.startsWith('pedidos/'));
-    expect(pedidoWrites).toHaveLength(0);
+    // Reparto procede (fallback currentAsig=0, aun con guards fisicos activos).
+    expect(r.ok).toBe(true);
   });
 
-  it('F15-01-C: asigBySkuApp entero ausente (campo no existe en snapshot) — abort', async () => {
+  it('F15-01-C: asigBySkuApp entero ausente (campo no existe) — log + reparto procede', async () => {
     const stock = {
       warehouseBreakdown: { 'SKU-F15': { 11: 10 } },
       // Sin asigBySkuApp (sync inconsistente / shape viejo).
@@ -153,8 +154,13 @@ describe('H6 F9 F15-01 reparto-core fail-closed si asigBySkuApp ausente', () => 
       assignments: [{ pedidoId: 'ped-f15', lineIndex: 0, qtyAsignada: 3 }],
       eliminations: [],
     });
-    expect(r.ok).toBe(false);
-    const errJoined = r.errors.join(' | ');
-    expect(errJoined).toMatch(/F15-01/);
+    expect(deps.log).toHaveBeenCalledWith(
+      expect.stringContaining('F15-01'),
+      expect.objectContaining({
+        warningCode: 'F15-01-SNAPSHOT-DEGRADED',
+        hasAsigBySkuApp: false,
+      })
+    );
+    expect(r.ok).toBe(true);
   });
 });

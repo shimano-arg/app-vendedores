@@ -28,9 +28,12 @@ describe('analyzeRules', () => {
     });
   });
   it('reglas sin freeze (versión anterior a PR-B) → freezePresent=false', () => {
+    // H6 F9 HARD6-F4-S3 (v1480): la roles.update ahora tiene 2 hasAny (uno
+    // por Mariano y otro por admin no-Mariano). Simulamos "version anterior
+    // sin freeze" removiendo TODAS las hasAny de legacy creds.
     const viejo = LOCAL_RULES.replace(
-      /&& !request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\s*\.hasAny\(\[[^\]]*\]\);/,
-      ';'
+      /&&\s*!request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\s*\.hasAny\(\s*\[[^\]]*\]\s*\)/gs,
+      ''
     );
     expect(viejo).not.toBe(LOCAL_RULES);
     const r = dcore.analyzeRules(viejo, LOCAL_RULES);
@@ -407,8 +410,9 @@ describe('Correcciones de la revisión independiente (P2-2 a P2-5)', () => {
     expect(r.freezePresent).toBe(false);
   });
   it('P2-2: freeze solo en un comentario → no cuenta', () => {
+    // H6 F9 HARD6-F4-S3 (v1480): la rule allow update arranca con "(isMariano()".
     const c = lf.replace(
-      /allow update: if isAdmin\(\)[\s\S]*?\.hasAny\(\[[^\]]*\]\);/,
+      /allow update: if \(isMariano\(\)[\s\S]*?\.hasAny\(\[[\s\S]*?\]\s*\)\s*\);/,
       "// .affectedKeys().hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled'])\n      allow update: if isAdmin();"
     );
     expect(dcore.analyzeRules(c, LOCAL_RULES).freezePresent).toBe(false);

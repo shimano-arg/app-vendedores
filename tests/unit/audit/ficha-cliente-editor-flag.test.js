@@ -49,7 +49,12 @@ describe('v1420 §54 — rules client_master acepta isFichaClienteEditor', () =>
     const start = RULES.indexOf('match /client_master/{docId}');
     const slice = RULES.slice(start, RULES.indexOf('allow delete:', start) + 100);
     const updateBlock = slice.slice(slice.indexOf('allow update:'));
-    expect(updateBlock).toMatch(/isAdminOrGerente\(\)\s*\|\|\s*isFichaClienteEditor\(\)/);
+    // H6 F9 HARD6-F4-S1 (v1480): isFichaClienteEditor() ahora va envuelto en
+    // una sub-expresion que agrega hasOnly() con whitelist de campos safe.
+    // La asercion sigue validando que la invocacion existe y esta OR'd con
+    // isAdminOrGerente() — el shape de wrapper (parenthesis + && hasOnly)
+    // puede cambiar sin romper el gate.
+    expect(updateBlock).toMatch(/isAdminOrGerente\(\)\s*\|\|\s*\(?\s*isFichaClienteEditor\(\)/);
   });
 
   it('defaultDelivery compat path preserved (readers pueden escribir solo defaultDelivery)', () => {
