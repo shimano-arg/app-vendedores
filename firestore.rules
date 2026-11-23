@@ -284,7 +284,19 @@ service cloud.firestore {
             // Delivery info (usuario cambia transportista/sucursal/retiro post-envio)
             'formaEntrega', 'deliveryDetails',
             // Contenido del pedido (edit lines pre-transfer, aggregate updates)
-            'lines', 'netAmountArs', 'subtotalArs', 'discountPct', 'discountSnapshot',
+            // HARDENING6 §ATK-004 (2026-11-23): remove 'discountPct', 'discountSnapshot'
+            // del whitelist del VDE. Vector ATK-004: VDE con DevTools podia escribir
+            //   pedidos.doc(x).update({discountPct: 95, discountSnapshot: {pctTotal: 95}})
+            // directamente y la cascada OR de auto-send-sap-core.js enviaba DiscountPercent=95
+            // a SAP → $950k/pedido potencial fraude.
+            // Post-PR #1399 (D12) el descuento se persiste correctamente desde commitPedidoCF
+            // (admin SDK, bypassa rules). NO hay call-sites legitimos cliente-side que
+            // updateen estos campos post-create (grep del repo: 0 matches `.update({discountPct`).
+            // Admin/gerente/interno conservan la capacidad (sus ramas de la rule NO tienen
+            // hasOnly). Si en el futuro se autoriza update post-create por VDE, agregar CF
+            // dedicada `updateDiscountCF` con cap por rol + log operations_log (pattern
+            // releaseAsigCF §63), NO reabrir el whitelist aca.
+            'lines', 'netAmountArs', 'subtotalArs',
             'condicionPago',
             // Transiciones de estado (waitlist -> pending -> confirmed)
             'stage', 'confirmedAt', 'finalizedAt', 'closedAt',
