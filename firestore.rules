@@ -1280,7 +1280,11 @@ service cloud.firestore {
           // SEC-M1 iter 2.2: Marcado de órdenes absorbidas
           'unifiedInto', 'unifiedIntoOrderNumber',
           // SEC-M1 iter 2.2: Re-resolve §44 en target legacy (con guard abajo)
-          'assignedVendorUid', 'vendorAssigned', 'assignedVendorEmail', 'ownerVendor'
+          'assignedVendorUid', 'vendorAssigned', 'assignedVendorEmail', 'ownerVendor',
+          // Ajuste batch 2026-11-24: la carga por Excel guarda la ruta del
+          // archivo subido a Storage (index.html revisionDejarRecalculando).
+          // Faltaba en #1376: sin esto el Excel original no queda enlazado.
+          'sourceExcelPath', 'sourceExcelName'
         ])
         // Guard legacy §44: los 4 campos de vendor solo si resource es legacy
         // (assignedVendorUid vacío o ausente). Preserva mitigación §59.
