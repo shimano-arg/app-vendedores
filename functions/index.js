@@ -74,8 +74,13 @@ import { fetchStockLiveCore } from './core/fetch-stock-live-core.js';
 // v1279 (2026-10-14): FIFO automatico eliminado — reemplazado por reparto
 // manual (reparto-core.js + reparto-migration-core.js). Historia:
 // v1277 dual mode → v1278 FIFO disabled → v1279 FIFO deleted.
-import { runGeminiOcr } from './core/gemini-ocr-core.js';
+import { runGeminiOcr, toClientOcrError } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
+// v1564+ (HARDENING6 line-inflation observer): shadow mode 4 semanas
+// para detectar mutaciones post-commit a pedidos.lines/qty/code/netAmountArs.
+// Observer-only — NO rechaza writes. Follow-up (post-shadow): updatePedidoLinesCF
+// callable + remover whitelist VDE en firestore.rules.
+import { handleLineMutationObservation } from './core/line-mutation-observer-core.js';
 // R01 Fase 2 (v1557-dev 2026-11-18): CFs callable que reemplazan el flow
 // cliente-side de volverAListaEspera + waitlistUnificarOrden. Garantizan
 // §42 via lock atómico. Hoy el frontend NO las invoca (migración queda
@@ -152,6 +157,7 @@ import { unifyWaitlistsCore } from './core/unify-waitlists-core.js';
 import { updatePedidoLinesCore } from './core/update-pedido-lines-core.js';
 // v1280 (2026-10-14): TTL 7d waitlists stock-asignado-batch.
 import { expireStockAsignadoWaitlists } from './core/waitlist-ttl-core.js';
+import { handleWaitlistValidate } from './core/waitlist-validate-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -831,6 +837,82 @@ export const onPedidoWriteTrackAsigTransitions = onDocumentWritten(
 );
 
 /**
+ * v1564+ (HARDENING6 line-inflation observer, shadow 4 semanas):
+ * onPedidoLineMutationObserver — trigger on-write pedidos/{id} que detecta
+ * mutaciones post-commit a lines[]/netAmountArs/subtotalArs por actores no
+ * admin/interno/gerente, y los loguea a operations_log.
+ *
+ * Contexto (HARDENING6_28): cambios a líneas o montos de un pedido después
+ * de creado, hechos por usuarios no privilegiados, se registran para medir
+ * el volumen antes de mover esa edición a una función de servidor.
+ *
+ * Esta CF es OBSERVE-ONLY: no rechaza writes, no rollbackea, no bloquea.
+ * Shadow 4 semanas para sizing + baseline de falsos positivos. Follow-up PR
+ * (post-shadow): updatePedidoLinesCF callable server-side + remover
+ * lines/netAmountArs/subtotalArs del whitelist VDE en firestore.rules.
+ *
+ * Shadow start: 2026-11-24.
+ *
+ * Actor resolution: Firestore Gen 2 triggers NO exponen event.auth.
+ * Se infiere del doc: afterData.updatedByUid > afterData.updatedBy (email).
+ * Ajuste post-revisión H3: sin actor identificable el registro va con
+ * severity LOW y actor 'unknown'; las escrituras de servidor reconocibles
+ * por sus marcadores de auditoría se descartan. Lógica en
+ * core/line-mutation-observer-core.js (handleLineMutationObservation).
+ */
+const SHADOW_STARTED_AT = '2026-11-24';
+
+export const onPedidoLineMutationObserver = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    try {
+      const beforeData = event.data?.before?.data() ?? null;
+      const afterData = event.data?.after?.data() ?? null;
+
+      const r = await handleLineMutationObservation({
+        db: getFirestore(),
+        pedidoId: event.params.pedidoId,
+        beforeData,
+        afterData,
+        nowIso: new Date().toISOString(),
+        shadowStartedAt: SHADOW_STARTED_AT,
+      });
+      if (r.skipped) {
+        if (r.skipped !== 'no_mutation') {
+          console.log('onPedidoLineMutationObserver skip', {
+            pedidoId: event.params.pedidoId,
+            reason: r.skipped,
+            marker: r.marker || null,
+            actorRole: r.role || null,
+          });
+        }
+        return;
+      }
+      const entry = r.entry;
+      console.log('onPedidoLineMutationObserver observed', {
+        pedidoId: event.params.pedidoId,
+        actorRole: entry.actorRole || 'unknown',
+        severity: entry.severity,
+        mutationsCount: entry.mutationsCount,
+        kinds: entry.mutations.map((/** @type {any} */ m) => m.kind),
+      });
+    } catch (e) {
+      console.error('onPedidoLineMutationObserver error', {
+        pedidoId: event.params.pedidoId,
+        error: e?.message || String(e),
+      });
+      // No relanzar - fire-and-forget para no bloquear otros triggers.
+    }
+  }
+);
+
+/**
  * v774 (2026-09-02): onQuotationSentNotify — trigger on-write pedidos/{id}
  * que envia email a santiago.beron@shimano.uy cuando un pedido efectivamente
  * se envia como Sales Quotation a SAP (transferidoSAP.docNum de null a valor
@@ -1370,8 +1452,12 @@ export const applyRepartoManualCF = onCall(
         );
       }
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): rol lookup via Firestore puede
+      // fallar con error que incluye path `/roles/<uid>`. Log full al servidor;
+      // mensaje generico ES al cliente.
       if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'no se pudo validar rol: ' + (e?.message || String(e)));
+      console.error('[applyRepartoManualCF:roleLookup]', e);
+      throw new HttpsError('internal', 'no se pudo validar rol');
     }
     const data = req.data || {};
     const ingresoId = String(data.ingresoId || '').trim();
@@ -1408,8 +1494,14 @@ export const applyRepartoManualCF = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core `reparto-core.js` tira
+      // business errors + Firestore tx errors nativos. El `.message` crudo
+      // filtra docIds/paths. Log full al servidor; mensaje generico ES al
+      // cliente. Business errors (`e._errorCode`) no aplican aca — el core
+      // actual no los expone.
       if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'reparto fallo: ' + (e?.message || String(e)));
+      console.error('[applyRepartoManualCF:general]', e);
+      throw new HttpsError('internal', 'reparto fallo, reintenta en unos segundos');
     }
   }
 );
@@ -1432,6 +1524,10 @@ export const applyRepartoManualCF = onCall(
  *
  * Response:
  *   { ok: true, unitsCancelled, linesCancelled, pedidosMutated, waitlistDeleted }
+ *
+ * Rechazos de negocio sin escrituras (details.errorCode): CLIENT_DATA_MISSING
+ * (falta el cardCode de la orden o del pedido de origen) y
+ * RELEASE_CROSS_CLIENT (la reserva es de otro cliente), además de los de rol.
  */
 export const releaseAsigCF = onCall(
   {
@@ -1468,12 +1564,20 @@ export const releaseAsigCF = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core puede tirar business
+      // errors (`e._errorCode` + message pre-sanitizado por mkErr) o
+      // Firestore tx errors nativos. BUSINESS re-throw preservado;
+      // INFRASTRUCTURE log full + mensaje generico ES.
       if (e instanceof HttpsError) throw e;
       if (e && e._errorCode) {
-        throw new HttpsError(e._errorCode, e.message || 'release asig fallo');
+        // El core adjunta `_errorDetails.errorCode` cuando rechaza por rol o
+        // permiso, para que el cliente muestre el mensaje correspondiente.
+        const details =
+          e._errorDetails && typeof e._errorDetails === 'object' ? e._errorDetails : undefined;
+        throw new HttpsError(e._errorCode, e.message || 'release asig fallo', details);
       }
-      console.error('releaseAsigCF unexpected error', e);
-      throw new HttpsError('internal', 'release asig fallo: ' + (e?.message || String(e)));
+      console.error('[releaseAsigCF:general]', e);
+      throw new HttpsError('internal', 'release asig fallo, reintenta en unos segundos');
     }
   }
 );
@@ -1507,8 +1611,25 @@ export const dashboardVentasCF = onCall(
     if (!ALLOWED_DOMAINS.has(domain)) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
+    // SEC-M11 (2026-11-19): rate limiting BQ consistente con rate-limit-core
+    // existente (sapProxy, updateAsigLineState, etc.). Preset en RATE_LIMITS.
+    const _db = getFirestore();
+    const _rl = await checkAndIncrementRateLimit(
+      { fbDb: _db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'dashboardVentasCF',
+      RATE_LIMITS.dashboardVentasCF.threshold,
+      RATE_LIMITS.dashboardVentasCF.windowMs
+    );
+    if (!_rl.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rl.count}/${_rl.threshold}). Reintentá después de ${_rl.resetAt}.`,
+        { resetAt: _rl.resetAt, threshold: _rl.threshold }
+      );
+    }
     try {
-      const db = getFirestore();
+      const db = _db;
       /** @type {any} */
       let bq = null;
       return await dashboardVentasCore(
@@ -1594,8 +1715,24 @@ export const pedidosDelMesCF = onCall(
     if (!ALLOWED_DOMAINS.has(domain)) {
       throw new HttpsError('permission-denied', 'dominio no permitido');
     }
+    // SEC-M11 (2026-11-19): rate limiting BQ — ver dashboardVentasCF.
+    const _db = getFirestore();
+    const _rl = await checkAndIncrementRateLimit(
+      { fbDb: _db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'pedidosDelMesCF',
+      RATE_LIMITS.pedidosDelMesCF.threshold,
+      RATE_LIMITS.pedidosDelMesCF.windowMs
+    );
+    if (!_rl.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rl.count}/${_rl.threshold}). Reintentá después de ${_rl.resetAt}.`,
+        { resetAt: _rl.resetAt, threshold: _rl.threshold }
+      );
+    }
     try {
-      const db = getFirestore();
+      const db = _db;
       /** @type {any} */
       let bq = null;
       return await pedidosDelMesCore(
@@ -1805,6 +1942,37 @@ export const fetchStockLiveCF = onCall(
         timeoutMs: typeof data.timeoutMs === 'number' ? data.timeoutMs : undefined,
       }
     );
+    // SEC-H4 (HARDENING5 BATCH 1, 2026-11-19): traducir cap excedido a invalid-argument.
+    // El core devuelve { ok:false, errorCode:'TOO_MANY_SKUS' } sin invocar al SL;
+    // acá lo exponemos al cliente como error explícito en vez de un snapshotFallback
+    // silencioso (mejor señal + previene retries ciegos con el mismo payload).
+    if (result && result.ok === false && result.errorCode === 'TOO_MANY_SKUS') {
+      // SEC-H4 iter2 (HARDENING5 BATCH 1, 2026-11-19): logging AWAIT antes del throw.
+      // §64.2 CLAUDE.md: "TODO rechazo de la CF debe pasar por logging centralizado
+      // AWAIT, no fire-and-forget". El bloque de logging previo venía DESPUÉS del
+      // throw y nunca se ejecutaba. Mismo shape que logCommitRejection (type,
+      // errorCode, userId, userEmail, timestamp) + contexto específico de la CF.
+      try {
+        await db.collection('operations_log').add({
+          type: 'cf_rejected',
+          errorCode: 'TOO_MANY_SKUS',
+          cf: 'fetchStockLiveCF',
+          userId: auth && auth.uid ? auth.uid : null,
+          userEmail: email || null,
+          requested: Array.isArray(skus) ? skus.length : 0,
+          cap: 250,
+          reason: result.reason || 'cap_exceeded',
+          timestamp: new Date(),
+        });
+      } catch (_logErr) {
+        // fail-safe: no bloquear el throw por falla de log.
+        console.warn('operations_log write failed (fetchStockLiveCF TOO_MANY_SKUS)', _logErr);
+      }
+      throw new HttpsError('invalid-argument', result.error || 'demasiados SKUs por request', {
+        errorCode: 'TOO_MANY_SKUS',
+        requested: skus.length,
+      });
+    }
     // operations_log entry fire-and-forget para auditar performance real.
     try {
       const logEntry = {
@@ -1916,12 +2084,33 @@ export const updateAsigLineStateCF = onCall(
         request.data
       );
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core `asig-recycle-core.js`
+      // tira `{code, message}` con mensajes pre-sanitizados (hardcoded) —
+      // esos son OK propagar. Pero un error nativo (Firestore tx) también
+      // puede tener forma `{code, message}` en algunas versiones del SDK
+      // con message conteniendo doc paths. Whitelist de codes canónicos
+      // HttpsError: si no entra, degradamos a 'internal' + mensaje genérico.
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'not-found',
+        'failed-precondition',
+        'already-exists',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+        'aborted',
+        'out-of-range',
+      ]);
       if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
         const err = /** @type {{code: string, message: string}} */ (e);
-        throw new HttpsError(/** @type {any} */ (err.code), err.message);
+        if (SAFE_CODES.has(String(err.code))) {
+          throw new HttpsError(/** @type {any} */ (err.code), err.message);
+        }
       }
-      console.error('updateAsigLineStateCF unexpected error', e);
-      throw new HttpsError('internal', 'Error interno updateAsigLineState');
+      console.error('[updateAsigLineStateCF:general]', e);
+      throw new HttpsError('internal', 'error interno al actualizar estado');
     }
   }
 );
@@ -2003,12 +2192,17 @@ export const geminiOcrProxy = onCall(
         request.data
       );
     } catch (e) {
-      if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
-        const err = /** @type {{code: string, message: string}} */ (e);
-        throw new HttpsError(/** @type {any} */ (err.code), err.message);
-      }
-      console.error('geminiOcrProxy unexpected error', e);
-      throw new HttpsError('internal', 'Error interno geminiOcrProxy');
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el mensaje de un error de red
+      // puede incluir datos internos. Nunca re-propagar `err.message` crudo. Whitelist de codes canónicos
+      // HttpsError; fallback `internal` + mensaje genérico ES.
+      console.error('[geminiOcrProxy:general]', e);
+      // Ajuste post-revisión H4: los mensajes fijos del core (imagen
+      // demasiado grande, tipo no soportado, tiempo agotado) pasan; el resto
+      // va genérico. Ver toClientOcrError en core/gemini-ocr-core.js.
+      const safeErr = toClientOcrError(e);
+      throw new HttpsError(/** @type {any} */ (safeErr.code), safeErr.message, {
+        errorCode: 'GEMINI_OCR_FAILED',
+      });
     }
   }
 );
@@ -2125,6 +2319,22 @@ export const closeSqsManuallyCF = onCall(
     const role = roleSnap.exists ? (roleSnap.data() || {}).role : '';
     if (role !== 'admin') {
       throw new HttpsError('permission-denied', 'solo admin');
+    }
+    // SEC-M13 (2026-11-19): rate limiting SL login/logout. Protege contra
+    // abuso de pooled SAP SL sessions.
+    const _rlClose = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'closeSqsManuallyCF',
+      RATE_LIMITS.closeSqsManuallyCF.threshold,
+      RATE_LIMITS.closeSqsManuallyCF.windowMs
+    );
+    if (!_rlClose.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rlClose.count}/${_rlClose.threshold}). Reintentá después de ${_rlClose.resetAt}.`,
+        { resetAt: _rlClose.resetAt, threshold: _rlClose.threshold }
+      );
     }
     const pedidoIds = Array.isArray(request.data && request.data.pedidoIds)
       ? request.data.pedidoIds.filter(
@@ -3008,9 +3218,12 @@ export const setupGetMovimientos = onCall(
         fetchedAtIso: new Date().toISOString(),
       };
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): fetch a sistema SETUP externo
+      // puede fallar con mensajes que incluyen URL + body. Log full al
+      // servidor; mensaje generico ES al cliente.
       if (e instanceof HttpsError) throw e;
-      console.error('setupGetMovimientos unexpected error', e);
-      throw new HttpsError('internal', String(e && e.message ? e.message : e));
+      console.error('[setupGetMovimientos:general]', e);
+      throw new HttpsError('internal', 'error al procesar movimientos');
     }
   }
 );
@@ -3169,10 +3382,26 @@ export const resendPlannerEmail = onCall(
         log: console,
       });
     } catch (err) {
-      if (err?.code && err?.message) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el fallback previo exponía
+      // `err?.message` en el campo `details` del HttpsError (que el SDK
+      // callable sí entrega al cliente), que podía incluir datos internos
+      // del proveedor de correo. Log full server-side; sin `details`.
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'not-found',
+        'failed-precondition',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+        'aborted',
+      ]);
+      if (err?.code && err?.message && SAFE_CODES.has(String(err.code))) {
         throw new HttpsError(err.code, err.message);
       }
-      throw new HttpsError('internal', 'Resend failed', { detail: err?.message });
+      console.error('[resendPlannerEmail:general]', err);
+      throw new HttpsError('internal', 'reenvio fallo, reintenta en unos segundos');
     }
   }
 );
@@ -3262,37 +3491,94 @@ export const triggerPlannerSync = onCall(
           ...r,
         });
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el summary se retorna al cliente
+      // (admin/gerente/interno). Los cores sync-* tiran errors con URL SL,
+      // companyDB, docEntries SAP → leak de infra. Log full al servidor;
+      // mensaje generico en el summary.
+      console.error('[triggerPlannerSync:invoices]', e);
       summary.errors.push({
         step: 'invoices',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar facturas',
       });
     }
     try {
       summary.orders = await syncSapOrders(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:orders]', e);
       summary.errors.push({
         step: 'orders',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar ordenes de venta',
       });
     }
     try {
       summary.payments = await handleSyncSapPayments(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:payments]', e);
       summary.errors.push({
         step: 'payments',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar cobranzas',
       });
     }
     try {
       summary.closures = await syncSapQuotationClosures(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:closures]', e);
       summary.errors.push({
         step: 'closures',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar cierres de cotizacion',
       });
     }
     console.log('triggerPlannerSync summary', summary);
     return summary;
+  }
+);
+
+/**
+ * DEUDA-M1 R1-R4 (2026-11-19) — onWaitlistWriteValidate
+ *
+ * Trigger onDocumentWritten sobre `revision_waitlist/{waitlistId}`.
+ * Defensa en profundidad complementaria a las rules de A1.2 (PR #1376).
+ *
+ * Observe-only: loguea violaciones a `operations_log.type=
+ * 'sec_m1_waitlist_integrity_violation'` con detalle. NO revierte el write.
+ * Permite medir baseline + ajustar antes de activar hard-revert.
+ *
+ * 4 reglas validadas:
+ * - R1: items[].asigRefs apuntan a pedidos del MISMO clientCardCode.
+ * - R2: transición de stage monotónica (consumed→pending BLOQUEADO).
+ * - R3: clientCardCode inmutable post-create.
+ * - R4: ownerUid + ownerVendor + assignedVendorUid inmutables post-create
+ *       (excepción: _backfill flag para scripts batch legítimos).
+ *
+ * Retry: false. Si falla el log, no bloquea el write (ya ocurrió).
+ */
+export const onWaitlistWriteValidate = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'revision_waitlist/{waitlistId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    try {
+      const waitlistId = event.params.waitlistId;
+      const before = /** @type {any} */ (
+        event.data?.before?.exists ? event.data.before.data() : null
+      );
+      const after = /** @type {any} */ (event.data?.after?.exists ? event.data.after.data() : null);
+      await handleWaitlistValidate({
+        before,
+        after,
+        waitlistId,
+        fbDb: getFirestore(),
+        log: (msg, extra) => console.log('[waitlist-validate]', msg, extra || {}),
+        now: () => Date.now(),
+      });
+    } catch (e) {
+      // Fail-open: el trigger NUNCA bloquea el write (ya ocurrió).
+      console.error('[waitlist-validate] unexpected error (swallowed)', e);
+    }
   }
 );
 
@@ -3429,9 +3715,29 @@ export const triggerRendicionesEmailManual = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el handler puede fallar con
+      // errores de un servicio externo cuyo message puede incluir datos
+      // internos. Whitelist de codes canónicos; mensaje genérico
+      // ES al cliente.
+      console.error('[triggerRendicionesEmailManual:general]', e);
       const err = /** @type {any} */ (e);
-      console.error('[triggerRendicionesEmailManual] error', err);
-      throw new HttpsError(err.code || 'internal', err.message || String(err));
+      if (err instanceof HttpsError) throw err;
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'failed-precondition',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+      ]);
+      if (err && err.code && SAFE_CODES.has(String(err.code)) && typeof err.message === 'string') {
+        throw new HttpsError(err.code, err.message);
+      }
+      throw new HttpsError(
+        'internal',
+        'error al disparar el envio de rendiciones, avisale a Mariano'
+      );
     }
   }
 );
@@ -3460,6 +3766,22 @@ export const generateVentasReportCF = onCall(
     const role = roleSnap.exists ? (roleSnap.data() || {}).role : '';
     if (role !== 'admin' && role !== 'gerente') {
       throw new HttpsError('permission-denied', 'solo admin/gerente');
+    }
+    // SEC-M12 (2026-11-19): rate limiting generateVentasReportCF — 1GiB
+    // memory + BQ scan completo del mes. Preset windowMs=24h evita abuso.
+    const _rlReport = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'generateVentasReportCF',
+      RATE_LIMITS.generateVentasReportCF.threshold,
+      RATE_LIMITS.generateVentasReportCF.windowMs
+    );
+    if (!_rlReport.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rlReport.count}/${_rlReport.threshold}). Reintentá después de ${_rlReport.resetAt}.`,
+        { resetAt: _rlReport.resetAt, threshold: _rlReport.threshold }
+      );
     }
     const year = Number(request.data && request.data.year);
     const month = Number(request.data && request.data.month);
@@ -3971,7 +4293,8 @@ export const commitPedidoCF = onCall(
       // El cliente lo interpreta por `errorCode`.
       return r;
     } catch (e) {
-      // Error inesperado (no de negocio). Log + throw.
+      // Error inesperado (no de negocio). Log + throw. SEC-M5: el mensaje al
+      // cliente es genérico; el detalle queda en Cloud Logging y operations_log.
       // Incidente Fase 2 (2026-11-24, observabilidad): antes del throw,
       // persistimos a operations_log con context operacional (sin PII, sin
       // stack trace). Esto permite correlacionar INTERNAL con timestamp,
@@ -4007,7 +4330,7 @@ export const commitPedidoCF = onCall(
           (_logErr && _logErr.message) || _logErr
         );
       }
-      console.error('commitPedidoCF unexpected', e);
+      console.error('[commitPedidoCF:general]', e);
       throw new HttpsError('internal', 'error inesperado, reintenta en unos segundos');
     }
   }
@@ -4048,8 +4371,11 @@ export const updatePedidoLinesCF = onCall(
       );
       return r;
     } catch (e) {
-      console.error('updatePedidoLinesCF unexpected', e);
-      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el `.message` de errors
+      // de Firestore tx puede filtrar docIds + colecciones. Log full
+      // al servidor; mensaje genérico ES al cliente.
+      console.error('[updatePedidoLinesCF:general]', e);
+      throw new HttpsError('internal', 'error inesperado al guardar lineas');
     }
   }
 );
@@ -4152,7 +4478,9 @@ function _buildAuthSecretsDeps(db) {
  * SEC F1A (2026-11-24): exige rol aprobado (vendedor/interno/gerente/admin)
  * leido server-side de roles/{uid}. Rechazo -> HttpsError permission-denied
  * con details.errorCode='ROLE_REQUIRED' + registro en operations_log
- * (lo hace authorizeCaller con await). Falla cerrada si la lectura falla.
+ * (lo hace authorizeCaller con await). Falla cerrada si la lectura falla:
+ * en ese caso sale 'unavailable' con details.errorCode='ROLE_CHECK_UNAVAILABLE'
+ * (reintentable).
  * @param {any} db
  * @param {{uid: string, token?: any}} auth
  * @param {string} via  prefijo del type en operations_log (`<via>_rejected`).
@@ -4171,7 +4499,7 @@ async function _requireApprovedRole(db, auth, via, opts = {}) {
   if (!r.ok) {
     console.warn(`${via} rechazado por rol`, { uid: auth.uid, reason: r.reason, role: r.role });
     throw new HttpsError(/** @type {any} */ (r.code), r.message, {
-      errorCode: 'ROLE_REQUIRED',
+      errorCode: r.errorCode || 'ROLE_REQUIRED',
       reason: r.reason,
     });
   }
@@ -4578,8 +4906,11 @@ export const movePedidoToWaitlistCF = onCall(
         const errData = /** @type {any} */ (e)._errorData || undefined;
         throw new HttpsError(/** @type {any} */ (e)._errorCode, e.message || 'move fallo', errData);
       }
-      console.error('movePedidoToWaitlistCF unexpected', e);
-      throw new HttpsError('internal', 'move fallo: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): Firestore tx errors nativos
+      // pueden filtrar docIds/paths. Log full al servidor; mensaje generico
+      // ES. Business errors (_errorCode + _errorData) preservados arriba.
+      console.error('[movePedidoToWaitlistCF:general]', e);
+      throw new HttpsError('internal', 'operacion fallo, reintenta en unos segundos');
     }
   }
 );
@@ -4638,8 +4969,11 @@ export const unifyWaitlistsCF = onCall(
           errData
         );
       }
-      console.error('unifyWaitlistsCF unexpected', e);
-      throw new HttpsError('internal', 'unify fallo: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): Firestore tx errors nativos
+      // pueden filtrar docIds/paths de los waitlists absorbidos. Log full
+      // al servidor; mensaje generico ES. Business errors preservados arriba.
+      console.error('[unifyWaitlistsCF:general]', e);
+      throw new HttpsError('internal', 'unify fallo, reintenta en unos segundos');
     }
   }
 );

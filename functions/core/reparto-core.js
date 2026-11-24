@@ -1055,10 +1055,29 @@ export async function applyRepartoManualCore(deps, opts) {
           { _abort: true }
         );
       }
-      const currentAsig =
-        stockDataInTx && stockDataInTx.asigBySkuApp
-          ? Number(stockDataInTx.asigBySkuApp[skuUp] || 0)
-          : null;
+      // HARDENING 6 F9 F15-01 (2026-11-20): observabilidad defensiva.
+      // Antes: `currentAsig = null` -> el guard E5 abajo (currentAsig !== null)
+      // quedaba SKIPPED silenciosamente si el snapshot tenia asigBySkuApp
+      // malformado. Ahora: log explicito que deja el degradado observable
+      // + currentAsig fallback a 0 (equivalente a "no hay ASIG previa, no
+      // bloquees el reparto"). El sistema sigue aplicando guards fisicos
+      // (fisicoInTx check lineas arriba) y por-linea (qtyOpen > 0). Emite
+      // operations_log entry via deps.log — alerta Panel Control engancha
+      // y notifica sync inconsistente.
+      let currentAsig;
+      if (stockDataInTx && stockDataInTx.asigBySkuApp && skuUp in stockDataInTx.asigBySkuApp) {
+        currentAsig = Number(stockDataInTx.asigBySkuApp[skuUp] || 0);
+      } else {
+        if (deps.log) {
+          deps.log('F15-01 asigBySkuApp ausente del snapshot; fallback currentAsig=0', {
+            sku: skuUp,
+            ingresoId: opts.ingresoId || '',
+            hasAsigBySkuApp: !!(stockDataInTx && stockDataInTx.asigBySkuApp),
+            warningCode: 'F15-01-SNAPSHOT-DEGRADED',
+          });
+        }
+        currentAsig = 0;
+      }
       /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
       const pedidos = new Map();
       for (const action of actionsByLine.values()) {
