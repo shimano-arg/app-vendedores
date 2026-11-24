@@ -5899,7 +5899,7 @@ Verificado con script `scripts/audit/check_price_list.cjs`: `prices` tiene 741 S
 4. **Error state** (`_renderErrorsState`): lista con `padding + border-left rojo` + hasta 100 filas visibles + resumen "Hay N error(es). Corregí el Excel y volvé a subirlo. No se aplica nada."
 
 5. **Script user pruebas** (`scripts/create-pruebas-gerente-user.cjs`):
-   - Idempotente: crea / actualiza user `pruebas.gerente@shimano.com.ar` con password `Shimano2025`, role=`gerente`, doc `roles/{uid}` + entry en `allowed_emails`.
+   - Idempotente: crea / actualiza user `pruebas.gerente@shimano.com.ar` con la contraseña que se pasa por la variable de entorno `E2E_PRUEBAS_PASSWORD` (nunca en el repo), role=`gerente`, doc `roles/{uid}` + entry en `allowed_emails`.
    - **NO EJECUTADO** — Mariano lo corre manualmente con el service account del admin SDK.
 
 6. **Playwright** (`tests/e2e/pablo-import-reparto.spec.ts`): 5 escenarios:
