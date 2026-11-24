@@ -1570,6 +1570,25 @@ function accumulateCancelAsigMutations(pending, payload, snapshots, newPedidoId,
         pedidoOrigenId,
       });
     }
+
+    // ATK-002 (2026-11-19): el pedido origen de cada asigRef tiene que ser
+    // del mismo cliente que el pedido que se confirma. Los checks A-F validan
+    // sku, estado y cantidad, no el vínculo con el cliente.
+    //
+    // Compat: si el pedido origen no tiene clientCardCode persistido (pedidos
+    // viejos), no bloquea.
+    const payloadCardCode = String(payload.cardCode || '').trim();
+    const snapData = /** @type {any} */ (snap && snap.data) || {};
+    const origenCardCode = String(snapData.clientCardCode || '').trim();
+    if (payloadCardCode && origenCardCode && payloadCardCode !== origenCardCode) {
+      throwError('ASIG_REF_INVALID', 'pedido origen pertenece a otro cliente', {
+        reason: 'CROSS_CLIENT_CARDCODE_MISMATCH',
+        pedidoOrigenId,
+        payloadCardCode,
+        origenCardCode,
+      });
+    }
+
     const pw = getOrInitPendingWrite(
       pending,
       pedidoOrigenId,
