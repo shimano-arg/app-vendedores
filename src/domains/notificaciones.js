@@ -33,6 +33,8 @@
 // === Notificaciones panel ===
 // ============================================================
 // PANEL ALERTAS Y TAREAS (tabs: Recibidas / Crear tarea / Enviadas)
+import { jsArgAttr, safeImgSrc } from '../pure/html-safe.js';
+
 // ============================================================
 // CROSS-SCOPE (E6 fix C3): updateNotifsBadge del inline (L8519) lee window.notifsTab.
 // Bundle strict tira ReferenceError → lista notif no re-renderea en snapshot.
@@ -435,7 +437,7 @@ function refreshAltaCliGrid(kind) {
       .map(
         (b64, i) =>
           '<div class="photo-cell"><img src="' +
-          b64 +
+          safeImgSrc(b64) +
           '"/><button type="button" class="rm" onclick="removeAltaCliFile(\'fotos\',' +
           i +
           ')">&times;</button></div>'
@@ -450,7 +452,7 @@ function refreshAltaCliGrid(kind) {
     if (v) {
       cells =
         '<div class="photo-cell"><img src="' +
-        v +
+        safeImgSrc(v) +
         '"/><button type="button" class="rm" onclick="removeAltaCliFile(\'' +
         kind +
         '\')">&times;</button></div>';
@@ -682,7 +684,7 @@ function renderAltaCliMisSolicitudes() {
     const canDelete = isRapida ? !hasSap : a.status !== 'approved' || !hasSap;
     if (canDelete) {
       const safeId = escapeAttr(a._fsId || '');
-      const safeName = JSON.stringify(a.comercio || '').replace(/"/g, '&quot;');
+      const safeName = jsArgAttr(a.comercio || '');
       html += '<div style="margin-top:8px;text-align:right">';
       html +=
         '<button onclick="deleteMyAltaCli(\'' +
@@ -782,17 +784,22 @@ window.openClientApplicationDetail = async function (appId, notifId) {
     h +=
       '<h4 style="font-size:12px;color:#0891b2;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;padding-bottom:5px;border-bottom:1.5px solid #67e8f9">Documentaci&oacute;n</h4>';
     h += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
-    if (a.constanciaArca)
+    // sec 2026-11-24: src de imágenes saneado (solo data:image/* o https:).
+    const _arcaSrc = safeImgSrc(a.constanciaArca);
+    const _iibbSrc = safeImgSrc(a.constanciaIIBB);
+    if (_arcaSrc)
       h +=
         '<div style="text-align:center"><div style="font-size:9px;color:var(--text-secondary);margin-bottom:3px;font-weight:700;text-transform:uppercase">ARCA</div><img src="' +
-        a.constanciaArca +
+        _arcaSrc +
         '" id="ca-arca-img" class="task-img-thumb" style="width:90px;height:90px" onclick="openImgViewer(\'ca-arca-img\')"/></div>';
-    if (a.constanciaIIBB)
+    if (_iibbSrc)
       h +=
         '<div style="text-align:center"><div style="font-size:9px;color:var(--text-secondary);margin-bottom:3px;font-weight:700;text-transform:uppercase">IIBB</div><img src="' +
-        a.constanciaIIBB +
+        _iibbSrc +
         '" id="ca-iibb-img" class="task-img-thumb" style="width:90px;height:90px" onclick="openImgViewer(\'ca-iibb-img\')"/></div>';
-    (a.fotosLocal || []).forEach((f, i) => {
+    (Array.isArray(a.fotosLocal) ? a.fotosLocal : []).forEach((f0, i) => {
+      const f = safeImgSrc(f0);
+      if (!f) return;
       h +=
         '<div style="text-align:center"><div style="font-size:9px;color:var(--text-secondary);margin-bottom:3px;font-weight:700;text-transform:uppercase">Local ' +
         (i + 1) +
@@ -1128,11 +1135,35 @@ function fmtNotifDate(n) {
   return dt ? dt.toLocaleString('es-AR') : '';
 }
 
+// Tipos de notificación que escribe la app (cliente y Cloud Functions).
+const KNOWN_NOTIF_TYPES = new Set([
+  'derivacion',
+  'task',
+  'task_ack',
+  'client_approval',
+  'client_approval_ack',
+  'rendicion_approval',
+  'rendicion_approval_ack',
+  'auto_confirm_timeout',
+  'alta_rapida_creada',
+  'new_user_signup',
+  'order_created',
+  'partner_action',
+  'phone_contact_created',
+  'visit_created',
+]);
+
+function notifTypeClass(type) {
+  return KNOWN_NOTIF_TYPES.has(type) ? type : 'otro';
+}
+
 function notifItemHtml(n, opts) {
   opts = opts || {};
   const type = n.type || 'derivacion';
   const isClosed = n.status === 'read' || n.status === 'done';
-  const cls = 'notif-item type-' + type + (isClosed ? ' read' : '');
+  // El tipo viene del doc (lo escribe quien crea la notificación): solo se
+  // usa como clase CSS si es uno conocido; si no, clase genérica.
+  const cls = 'notif-item type-' + notifTypeClass(type) + (isClosed ? ' read' : '');
   const dtStr = fmtNotifDate(n);
   let h = '<div class="' + cls + '">';
   if (type === 'task') {
@@ -1147,16 +1178,15 @@ function notifItemHtml(n, opts) {
     if ((n.images || []).length) {
       h += '<div class="task-imgs">';
       n.images.forEach((img, i) => {
-        const safe = img.replace(/'/g, '&#39;');
+        const safe = safeImgSrc(img);
+        if (!safe) return;
         h +=
           '<img src="' +
           safe +
           '" class="task-img-thumb" onclick="openImgViewer(\'' +
           escapeAttr('task-' + n._fsId + '-' + i) +
-          '\')" id="task-' +
-          n._fsId +
-          '-' +
-          i +
+          '\')" id="' +
+          escapeHtml('task-' + n._fsId + '-' + i) +
           '"/>';
       });
       h += '</div>';
@@ -1439,16 +1469,15 @@ function renderMySentTasks() {
     if ((n.images || []).length) {
       html += '<div class="task-imgs">';
       n.images.forEach((img, i) => {
-        const safe = img.replace(/'/g, '&#39;');
+        const safe = safeImgSrc(img);
+        if (!safe) return;
         html +=
           '<img src="' +
           safe +
           '" class="task-img-thumb" onclick="openImgViewer(\'' +
           escapeAttr('sent-' + n._fsId + '-' + i) +
-          '\')" id="sent-' +
-          n._fsId +
-          '-' +
-          i +
+          '\')" id="' +
+          escapeHtml('sent-' + n._fsId + '-' + i) +
           '"/>';
       });
       html += '</div>';
@@ -1617,7 +1646,7 @@ function refreshTaskImageGrid() {
     .map(
       (b64, i) =>
         '<div class="photo-cell"><img src="' +
-        b64 +
+        safeImgSrc(b64) +
         '"/><button type="button" class="rm" onclick="removeTaskFormImage(' +
         i +
         ')">&times;</button></div>'

@@ -680,10 +680,10 @@ window.openAdminPanel = async function () {
         // width:100% + white-space:nowrap para que entre en columna chica.
         const pwdBtnHtml =
           '<button class="app-btn-pill app-btn-violet" style="padding:5px 6px;font-size:10px;width:100%;white-space:nowrap;box-sizing:border-box" title="Cambiar contraseña" onclick="changeUserPassword(\'' +
-          docId +
-          "', " +
-          JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
-          ')">Pass</button>';
+          escapeAttr(docId) +
+          "', '" +
+          escapeAttr(d.email || '') +
+          '\')">Pass</button>';
         // Botón Configurar 2FA — v1304: mismo tratamiento compacto.
         const totpStatusTag = d.totpEnabled
           ? ' <span style="color:#10b981;font-weight:800">&#10003;</span>'
@@ -692,10 +692,10 @@ window.openAdminPanel = async function () {
           '<button class="app-btn-pill app-btn-violet" style="padding:5px 6px;font-size:10px;width:100%;white-space:nowrap;box-sizing:border-box;background:' +
           (d.totpEnabled ? '#10b981' : '#5b21b6') +
           '" title="Configurar 2FA" onclick="openTotpSetup(\'' +
-          docId +
-          "', " +
-          JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
-          ')">2FA' +
+          escapeAttr(docId) +
+          "', '" +
+          escapeAttr(d.email || '') +
+          '\')">2FA' +
           totpStatusTag +
           '</button>';
         // Desktop row
@@ -712,14 +712,14 @@ window.openAdminPanel = async function () {
         const showDelete = !isSelf && !isProtected;
         const delBtn = showDelete
           ? '<button class="rm-user-btn" onclick="deleteUserRole(\'' +
-            docId +
+            escapeAttr(docId) +
             '\')">Eliminar</button>'
           : '';
         tableHtml +=
           '<td>' +
           delBtn +
           '<button class="save-btn" onclick="saveUserRole(\'' +
-          docId +
+          escapeAttr(docId) +
           '\', this)">Guardar</button></td>';
         tableHtml += '</tr>';
         // Mobile card
@@ -767,14 +767,14 @@ window.openAdminPanel = async function () {
           '</div>';
         const delBtnC = showDelete
           ? '<button class="rm-user-btn" onclick="deleteUserRole(\'' +
-            docId +
+            escapeAttr(docId) +
             '\')">Eliminar</button>'
           : '';
         cardsHtml +=
           '<div class="uc-actions">' +
           delBtnC +
           '<button class="save-btn" onclick="saveUserRole(\'' +
-          docId +
+          escapeAttr(docId) +
           '\', this)">Guardar</button></div>';
         cardsHtml += '</div>';
       });

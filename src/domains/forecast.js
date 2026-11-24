@@ -3,6 +3,7 @@
 // como side-effect y también exporta las fns nombradas; usamos side-effect
 // porque forecast.js corre en el chunk lazy y window ya está disponible.
 import '../pure/sales-plan-parser.js';
+import { escapeAttr } from '../pure/html-safe.js';
 
 // Globals leidos del entorno (declarados en index.html inline o bundle previo):
 // fbDb, currentUser, XLSX (cdn), escapeHtml. Mismo patron que otros dominios.
@@ -609,7 +610,7 @@ function _renderForecastStatTabImpl(cont) {
       const total7 = (d.forecast || []).reduce((s, f) => s + (Number(f.y_hat) || 0), 0);
       return (
         '<tr onclick="openForecastStatDetail(\'' +
-        escapeHtmlSafe(d.id) +
+        escapeAttr(d.id) +
         '\')" style="cursor:pointer;border-bottom:1px solid var(--border-subtle)" onmouseover="this.style.background=\'var(--bg-secondary)\'" onmouseout="this.style.background=\'transparent\'">' +
         '<td style="padding:8px 10px;font-weight:700;color:var(--text-primary)">' +
         escapeHtmlSafe(d.subfamilia || d.id) +
@@ -1225,7 +1226,7 @@ function _buildMultCellHtml(r) {
 
   const resetBtn = isManual
     ? '<button onclick="resetMultiplier(\'' +
-      escapeHtmlSafe(skuUpper) +
+      escapeAttr(skuUpper) +
       '\')" title="Volver al auto" style="margin-left:4px;background:transparent;border:none;cursor:pointer;font-size:12px;color:var(--text-muted);padding:0">↻</button>'
     : '';
 
@@ -1239,7 +1240,7 @@ function _buildMultCellHtml(r) {
   return (
     '<span style="display:inline-flex;align-items:center;gap:2px">' +
     '<span onclick="editMultiplier(this, \'' +
-    escapeHtmlSafe(skuUpper) +
+    escapeAttr(skuUpper) +
     '\')" style="cursor:pointer;padding:2px 6px;border-radius:4px;background:var(--bg-secondary);font-variant-numeric:tabular-nums;font-weight:700;color:' +
     dirColor +
     '" title="Click para editar">' +
@@ -1473,9 +1474,9 @@ function _renderRecoSectionImpl(cont) {
         '</span></td>' +
         '<td style="padding:6px 8px;text-align:center">' +
         '<button onclick="discontinueSku(\'' +
-        escapeHtmlSafe(r.sku) +
+        escapeAttr(r.sku) +
         "', '" +
-        escapeHtmlSafe(r.description.replace(/'/g, '')) +
+        escapeAttr(r.description.replace(/'/g, '')) +
         '\')" title="Descontinuar este SKU" style="background:transparent;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:14px;color:var(--text-muted)">🗑</button>' +
         '</td>' +
         '</tr>'
@@ -1716,7 +1717,7 @@ function _renderDiscontinuedModal() {
                 : '') +
               '</div>' +
               '<button onclick="reactivateSku(\'' +
-              escapeHtmlSafe(sku) +
+              escapeAttr(sku) +
               '\')" style="padding:6px 12px;background:#16a34a;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:700;cursor:pointer">↻ Reactivar</button>' +
               '</div>'
             );

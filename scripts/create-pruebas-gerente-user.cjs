@@ -17,8 +17,9 @@
  *   node scripts/create-pruebas-gerente-user.cjs --dry      # muestra plan
  *   node scripts/create-pruebas-gerente-user.cjs            # ejecuta
  *
- * La password está hardcoded ('Shimano2025') para que los specs Playwright la
- * usen; Mariano puede resetearla via Firebase Console si quiere cambiarla.
+ * La contraseña se lee de la variable de entorno E2E_PRUEBAS_PASSWORD (mínimo
+ * 16 caracteres). Nunca va en el código ni en el repo. Si falta, el script
+ * termina con error sin tocar nada.
  *
  * Rollback: borrar el user via Firebase Console (Auth tab) + el doc
  * roles/{uid}; el allowed_emails entry queda (benigno).
@@ -41,10 +42,15 @@ const DRY = process.argv.includes('--dry');
 
 const USER = {
   email: 'pruebas.gerente@shimano.com.ar',
-  password: 'Shimano2025',
+  password: process.env.E2E_PRUEBAS_PASSWORD || '',
   displayName: 'Pruebas Gerente E2E',
   role: 'gerente',
 };
+
+if (!USER.password || USER.password.length < 16) {
+  console.error('Falta E2E_PRUEBAS_PASSWORD (mínimo 16 caracteres). No se hizo nada.');
+  process.exit(1);
+}
 
 async function main() {
   console.log(`===== CREATE pruebas.gerente@shimano.com.ar ${DRY ? '(DRY RUN)' : ''} =====\n`);
