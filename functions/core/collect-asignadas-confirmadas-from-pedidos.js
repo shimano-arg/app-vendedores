@@ -37,7 +37,7 @@
  * @property {string} [state]
  * @property {number} [qtyOpen]
  * @property {boolean} [enTransito]
- * @property {string} [asigAt]
+ * @property {any} [asigAt]
  * @property {boolean|number} [asigReserva]
  * @property {any} [transferidoSAP]
  */
@@ -45,8 +45,8 @@
 /**
  * @typedef {Object} PedidoDoc
  * @property {any} [closedAt]
- * @property {string} [createdAt]
- * @property {string} [confirmedAt]
+ * @property {any} [createdAt]
+ * @property {any} [confirmedAt]
  * @property {Array<PedidoLine>} [lines]
  * @property {string} [clientCardCode]
  * @property {any} [transferidoSAP]
@@ -77,12 +77,16 @@ export function lineReservesStockFisico(line, pedido, nowMs) {
 
   if (state === 'ASIG') {
     // §40.10 ASIG siempre reserva (ignorá asigReserva=false — reverte a BO).
-    // TTL 7d desde asigAt || pedido.createdAt.
-    const ref = line.asigAt || pedido.createdAt;
-    if (!ref) return true; // edge compat: sin fecha, cuenta
-    const refMs = Date.parse(ref);
-    if (Number.isNaN(refMs)) return true;
-    return (nowMs - refMs) / DAY_MS <= RESERVA_TTL_DAYS;
+    // Regla canónica: TTL 7d desde asigAt SOLO si está presente. Sin asigAt
+    // o con fecha inválida, lineReservesStock conserva la reserva (fail-open);
+    // NO sustituir createdAt porque subcontaría frente al server.
+    if (line.asigAt) {
+      const asigAtMs = toMillisSafe(line.asigAt);
+      if (asigAtMs !== null && (nowMs - asigAtMs) / DAY_MS > RESERVA_TTL_DAYS) {
+        return false;
+      }
+    }
+    return true;
   }
 
   if (state === 'confirmed') {
@@ -96,8 +100,8 @@ export function lineReservesStockFisico(line, pedido, nowMs) {
     }
     // §36 + §38 TTL soft 7d + hard cap 60d desde confirmedAt.
     if (!pedido.confirmedAt) return false;
-    const confMs = Date.parse(pedido.confirmedAt);
-    if (Number.isNaN(confMs)) return false;
+    const confMs = toMillisSafe(pedido.confirmedAt);
+    if (confMs === null) return false;
     const ageDays = (nowMs - confMs) / DAY_MS;
     if (ageDays > RESERVA_TTL_DAYS) return false;
     if (ageDays > CONFIRMED_HARD_CAP_DAYS) return false;
@@ -115,6 +119,42 @@ export function lineReservesStockFisico(line, pedido, nowMs) {
 export function normalizeSku(code) {
   if (code == null) return '';
   return String(code).trim().toUpperCase();
+}
+
+/**
+ * Mismo parseo tolerante que lineReservesStock: ISO, Date, millis,
+ * Firestore Timestamp y {seconds,nanoseconds}. Un formato inválido devuelve
+ * null para conservar el comportamiento fail-open de ASIG.
+ * @param {any} value
+ * @returns {number|null}
+ */
+function toMillisSafe(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (typeof value === 'object') {
+    if (typeof value.toMillis === 'function') {
+      try {
+        const ms = value.toMillis();
+        return typeof ms === 'number' && Number.isFinite(ms) ? ms : null;
+      } catch (_e) {
+        return null;
+      }
+    }
+    if (typeof value.seconds === 'number') {
+      const nanos = typeof value.nanoseconds === 'number' ? value.nanoseconds : 0;
+      return value.seconds * 1000 + nanos / 1e6;
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : null;
+  }
+  return null;
 }
 
 /**

@@ -46,6 +46,21 @@ describe('lineReservesStockFisico', () => {
       )
     ).toBe(false);
   });
+  it('ASIG sin asigAt conserva reserva aunque createdAt sea viejo (paridad server)', () => {
+    expect(
+      lineReservesStockFisico({ state: 'ASIG', qtyOpen: 3 }, { createdAt: daysAgo(30) }, NOW)
+    ).toBe(true);
+  });
+  it('ASIG con Firestore timestamp vencido aplica TTL desde asigAt', () => {
+    const stale = NOW - 10 * DAY;
+    expect(
+      lineReservesStockFisico(
+        { state: 'ASIG', qtyOpen: 3, asigAt: { seconds: Math.floor(stale / 1000) } },
+        { createdAt: daysAgo(1) },
+        NOW
+      )
+    ).toBe(false);
+  });
   it('ASIG enTransito=true NO reserva (es §E1 tránsito)', () => {
     expect(
       lineReservesStockFisico(
