@@ -434,7 +434,15 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   // cuando todos los caminos legítimos escriban su marker.
   const COMMIT_VERSION_VALID_SET = new Set([
     'commitPedidoCore_v1',
-    // Agregar futuros markers de otros paths server a medida que B.2 los migra.
+    // Markers de los otros caminos de servidor que confirman pedidos:
+    // - auto-confirm-pending-core (marker de #1398; reemplaza al
+    //   'autoConfirmPending_v1' de #1383, que se cierra por superado).
+    // - confirmDefinitivo_v1: reservado para la función de confirmación
+    //   definitiva (#1384, pendiente).
+    'autoConfirmPendingCore_v1',
+    'confirmDefinitivo_v1',
+    // Sigue siendo observe-only: se bloquea recién cuando prod opere un
+    // período con el set completo y sin falsos positivos.
   ]);
   if (afterData && afterData.stage === 'confirmed' && !afterData.transferidoSAP) {
     const _cv = afterData._commitVersion;
