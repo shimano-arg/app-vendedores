@@ -438,3 +438,57 @@ describe('§63 releaseAsigCore', () => {
     expect(caught._errorCode).toBe('invalid-argument');
   });
 });
+
+// SEC F1A-H12 (2026-11-24): ser ownerUid de la orden ya no alcanza sin rol
+// aprobado. Un usuario degradado (unassigned/viewer) o sin doc de rol que
+// quedó como dueño de una orden en espera no puede liberar ASIG.
+describe('SEC F1A-H12 releaseAsigCore — isOwner exige rol aprobado', () => {
+  /** @param {any} roleDoc  undefined = sin doc en roles */
+  async function runAsOwner(roleDoc) {
+    const state = makeBaseState();
+    state.revision_waitlist.wl1.ownerUid = 'owner-uid';
+    state.revision_waitlist.wl1.assignedVendorUid = 'otro-uid';
+    if (roleDoc !== undefined) state.roles['owner-uid'] = roleDoc;
+    const { fbDb, _state } = makeMockDb(state);
+    let caught;
+    let r;
+    try {
+      r = await releaseAsigCore(
+        { fbDb },
+        {
+          auth: { uid: 'owner-uid', token: { email: 'owner@gmail.com' } },
+          action: 'rechazo_cpst',
+          waitlistId: 'wl1',
+        }
+      );
+    } catch (e) {
+      caught = e;
+    }
+    return { r, caught, state: _state };
+  }
+
+  for (const [label, roleDoc] of [
+    ['unassigned', { role: 'unassigned' }],
+    ['viewer', { role: 'viewer' }],
+    ['sin doc de rol', undefined],
+    ['rol desconocido', { role: 'superuser' }],
+  ]) {
+    it(`dueño con ${label} → permission-denied y no toca la ASIG`, async () => {
+      const { caught, state } = await runAsOwner(roleDoc);
+      expect(caught?._errorCode).toBe('permission-denied');
+      expect(state.pedidos['ped-origen'].lines[0].state).toBe('ASIG');
+      expect(state.revision_waitlist.wl1).toBeTruthy();
+    });
+  }
+
+  it('dueño con rol vendedor (aunque no sea el asignado) → puede operar', async () => {
+    const { r, caught } = await runAsOwner({ role: 'vendedor' });
+    expect(caught).toBeUndefined();
+    expect(r.ok).toBe(true);
+  });
+
+  it('dueño vendedor deshabilitado (disabled:true) → permission-denied', async () => {
+    const { caught } = await runAsOwner({ role: 'vendedor', disabled: true });
+    expect(caught?._errorCode).toBe('permission-denied');
+  });
+});
