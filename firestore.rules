@@ -832,6 +832,9 @@ service cloud.firestore {
                  // Ahora: size <1.5MB + CUIT regex (11 digitos AR) + comercio length
                  // razonable. Fotos deberian subirse a Storage con signed URL, no
                  // embebidas en Firestore — pero mantenemos tolerancia hasta migrar.
+                 // Batch 2026-11-24 (C-01): la rama publica acepta solo los
+                 // campos que escribe alta-cliente.html, con tipo y largo
+                 // acotados (ver publicAltaIsValid abajo).
                  || (request.resource.data.submittedByPublicForm == true
                      && request.resource.data.comercio is string
                      && request.resource.data.comercio.size() > 2
@@ -839,7 +842,63 @@ service cloud.firestore {
                      && request.resource.data.cuit is string
                      && request.resource.data.cuit.matches('[0-9]{11}')
                      && request.resource.data.status == 'pending_approval'
-                     && request.resource.size() < 1500000);
+                     && request.resource.size() < 1500000
+                     && publicAltaIsValid(request.resource.data));
+
+      // C-01 (batch 2026-11-24): formulario publico de alta (sin login).
+      // Lista cerrada de campos (los que escribe alta-cliente.html submitForm),
+      // textos con largo maximo, metadata fija y adjuntos solo como data URI
+      // base64 de imagen/PDF o URL https de Firebase Storage. Ningun campo de
+      // asignacion (assignedVendor, cardCodeSap, approvedAt...) entra por aca.
+      function pubText(d, k, max) {
+        return !(k in d) || (d[k] is string && d[k].size() <= max);
+      }
+      function pubAttachment(v) {
+        return v is string
+          && v.size() < 1400000
+          && (v.matches('^data:(image/(png|jpeg|jpg|webp|gif|heic|heif)|application/pdf);base64,[A-Za-z0-9+/=]+$')
+              || v.matches('^https://firebasestorage[.]googleapis[.]com/[A-Za-z0-9._~%/?&=+-]+$'));
+      }
+      function pubFotoOk(l, i) {
+        return l.size() <= i || pubAttachment(l[i]);
+      }
+      function publicAltaIsValid(d) {
+        return d.keys().hasOnly([
+            'email', 'comercio', 'fantasia', 'cuit', 'condicionFiscal',
+            'calle', 'numero', 'localidad', 'provincia', 'cp',
+            'telefono', 'web', 'redes',
+            'contactoNombre', 'contactoTelParticular', 'contactoWhatsapp', 'contactoEmail',
+            'tipoComercio', 'tiendaOnline',
+            'constanciaArca', 'constanciaIIBB', 'fotosLocal',
+            'submittedByPublicForm', 'ownerUid', 'ownerEmail', 'ownerName',
+            'vendor', 'status', 'approvals', 'createdAt'
+          ])
+          && pubText(d, 'email', 200) && pubText(d, 'fantasia', 200)
+          && pubText(d, 'condicionFiscal', 100)
+          && pubText(d, 'calle', 200) && pubText(d, 'numero', 50)
+          && pubText(d, 'localidad', 120) && pubText(d, 'provincia', 60)
+          && pubText(d, 'cp', 20) && pubText(d, 'telefono', 60)
+          && pubText(d, 'web', 300) && pubText(d, 'redes', 300)
+          && pubText(d, 'contactoNombre', 200) && pubText(d, 'contactoTelParticular', 60)
+          && pubText(d, 'contactoWhatsapp', 60) && pubText(d, 'contactoEmail', 200)
+          && pubText(d, 'tipoComercio', 100) && pubText(d, 'tiendaOnline', 300)
+          && pubText(d, 'ownerEmail', 200) && pubText(d, 'ownerName', 200)
+          // Dueno: '__public__' o el uid (con rol) del vendedor que compartio el link.
+          && (!('ownerUid' in d)
+              || d.ownerUid == '__public__'
+              || (d.ownerUid is string && d.ownerUid.size() <= 128
+                  && exists(/databases/$(database)/documents/roles/$(d.ownerUid))))
+          && (!('vendor' in d) || d.vendor == null)
+          && (!('approvals' in d) || (d.approvals is map && d.approvals.size() == 0))
+          && (!('createdAt' in d) || d.createdAt == request.time)
+          && (!('constanciaArca' in d) || d.constanciaArca == null || pubAttachment(d.constanciaArca))
+          && (!('constanciaIIBB' in d) || d.constanciaIIBB == null || pubAttachment(d.constanciaIIBB))
+          && (!('fotosLocal' in d)
+              || (d.fotosLocal is list && d.fotosLocal.size() <= 5
+                  && pubFotoOk(d.fotosLocal, 0) && pubFotoOk(d.fotosLocal, 1)
+                  && pubFotoOk(d.fotosLocal, 2) && pubFotoOk(d.fotosLocal, 3)
+                  && pubFotoOk(d.fotosLocal, 4)));
+      }
       // v396 (2026-08-04): permitir a cualquier reader (vendedor incluido)
       // updatear SOLO los campos de estado del LEAD (leadEstado + auditoria).
       // Los demas campos siguen restringidos a admin/gerente/interno.
