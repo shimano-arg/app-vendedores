@@ -33,6 +33,12 @@ import { formatFetchError } from './fetch-error-format.js';
 const BLOCK_SIZE = 50;
 const TIMEOUT_MS = 3000;
 const LINEAS_EN_RIESGO_THRESHOLD = 200;
+// SEC-H4 (HARDENING5 BATCH 1, 2026-11-19): cap de SKUs por request.
+// Previene amplificación contra pool SL. El threshold LINEAS_EN_RIESGO
+// solo entra si vienen libreSnapshot+qtyPedida (bypass trivial omitiéndolos
+// → N batches paralelos sin límite). 250 = 3.5x el payload máximo histórico
+// observado (~70 SKUs, PONTORIERO ORDEN 524).
+const MAX_SKUS_PER_REQUEST = 250;
 
 /**
  * @typedef {Object} FetchDeps
@@ -60,7 +66,8 @@ const LINEAS_EN_RIESGO_THRESHOLD = 200;
  * @property {boolean} partial true si solo se fetcheó un subset (modo líneas en riesgo).
  * @property {string[]} skusLive SKUs cuyo fisicoDep11 viene del SL.
  * @property {string[]} skusSnapshot SKUs cuyo fisicoDep11 viene del snapshot (en modo partial o fallback).
- * @property {string} [reason] 'ok' | 'timeout' | 'sl_error' | 'sl_disabled' | 'sl_not_configured' | 'partial_lineas_en_riesgo'.
+ * @property {string} [reason] 'ok' | 'timeout' | 'sl_error' | 'sl_disabled' | 'sl_not_configured' | 'partial_lineas_en_riesgo' | 'cap_exceeded'.
+ * @property {string} [errorCode] 'TOO_MANY_SKUS' (SEC-H4) — cap de MAX_SKUS_PER_REQUEST excedido.
  * @property {number} durationMs
  * @property {number} slRequests Count de batches enviados al SL.
  * @property {string} [error]
@@ -167,6 +174,31 @@ export async function fetchStockLiveCore(deps, params) {
       reason: 'ok',
       durationMs: 0,
       slRequests: 0,
+    };
+  }
+
+  // SEC-H4 (HARDENING5 BATCH 1, 2026-11-19): cap duro de MAX_SKUS_PER_REQUEST.
+  // Validamos ANTES del chunking para prevenir amplificación de carga al SL
+  // (N SKUs → N/50 batches paralelos). El threshold LINEAS_EN_RIESGO existente
+  // solo activa modo partial si vienen libreSnapshot+qtyPedida; omitirlos era
+  // bypass trivial. El wrapper CF traduce TOO_MANY_SKUS → HttpsError invalid-argument.
+  if (skusAll.length > MAX_SKUS_PER_REQUEST) {
+    log('[live-sl] cap SKUs excedido', {
+      requested: skusAll.length,
+      cap: MAX_SKUS_PER_REQUEST,
+    });
+    return {
+      ok: false,
+      errorCode: 'TOO_MANY_SKUS',
+      reason: 'cap_exceeded',
+      fisicoDep11: {},
+      snapshotFallback: true,
+      partial: false,
+      skusLive: [],
+      skusSnapshot: [],
+      durationMs: 0,
+      slRequests: 0,
+      error: 'cap SKUs excedido: ' + skusAll.length + ' > ' + MAX_SKUS_PER_REQUEST,
     };
   }
 
@@ -296,6 +328,7 @@ export const _INTERNAL = {
   BLOCK_SIZE,
   TIMEOUT_MS,
   LINEAS_EN_RIESGO_THRESHOLD,
+  MAX_SKUS_PER_REQUEST,
   chunkSkus,
   buildBatchUrl,
 };
