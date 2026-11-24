@@ -4717,6 +4717,34 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1569 (2026-11-24) — Endurecimiento de Pages y del armado de HTML (auditoría de seguridad)
+
+**Antes**:
+- El deploy de Pages subía la raíz del repo completa y el bundle publicado llevaba sourcemap inline con el código de `src/`.
+- Algunas pantallas armaban `<img src>` y `<a href>` concatenando valores guardados en Firestore sin validarlos (detalle de alta de cliente, imágenes de tareas, ticket y adjunto de rendiciones).
+- `escapeAttr` no escapaba `&`, y un botón usaba `&quot;` como delimitador de string JS dentro del handler inline; los botones Pass/2FA del panel de usuarios armaban el argumento con `JSON.stringify` y un reemplazo parcial de comillas.
+- Un script de alta de usuario de prueba y un spec E2E tenían la contraseña escrita en el código.
+
+**Problema**: un valor guardado con comillas o un esquema no esperado podía romper el atributo HTML y ejecutar código en la sesión de quien abre la pantalla. Pages exponía archivos internos que no hacen falta para la PWA.
+
+**Cambio**:
+- Integra el PR #1307: `scripts/pages/build-pages-site.mjs` arma `_site` con una lista explícita de archivos (los que cargan `index.html`, `sw.js`, `manifest.json`, `alta-cliente.html`, `politica-privacidad.html` y `chunks/`), quita el sourcemap inline solo de lo publicado y falla si falta un requerido o se cuela algo prohibido. `deploy-pages.yml` publica `_site`.
+- `src/pure/html-safe.js`: `safeImgSrc` (solo `data:image/<tipo>;base64` de una lista corta o `https:`) y `safeDownloadHref` (`data:` con MIME de pdf, imágenes o planillas, o `https:`). Lo que no cumple no se renderiza. Aplicado en `src/domains/notificaciones.js` y `src/domains/rendiciones.js`.
+- `escapeAttr` (inline y pure, idénticos) escapa `&`, `\`, `'`, `"`, `<`, `>`. Botón "Abrir cliente" y botones Pass/2FA usan comillas simples escapadas.
+- La contraseña de la cuenta de prueba se lee de `E2E_PRUEBAS_PASSWORD`; sin la variable el script termina con error y el spec saltea los tests con login.
+- Rebuild de `app.bundle.js` y `chunks/`; `APP_VERSION` y `CACHE_VERSION` a v1569.
+
+**Por qué**: defensa en profundidad del lado del cliente. Las reglas de Firestore que validan el formato de esos campos se coordinan aparte.
+
+**Verificación**:
+- `npm run test:unit`: 239 archivos, 3149 tests OK. `npm run test:smoke`: 25 OK. Tests nuevos: `tests/unit/audit/html-safe.test.js`, `html-safe-sync.test.js`, `no-hardcoded-test-password.test.js`; `pages-site-allowlist.test.js` (13) del PR #1307.
+- `npm run typecheck`: sin errores nuevos (los existentes son de `functions/index.js`, sin cambios en este PR).
+- Smoke local: sitio armado (30 archivos) servido por HTTP y abierto en Chromium: cero 404 de recursos propios en `index.html`, `alta-cliente.html` y `politica-privacidad.html`; los 11 chunks cargan con `loadChunk`; el service worker instala y cachea las 21 entradas de `STATIC_ASSETS`; los archivos internos del repo (documentación, `src/`, `functions/`, `tests/`, reglas, `package.json`) responden 404. Los errores de JS observados vienen de CDN externos no alcanzables desde el entorno de prueba.
+
+**Rollback**: revertir los commits del PR. Para volver a publicar el repo completo alcanza con `path: '.'` en `deploy-pages.yml`.
+
+**Pendiente manual (fuera del código)**: rotar la contraseña de la cuenta de prueba en la consola de Auth; la vieja queda en el historial git.
+
 ### v1568 (2026-11-19) — Remover botón «Exportar» del toolbar Backorder / Stock Asignado
 
 - **Antes**: el modal `#backorders-modal` (toolbar unificado que sirve a los modos Backorder y Stock Asignado) tenía un botón inline «Exportar» (`#btn-export-stock-asig`) que abría un sub-menú `openExportStockAsigMenu()` para descargar el Excel.
