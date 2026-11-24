@@ -393,6 +393,14 @@ export async function commitPedidoCore(deps, payload) {
   // CLAUDE.md §77 (fail-open), §78 (Playwright VDE), §89 (datos server-side):
   // si alguien reintroduce un gate catalog, debe cumplir las 3 antes del merge.
 
+  // FRENTE C OOM fix (2026-11-24): memoria pico de cada commit — permite
+  // detectar regresiones. Baseline capturado antes del retry loop; final
+  // tras commit exitoso. operations_log fire-and-forget.
+  const _memBaselineMb =
+    typeof process !== 'undefined' && typeof process.memoryUsage === 'function'
+      ? Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10
+      : null;
+
   // 5. runTransaction atómica.
   let attempts = 0;
   let lastError = null;
@@ -402,7 +410,52 @@ export async function commitPedidoCore(deps, payload) {
       const result = await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
         return commitInTransaction(deps, tx, payload, now, nowIso);
       });
-      log('commitPedidoCore OK', { draftId: payload.draftId, attempts, pedidoId: result.pedidoId });
+      // FRENTE C OOM fix: log memory peak al éxito, no bloqueante.
+      const _memPeakMb =
+        typeof process !== 'undefined' && typeof process.memoryUsage === 'function'
+          ? Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10
+          : null;
+      log('commitPedidoCore OK', {
+        draftId: payload.draftId,
+        attempts,
+        pedidoId: result.pedidoId,
+        memBaselineMb: _memBaselineMb,
+        memPeakMb: _memPeakMb,
+      });
+      try {
+        deps.fbDb
+          .collection('operations_log')
+          .add({
+            type: 'commit_pedido_memory',
+            pedidoId: result.pedidoId,
+            cardCode: payload.cardCode || null,
+            userId: payload.ownerUid || null,
+            userEmail: payload.ownerEmail || null,
+            origen: payload.origen || null,
+            attempts,
+            payloadLineCount: Array.isArray(payload.lines) ? payload.lines.length : 0,
+            asigRefCount: Array.isArray(payload.lines)
+              ? payload.lines.reduce(
+                  (/** @type {number} */ s, /** @type {any} */ l) =>
+                    s + (Array.isArray(l?.asigRefs) ? l.asigRefs.length : 0),
+                  0
+                )
+              : 0,
+            memBaselineMb: _memBaselineMb,
+            memPeakMb: _memPeakMb,
+            memDeltaMb:
+              _memBaselineMb !== null && _memPeakMb !== null
+                ? Math.round((_memPeakMb - _memBaselineMb) * 10) / 10
+                : null,
+            clientVersion: payload.clientVersion || null,
+            timestamp: new Date(now),
+          })
+          .catch((/** @type {any} */ _e) => {
+            log('operations_log commit_pedido_memory write failed', { err: _e && _e.message });
+          });
+      } catch (_e) {
+        // No propagar.
+      }
       // §J (v1455): operations_log entry fire-and-forget si hubo absorciones.
       if (Array.isArray(result.absorptions) && result.absorptions.length > 0) {
         try {
@@ -592,13 +645,28 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // Fix: parsear si viene string (patrón client-side). Fallback {} si
   // malformed o ausente — es defensivo (fisico=0 implica BO, que es safer
   // que crashear la tx).
+  // FRENTE C OOM fix (2026-11-24 §O1): el `warehouseBreakdown` del snapshot
+  // viene como JSON STRING con ~5000 SKUs (~500KB parseado). Un `JSON.parse`
+  // completo retenia todo el mapa en memoria en cada retry (hasta 5× por
+  // commit) y contribuyó al OOM 256MiB → 273MiB de 2026-11-24 10:50 UTC.
+  // Fix: parsear el JSON una sola vez pero **proyectar** solo los SKUs que
+  // el payload necesita, descartando los otros 4950+ SKUs. Memory saving
+  // estimado: ~450KB por tx × 5 retries = ~2MB de peak reducido. Semánticamente
+  // idéntico: `getStockBreakdown(sku)` solo consulta `warehouseBreakdown[sku]`.
   /** @type {Record<string, Record<string, number>>} */
   let warehouseBreakdown = {};
   const rawWhsBd = stockConfig && stockConfig.warehouseBreakdown;
   if (rawWhsBd) {
     if (typeof rawWhsBd === 'string') {
       try {
-        warehouseBreakdown = JSON.parse(rawWhsBd) || {};
+        const _fullParsed = JSON.parse(rawWhsBd) || {};
+        // Proyectar solo las keys del payload (skuSet ya normalizado uppercase).
+        for (const _sku of skuSet) {
+          if (_fullParsed[_sku]) {
+            warehouseBreakdown[_sku] = _fullParsed[_sku];
+          }
+        }
+        // _fullParsed queda sin referencias → GC inmediato.
       } catch (_eParseWhs) {
         (deps.log || (() => {}))('warehouseBreakdown JSON.parse fallo', {
           err: _eParseWhs && _eParseWhs.message,
@@ -606,7 +674,12 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
         warehouseBreakdown = {};
       }
     } else if (typeof rawWhsBd === 'object') {
-      warehouseBreakdown = rawWhsBd;
+      // Legacy shape (object): también proyectar.
+      for (const _sku of skuSet) {
+        if (rawWhsBd[_sku]) {
+          warehouseBreakdown[_sku] = rawWhsBd[_sku];
+        }
+      }
     }
   }
 
@@ -739,11 +812,66 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   // 5.4 Lee pedidos abiertos para computar breakdown live (para los SKUs del payload).
   // En E2 Fase 1 leemos TODOS los pedidos abiertos (como hace el trigger existente).
   // En Fase 2 se puede optimizar con query por SKU + index.
+  //
+  // FRENTE C OOM fix (2026-11-24 §O2): el fetch retorna cientos de pedidos
+  // (100-500 docs) y cada uno tiene decenas de líneas. Cargar el doc completo
+  // via `{ _fsId, ...d.data() }` retenía ~5-50MB en memoria por retry.
+  // `getStockBreakdown` sólo consulta líneas con `line.code === sku` donde
+  // `sku ∈ skuSet` del payload (verificado en pedido-snapshot-core.js:266).
+  // Slim: proyectar solo campos que el breakdown consume + filtrar lines[] a
+  // los SKUs del payload. Memory saving estimado: ~90% de ese hot path.
   const pedidosSnap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
   /** @type {any[]} */
   const pedidos = [];
   pedidosSnap.forEach((/** @type {any} */ d) => {
-    pedidos.push({ _fsId: d.id, ...d.data() });
+    const raw = d.data() || {};
+    const rawLines = Array.isArray(raw.lines) ? raw.lines : [];
+    // Filtrar lines[] a solo las que matchean SKUs del payload. getStockBreakdown
+    // itera `for (let i = 0; i < lines.length; i++)` y usa `i` como lineIndex
+    // en los buckets (ver pedido-snapshot-core.js:263-322). Usamos SPARSE ARRAY
+    // (holes para líneas no matcheadas) para preservar los lineIndex originales
+    // intactos. Las líneas skippedas no ocupan memoria (sparse arrays V8).
+    const slimLines = [];
+    let _matchedCount = 0;
+    for (let _i = 0; _i < rawLines.length; _i++) {
+      const _l = rawLines[_i];
+      if (!_l || !_l.code) continue;
+      const _codeUp = String(_l.code).toUpperCase();
+      if (!skuSet.has(_codeUp)) continue;
+      // Proyectar solo campos que lineReservesStock + buckets consumen.
+      // Preserva el índice original para que `lineIndex` guardado en
+      // `asignadas.detalle[]` del breakdown siga siendo correcto si algún
+      // consumer futuro lo surfacea.
+      slimLines[_i] = {
+        code: _l.code,
+        state: _l.state,
+        qty: _l.qty,
+        qtyOpen: _l.qtyOpen,
+        asigAt: _l.asigAt,
+        asigAtTransito: _l.asigAtTransito,
+        asigReserva: _l.asigReserva,
+        asigFromReparto: _l.asigFromReparto,
+        enTransito: _l.enTransito,
+        enDep11At: _l.enDep11At,
+        closedReason: _l.closedReason,
+      };
+      _matchedCount++;
+    }
+    // Si NINGUNA línea del pedido matchea el payload, el pedido no aporta al
+    // breakdown de los SKUs del payload. Pero puede ser el pedido origen (CPST)
+    // o target de absorción — esos se leen después por ID específico, no desde
+    // este array. Safe to skip acá.
+    if (_matchedCount === 0) return;
+    pedidos.push({
+      _fsId: d.id,
+      clientCardCode: raw.clientCardCode,
+      clientName: raw.clientName,
+      closedAt: raw.closedAt, // null (filtrado por where arriba)
+      confirmedAt: raw.confirmedAt,
+      createdAt: raw.createdAt,
+      transferidoSAP: raw.transferidoSAP,
+      lines: slimLines,
+    });
   });
 
   // 5.5 Lee ingresos_reparto activos (per SKU, para pendienteReparto).

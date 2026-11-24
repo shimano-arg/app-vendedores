@@ -3871,7 +3871,13 @@ export const commitPedidoCF = onCall(
     region: REGION,
     cors: true,
     enforceAppCheck: false,
-    memory: '256MiB',
+    // FRENTE C OOM fix (2026-11-24): bump 256→512MiB tras incidente del
+    // 2026-11-24 10:50 UTC (revisión 00031-xof: "Memory limit of 256 MiB
+    // exceeded with 273 MiB used"). Combinado con §O1 (lazy parse de
+    // warehouseBreakdown) y §O2 (slim pedidos array) en commit-pedido-core.js
+    // + la instrumentación `operations_log.type='commit_pedido_memory'`.
+    // El bump solo no cierra la causa raíz; es red de seguridad.
+    memory: '512MiB',
     timeoutSeconds: 60,
     // §63 Fase 3 Capa 2 (v1445): necesita el secret para la live SL query
     // cuando el flag app_config/live_sl.enabled=true.
