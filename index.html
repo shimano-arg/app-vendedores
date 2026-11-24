@@ -11263,7 +11263,7 @@ function drawHabilitadosPins(){
       + '<b>Localidad:</b> ' + escapeHtml(m.locality || '-') + '<br>'
       + '<b>Provincia:</b> ' + escapeHtml(titleCase(province))
       + '</div>'
-      + '<div style="margin-top:6px"><button onclick="openClientModal(&quot;' + escapeAttr(clientName) + '&quot;,&quot;' + escapeAttr(tipo) + '&quot;,&quot;' + escapeAttr(province) + '&quot;,&quot;' + escapeAttr(locName) + '&quot;)" style="padding:5px 10px;border:none;border-radius:5px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer">Abrir cliente</button></div>'
+      + '<div style="margin-top:6px"><button onclick="openClientModal(\'' + escapeAttr(clientName) + '\',\'' + escapeAttr(tipo) + '\',\'' + escapeAttr(province) + '\',\'' + escapeAttr(locName) + '\')" style="padding:5px 10px;border:none;border-radius:5px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer">Abrir cliente</button></div>'
       + '</div>';
     marker.bindPopup(popup);
     marker.addTo(clientPinLayer);
@@ -12214,8 +12214,17 @@ function renderClients(pts){
   updateContactSummary();
 }
 
+// sec 2026-11-24: escapa `&` primero (el navegador decodifica entidades del
+// atributo antes de ejecutar un handler inline), después `\` y `'` con barra
+// y `"`, `<`, `>` como entidades. Copia idéntica en src/pure/html-safe.js
+// (test de sincronía tests/unit/audit/html-safe-sync.test.js).
 function escapeAttr(s){
-  return String(s).replace(/[\\']/g, '\\$&').replace(/"/g, '&quot;');
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/[\\']/g, '\\$&')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 window.onClientCheck = function(key, cb){

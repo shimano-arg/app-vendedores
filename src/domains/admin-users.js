@@ -681,9 +681,9 @@ window.openAdminPanel = async function () {
         const pwdBtnHtml =
           '<button class="app-btn-pill app-btn-violet" style="padding:5px 6px;font-size:10px;width:100%;white-space:nowrap;box-sizing:border-box" title="Cambiar contraseña" onclick="changeUserPassword(\'' +
           docId +
-          "', " +
-          JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
-          ')">Pass</button>';
+          "', '" +
+          escapeAttr(d.email || '') +
+          '\')">Pass</button>';
         // Botón Configurar 2FA — v1304: mismo tratamiento compacto.
         const totpStatusTag = d.totpEnabled
           ? ' <span style="color:#10b981;font-weight:800">&#10003;</span>'
@@ -693,9 +693,9 @@ window.openAdminPanel = async function () {
           (d.totpEnabled ? '#10b981' : '#5b21b6') +
           '" title="Configurar 2FA" onclick="openTotpSetup(\'' +
           docId +
-          "', " +
-          JSON.stringify(d.email || '').replace(/"/g, '&quot;') +
-          ')">2FA' +
+          "', '" +
+          escapeAttr(d.email || '') +
+          '\')">2FA' +
           totpStatusTag +
           '</button>';
         // Desktop row
