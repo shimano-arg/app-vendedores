@@ -92,6 +92,13 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto:
       'Tu usuario no tiene permiso para esta acción. Cerrá sesión y volvé a entrar; si sigue, avisale a Mariano.',
   },
+  // Gate de rol server-side (commitPedidoCF, updatePedidoLinesCF,
+  // fetchStockLiveCF, geminiOcrProxy, releaseAsigCF): permission-denied con
+  // details.errorCode='ROLE_REQUIRED'. Reintentar no sirve.
+  ROLE_REQUIRED: {
+    texto:
+      'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.',
+  },
   SAP_UNAVAILABLE: {
     texto:
       'No pudimos consultar el stock al sistema porque no responde. Esperá un minuto y volvé a intentar.',
@@ -210,3 +217,20 @@ export function formatMensajeConCodigo(errorCode, opts) {
 // `auto-send-sap-core.js` los deja en BO + marca `_degradedReason='sap_item_
 // not_found_app_only'` + manda email a Mariano. El VDE ya no ve un cartel
 // que lo culpe por un SKU recién creado que todavía no llegó al catálogo SAP.
+
+/**
+ * Detecta el rechazo del gate de rol server-side: HttpsError
+ * `permission-denied` con `details.errorCode === 'ROLE_REQUIRED'`.
+ * Acepta también `e.details.errorCode` sin code (por si el SDK cambia el
+ * prefijo) y errores ya normalizados con `errorCode` en la raíz.
+ *
+ * @param {any} e
+ * @returns {boolean}
+ */
+export function isRoleRequiredError(e) {
+  if (!e || typeof e !== 'object') return false;
+  const details = e.details && typeof e.details === 'object' ? e.details : null;
+  if (details && details.errorCode === 'ROLE_REQUIRED') return true;
+  if (e.errorCode === 'ROLE_REQUIRED') return true;
+  return false;
+}

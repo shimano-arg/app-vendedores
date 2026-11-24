@@ -4746,6 +4746,8 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 **Pendiente manual (fuera del código)**: rotar la contraseña de la cuenta de prueba en la consola de Auth; la vieja queda en el historial git.
 
+**Agregado (manejo de rechazo por rol)**: cuando un callable rechaza con `permission-denied` y `details.errorCode='ROLE_REQUIRED'` (gate de rol del servidor), la app muestra un mensaje propio de `src/pure/mensajes-vendedor.js` con `Código técnico: ROLE_REQUIRED`, en lugar del mensaje genérico de permisos. En el OCR de rendiciones ya no se interpreta como bloqueo de App Check: no reintenta ni sugiere borrar datos del sitio. Aplica a confirmar pedido, guardar backorder manual y quitar producto o rechazar una orden con stock asignado; en stock en vivo se mantiene el uso del dato guardado y queda registrado el motivo. Test: `tests/unit/audit/role-required-cliente.test.js`.
+
 ### sec F1A lotes A+D (2026-11-24) — Callables exigen rol aprobado, no dominio de email (sin bump de versión)
 
 - **Antes**: `commitPedidoCF` y `updatePedidoLinesCF` autorizaban solo por dominio del email (`shimano.com.ar`, `shimano.uy` **y `gmail.com`**); `updatePedidoLinesCF` además leía el rol en modo "non-fatal" (si fallaba seguía con rol vacío). `fetchStockLiveCF` aceptaba dominio Shimano o los 2 UIDs de PACHI; `geminiOcrProxy` solo dominio Shimano (en el core). En `releaseAsigCore`, ser `ownerUid` de la orden en espera alcanzaba para liberar ASIG aunque el usuario no tuviera rol.

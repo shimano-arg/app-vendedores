@@ -8,6 +8,7 @@
 // 2026-09-09 anti-duplicados (Fase 3): import de logica pura + chequeo
 // pre-submit contra Firestore por ticketNormalizado.
 import { safeDownloadHref, safeImgSrc } from '../pure/html-safe.js';
+import { formatMensajeConCodigo, isRoleRequiredError } from '../pure/mensajes-vendedor.js';
 import { chequearMatchDuplicado, normalizarTicket } from '../pure/rendicion-duplicate.js';
 
 // Módulo extraído verbatim: tipado real fuera de scope E2.e.
@@ -73,6 +74,11 @@ async function extractTicketDataWithGemini(dataUrl) {
       throw new Error(
         'Gemini tardo demasiado. Completa el formulario manualmente y envia el gasto.'
       );
+    }
+    if (isRoleRequiredError(e)) {
+      // Gate de rol server-side: el usuario no tiene rol aprobado. No es App
+      // Check; reintentar o borrar datos del sitio no lo resuelve.
+      throw new Error(formatMensajeConCodigo('ROLE_REQUIRED'));
     }
     if (code === 'functions/unauthenticated' || code === 'functions/permission-denied') {
       // v985 (2026-09-17): Fix reporte VDE. Antes solo mostrabamos el error
