@@ -73,7 +73,7 @@ describe('anon (no auth)', () => {
       addDoc(collection(anonDb(), 'client_applications'), {
         submittedByPublicForm: true,
         comercio: 'Público SA',
-        cuit: '20-12345678-9',
+        cuit: '20123456789',
         status: 'pending_approval',
       })
     );
@@ -100,9 +100,12 @@ describe('unassigned role', () => {
     await assertFails(getDoc(doc(db, 'app_config', 'sap_integration')));
   });
   it('sí puede leer su propio /roles/{uid} y allowed_emails (para el bootstrap)', async () => {
-    const db = authedDb(UID.unassigned);
+    // Lote B (2026-11-24): sin rol solo puede leer el allowed_emails de SU
+    // propio email (id = emailToDocId del email del token).
+    const db = authedDb(UID.unassigned, { email: 'test@example.com' });
     await assertSucceeds(getDoc(doc(db, 'roles', UID.unassigned)));
-    await assertSucceeds(getDoc(doc(db, 'allowed_emails', 'test@example.com')));
+    await assertSucceeds(getDoc(doc(db, 'allowed_emails', 'test_example_com')));
+    await assertFails(getDoc(doc(db, 'allowed_emails', 'otro_example_com')));
   });
   it('puede crear su propio /roles/{uid} con role=unassigned', async () => {
     // Simulamos un uid nuevo que aún no tiene doc en /roles
@@ -130,7 +133,11 @@ describe('unassigned role', () => {
       email_verified: true,
       firebase: { sign_in_provider: 'google.com' },
     });
-    await assertSucceeds(setDoc(doc(db, 'roles', newUid), { role: 'admin' }));
+    // H10 (2026-11-24): el doc debe llevar el email del token, como hace
+    // fetchAndApplyRole en la app.
+    await assertSucceeds(
+      setDoc(doc(db, 'roles', newUid), { role: 'admin', email: 'bot.shimano.pesca@gmail.com' })
+    );
   });
 });
 
@@ -673,9 +680,13 @@ describe('/client_applications', () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.gerente), 'client_applications', 'ca-huerfano')));
     await assertSucceeds(getDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-huerfano')));
   });
+  // Batch 2026-11-24 (#1398 parte sana): el create autenticado exige status.
   it('vendor crea alta propia', async () => {
     await assertSucceeds(
-      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), { ownerUid: UID.vendor })
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), {
+        ownerUid: UID.vendor,
+        status: 'pending_approval',
+      })
     );
   });
   // v991 (SecAudit run-1 HIGH #6): create rule valida assignedVendor
@@ -684,6 +695,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-mine'), {
         ownerUid: UID.vendor,
         assignedVendor: 'VDE_GONZALO',
+        status: 'pending_approval',
       })
     );
   });
@@ -692,6 +704,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-null'), {
         ownerUid: UID.vendor,
         assignedVendor: null,
+        status: 'pending_approval',
       })
     );
   });
@@ -708,6 +721,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-admin-assign'), {
         ownerUid: UID.admin,
         assignedVendor: 'VDE_OTRO',
+        status: 'approved',
       })
     );
   });
@@ -1254,9 +1268,13 @@ describe('/allowed_emails', () => {
   beforeEach(async () => {
     await seedDoc('allowed_emails/foo@x.com', { granted: true });
   });
-  it('cualquier auth lee (bootstrap)', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'foo@x.com')));
+  it('roles internos leen; sin rol solo el doc de su email (Lote B 2026-11-24)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'foo@x.com')));
+    await assertFails(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'foo@x.com')));
+    await seedDoc('allowed_emails/foo_x_com', { granted: true });
+    await assertSucceeds(
+      getDoc(doc(authedDb(UID.unassigned, { email: 'foo@x.com' }), 'allowed_emails', 'foo_x_com'))
+    );
   });
   it('anon NO lee', async () => {
     await assertFails(getDoc(doc(anonDb(), 'allowed_emails', 'foo@x.com')));
@@ -1519,8 +1537,12 @@ describe('/allowed_emails split get/list (v934 MED-05 VULN-208)', () => {
   it('vendor puede get de un email especifico (flow login check)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'test@x.com')));
   });
-  it('unassigned puede get de un email especifico', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'test@x.com')));
+  it('unassigned solo puede get del doc de su propio email (Lote B 2026-11-24)', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'test@x.com')));
+    await seedDoc('allowed_emails/test_x_com', { granted: true });
+    await assertSucceeds(
+      getDoc(doc(authedDb(UID.unassigned, { email: 'test@x.com' }), 'allowed_emails', 'test_x_com'))
+    );
   });
   it('CRIT: vendor NO puede list la coleccion completa (staff directory enum)', async () => {
     await assertFails(getDocs(collection(authedDb(UID.vendor), 'allowed_emails')));

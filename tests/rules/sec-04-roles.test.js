@@ -36,9 +36,9 @@ beforeEach(async () => {
 });
 
 /** Payload legítimo de alta (mismo shape que index.html fetchAndApplyRole). */
-function altaLegitima(role = 'unassigned') {
+function altaLegitima(role = 'unassigned', email = 'nuevo@example.com') {
   return {
-    email: 'nuevo@example.com',
+    email,
     displayName: 'Nuevo Usuario',
     role,
     vendor: null,
@@ -55,7 +55,10 @@ describe('SEC-04 — precondición', () => {
 describe('SEC-04 — create de roles/{uid}', () => {
   it('R1: alta legítima con los 5 campos → permitida', async () => {
     const uid = 'uid-alta-ok';
-    await assertSucceeds(setDoc(doc(authedDb(uid), 'roles', uid), altaLegitima()));
+    // H10 (batch 2026-11-24): el email del doc debe ser el del token.
+    await assertSucceeds(
+      setDoc(doc(authedDb(uid, { email: 'nuevo@example.com' }), 'roles', uid), altaLegitima())
+    );
   });
 
   it('R2: alta mínima {role:"unassigned"} → permitida (compat test histórico)', async () => {
@@ -110,7 +113,7 @@ describe('SEC-04 — create de roles/{uid}', () => {
           'roles',
           uid
         ),
-        altaLegitima('admin')
+        altaLegitima('admin', 'bot.shimano.pesca@gmail.com')
       )
     );
   });

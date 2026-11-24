@@ -147,7 +147,7 @@ describe('PR-B — comportamiento preservado (PERMITIDOS / sin cambio)', () => {
 
   it('CREATE: restricción existente se conserva (unassigned OK, otros roles NO)', async () => {
     const nuevo = 'uid-nuevo-prb';
-    const db = authedDb(nuevo);
+    const db = authedDb(nuevo, { email: 'n@x.com' }); // H10: email del token
     await assertSucceeds(setDoc(doc(db, 'roles', nuevo), { role: 'unassigned', email: 'n@x.com' }));
     const nuevo2 = 'uid-nuevo2-prb';
     await assertFails(setDoc(doc(authedDb(nuevo2), 'roles', nuevo2), { role: 'vendedor' }));
