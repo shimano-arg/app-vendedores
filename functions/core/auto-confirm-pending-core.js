@@ -342,6 +342,11 @@ export async function autoConfirmPendingPedidos({
           stage: 'confirmed',
           finalizedAt: finalizedAtIso,
           finalizedBy: 'auto/' + minutes + 'min-timeout',
+          // HARDENING 6 F9 D11-HIGH-01 (2026-11-20): estampa commit version
+          // para auditoria del CF que confirmo este pedido. commitPedidoCF
+          // usa 'commitPedidoCore_v1'; el flow automatico queda identificable
+          // en operations_log + consultas BigQuery.
+          _commitVersion: 'autoConfirmPendingCore_v1',
           autoConfirmed: {
             triggeredAt: finalizedAtIso,
             reason: 'pending_timeout',
