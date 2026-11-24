@@ -161,6 +161,7 @@ import { unifyWaitlistsCore } from './core/unify-waitlists-core.js';
 import { updatePedidoLinesCore } from './core/update-pedido-lines-core.js';
 // v1280 (2026-10-14): TTL 7d waitlists stock-asignado-batch.
 import { expireStockAsignadoWaitlists } from './core/waitlist-ttl-core.js';
+import { handleWaitlistValidate } from './core/waitlist-validate-core.js';
 
 if (!getApps().length) initializeApp();
 
@@ -3566,6 +3567,55 @@ export const triggerPlannerSync = onCall(
     }
     console.log('triggerPlannerSync summary', summary);
     return summary;
+  }
+);
+
+/**
+ * DEUDA-M1 R1-R4 (2026-11-19) — onWaitlistWriteValidate
+ *
+ * Trigger onDocumentWritten sobre `revision_waitlist/{waitlistId}`.
+ * Defensa en profundidad complementaria a las rules de A1.2 (PR #1376).
+ *
+ * Observe-only: loguea violaciones a `operations_log.type=
+ * 'sec_m1_waitlist_integrity_violation'` con detalle. NO revierte el write.
+ * Permite medir baseline + ajustar antes de activar hard-revert.
+ *
+ * 4 reglas validadas:
+ * - R1: items[].asigRefs apuntan a pedidos del MISMO clientCardCode.
+ * - R2: transición de stage monotónica (consumed→pending BLOQUEADO).
+ * - R3: clientCardCode inmutable post-create.
+ * - R4: ownerUid + ownerVendor + assignedVendorUid inmutables post-create
+ *       (excepción: _backfill flag para scripts batch legítimos).
+ *
+ * Retry: false. Si falla el log, no bloquea el write (ya ocurrió).
+ */
+export const onWaitlistWriteValidate = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'revision_waitlist/{waitlistId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    try {
+      const waitlistId = event.params.waitlistId;
+      const before = /** @type {any} */ (
+        event.data?.before?.exists ? event.data.before.data() : null
+      );
+      const after = /** @type {any} */ (event.data?.after?.exists ? event.data.after.data() : null);
+      await handleWaitlistValidate({
+        before,
+        after,
+        waitlistId,
+        fbDb: getFirestore(),
+        log: (msg, extra) => console.log('[waitlist-validate]', msg, extra || {}),
+        now: () => Date.now(),
+      });
+    } catch (e) {
+      // Fail-open: el trigger NUNCA bloquea el write (ya ocurrió).
+      console.error('[waitlist-validate] unexpected error (swallowed)', e);
+    }
   }
 );
 
