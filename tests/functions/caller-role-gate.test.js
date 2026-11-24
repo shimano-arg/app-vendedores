@@ -13,15 +13,20 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  _resetRoleRejectionLogDedupe,
   APPROVED_ROLES,
   authorizeCaller,
   evaluateCallerRole,
+  normalizeRole,
   PACHI_UIDS,
+  ROLE_REJECTION_LOG_MAX_KEYS,
+  ROLE_REJECTION_LOG_WINDOW_MS,
   ROLE_REQUIRED_MESSAGE,
   USER_DISABLED_MESSAGE,
 } from '../../functions/core/caller-role-gate.js';
+import { PACHI_UIDS as PACHI_UIDS_CLIENTE } from '../../src/pure/pachi-restrictions.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACHI = 'LaBFi1xkSLObzLEdRoP8fonZ06r2';
@@ -140,6 +145,8 @@ describe('A — evaluateCallerRole', () => {
 });
 
 describe('B — authorizeCaller', () => {
+  beforeEach(() => _resetRoleRejectionLogDedupe());
+
   it('vendedor/interno/gerente/admin → ok y sin log', async () => {
     const db = makeDb({
       v: { role: 'vendedor' },
@@ -229,6 +236,177 @@ describe('B — authorizeCaller', () => {
     });
     expect(r.ok).toBe(false);
     expect(warns.some(([m]) => String(m).includes('operations_log write failed'))).toBe(true);
+  });
+});
+
+describe('D — H2: deduplicación del registro de rechazos', () => {
+  beforeEach(() => _resetRoleRejectionLogDedupe());
+  const T0 = 1_800_000_000_000;
+
+  it('mismo (uid, via) en loop dentro de 10 min → rechaza siempre, registra 1 vez', async () => {
+    const db = makeDb({});
+    for (let i = 0; i < 50; i++) {
+      const r = await authorizeCaller({
+        fbDb: db,
+        uid: 'loop',
+        via: 'commit_pedido',
+        now: T0 + i * 1000,
+      });
+      expect(r).toMatchObject({ ok: false, code: 'permission-denied', reason: 'sin_doc_rol' });
+    }
+    expect(db.logs).toHaveLength(1);
+    expect(db.logs[0]).toMatchObject({
+      userId: 'loop',
+      via: 'commit_pedido',
+      suppressedSinceLast: 0,
+    });
+  });
+
+  it('pasada la ventana vuelve a registrar, con la cuenta de suprimidos', async () => {
+    const db = makeDb({});
+    await authorizeCaller({ fbDb: db, uid: 'u1', via: 'x', now: T0 });
+    await authorizeCaller({ fbDb: db, uid: 'u1', via: 'x', now: T0 + 1000 });
+    await authorizeCaller({ fbDb: db, uid: 'u1', via: 'x', now: T0 + 2000 });
+    await authorizeCaller({
+      fbDb: db,
+      uid: 'u1',
+      via: 'x',
+      now: T0 + ROLE_REJECTION_LOG_WINDOW_MS - 1,
+    });
+    expect(db.logs).toHaveLength(1);
+    await authorizeCaller({
+      fbDb: db,
+      uid: 'u1',
+      via: 'x',
+      now: T0 + ROLE_REJECTION_LOG_WINDOW_MS,
+    });
+    expect(db.logs).toHaveLength(2);
+    expect(db.logs[1].suppressedSinceLast).toBe(3);
+    expect(db.logs[1].timestamp.getTime()).toBe(T0 + ROLE_REJECTION_LOG_WINDOW_MS);
+  });
+
+  it('la ventana es de 10 minutos', () => {
+    expect(ROLE_REJECTION_LOG_WINDOW_MS).toBe(10 * 60 * 1000);
+  });
+
+  it('distinto via o distinto uid → registros separados', async () => {
+    const db = makeDb({});
+    await authorizeCaller({ fbDb: db, uid: 'a', via: 'commit_pedido', now: T0 });
+    await authorizeCaller({ fbDb: db, uid: 'a', via: 'gemini_ocr', now: T0 });
+    await authorizeCaller({ fbDb: db, uid: 'b', via: 'commit_pedido', now: T0 });
+    await authorizeCaller({ fbDb: db, uid: 'a', via: 'commit_pedido', now: T0 + 5 });
+    expect(db.logs.map((l) => `${l.via}|${l.userId}`)).toEqual([
+      'commit_pedido|a',
+      'gemini_ocr|a',
+      'commit_pedido|b',
+    ]);
+  });
+
+  it('el registro que sí se escribe es con await (existe al volver)', async () => {
+    const db = makeDb({});
+    await authorizeCaller({ fbDb: db, uid: 'aw', via: 'x', now: T0 });
+    expect(db.logs).toHaveLength(1);
+  });
+
+  it('si la escritura falla, no cuenta como registrada: el próximo rechazo reintenta', async () => {
+    const db = makeDb({}, { failLog: true });
+    const r1 = await authorizeCaller({ fbDb: db, uid: 'f', via: 'x', now: T0 });
+    expect(r1.ok).toBe(false);
+    const ok = makeDb({});
+    await authorizeCaller({ fbDb: ok, uid: 'f', via: 'x', now: T0 + 1000 });
+    expect(ok.logs).toHaveLength(1);
+  });
+
+  it('llamadas concurrentes del mismo (uid, via) → 1 registro', async () => {
+    const db = makeDb({});
+    const rs = await Promise.all(
+      Array.from({ length: 10 }, () => authorizeCaller({ fbDb: db, uid: 'c', via: 'x', now: T0 }))
+    );
+    expect(rs.every((r) => r.ok === false)).toBe(true);
+    expect(db.logs).toHaveLength(1);
+  });
+
+  it('autorizados no tocan el estado ni registran', async () => {
+    const db = makeDb({ v: { role: 'vendedor' } });
+    for (let i = 0; i < 5; i++) {
+      expect((await authorizeCaller({ fbDb: db, uid: 'v', via: 'x', now: T0 + i })).ok).toBe(true);
+    }
+    expect(db.logs).toHaveLength(0);
+  });
+
+  it('muchas cuentas distintas no hacen crecer el estado sin límite (siguen registrándose)', async () => {
+    const db = makeDb({});
+    const n = ROLE_REJECTION_LOG_MAX_KEYS + 10;
+    for (let i = 0; i < n; i++) {
+      await authorizeCaller({ fbDb: db, uid: `g${i}`, via: 'x', now: T0 });
+    }
+    expect(db.logs).toHaveLength(n);
+    // Las primeras se podaron: un nuevo rechazo de g0 vuelve a registrarse.
+    await authorizeCaller({ fbDb: db, uid: 'g0', via: 'x', now: T0 + 1 });
+    expect(db.logs).toHaveLength(n + 1);
+  });
+});
+
+describe('E — H4: role debe ser string', () => {
+  beforeEach(() => _resetRoleRejectionLogDedupe());
+
+  it.each([[['admin']], [{ role: 'admin' }], [1], [true], [new String('admin')]])(
+    'role %j → rechazo con reason rol_tipo_invalido',
+    (bad) => {
+      const r = evaluateCallerRole({ role: bad }, 'u1');
+      expect(r).toMatchObject({
+        ok: false,
+        code: 'permission-denied',
+        reason: 'rol_tipo_invalido',
+      });
+    }
+  );
+
+  it('normalizeRole devuelve vacío para no-string', () => {
+    expect(normalizeRole(['admin'])).toBe('');
+    expect(normalizeRole({})).toBe('');
+    expect(normalizeRole(5)).toBe('');
+    expect(normalizeRole(null)).toBe('');
+    expect(normalizeRole(undefined)).toBe('');
+    expect(normalizeRole(' Admin ')).toBe('admin');
+  });
+
+  it('role null/ausente sigue como rol_no_aprobado', () => {
+    expect(evaluateCallerRole({ role: null }, 'u1').reason).toBe('rol_no_aprobado');
+    expect(evaluateCallerRole({}, 'u1').reason).toBe('rol_no_aprobado');
+  });
+
+  it('authorizeCaller con role array → rechazo y registro', async () => {
+    const db = makeDb({ arr: { role: ['admin'] } });
+    const r = await authorizeCaller({ fbDb: db, uid: 'arr', via: 'x' });
+    expect(r.ok).toBe(false);
+    expect(db.logs[0]).toMatchObject({ reason: 'rol_tipo_invalido', callerRole: '(vacío)' });
+  });
+
+  it('release-asig-core (usa evaluateCallerRole) también rechaza role no string', () => {
+    // evaluateCallerRole es la única función de decisión; se valida acá.
+    expect(evaluateCallerRole({ role: ['vendedor'] }, 'v').ok).toBe(false);
+  });
+});
+
+describe('F — H5: PACHI_UIDS sincronizado en las 3 copias', () => {
+  const sort = (/** @type {ReadonlyArray<string>} */ a) => [...a].sort();
+
+  it('functions/core coincide con src/pure/pachi-restrictions.js', () => {
+    expect(sort(PACHI_UIDS)).toEqual(sort(PACHI_UIDS_CLIENTE));
+  });
+
+  it('functions/core coincide con isPachiUid() de firestore.rules', () => {
+    const rules = readFileSync(resolve(__dirname, '../../firestore.rules'), 'utf8');
+    const m = rules.match(/function isPachiUid\(\)\s*\{([\s\S]*?)\n\s*\}/);
+    expect(m).not.toBeNull();
+    const uids = [...(m ? m[1] : '').matchAll(/request\.auth\.uid == '([^']+)'/g)].map((x) => x[1]);
+    expect(uids.length).toBeGreaterThan(0);
+    expect(sort(uids)).toEqual(sort(PACHI_UIDS));
+  });
+
+  it('sin duplicados', () => {
+    expect(new Set(PACHI_UIDS).size).toBe(PACHI_UIDS.length);
   });
 });
 
