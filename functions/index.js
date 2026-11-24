@@ -58,6 +58,8 @@ import { AUTO_SEND_RESULT, handleAutoSendSap } from './core/auto-send-sap-core.j
 import { runDailyBackup } from './core/backup-core.js';
 // Cache en memoria acotada (Dashboard de Ventas, v1529).
 import { createBoundedCache } from './core/bounded-cache.js';
+// SEC F1A (2026-11-24): gate por rol aprobado (H1, H7, H9).
+import { authorizeCaller, PACHI_UIDS } from './core/caller-role-gate.js';
 import { handleSyncCarteraVendor } from './core/cartera-vendor-core.js';
 // E2 §stock-servidor-atomico (2026-10-23)
 import { commitPedidoCore } from './core/commit-pedido-core.js';
@@ -1699,17 +1701,14 @@ export const fetchStockLiveCF = onCall(
     if (!auth || !auth.uid) {
       throw new HttpsError('unauthenticated', 'login requerido');
     }
+    // SEC F1A-H9 (2026-11-24): rol aprobado leido server-side en vez de
+    // dominio. Se mantiene la excepcion PACHI por UID de v1496 §95
+    // (PACHI_UIDS pasan aunque su doc de rol no tenga un rol aprobado,
+    // salvo que esten deshabilitados o falle la lectura de roles).
     const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    // v1496 §95 (2026-10-27) PACHI iter 6: incluir PACHI_UIDS en el gate.
-    // Antes v1496: dominio-only. PACHI real `pachinaba@gmail.com` → gmail.com
-    // → permission-denied → badge "Stock del snapshot" aunque flag live_sl=on.
-    const PACHI_UIDS = ['LaBFi1xkSLObzLEdRoP8fonZ06r2', 'tUJHiLDyLHWvbkpWgCQXWJcucfV2'];
-    const _isShimanoDomain = domain === 'shimano.com.ar' || domain === 'shimano.uy';
-    const _isPachi = PACHI_UIDS.includes(auth.uid);
-    if (!_isShimanoDomain && !_isPachi) {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
+    await _requireApprovedRole(getFirestore(), auth, 'fetch_stock_live', {
+      extraAllowedUids: PACHI_UIDS,
+    });
     const data = req.data || {};
     const skus = Array.isArray(data.skus)
       ? data.skus.map((/** @type {any} */ s) => String(s || '').trim()).filter(Boolean)
@@ -1968,6 +1967,13 @@ export const geminiOcrProxy = onCall(
     timeoutSeconds: 60,
   },
   async (request) => {
+    // SEC F1A-H9 (2026-11-24): rol aprobado leido server-side antes del
+    // rate limit y del consumo de Gemini. El chequeo de dominio @shimano del
+    // core se mantiene (no se toca gemini-ocr-core.js en este lote).
+    if (!request.auth || !request.auth.uid) {
+      throw new HttpsError('unauthenticated', 'requiere login');
+    }
+    await _requireApprovedRole(getFirestore(), request.auth, 'gemini_ocr');
     // v939 (SecAudit MED-15): rate limit para geminiOcrProxy - cada request
     // consume tokens Gemini pagos. Sin limit, un token comprometido burnea
     // credit ilimitado.
@@ -3889,13 +3895,11 @@ export const commitPedidoCF = onCall(
       throw new HttpsError('unauthenticated', 'login requerido');
     }
     const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    // Dominios permitidos (igual que applyRepartoManualCF).
-    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
-    if (!ALLOWED_DOMAINS.has(domain)) {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
     const db = getFirestore();
+    // SEC F1A-H1 (2026-11-24): la autorizacion es el rol leido en el
+    // servidor, no el dominio del email (antes pasaba cualquier @gmail.com
+    // sin rol). Usuarios gmail.com con rol aprobado (PACHI) entran por rol.
+    await _requireApprovedRole(db, auth, 'commit_pedido');
     const data = req.data || {};
     // Payload shape validado dentro del core. Inyectamos owner info del request.
     const payload = {
@@ -4030,20 +4034,11 @@ export const updatePedidoLinesCF = onCall(
       throw new HttpsError('unauthenticated', 'login requerido');
     }
     const email = String(auth.token?.email || '').toLowerCase();
-    const domain = email.split('@')[1] || '';
-    const ALLOWED_DOMAINS = new Set(['shimano.com.ar', 'shimano.uy', 'gmail.com']);
-    if (!ALLOWED_DOMAINS.has(domain)) {
-      throw new HttpsError('permission-denied', 'dominio no permitido');
-    }
     const db = getFirestore();
-    // Lee role del user para auth check.
-    let role = '';
-    try {
-      const roleDoc = await db.collection('roles').doc(auth.uid).get();
-      role = String((roleDoc.data() || {}).role || '').toLowerCase();
-    } catch (_e) {
-      /* non-fatal, VDE queda sin role */
-    }
+    // SEC F1A-H7 (2026-11-24): rol aprobado obligatorio, leido server-side.
+    // Antes: gate por dominio (incluia gmail.com) y lectura de rol
+    // "non-fatal" (si fallaba seguia con rol vacio). Ahora falla cerrada.
+    const role = await _requireApprovedRole(db, auth, 'update_pedido_lines');
     const data = req.data || {};
     try {
       const r = await updatePedidoLinesCore(
@@ -4151,6 +4146,36 @@ function _buildAuthSecretsDeps(db) {
     },
     totpCodeAt: _totpCodeAt,
   };
+}
+
+/**
+ * SEC F1A (2026-11-24): exige rol aprobado (vendedor/interno/gerente/admin)
+ * leido server-side de roles/{uid}. Rechazo -> HttpsError permission-denied
+ * con details.errorCode='ROLE_REQUIRED' + registro en operations_log
+ * (lo hace authorizeCaller con await). Falla cerrada si la lectura falla.
+ * @param {any} db
+ * @param {{uid: string, token?: any}} auth
+ * @param {string} via  prefijo del type en operations_log (`<via>_rejected`).
+ * @param {{extraAllowedUids?: ReadonlyArray<string>}} [opts]
+ * @returns {Promise<string>} rol normalizado del caller.
+ */
+async function _requireApprovedRole(db, auth, via, opts = {}) {
+  const r = await authorizeCaller({
+    fbDb: db,
+    uid: auth.uid,
+    email: String(auth.token?.email || '').toLowerCase(),
+    via,
+    extraAllowedUids: opts.extraAllowedUids,
+    log: (msg, extra) => console.warn(msg, extra || {}),
+  });
+  if (!r.ok) {
+    console.warn(`${via} rechazado por rol`, { uid: auth.uid, reason: r.reason, role: r.role });
+    throw new HttpsError(/** @type {any} */ (r.code), r.message, {
+      errorCode: 'ROLE_REQUIRED',
+      reason: r.reason,
+    });
+  }
+  return r.role;
 }
 
 /**

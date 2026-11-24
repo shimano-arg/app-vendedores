@@ -23,6 +23,7 @@
  * @param {{ auth: any, action: 'remove_item'|'rechazo_cpst'|string, waitlistId: string, itemIndex?: number }} params
  */
 
+import { evaluateCallerRole } from './caller-role-gate.js';
 import { collectAsigRefsForCancel, collectAsigRefsForItemCancel } from './cpst-cancel-refs.js';
 
 /** Error with code — compatible con HttpsError pero sin importar firebase-functions. */
@@ -53,9 +54,12 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
 
   // === FETCH ROLE ===
   let role = '';
+  /** @type {any} */
+  let roleData = null;
   try {
     const roleSnap = await deps.fbDb.collection('roles').doc(auth.uid).get();
-    role = String((roleSnap.data() || {}).role || '').toLowerCase();
+    roleData = roleSnap && roleSnap.exists !== false ? roleSnap.data() || null : null;
+    role = String((roleData || {}).role || '').toLowerCase();
   } catch (e) {
     // Si no se puede leer rol → unauthenticated (nunca permission-denied).
     throw mkErr('internal', 'no se pudo resolver rol: ' + ((e && e.message) || String(e)));
@@ -71,7 +75,10 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
   // admin/gerente/interno → OK siempre.
   // vendedor → ownerUid del waitlist O assignedVendorUid del waitlist (§44/§46).
   const isPrivileged = role === 'admin' || role === 'gerente' || role === 'interno';
-  const isOwner = w.ownerUid === auth.uid;
+  // SEC F1A-H12 (2026-11-24): ser ownerUid de la orden ya no alcanza; el
+  // dueño tiene que tener además un rol aprobado (un usuario degradado a
+  // unassigned/viewer que quedó como ownerUid no libera ASIG).
+  const isOwner = w.ownerUid === auth.uid && evaluateCallerRole(roleData, auth.uid).ok;
   const isAssignedVendor = role === 'vendedor' && w.assignedVendorUid === auth.uid;
   if (!isPrivileged && !isOwner && !isAssignedVendor) {
     throw mkErr(
