@@ -126,8 +126,21 @@ describe('PR-B — comportamiento preservado (PERMITIDOS / sin cambio)', () => {
       })
     );
   });
-  it('admin SÍ puede setear fichaClienteEditorFull (flag admin, no credencial)', async () => {
+  it('Mariano SÍ puede setear fichaClienteEditorFull (flag admin, no credencial)', async () => {
+    // HARDENING 6 F9 HARD6-F4-S3+D18 (2026-11-20): el flag solo lo escribe
+    // Mariano. Admin no-Mariano NO puede (escalada a Ficha Cliente cross-cliente).
+    // Antes de HARD6-F4-S3 cualquier admin podia. Ahora el test cubre el flow
+    // legitimo (Mariano habilita editores).
+    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
     await assertSucceeds(
+      updateDoc(doc(marianoDb, 'roles', UID.vendor), { fichaClienteEditorFull: true })
+    );
+  });
+  it('admin no-Mariano NO puede setear fichaClienteEditorFull (vector escalada Ficha)', async () => {
+    // HARDENING 6 F9 HARD6-F4-S3 (2026-11-20): cierra S3. Un admin no-Mariano
+    // habilitando fichaClienteEditorFull=true sobre otro doc podia leer/editar
+    // fichas de clientes de cualquier zona.
+    await assertFails(
       updateDoc(doc(authedDb(UID.admin), 'roles', UID.vendor), { fichaClienteEditorFull: true })
     );
   });

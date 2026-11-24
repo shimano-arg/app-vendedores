@@ -115,10 +115,19 @@ describe('SEC-04 — create de roles/{uid}', () => {
     );
   });
 
-  it('R8: admin conserva el update de roles (asignar rol y flag de editor)', async () => {
+  it('R8: admin conserva el update de roles (asignar rol — flag editor solo Mariano post-HARD6-F4-S3)', async () => {
+    // Pre-HARD6 (v15703dfb, 2026-11-20): este test usaba admin para ambos
+    // campos. Post-HARD6-F4-S3+D18: fichaClienteEditorFull solo lo escribe
+    // Mariano (vector S3 cerrado). Este test se divide: admin sigue pudiendo
+    // asignar rol (flow Panel Usuarios); Mariano asigna el flag editor.
     await assertSucceeds(
       updateDoc(doc(authedDb(UID.admin), 'roles', UID.vendor), {
         role: 'vendedor',
+      })
+    );
+    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+    await assertSucceeds(
+      updateDoc(doc(marianoDb, 'roles', UID.vendor), {
         fichaClienteEditorFull: true,
       })
     );
