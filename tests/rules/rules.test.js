@@ -943,6 +943,108 @@ describe('/notifications', () => {
       })
     );
   });
+  // ============================================================
+  // A2.2 (SEC-M2 / SEC-NIGHT-R-04, 2026-11-19): hasOnly + guards
+  // ============================================================
+  describe('A2.2: notifications.create/update hasOnly', () => {
+    it('A2.2 CREATE: vendor puede crear con payload legitimo (10 call-sites patron)', async () => {
+      // Representativo de rendiciones.js:510 (rendicion_approval).
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-legit'), {
+          fromUid: UID.vendor,
+          fromEmail: 'vendor@shimano.com.ar',
+          fromName: 'Vendor',
+          fromDisplayName: 'Vendor Display',
+          targetUid: UID.admin,
+          targetEmail: 'admin@shimano.com.ar',
+          type: 'rendicion_approval',
+          subtype: 'pending',
+          title: 'Rendicion pendiente',
+          body: 'Revisar rendicion',
+          message: 'Revisar rendicion',
+          rendicionId: 'rend-123',
+          mes: '2026-11',
+          anio: 2026,
+          vendor: 'VDE_GONZALO',
+          status: 'pending',
+          read: false,
+          createdAt: '2026-11-19T10:00:00Z',
+        })
+      );
+    });
+    it('A2.2 CREATE: vendor puede crear notif minima (fromUid + targetUid)', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-min'), {
+          fromUid: UID.vendor,
+          targetUid: UID.admin,
+        })
+      );
+    });
+    it('A2.2 CREATE: vendor NO puede crear con campo random fuera whitelist', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-rand'), {
+          fromUid: UID.vendor,
+          targetUid: UID.admin,
+          foo: 'bar',
+        })
+      );
+    });
+    it('A2.2 CREATE: vendor NO puede falsificar fromUid (anti-spoof preservado)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-spoof'), {
+          fromUid: UID.admin,
+          targetUid: UID.vendor,
+          type: 'admin_override',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target puede marcar status=done + doneAt', async () => {
+      await assertSucceeds(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          status: 'done',
+          doneAt: 't',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target puede marcar read=true + readAt', async () => {
+      await assertSucceeds(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          read: true,
+          readAt: 't',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target NO puede re-escribir title (reescritura maliciosa)', async () => {
+      // Pre-A2.2 un target podía reescribir el body de una notif propia para
+      // "ocultar" su contenido real. Post-A2.2 solo campos state.
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          title: 'OCULTO',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target NO puede cambiar targetUid (anti-hijack)', async () => {
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          targetUid: UID.vendorOther,
+        })
+      );
+    });
+    it('A2.2 UPDATE: target NO puede cambiar type (anti-escalation)', async () => {
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          type: 'admin_override',
+        })
+      );
+    });
+    it('A2.2 UPDATE: no-target NO puede marcar la notif ajena como leida', async () => {
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-other'), {
+          read: true,
+        })
+      );
+    });
+  });
 });
 
 // ============================================================
