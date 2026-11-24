@@ -4717,6 +4717,11 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### sec functions batch (2026-11-24) — Lote de seguridad en Cloud Functions (grupos 3-5 de F1B, sin bump de versión)
+
+- Integra #1312, #1390, #1395, #1386 (D10), #1387, #1394, #1382, #1385 (D3), #1398 (solo cores), #1403, #1391 y el ajuste de lectura de rol fallida (`ROLE_CHECK_UNAVAILABLE`). Solo `functions/` y tests; no toca `index.html`, `src/` ni rules.
+- Detalle Antes/Problema/Cambio/Por qué/Verificación/Deploy/Rollback/Riesgos: [`docs/CHANGELOG-sec-functions-batch-2026-11-24.md`](docs/CHANGELOG-sec-functions-batch-2026-11-24.md).
+
 ### sec F1A lotes A+D (2026-11-24) — Callables exigen rol aprobado, no dominio de email (sin bump de versión)
 
 - **Antes**: `commitPedidoCF` y `updatePedidoLinesCF` autorizaban solo por dominio del email (`shimano.com.ar`, `shimano.uy` **y `gmail.com`**); `updatePedidoLinesCF` además leía el rol en modo "non-fatal" (si fallaba seguía con rol vacío). `fetchStockLiveCF` aceptaba dominio Shimano o los 2 UIDs de PACHI; `geminiOcrProxy` solo dominio Shimano (en el core). En `releaseAsigCore`, ser `ownerUid` de la orden en espera alcanzaba para liberar ASIG aunque el usuario no tuviera rol.
