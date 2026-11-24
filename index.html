@@ -11381,7 +11381,7 @@ function populateLocalities(){
     locs.push(p.name);
   });
   locs.sort((a, b) => a.localeCompare(b));
-  sel.innerHTML = '<option value="ALL">Todas</option>' + locs.map(p => '<option value="' + p.replace(/"/g, '&quot;') + '">' + p + '</option>').join('');
+  sel.innerHTML = '<option value="ALL">Todas</option>' + locs.map(p => '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>').join('');
   if (currentLocality !== 'ALL' && !locs.includes(currentLocality)) currentLocality = 'ALL';
   sel.value = currentLocality;
 }
@@ -37153,7 +37153,7 @@ function renderPlannerCard(pedido, column) {
       ' data-pedido-id="' + escapeHtml(pedido.id) + '"' +
       ' data-column="' + column + '"' +
       ' draggable="true"' +
-      ' onclick="openPlannerCardModal(\'' + escapeHtml(pedido.id) + '\')">' +
+      ' onclick="openPlannerCardModal(\'' + escapeAttr(pedido.id) + '\')">' +
       '<div class="planner-card-cliente">' + cliente + '</div>' +
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
       _ageBadgeHtml +
@@ -37859,7 +37859,7 @@ function renderPlannerModalHistorial(pedido) {
 
   return (
     '<div style="margin-bottom:20px;">' +
-      '<button onclick="resendPlannerNotif(\'' + escapeHtml(currentCol) + '\')"' +
+      '<button onclick="resendPlannerNotif(\'' + escapeAttr(currentCol) + '\')"' +
         ' style="background:#007AFF;color:white;padding:9px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;">' +
         escapeHtml(btnLabel) +
       '</button>' +

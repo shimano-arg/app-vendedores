@@ -21,6 +21,8 @@
 // ============================================================
 // RUTAS: agrupamiento de tiendas por proximidad (10-15 por ruta)
 // ============================================================
+import { jsArgAttr } from '../pure/html-safe.js';
+
 let rutaView = 'mes'; // 'mes' | 'historico'
 if (typeof window.rutaDetalleId === 'undefined') window.rutaDetalleId = null; // id de ruta abierta
 let rutaHistMonth = null;
@@ -1188,9 +1190,9 @@ function renderRutaDetalle() {
         (esTelefono ? 'Ver contacto' : 'Ver visita') +
         '</button>';
     } else if (allowEdit) {
-      const tNomJson = JSON.stringify(t.nombre).replace(/"/g, '&quot;');
-      const tLocJson = JSON.stringify(t.localidad).replace(/"/g, '&quot;');
-      const tProvJson = JSON.stringify(t.provincia).replace(/"/g, '&quot;');
+      const tNomJson = jsArgAttr(t.nombre);
+      const tLocJson = jsArgAttr(t.localidad);
+      const tProvJson = jsArgAttr(t.provincia);
       html +=
         '<button class="ruta-tienda-btn primary" onclick="abrirVisitaParaTienda(' +
         tLocJson +

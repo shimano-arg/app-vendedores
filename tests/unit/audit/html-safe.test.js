@@ -60,7 +60,13 @@ describe('safeDownloadHref', () => {
       const v = `data:${mime};base64,QUJD`;
       expect(safeDownloadHref(v)).toBe(v);
     }
-    expect(safeDownloadHref('data:;base64,QUJD')).toBe('data:;base64,QUJD');
+  });
+  it('descarta data: sin MIME explícito', () => {
+    // Antes se aceptaba `data:;base64,…` (grupo de MIME opcional), contra lo
+    // que decía el helper. FileReader usa application/octet-stream cuando el
+    // archivo no tiene tipo, así que exigir MIME no rompe adjuntos reales.
+    expect(safeDownloadHref('data:;base64,QUJD')).toBe('');
+    expect(safeDownloadHref('data:base64,QUJD')).toBe('');
   });
   it('descarta javascript:, html y valores que cierran el atributo', () => {
     expect(safeDownloadHref('javascript:alert(1)')).toBe('');
@@ -78,7 +84,7 @@ describe('contrato: los puntos de render usan los helpers', () => {
   const rend = read('src/domains/rendiciones.js');
 
   it('notificaciones.js importa safeImgSrc y no concatena campos crudos en <img src>', () => {
-    expect(notif).toMatch(/import \{ safeImgSrc \} from '\.\.\/pure\/html-safe\.js'/);
+    expect(notif).toMatch(/import \{ [^}]*\bsafeImgSrc\b[^}]*\} from '\.\.\/pure\/html-safe\.js'/);
     expect(notif).not.toMatch(/<img src="' \+\s*a\.constancia/);
     expect(notif).not.toMatch(/img\.replace\(\/'\/g, '&#39;'\)/);
     expect(notif).toMatch(/safeImgSrc\(a\.constanciaArca\)/);

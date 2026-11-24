@@ -33,7 +33,7 @@
 // === Notificaciones panel ===
 // ============================================================
 // PANEL ALERTAS Y TAREAS (tabs: Recibidas / Crear tarea / Enviadas)
-import { safeImgSrc } from '../pure/html-safe.js';
+import { jsArgAttr, safeImgSrc } from '../pure/html-safe.js';
 
 // ============================================================
 // CROSS-SCOPE (E6 fix C3): updateNotifsBadge del inline (L8519) lee window.notifsTab.
@@ -684,7 +684,7 @@ function renderAltaCliMisSolicitudes() {
     const canDelete = isRapida ? !hasSap : a.status !== 'approved' || !hasSap;
     if (canDelete) {
       const safeId = escapeAttr(a._fsId || '');
-      const safeName = JSON.stringify(a.comercio || '').replace(/"/g, '&quot;');
+      const safeName = jsArgAttr(a.comercio || '');
       html += '<div style="margin-top:8px;text-align:right">';
       html +=
         '<button onclick="deleteMyAltaCli(\'' +
@@ -1135,11 +1135,35 @@ function fmtNotifDate(n) {
   return dt ? dt.toLocaleString('es-AR') : '';
 }
 
+// Tipos de notificación que escribe la app (cliente y Cloud Functions).
+const KNOWN_NOTIF_TYPES = new Set([
+  'derivacion',
+  'task',
+  'task_ack',
+  'client_approval',
+  'client_approval_ack',
+  'rendicion_approval',
+  'rendicion_approval_ack',
+  'auto_confirm_timeout',
+  'alta_rapida_creada',
+  'new_user_signup',
+  'order_created',
+  'partner_action',
+  'phone_contact_created',
+  'visit_created',
+]);
+
+function notifTypeClass(type) {
+  return KNOWN_NOTIF_TYPES.has(type) ? type : 'otro';
+}
+
 function notifItemHtml(n, opts) {
   opts = opts || {};
   const type = n.type || 'derivacion';
   const isClosed = n.status === 'read' || n.status === 'done';
-  const cls = 'notif-item type-' + type + (isClosed ? ' read' : '');
+  // El tipo viene del doc (lo escribe quien crea la notificación): solo se
+  // usa como clase CSS si es uno conocido; si no, clase genérica.
+  const cls = 'notif-item type-' + notifTypeClass(type) + (isClosed ? ' read' : '');
   const dtStr = fmtNotifDate(n);
   let h = '<div class="' + cls + '">';
   if (type === 'task') {
@@ -1161,10 +1185,8 @@ function notifItemHtml(n, opts) {
           safe +
           '" class="task-img-thumb" onclick="openImgViewer(\'' +
           escapeAttr('task-' + n._fsId + '-' + i) +
-          '\')" id="task-' +
-          n._fsId +
-          '-' +
-          i +
+          '\')" id="' +
+          escapeHtml('task-' + n._fsId + '-' + i) +
           '"/>';
       });
       h += '</div>';
@@ -1454,10 +1476,8 @@ function renderMySentTasks() {
           safe +
           '" class="task-img-thumb" onclick="openImgViewer(\'' +
           escapeAttr('sent-' + n._fsId + '-' + i) +
-          '\')" id="sent-' +
-          n._fsId +
-          '-' +
-          i +
+          '\')" id="' +
+          escapeHtml('sent-' + n._fsId + '-' + i) +
           '"/>';
       });
       html += '</div>';

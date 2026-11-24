@@ -13,6 +13,7 @@
 // - window.unsubSapClients / window.unsubSapProducts / window.unsubSapConfig:
 // cleanups en detachFirebaseListeners inline.
 
+import { jsArgAttr } from '../pure/html-safe.js';
 import {
   archiveTransferError,
   buildSapTransferError,
@@ -1542,7 +1543,7 @@ function renderPedidoCard(p, status) {
     const checked = sapPendSelection.has(p._fsId) ? ' checked' : '';
     html +=
       '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" class="sap-pend-check" onchange="togglePedidoSelection(\'' +
-      p._fsId +
+      escapeAttr(p._fsId) +
       '\')"' +
       checked +
       '/><span class="sap-card-title">' +
@@ -1671,7 +1672,7 @@ function renderPedidoCard(p, status) {
   if (status === 'transferido' && userRole === 'admin') {
     html +=
       '<div style="text-align:right;margin-top:8px"><button class="sap-btn secondary" style="padding:6px 12px;font-size:10px" onclick="revertirTransferenciaSap(\'' +
-      p._fsId +
+      escapeAttr(p._fsId) +
       '\')">Revertir</button></div>';
   }
   html += '</div>';
@@ -1692,7 +1693,7 @@ function renderBloqueadoGroup(g) {
       ),
     0
   );
-  const tiendaJson = JSON.stringify(g.tienda).replace(/"/g, '&quot;');
+  const tiendaJson = jsArgAttr(g.tienda);
   const inputId = 'sap-assign-' + sapNorm(g.tienda).replace(/[^A-Z0-9]/g, '_');
 
   let html = '<div class="sap-bloqueado-group">';
@@ -1765,7 +1766,7 @@ function renderBloqueadoGroup(g) {
       const checkedAttr = sapPendSelection.has(p._fsId) ? ' checked' : '';
       html +=
         '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:160px;margin:0"><input type="checkbox" class="sap-pend-check" onchange="togglePedidoSelection(\'' +
-        p._fsId +
+        escapeAttr(p._fsId) +
         '\')"' +
         checkedAttr +
         ' style="width:18px;height:18px;cursor:pointer;flex-shrink:0;accent-color:#dc2626" /><span style="flex:1">' +
@@ -1777,7 +1778,7 @@ function renderBloqueadoGroup(g) {
     if (userRole === 'admin') {
       html +=
         '<button class="sap-btn secondary" style="padding:5px 10px;font-size:10px" onclick="marcarManualSap(\'' +
-        p._fsId +
+        escapeAttr(p._fsId) +
         '\')">Cargado manual</button>';
     }
     html += '</div>';

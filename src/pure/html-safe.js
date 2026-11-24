@@ -10,11 +10,17 @@
  *   `\` y `'` con barra, y `"`, `<`, `>` como entidades.
  *   El inline de index.html tiene una copia idéntica (test de sincronía en
  *   tests/unit/audit/html-safe-sync.test.js).
+ * - `jsArgAttr(s)`: argumento string JS ya entre comillas simples, listo para
+ *   concatenar dentro de un handler inline (`onclick="f(' + jsArgAttr(x) + ')"`).
+ *   Es `escapeAttr` más el escape de saltos de línea (que romperían el literal
+ *   JS). Reemplaza el patrón viejo con `JSON.stringify` + reemplazo de comillas
+ *   por `&quot;`, que no escapaba `&` y dejaba cerrar el string.
  * - `safeImgSrc(v)`: devuelve el valor listo para `<img src="…">` solo si es
  *   una imagen `data:image/<tipo>;base64,…` de una lista corta o una URL
  *   `https:`. Cualquier otra cosa devuelve `''` y no se renderiza.
  * - `safeDownloadHref(v)`: idem para `<a href="…" download>` de adjuntos:
- *   `data:` con MIME de una lista corta (pdf, imágenes, planillas) o `https:`.
+ *   `data:` con MIME explícito de una lista corta (pdf, imágenes, planillas)
+ *   o `https:`. Un `data:` sin MIME no se acepta.
  */
 
 /** @type {Record<string, string>} */
@@ -43,10 +49,25 @@ export function escapeAttr(s) {
     .replace(/>/g, '&gt;');
 }
 
+/**
+ * Argumento string para un handler inline: `'…'` escapado para atributo HTML
+ * y para literal JS entre comillas simples. `null`/`undefined` → `''`.
+ * @param {unknown} s
+ * @returns {string}
+ */
+export function jsArgAttr(s) {
+  const body = escapeAttr(s)
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return "'" + body + "'";
+}
+
 const DATA_IMG_RE = /^data:image\/(png|jpe?g|webp|gif|heic|heif|bmp|avif);base64,[A-Za-z0-9+/=]*$/i;
 
 const DATA_DOWNLOAD_RE =
-  /^data:(application\/pdf|image\/(png|jpe?g|webp|gif|heic|heif|bmp|avif)|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|application\/vnd\.ms-excel|text\/csv|application\/octet-stream)?;base64,[A-Za-z0-9+/=]*$/i;
+  /^data:(application\/pdf|image\/(png|jpe?g|webp|gif|heic|heif|bmp|avif)|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|application\/vnd\.ms-excel|text\/csv|application\/octet-stream);base64,[A-Za-z0-9+/=]*$/i;
 
 /**
  * @param {string} s
