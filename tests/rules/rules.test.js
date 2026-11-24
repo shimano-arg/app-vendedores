@@ -1076,6 +1076,131 @@ describe('/operations_log', () => {
     await assertFails(updateDoc(doc(authedDb(UID.admin), 'operations_log', 'l1'), { x: 1 }));
     await assertFails(deleteDoc(doc(authedDb(UID.admin), 'operations_log', 'l1')));
   });
+  // ============================================================
+  // A2.3 (SEC-M3 / SEC-NIGHT-R-06, 2026-11-19): hasOnly + type guard
+  // ============================================================
+  describe('A2.3: operations_log.create hasOnly + type guard', () => {
+    it('A2.3 CREATE: legacy logOp() sin type (audit panel) PASA', async () => {
+      // Shape legacy que escribe `logOp()` en index.html (audit panel).
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-legacy'), {
+          userUid: UID.vendor,
+          userEmail: 'v@shimano.com.ar',
+          userRole: 'vendedor',
+          timestamp: 't',
+          action: 'open_modal',
+          entityType: 'pedido',
+          entityName: 'ORDEN 100',
+          details: 'click X',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=client_write_failed (§70) PASA', async () => {
+      // Shape que escribe `_logClientWriteFailed()` en index.html.
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-write-fail'), {
+          userUid: UID.vendor,
+          userEmail: 'v@shimano.com.ar',
+          type: 'client_write_failed',
+          collection: 'revision_waitlist',
+          documentId: 'wl-X',
+          errMessage: 'Unsupported field value: undefined',
+          errCode: 'invalid-argument',
+          op: 'update',
+          handler: 'revisionDejarRecalculando',
+          clientVersion: 'v1500',
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=asig_huerfana PASA', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-huerfana'), {
+          userUid: UID.vendor,
+          type: 'asig_huerfana',
+          sku: 'SKU-1',
+          pedidoId: 'p-1',
+          lineIndex: 0,
+          motivo: 'qtyOpen<=0',
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=client_confirm_exception PASA', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-exc'), {
+          userUid: UID.vendor,
+          type: 'client_confirm_exception',
+          errMessage: 'random',
+          errStack: 'stack',
+          orderKey: 'k',
+          waitlistOrigenId: 'wl',
+          orderNumber: 100,
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=commitPedidoCF_fallback_legacy PASA', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-fallback'), {
+          userUid: UID.vendor,
+          type: 'commitPedidoCF_fallback_legacy',
+          code: 'UNKNOWN',
+          email: 'v@shimano.com.ar',
+          appVersion: 'v1500',
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede falsificar userUid ajeno (preservado)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-spoof'), {
+          userUid: UID.admin,
+          action: 'x',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede inyectar type=admin_override (type guard)', async () => {
+      // Vector principal del fix: pre-A2.3 el cliente podía crear log entry
+      // con type arbitrario para "fabricar" evidencia de admin action.
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-forge-admin'), {
+          userUid: UID.vendor,
+          type: 'admin_override',
+          action: 'x',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede inyectar type=sap_item_not_found_degraded (server-only)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-forge-server'), {
+          userUid: UID.vendor,
+          type: 'sap_item_not_found_degraded',
+          sku: 'FAKE',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede agregar campo random fuera whitelist', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-rand'), {
+          userUid: UID.vendor,
+          action: 'x',
+          foo: 'bar',
+        })
+      );
+    });
+    it('A2.3 CREATE: admin tampoco puede inyectar type server-only desde cliente', async () => {
+      // Admin también está sujeto al type guard (el bypass server-only solo
+      // lo hace Admin SDK, no admin via rules).
+      await assertFails(
+        setDoc(doc(authedDb(UID.admin), 'operations_log', 'l-a23-admin-forge'), {
+          userUid: UID.admin,
+          type: 'pedido_deleted',
+          pedidoId: 'p-1',
+        })
+      );
+    });
+  });
 });
 
 // ============================================================
