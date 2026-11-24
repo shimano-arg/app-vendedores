@@ -7,6 +7,7 @@
 // Record compartido).
 // 2026-09-09 anti-duplicados (Fase 3): import de logica pura + chequeo
 // pre-submit contra Firestore por ticketNormalizado.
+import { safeDownloadHref, safeImgSrc } from '../pure/html-safe.js';
 import { chequearMatchDuplicado, normalizarTicket } from '../pure/rendicion-duplicate.js';
 
 // Módulo extraído verbatim: tipado real fuera de scope E2.e.
@@ -279,7 +280,7 @@ function refreshRendAdjGrid() {
   if (rdSolicitudAdj) {
     const isImg = rdSolicitudAdj.type && rdSolicitudAdj.type.startsWith('image/');
     const preview = isImg
-      ? '<img src="' + rdSolicitudAdj.data + '"/>'
+      ? '<img src="' + safeImgSrc(rdSolicitudAdj.data) + '"/>'
       : '<div style="font-size:9px;text-align:center;padding:14px 4px;color:var(--text-secondary);word-break:break-all"><br>' +
         escapeHtml(rdSolicitudAdj.name) +
         '</div>';
@@ -433,7 +434,7 @@ function refreshRendFotoGrid() {
   if (rdGastoFoto) {
     grid.innerHTML =
       '<div class="photo-cell"><img src="' +
-      rdGastoFoto +
+      safeImgSrc(rdGastoFoto) +
       '"/><button type="button" class="rm" onclick="removeRendFotoTicket()">&times;</button></div>';
   } else {
     grid.innerHTML =
@@ -1578,7 +1579,8 @@ window.openRendicionDetail = async function (rendId, notifId) {
       h += '</div>';
       // v308+: preferir fotoTicketUrl (Firebase Storage) sobre fotoTicket
       // (base64 legacy). Docs viejos siguen funcionando via fallback.
-      const _tSrc = r.fotoTicketUrl || r.fotoTicket || '';
+      // sec 2026-11-24: src saneado (solo data:image/* o https:).
+      const _tSrc = safeImgSrc(r.fotoTicketUrl || r.fotoTicket || '');
       if (_tSrc)
         h +=
           '<div style="margin-top:10px"><b>Ticket:</b><br><img src="' +
@@ -1609,15 +1611,17 @@ window.openRendicionDetail = async function (rendId, notifId) {
           '<div style="margin-top:10px"><b>Adjunto:</b> ' +
           escapeHtml(r.adjunto.name || '') +
           '<br>';
-        if (isImg)
+        const _adjImg = isImg ? safeImgSrc(r.adjunto.data) : '';
+        const _adjHref = isImg ? '' : safeDownloadHref(r.adjunto.data);
+        if (_adjImg)
           h +=
             '<img src="' +
-            r.adjunto.data +
+            _adjImg +
             '" id="rd-adj-img" style="max-width:300px;border-radius:6px;border:1px solid var(--border-subtle);cursor:pointer" onclick="openImgViewer(\'rd-adj-img\')"/>';
-        else
+        else if (_adjHref)
           h +=
             '<a href="' +
-            r.adjunto.data +
+            _adjHref +
             '" download="' +
             escapeAttr(r.adjunto.name || 'adjunto') +
             '" style="color:#0891b2;font-weight:700">&#11015; Descargar</a>';
