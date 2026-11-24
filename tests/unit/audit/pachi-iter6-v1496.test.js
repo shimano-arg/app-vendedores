@@ -149,21 +149,25 @@ describe('v1496 §95 — timestamp 24h ART', () => {
 });
 
 describe('v1496 §95 — fetchStockLiveCF acepta PACHI_UIDS', () => {
+  // SEC F1A-H9 (2026-11-24): el gate de fetchStockLiveCF pasó de
+  // "dominio Shimano OR PACHI_UIDS" a "rol aprobado (roles/{uid}) OR
+  // PACHI_UIDS". La excepción PACHI se mantiene; los UIDs viven ahora en
+  // functions/core/caller-role-gate.js (PACHI_UIDS exportado).
   it('T40 functions/index.js include PACHI_UIDS en el gate', () => {
     const idx = FUNCTIONS_INDEX.indexOf('const fetchStockLiveCF = onCall');
     expect(idx).toBeGreaterThan(0);
     const slice = FUNCTIONS_INDEX.slice(idx, idx + 2500);
-    expect(slice).toMatch(/PACHI_UIDS/);
-    expect(slice).toMatch(/LaBFi1xkSLObzLEdRoP8fonZ06r2/);
-    expect(slice).toMatch(/tUJHiLDyLHWvbkpWgCQXWJcucfV2/);
+    expect(slice).toMatch(/extraAllowedUids: PACHI_UIDS/);
+    const gate = readFileSync('functions/core/caller-role-gate.js', 'utf8');
+    expect(gate).toMatch(/LaBFi1xkSLObzLEdRoP8fonZ06r2/);
+    expect(gate).toMatch(/tUJHiLDyLHWvbkpWgCQXWJcucfV2/);
   });
 
-  it('T41 el gate acepta Shimano domain OR PACHI_UIDS', () => {
+  it('T41 el gate acepta rol aprobado OR PACHI_UIDS (ya no dominio)', () => {
     const idx = FUNCTIONS_INDEX.indexOf('const fetchStockLiveCF = onCall');
     const slice = FUNCTIONS_INDEX.slice(idx, idx + 2500);
-    expect(slice).toMatch(/_isShimanoDomain/);
-    expect(slice).toMatch(/_isPachi/);
-    expect(slice).toMatch(/!_isShimanoDomain && !_isPachi/);
+    expect(slice).toMatch(/_requireApprovedRole\(getFirestore\(\), auth, 'fetch_stock_live'/);
+    expect(slice).not.toMatch(/_isShimanoDomain/);
   });
 });
 
