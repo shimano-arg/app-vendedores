@@ -163,7 +163,10 @@ describe('runGeminiOcr — Gemini API', () => {
     expect(body.generationConfig.temperature).toBe(0.1);
   });
 
-  it('response non-2xx → internal error con status', async () => {
+  it('response non-2xx (429/5xx transient) → unavailable, mensaje generico', async () => {
+    // SEC-M5 (HARDENING5 B2, 2026-11-19): el core sanitiza el mensaje
+    // (no propaga status ni body de Gemini al cliente). Code semantico:
+    // 'unavailable' para 429+5xx (transient), 'internal' para 4xx no auth.
     const deps = makeDeps({
       fetch: vi.fn(async () => ({
         ok: false,
@@ -172,8 +175,8 @@ describe('runGeminiOcr — Gemini API', () => {
       })),
     });
     await expect(runGeminiOcr(deps, validAuth(), validInput())).rejects.toMatchObject({
-      code: 'internal',
-      message: expect.stringContaining('429'),
+      code: 'unavailable',
+      message: expect.stringContaining('Gemini'),
     });
   });
 
@@ -243,14 +246,22 @@ describe('runGeminiOcr — Gemini API', () => {
     });
   });
 
-  it('fetch tira error random → internal wrapping', async () => {
+  it('fetch tira error random → unavailable, mensaje generico (no leak err.message)', async () => {
+    // SEC-M5 (HARDENING5 B2, 2026-11-19): el core sanitiza. El err.message del
+    // fetch puede contener la URL completa con `?key=<API_KEY>` (patron
+    // node-fetch/undici "request to <URL> failed"). NO propagar al cliente.
+    // Code: 'unavailable' (fetch fallo = servicio no disponible).
     const deps = makeDeps({
       fetch: vi.fn(async () => {
         throw new Error('ECONNREFUSED');
       }),
     });
     await expect(runGeminiOcr(deps, validAuth(), validInput())).rejects.toMatchObject({
-      code: 'internal',
+      code: 'unavailable',
+      message: expect.stringContaining('Gemini'),
+    });
+    // Anti-regresion: el mensaje NO debe incluir el err.message interno.
+    await expect(runGeminiOcr(deps, validAuth(), validInput())).rejects.not.toMatchObject({
       message: expect.stringContaining('ECONNREFUSED'),
     });
   });

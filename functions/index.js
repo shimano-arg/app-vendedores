@@ -1370,8 +1370,12 @@ export const applyRepartoManualCF = onCall(
         );
       }
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): rol lookup via Firestore puede
+      // fallar con error que incluye path `/roles/<uid>`. Log full al servidor;
+      // mensaje generico ES al cliente.
       if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'no se pudo validar rol: ' + (e?.message || String(e)));
+      console.error('[applyRepartoManualCF:roleLookup]', e);
+      throw new HttpsError('internal', 'no se pudo validar rol');
     }
     const data = req.data || {};
     const ingresoId = String(data.ingresoId || '').trim();
@@ -1408,8 +1412,14 @@ export const applyRepartoManualCF = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core `reparto-core.js` tira
+      // business errors + Firestore tx errors nativos. El `.message` crudo
+      // filtra docIds/paths. Log full al servidor; mensaje generico ES al
+      // cliente. Business errors (`e._errorCode`) no aplican aca — el core
+      // actual no los expone.
       if (e instanceof HttpsError) throw e;
-      throw new HttpsError('internal', 'reparto fallo: ' + (e?.message || String(e)));
+      console.error('[applyRepartoManualCF:general]', e);
+      throw new HttpsError('internal', 'reparto fallo, reintenta en unos segundos');
     }
   }
 );
@@ -1468,12 +1478,16 @@ export const releaseAsigCF = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core puede tirar business
+      // errors (`e._errorCode` + message pre-sanitizado por mkErr) o
+      // Firestore tx errors nativos. BUSINESS re-throw preservado;
+      // INFRASTRUCTURE log full + mensaje generico ES.
       if (e instanceof HttpsError) throw e;
       if (e && e._errorCode) {
         throw new HttpsError(e._errorCode, e.message || 'release asig fallo');
       }
-      console.error('releaseAsigCF unexpected error', e);
-      throw new HttpsError('internal', 'release asig fallo: ' + (e?.message || String(e)));
+      console.error('[releaseAsigCF:general]', e);
+      throw new HttpsError('internal', 'release asig fallo, reintenta en unos segundos');
     }
   }
 );
@@ -1949,12 +1963,33 @@ export const updateAsigLineStateCF = onCall(
         request.data
       );
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el core `asig-recycle-core.js`
+      // tira `{code, message}` con mensajes pre-sanitizados (hardcoded) —
+      // esos son OK propagar. Pero un error nativo (Firestore tx) también
+      // puede tener forma `{code, message}` en algunas versiones del SDK
+      // con message conteniendo doc paths. Whitelist de codes canónicos
+      // HttpsError: si no entra, degradamos a 'internal' + mensaje genérico.
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'not-found',
+        'failed-precondition',
+        'already-exists',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+        'aborted',
+        'out-of-range',
+      ]);
       if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
         const err = /** @type {{code: string, message: string}} */ (e);
-        throw new HttpsError(/** @type {any} */ (err.code), err.message);
+        if (SAFE_CODES.has(String(err.code))) {
+          throw new HttpsError(/** @type {any} */ (err.code), err.message);
+        }
       }
-      console.error('updateAsigLineStateCF unexpected error', e);
-      throw new HttpsError('internal', 'Error interno updateAsigLineState');
+      console.error('[updateAsigLineStateCF:general]', e);
+      throw new HttpsError('internal', 'error interno al actualizar estado');
     }
   }
 );
@@ -2036,12 +2071,26 @@ export const geminiOcrProxy = onCall(
         request.data
       );
     } catch (e) {
-      if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
-        const err = /** @type {{code: string, message: string}} */ (e);
-        throw new HttpsError(/** @type {any} */ (err.code), err.message);
-      }
-      console.error('geminiOcrProxy unexpected error', e);
-      throw new HttpsError('internal', 'Error interno geminiOcrProxy');
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el mensaje de un error de red
+      // puede incluir datos internos. Nunca re-propagar `err.message` crudo. Whitelist de codes canónicos
+      // HttpsError; fallback `internal` + mensaje genérico ES.
+      console.error('[geminiOcrProxy:general]', e);
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'deadline-exceeded',
+        'unavailable',
+        'failed-precondition',
+        'resource-exhausted',
+        'not-found',
+      ]);
+      const errAny = /** @type {any} */ (e);
+      const codeIn = String(errAny && errAny.code ? errAny.code : '');
+      const code = SAFE_CODES.has(codeIn) ? codeIn : 'internal';
+      throw new HttpsError(/** @type {any} */ (code), 'OCR fallo, reintenta en unos segundos', {
+        errorCode: 'GEMINI_OCR_FAILED',
+      });
     }
   }
 );
@@ -3057,9 +3106,12 @@ export const setupGetMovimientos = onCall(
         fetchedAtIso: new Date().toISOString(),
       };
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): fetch a sistema SETUP externo
+      // puede fallar con mensajes que incluyen URL + body. Log full al
+      // servidor; mensaje generico ES al cliente.
       if (e instanceof HttpsError) throw e;
-      console.error('setupGetMovimientos unexpected error', e);
-      throw new HttpsError('internal', String(e && e.message ? e.message : e));
+      console.error('[setupGetMovimientos:general]', e);
+      throw new HttpsError('internal', 'error al procesar movimientos');
     }
   }
 );
@@ -3218,10 +3270,26 @@ export const resendPlannerEmail = onCall(
         log: console,
       });
     } catch (err) {
-      if (err?.code && err?.message) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el fallback previo exponía
+      // `err?.message` en el campo `details` del HttpsError (que el SDK
+      // callable sí entrega al cliente), que podía incluir datos internos
+      // del proveedor de correo. Log full server-side; sin `details`.
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'not-found',
+        'failed-precondition',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+        'aborted',
+      ]);
+      if (err?.code && err?.message && SAFE_CODES.has(String(err.code))) {
         throw new HttpsError(err.code, err.message);
       }
-      throw new HttpsError('internal', 'Resend failed', { detail: err?.message });
+      console.error('[resendPlannerEmail:general]', err);
+      throw new HttpsError('internal', 'reenvio fallo, reintenta en unos segundos');
     }
   }
 );
@@ -3311,33 +3379,41 @@ export const triggerPlannerSync = onCall(
           ...r,
         });
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el summary se retorna al cliente
+      // (admin/gerente/interno). Los cores sync-* tiran errors con URL SL,
+      // companyDB, docEntries SAP → leak de infra. Log full al servidor;
+      // mensaje generico en el summary.
+      console.error('[triggerPlannerSync:invoices]', e);
       summary.errors.push({
         step: 'invoices',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar facturas',
       });
     }
     try {
       summary.orders = await syncSapOrders(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:orders]', e);
       summary.errors.push({
         step: 'orders',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar ordenes de venta',
       });
     }
     try {
       summary.payments = await handleSyncSapPayments(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:payments]', e);
       summary.errors.push({
         step: 'payments',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar cobranzas',
       });
     }
     try {
       summary.closures = await syncSapQuotationClosures(deps);
     } catch (e) {
+      console.error('[triggerPlannerSync:closures]', e);
       summary.errors.push({
         step: 'closures',
-        message: /** @type {any} */ (e)?.message || String(e),
+        message: 'error al sincronizar cierres de cotizacion',
       });
     }
     console.log('triggerPlannerSync summary', summary);
@@ -3478,9 +3554,29 @@ export const triggerRendicionesEmailManual = onCall(
       );
       return r;
     } catch (e) {
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el handler puede fallar con
+      // errores de un servicio externo cuyo message puede incluir datos
+      // internos. Whitelist de codes canónicos; mensaje genérico
+      // ES al cliente.
+      console.error('[triggerRendicionesEmailManual:general]', e);
       const err = /** @type {any} */ (e);
-      console.error('[triggerRendicionesEmailManual] error', err);
-      throw new HttpsError(err.code || 'internal', err.message || String(err));
+      if (err instanceof HttpsError) throw err;
+      const SAFE_CODES = new Set([
+        'unauthenticated',
+        'permission-denied',
+        'invalid-argument',
+        'failed-precondition',
+        'resource-exhausted',
+        'deadline-exceeded',
+        'unavailable',
+      ]);
+      if (err && err.code && SAFE_CODES.has(String(err.code)) && typeof err.message === 'string') {
+        throw new HttpsError(err.code, err.message);
+      }
+      throw new HttpsError(
+        'internal',
+        'error al disparar el envio de rendiciones, avisale a Mariano'
+      );
     }
   }
 );
@@ -4036,7 +4132,8 @@ export const commitPedidoCF = onCall(
       // El cliente lo interpreta por `errorCode`.
       return r;
     } catch (e) {
-      // Error inesperado (no de negocio). Log + throw.
+      // Error inesperado (no de negocio). Log + throw. SEC-M5: el mensaje al
+      // cliente es genérico; el detalle queda en Cloud Logging y operations_log.
       // Incidente Fase 2 (2026-11-24, observabilidad): antes del throw,
       // persistimos a operations_log con context operacional (sin PII, sin
       // stack trace). Esto permite correlacionar INTERNAL con timestamp,
@@ -4072,7 +4169,7 @@ export const commitPedidoCF = onCall(
           (_logErr && _logErr.message) || _logErr
         );
       }
-      console.error('commitPedidoCF unexpected', e);
+      console.error('[commitPedidoCF:general]', e);
       throw new HttpsError('internal', 'error inesperado, reintenta en unos segundos');
     }
   }
@@ -4113,8 +4210,11 @@ export const updatePedidoLinesCF = onCall(
       );
       return r;
     } catch (e) {
-      console.error('updatePedidoLinesCF unexpected', e);
-      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): el `.message` de errors
+      // de Firestore tx puede filtrar docIds + colecciones. Log full
+      // al servidor; mensaje genérico ES al cliente.
+      console.error('[updatePedidoLinesCF:general]', e);
+      throw new HttpsError('internal', 'error inesperado al guardar lineas');
     }
   }
 );
@@ -4643,8 +4743,11 @@ export const movePedidoToWaitlistCF = onCall(
         const errData = /** @type {any} */ (e)._errorData || undefined;
         throw new HttpsError(/** @type {any} */ (e)._errorCode, e.message || 'move fallo', errData);
       }
-      console.error('movePedidoToWaitlistCF unexpected', e);
-      throw new HttpsError('internal', 'move fallo: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): Firestore tx errors nativos
+      // pueden filtrar docIds/paths. Log full al servidor; mensaje generico
+      // ES. Business errors (_errorCode + _errorData) preservados arriba.
+      console.error('[movePedidoToWaitlistCF:general]', e);
+      throw new HttpsError('internal', 'operacion fallo, reintenta en unos segundos');
     }
   }
 );
@@ -4703,8 +4806,11 @@ export const unifyWaitlistsCF = onCall(
           errData
         );
       }
-      console.error('unifyWaitlistsCF unexpected', e);
-      throw new HttpsError('internal', 'unify fallo: ' + (e?.message || String(e)));
+      // SEC-M5 (HARDENING5 B2, 2026-11-19): Firestore tx errors nativos
+      // pueden filtrar docIds/paths de los waitlists absorbidos. Log full
+      // al servidor; mensaje generico ES. Business errors preservados arriba.
+      console.error('[unifyWaitlistsCF:general]', e);
+      throw new HttpsError('internal', 'unify fallo, reintenta en unos segundos');
     }
   }
 );
