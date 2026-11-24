@@ -23,13 +23,19 @@
  * @param {{ auth: any, action: 'remove_item'|'rechazo_cpst'|string, waitlistId: string, itemIndex?: number }} params
  */
 
-import { evaluateCallerRole } from './caller-role-gate.js';
+import { evaluateCallerRole, ROLE_CHECK_UNAVAILABLE_MESSAGE } from './caller-role-gate.js';
 import { collectAsigRefsForCancel, collectAsigRefsForItemCancel } from './cpst-cancel-refs.js';
 
 /** Error with code — compatible con HttpsError pero sin importar firebase-functions. */
-function mkErr(/** @type {string} */ code, /** @type {string} */ message) {
+/**
+ * @param {string} code
+ * @param {string} message
+ * @param {any} [details]
+ */
+function mkErr(code, message, details) {
   const e = /** @type {any} */ (new Error(message));
   e._errorCode = code;
+  if (details) e._errorDetails = details;
   return e;
 }
 
@@ -61,8 +67,17 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     roleData = roleSnap && roleSnap.exists !== false ? roleSnap.data() || null : null;
     role = String((roleData || {}).role || '').toLowerCase();
   } catch (e) {
-    // Si no se puede leer rol → unauthenticated (nunca permission-denied).
-    throw mkErr('internal', 'no se pudo resolver rol: ' + ((e && e.message) || String(e)));
+    // Lectura de rol fallida: rechazo reintentable (falla cerrada). El
+    // detalle queda en el log del servidor, no en el mensaje al cliente.
+    if (deps.log) {
+      deps.log('releaseAsigCore roles/{uid} read failed', {
+        uid: auth.uid,
+        err: (e && e.message) || String(e),
+      });
+    }
+    throw mkErr('unavailable', ROLE_CHECK_UNAVAILABLE_MESSAGE, {
+      errorCode: 'ROLE_CHECK_UNAVAILABLE',
+    });
   }
 
   // === FETCH WAITLIST (snapshot inicial fuera de la tx para pre-validar) ===
@@ -81,9 +96,19 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
   const isOwner = w.ownerUid === auth.uid && evaluateCallerRole(roleData, auth.uid).ok;
   const isAssignedVendor = role === 'vendedor' && w.assignedVendorUid === auth.uid;
   if (!isPrivileged && !isOwner && !isAssignedVendor) {
+    // Sin rol aprobado → ROLE_REQUIRED (mensaje de rol); con rol aprobado pero
+    // sin vínculo con la orden → RELEASE_PERMISSION_DENIED.
+    const roleCheck = evaluateCallerRole(roleData, auth.uid);
+    if (!roleCheck.ok) {
+      throw mkErr('permission-denied', roleCheck.message, {
+        errorCode: 'ROLE_REQUIRED',
+        reason: roleCheck.reason,
+      });
+    }
     throw mkErr(
       'permission-denied',
-      'solo admin, gerente, Pablo o el vendedor del cliente (ownerUid/assignedVendorUid) puede operar'
+      'solo admin, gerente, Pablo o el vendedor del cliente (ownerUid/assignedVendorUid) puede operar',
+      { errorCode: 'RELEASE_PERMISSION_DENIED' }
     );
   }
 

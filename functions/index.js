@@ -1602,7 +1602,11 @@ export const releaseAsigCF = onCall(
       // INFRASTRUCTURE log full + mensaje generico ES.
       if (e instanceof HttpsError) throw e;
       if (e && e._errorCode) {
-        throw new HttpsError(e._errorCode, e.message || 'release asig fallo');
+        // El core adjunta `_errorDetails.errorCode` cuando rechaza por rol o
+        // permiso, para que el cliente muestre el mensaje correspondiente.
+        const details =
+          e._errorDetails && typeof e._errorDetails === 'object' ? e._errorDetails : undefined;
+        throw new HttpsError(e._errorCode, e.message || 'release asig fallo', details);
       }
       console.error('[releaseAsigCF:general]', e);
       throw new HttpsError('internal', 'release asig fallo, reintenta en unos segundos');
@@ -4515,7 +4519,9 @@ function _buildAuthSecretsDeps(db) {
  * SEC F1A (2026-11-24): exige rol aprobado (vendedor/interno/gerente/admin)
  * leido server-side de roles/{uid}. Rechazo -> HttpsError permission-denied
  * con details.errorCode='ROLE_REQUIRED' + registro en operations_log
- * (lo hace authorizeCaller con await). Falla cerrada si la lectura falla.
+ * (lo hace authorizeCaller con await). Falla cerrada si la lectura falla:
+ * en ese caso sale 'unavailable' con details.errorCode='ROLE_CHECK_UNAVAILABLE'
+ * (reintentable).
  * @param {any} db
  * @param {{uid: string, token?: any}} auth
  * @param {string} via  prefijo del type en operations_log (`<via>_rejected`).
@@ -4534,7 +4540,7 @@ async function _requireApprovedRole(db, auth, via, opts = {}) {
   if (!r.ok) {
     console.warn(`${via} rechazado por rol`, { uid: auth.uid, reason: r.reason, role: r.role });
     throw new HttpsError(/** @type {any} */ (r.code), r.message, {
-      errorCode: 'ROLE_REQUIRED',
+      errorCode: r.errorCode || 'ROLE_REQUIRED',
       reason: r.reason,
     });
   }

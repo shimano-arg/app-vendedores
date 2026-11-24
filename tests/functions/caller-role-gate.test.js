@@ -175,7 +175,12 @@ describe('B — authorizeCaller', () => {
       email: 'intruso@gmail.com',
       via: 'commit_pedido',
     });
-    expect(r).toMatchObject({ ok: false, code: 'permission-denied', reason: 'sin_doc_rol' });
+    expect(r).toMatchObject({
+      ok: false,
+      code: 'permission-denied',
+      reason: 'sin_doc_rol',
+      errorCode: 'ROLE_REQUIRED',
+    });
     expect(db.logs).toHaveLength(1);
     expect(db.logs[0]).toMatchObject({
       type: 'commit_pedido_rejected',
@@ -205,8 +210,17 @@ describe('B — authorizeCaller', () => {
   it('falla la lectura de roles → rechazo (falla cerrada), incluso para PACHI', async () => {
     const db = makeDb({}, { failRead: true });
     const r = await authorizeCaller({ fbDb: db, uid: 'v', via: 'y' });
-    expect(r).toMatchObject({ ok: false, reason: 'error_lectura_rol' });
+    // Falla cerrada pero reintentable: 'unavailable' + ROLE_CHECK_UNAVAILABLE
+    // (no "pedile un rol a Mariano"). Sigue quedando registrado.
+    expect(r).toMatchObject({
+      ok: false,
+      code: 'unavailable',
+      reason: 'error_lectura_rol',
+      errorCode: 'ROLE_CHECK_UNAVAILABLE',
+    });
+    expect(r.message).not.toMatch(/rol/i);
     expect(db.logs[0].roleReadError).toBe('read boom');
+    expect(db.logs[0].errorCode).toBe('ROLE_CHECK_UNAVAILABLE');
     const r2 = await authorizeCaller({
       fbDb: db,
       uid: PACHI,
@@ -428,7 +442,18 @@ describe('C — contrato de los wrappers en functions/index.js', () => {
       /import \{ authorizeCaller, PACHI_UIDS \} from '\.\/core\/caller-role-gate\.js';/
     );
     expect(src).toMatch(/async function _requireApprovedRole\(/);
-    expect(src).toMatch(/errorCode: 'ROLE_REQUIRED'/);
+    // El wrapper propaga el errorCode del gate (ROLE_REQUIRED o, si falló la
+    // lectura del rol, ROLE_CHECK_UNAVAILABLE) con ROLE_REQUIRED por defecto.
+    expect(src).toMatch(/errorCode: r\.errorCode \|\| 'ROLE_REQUIRED'/);
+  });
+
+  it('releaseAsigCF: propaga details del core (errorCode de rol/permiso)', () => {
+    const i = src.indexOf('export const releaseAsigCF');
+    const block = src.slice(i, src.indexOf('\n);\n', i));
+    expect(block).toMatch(/e\._errorDetails/);
+    expect(block).toMatch(
+      /new HttpsError\(e\._errorCode, e\.message \|\| 'release asig fallo', details\)/
+    );
   });
 
   it('commitPedidoCF: exige rol y ya no acepta gmail.com por dominio', () => {

@@ -35,6 +35,13 @@ export const PACHI_UIDS = Object.freeze([
 export const ROLE_REQUIRED_MESSAGE =
   'Tu usuario no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.';
 
+/**
+ * Mensaje cuando no se pudo leer el rol (falla transitoria). Sigue siendo un
+ * rechazo (falla cerrada), pero reintentar alcanza: no hay que pedir un rol.
+ */
+export const ROLE_CHECK_UNAVAILABLE_MESSAGE =
+  'No pudimos verificar tu permiso en este momento. Volvé a intentar en un minuto; si sigue, avisale a Mariano.';
+
 /** Mensaje para usuario deshabilitado. */
 export const USER_DISABLED_MESSAGE =
   'Tu usuario está deshabilitado. Si creés que es un error, avisale a Mariano.';
@@ -168,7 +175,11 @@ export function evaluateCallerRole(roleDoc, uid, opts = {}) {
  *   log?: (msg: string, extra?: any) => void,
  *   now?: number,
  * }} params
- * @returns {Promise<{ok: boolean, code: string, message: string, role: string, reason: string}>}
+ * Si la lectura falla, el rechazo sale con `code: 'unavailable'` y
+ * `errorCode: 'ROLE_CHECK_UNAVAILABLE'` (reintentable); el resto de los
+ * rechazos usa `errorCode: 'ROLE_REQUIRED'`.
+ *
+ * @returns {Promise<{ok: boolean, code: string, message: string, role: string, reason: string, errorCode?: string}>}
  */
 export async function authorizeCaller(params) {
   const { fbDb, uid, email = '', via, extraAllowedUids } = params;
@@ -187,20 +198,22 @@ export async function authorizeCaller(params) {
     }
   }
 
-  /** @type {{ok: boolean, code: string, message: string, role: string, reason: string}} */
+  /** @type {{ok: boolean, code: string, message: string, role: string, reason: string, errorCode?: string}} */
   let result;
   if (roleReadError !== null) {
     result = {
       ok: false,
-      code: 'permission-denied',
-      message: ROLE_REQUIRED_MESSAGE,
+      code: 'unavailable',
+      message: ROLE_CHECK_UNAVAILABLE_MESSAGE,
       role: '',
       reason: 'error_lectura_rol',
+      errorCode: 'ROLE_CHECK_UNAVAILABLE',
     };
   } else {
     result = evaluateCallerRole(roleDoc, uid, { extraAllowedUids });
   }
   if (result.ok || result.code === 'unauthenticated') return result;
+  if (!result.errorCode) result = Object.assign({}, result, { errorCode: 'ROLE_REQUIRED' });
 
   const now = typeof params.now === 'number' ? params.now : Date.now();
   const dedupeKey = `${via}|${uid}`;
@@ -219,7 +232,7 @@ export async function authorizeCaller(params) {
   try {
     await fbDb.collection('operations_log').add({
       type: `${via}_rejected`,
-      errorCode: 'ROLE_REQUIRED',
+      errorCode: result.errorCode,
       reason: result.reason,
       userId: uid,
       userEmail: email || null,
@@ -232,7 +245,7 @@ export async function authorizeCaller(params) {
   } catch (logErr) {
     if (prev) _rejectionLogState.set(dedupeKey, prev);
     else _rejectionLogState.delete(dedupeKey);
-    log(`${via} operations_log write failed on ROLE_REQUIRED`, {
+    log(`${via} operations_log write failed on ${result.errorCode}`, {
       uid,
       err: String((logErr && /** @type {any} */ (logErr).message) || logErr),
     });

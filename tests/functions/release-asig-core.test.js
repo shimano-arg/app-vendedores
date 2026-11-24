@@ -664,4 +664,68 @@ describe('SEC F1A-H12 releaseAsigCore — isOwner exige rol aprobado', () => {
     const { caught } = await runAsOwner({ role: 'vendedor', disabled: true });
     expect(caught?._errorCode).toBe('permission-denied');
   });
+
+  it('dueño sin rol aprobado → details.errorCode ROLE_REQUIRED', async () => {
+    const { caught } = await runAsOwner({ role: 'viewer' });
+    expect(caught?._errorCode).toBe('permission-denied');
+    expect(caught?._errorDetails?.errorCode).toBe('ROLE_REQUIRED');
+  });
+
+  it('vendedor aprobado sin vínculo con la orden → details.errorCode RELEASE_PERMISSION_DENIED', async () => {
+    const state = makeBaseState();
+    state.revision_waitlist.wl1.ownerUid = 'otro-owner';
+    state.revision_waitlist.wl1.assignedVendorUid = 'otro-vde';
+    state.roles['vde-ajeno'] = { role: 'vendedor' };
+    const { fbDb } = makeMockDb(state);
+    let caught;
+    try {
+      await releaseAsigCore(
+        { fbDb },
+        {
+          auth: { uid: 'vde-ajeno', token: { email: 'vde@shimano.com.ar' } },
+          action: 'rechazo_cpst',
+          waitlistId: 'wl1',
+        }
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught?._errorCode).toBe('permission-denied');
+    expect(caught?._errorDetails?.errorCode).toBe('RELEASE_PERMISSION_DENIED');
+  });
+
+  it('falla la lectura de roles → unavailable + ROLE_CHECK_UNAVAILABLE, sin detalle interno', async () => {
+    const state = makeBaseState();
+    const { fbDb } = makeMockDb(state);
+    const realCollection = fbDb.collection;
+    fbDb.collection = (name) => {
+      if (name === 'roles') {
+        return {
+          doc: () => ({
+            get: async () => {
+              throw new Error('read boom /roles/x');
+            },
+          }),
+        };
+      }
+      return realCollection(name);
+    };
+    let caught;
+    try {
+      await releaseAsigCore(
+        { fbDb },
+        {
+          auth: { uid: 'owner-uid', token: { email: 'owner@shimano.com.ar' } },
+          action: 'rechazo_cpst',
+          waitlistId: 'wl1',
+        }
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught?._errorCode).toBe('unavailable');
+    expect(caught?._errorDetails?.errorCode).toBe('ROLE_CHECK_UNAVAILABLE');
+    expect(String(caught?.message)).not.toContain('boom');
+    expect(state.pedidos['ped-origen'].lines[0].state).toBe('ASIG');
+  });
 });
