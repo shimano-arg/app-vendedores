@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1568';
+const APP_VERSION = 'v1569';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -11263,7 +11263,7 @@ function drawHabilitadosPins(){
       + '<b>Localidad:</b> ' + escapeHtml(m.locality || '-') + '<br>'
       + '<b>Provincia:</b> ' + escapeHtml(titleCase(province))
       + '</div>'
-      + '<div style="margin-top:6px"><button onclick="openClientModal(&quot;' + escapeAttr(clientName) + '&quot;,&quot;' + escapeAttr(tipo) + '&quot;,&quot;' + escapeAttr(province) + '&quot;,&quot;' + escapeAttr(locName) + '&quot;)" style="padding:5px 10px;border:none;border-radius:5px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer">Abrir cliente</button></div>'
+      + '<div style="margin-top:6px"><button onclick="openClientModal(\'' + escapeAttr(clientName) + '\',\'' + escapeAttr(tipo) + '\',\'' + escapeAttr(province) + '\',\'' + escapeAttr(locName) + '\')" style="padding:5px 10px;border:none;border-radius:5px;background:#00A9E0;color:#fff;font-size:11px;font-weight:700;cursor:pointer">Abrir cliente</button></div>'
       + '</div>';
     marker.bindPopup(popup);
     marker.addTo(clientPinLayer);
@@ -11381,7 +11381,7 @@ function populateLocalities(){
     locs.push(p.name);
   });
   locs.sort((a, b) => a.localeCompare(b));
-  sel.innerHTML = '<option value="ALL">Todas</option>' + locs.map(p => '<option value="' + p.replace(/"/g, '&quot;') + '">' + p + '</option>').join('');
+  sel.innerHTML = '<option value="ALL">Todas</option>' + locs.map(p => '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>').join('');
   if (currentLocality !== 'ALL' && !locs.includes(currentLocality)) currentLocality = 'ALL';
   sel.value = currentLocality;
 }
@@ -12214,8 +12214,17 @@ function renderClients(pts){
   updateContactSummary();
 }
 
+// sec 2026-11-24: escapa `&` primero (el navegador decodifica entidades del
+// atributo antes de ejecutar un handler inline), después `\` y `'` con barra
+// y `"`, `<`, `>` como entidades. Copia idéntica en src/pure/html-safe.js
+// (test de sincronía tests/unit/audit/html-safe-sync.test.js).
 function escapeAttr(s){
-  return String(s).replace(/[\\']/g, '\\$&').replace(/"/g, '&quot;');
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/[\\']/g, '\\$&')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 window.onClientCheck = function(key, cb){
@@ -18314,7 +18323,10 @@ window._maybeFetchLiveStockForWaitlist = async function(w){
   } catch (e) {
     console.warn('[live-sl] fetchStockLiveCF error', (e && e.message) || e);
     window._liveStockFisico = null;
-    window._liveStockMeta = { reason: 'callable_error', fetchedAt: new Date().toISOString(), snapshotFallback: true };
+    // ROLE_REQUIRED (gate de rol server-side): mismo fallback silencioso al
+    // snapshot; el motivo queda registrado para diagnóstico.
+    const _liveRoleReq = !!(e && e.details && e.details.errorCode === 'ROLE_REQUIRED');
+    window._liveStockMeta = { reason: _liveRoleReq ? 'role_required' : 'callable_error', fetchedAt: new Date().toISOString(), snapshotFallback: true };
     window._updateLiveStockBadge();
   }
 };
@@ -18609,7 +18621,9 @@ window._tryCommitPedidoCF = async function(docData){
 
       // Rama NEGOCIO: NUNCA fallback, devolver errorCode.
       console.error('[_tryCommitPedidoCF] error de negocio NO cae a fallback:', code, message);
+      const _isRoleReq = !!(e && e.details && e.details.errorCode === 'ROLE_REQUIRED');
       const mappedErrorCode =
+        _isRoleReq ? 'ROLE_REQUIRED' :
         code === 'functions/unauthenticated' || code === 'functions/permission-denied' ? 'PERMISSION_DENIED' :
         code === 'functions/invalid-argument' ? 'VALIDATION_ERROR' :
         'INTERNAL';
@@ -19876,6 +19890,14 @@ window._gbConfirmar = async function(){
     const _gbCfResult = await (window._tryCommitPedidoCF
       ? window._tryCommitPedidoCF(docData)
       : Promise.resolve(null));
+    if (_gbCfResult && _gbCfResult.ok === false && _gbCfResult.errorCode === 'ROLE_REQUIRED') {
+      const _mvGb = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+      alert(_mvGb && _mvGb.formatMensajeConCodigo
+        ? _mvGb.formatMensajeConCodigo('ROLE_REQUIRED')
+        : 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.\n\nCódigo técnico: ROLE_REQUIRED');
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar Backorder'; }
+      return;
+    }
     if (!_gbCfResult || _gbCfResult.ok !== true) {
       const _msg = _gbCfResult && _gbCfResult.ok === false
         ? (_gbCfResult.message || _gbCfResult.errorCode || 'error desconocido')
@@ -27558,6 +27580,16 @@ window._wcardDeleteChoiceClose = function(){
 // §63 (2026-10-23 v1442): la cancelación cross-vendor va server-side via
 // releaseAsigCF. El cliente solo invoca la callable; el servidor valida
 // permiso + ejecuta el batch con runTransaction (§58).
+// Gate de rol server-side (releaseAsigCF y otros callables): si el error es
+// permission-denied con details.errorCode='ROLE_REQUIRED', devuelve el mensaje
+// humano de mensajes-vendedor (§68); si no, null.
+window._roleRequiredAlertText = function(e){
+  if (!(e && e.details && e.details.errorCode === 'ROLE_REQUIRED')) return null;
+  const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+  return (_mv && _mv.formatMensajeConCodigo)
+    ? _mv.formatMensajeConCodigo('ROLE_REQUIRED')
+    : 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.\n\nCódigo técnico: ROLE_REQUIRED';
+};
 window._wcardDeleteChoicePick = async function(choice){
   const pending = window._wcardDeleteChoicePending;
   if (!pending || !pending.waitlist || !pending.waitlist._id) {
@@ -27612,7 +27644,7 @@ window._wcardDeleteChoicePick = async function(choice){
     try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
   } catch (e) {
     console.error('_wcardDeleteChoicePick commit', e);
-    alert('Error aplicando el cambio: ' + (e.message || e));
+    alert(window._roleRequiredAlertText(e) || ('Error aplicando el cambio: ' + (e.message || e)));
     if (modal) modal.classList.remove('open');
     window._wcardDeleteChoicePending = null;
   }
@@ -27712,7 +27744,7 @@ window.waitlistRemoveItem = async function(docId, idx){
     } catch (e) {
       console.error('waitlistRemoveItem (release via CF)', e);
       // Rollback optimistic: re-fetch del server.
-      alert('Error guardando: ' + ((e && e.message) || e));
+      alert(window._roleRequiredAlertText(e) || ('Error guardando: ' + ((e && e.message) || e)));
     }
     return;
   }
@@ -37144,7 +37176,7 @@ function renderPlannerCard(pedido, column) {
       ' data-pedido-id="' + escapeHtml(pedido.id) + '"' +
       ' data-column="' + column + '"' +
       ' draggable="true"' +
-      ' onclick="openPlannerCardModal(\'' + escapeHtml(pedido.id) + '\')">' +
+      ' onclick="openPlannerCardModal(\'' + escapeAttr(pedido.id) + '\')">' +
       '<div class="planner-card-cliente">' + cliente + '</div>' +
       '<div class="planner-card-meta">' + vdi + ' · ' + escapeHtml(fecha) + '</div>' +
       _ageBadgeHtml +
@@ -37850,7 +37882,7 @@ function renderPlannerModalHistorial(pedido) {
 
   return (
     '<div style="margin-bottom:20px;">' +
-      '<button onclick="resendPlannerNotif(\'' + escapeHtml(currentCol) + '\')"' +
+      '<button onclick="resendPlannerNotif(\'' + escapeAttr(currentCol) + '\')"' +
         ' style="background:#007AFF;color:white;padding:9px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;">' +
         escapeHtml(btnLabel) +
       '</button>' +
@@ -38987,6 +39019,11 @@ window._doConfirmPedidoImpl = async function(){
         // el pedido se pasó a pendientes. El pedido derivado NO se creó —
         // es seguro que el VDE vuelva a armar la selección.
         alert(_fmt(code));
+      } else if (code === 'ROLE_REQUIRED') {
+        // Gate de rol server-side: sin rol aprobado. Reintentar no sirve.
+        alert(_mv && _mv.formatMensajeConCodigo
+          ? _fmt(code)
+          : 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.\n\nCódigo técnico: ROLE_REQUIRED');
       } else if (code === 'VALIDATION_ERROR' || code === 'PERMISSION_DENIED' || code === 'SAP_UNAVAILABLE' || code === 'INTERNAL') {
         alert(_fmt(code));
       } else {

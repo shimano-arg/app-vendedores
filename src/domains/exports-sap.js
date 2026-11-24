@@ -36,6 +36,8 @@
 // SECCIÓN: CSV helpers + exportSapReadyCsv + panel mapeo clientes/productos + exports mapeo (inline L16515-17170)
 // =====================================================================
 
+import { jsArgAttr } from '../pure/html-safe.js';
+
 function rowsToCsv(rows) {
   return rows.map((r) => r.map(csvEscape).join(',')).join('\r\n');
 }
@@ -699,7 +701,7 @@ function renderSapClientes() {
         '" value="' +
         escapeHtml(cur) +
         '" placeholder="0010025478" onkeydown="if(event.key===\'Enter\')this.blur()" onblur="saveClienteSAP(' +
-        JSON.stringify(n).replace(/"/g, '&quot;') +
+        jsArgAttr(n) +
         ', this.value, this)"/></td>';
       html +=
         '<td>' +
@@ -916,7 +918,7 @@ function renderSapProductos() {
         '" value="' +
         escapeHtml(cur) +
         '" placeholder="(igual a codigo App)" onkeydown="if(event.key===\'Enter\')this.blur()" onblur="saveMaterialSAP(' +
-        JSON.stringify(p.code).replace(/"/g, '&quot;') +
+        jsArgAttr(p.code) +
         ', this.value, this)"/></td>';
       html +=
         '<td>' +

@@ -270,7 +270,7 @@ async function refreshCampaignsList() {
           if (tab === 'active') {
             html +=
               '<button onclick="removeSkuFromCampaign(\'' +
-              c._id +
+              escapeAttr(c._id) +
               "','" +
               skuAttr +
               '\')" title="Quitar este SKU de la campaña" style="background:var(--color-danger);color:#fff;border:none;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.4;cursor:pointer;font-weight:700">×</button>';
@@ -284,12 +284,12 @@ async function refreshCampaignsList() {
       if (tab === 'active') {
         html +=
           '<button class="cli-del" onclick="finalizarCampaign(\'' +
-          c._id +
+          escapeAttr(c._id) +
           '\')" title="Finalizar campa&ntilde;a manualmente (queda en Hist&oacute;ricas)" style="background:var(--color-warning)"></button>';
       } else {
         html +=
           '<button class="cli-del" onclick="deleteCampaign(\'' +
-          c._id +
+          escapeAttr(c._id) +
           '\')" title="Eliminar definitivamente (no se puede recuperar)">&times;</button>';
       }
       html += '</div>';

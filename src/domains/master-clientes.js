@@ -22,6 +22,7 @@
 // (bundle __phase0.pure), findSapDuplicateForProvisorio (bundle), clientLocId,
 // normClientName (bundle __phase0.pure).
 import { buildFichaClienteMaster, findCarteraCliente } from '../pure/ficha-cliente-master.js';
+import { jsArgAttr } from '../pure/html-safe.js';
 import { buildMasterClientesScope } from '../pure/master-clientes-scope.js';
 import {
   mensajeSyncClientesSap,
@@ -1574,7 +1575,7 @@ function renderMcProvisoriosTable() {
       'onclick="deleteMcEntry(\'sap:' +
       safeId +
       "'," +
-      JSON.stringify(nombre).replace(/"/g, '&quot;') +
+      jsArgAttr(nombre) +
       ",'" +
       safeId +
       '\')">Eliminar</button>';
@@ -2823,7 +2824,7 @@ window.renderMasterClientesTable = function () {
       '" onclick="deleteMcEntry(\'' +
       escapeAttr(id) +
       "'," +
-      JSON.stringify(e.nombre).replace(/"/g, '&quot;') +
+      jsArgAttr(e.nombre) +
       ",'" +
       escapeAttr(isSap ? e.sapFsId : '') +
       '\')" title="Eliminar tienda">Eliminar</button></div></td>';

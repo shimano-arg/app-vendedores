@@ -10,7 +10,8 @@
  *   5. Dark mode: colores de modal preservan contraste.
  *
  * Usuario: `pruebas.gerente@shimano.com.ar` (crear con
- * `scripts/create-pruebas-gerente-user.cjs`). Password hardcoded Shimano2025.
+ * `scripts/create-pruebas-gerente-user.cjs`). Contraseña por variable de entorno
+ * E2E_PRUEBAS_PASSWORD; sin ella los tests con login se saltean.
  *
  * Si el usuario no existe en Auth o no hay repartos activos, los tests que
  * tocan Firestore se saltean (`test.skip`); los tests que validan DOM/pure
@@ -28,7 +29,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Credenciales del user de prueba (ver scripts/create-pruebas-gerente-user.cjs).
 const E2E_EMAIL = process.env.E2E_PRUEBAS_EMAIL || 'pruebas.gerente@shimano.com.ar';
-const E2E_PASS = process.env.E2E_PRUEBAS_PASSWORD || 'Shimano2025';
+const E2E_PASS = process.env.E2E_PRUEBAS_PASSWORD || '';
 
 const DATE_SLUG = new Date().toISOString().slice(0, 10);
 const EVIDENCE_DIR = join('tests', 'e2e', 'evidencia', DATE_SLUG, 'v1514_pablo_import_reparto');

@@ -4717,6 +4717,37 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1569 (2026-11-24) — Endurecimiento de Pages y del armado de HTML (auditoría de seguridad)
+
+**Antes**:
+- El deploy de Pages subía la raíz del repo completa y el bundle publicado llevaba sourcemap inline con el código de `src/`.
+- Algunas pantallas armaban `<img src>` y `<a href>` concatenando valores guardados en Firestore sin validarlos (detalle de alta de cliente, imágenes de tareas, ticket y adjunto de rendiciones).
+- `escapeAttr` no escapaba `&`, y un botón usaba `&quot;` como delimitador de string JS dentro del handler inline; los botones Pass/2FA del panel de usuarios armaban el argumento con `JSON.stringify` y un reemplazo parcial de comillas.
+- Un script de alta de usuario de prueba y un spec E2E tenían la contraseña escrita en el código.
+
+**Problema**: un valor guardado con comillas o un esquema no esperado podía romper el atributo HTML y ejecutar código en la sesión de quien abre la pantalla. Pages exponía archivos internos que no hacen falta para la PWA.
+
+**Cambio**:
+- Integra el PR #1307: `scripts/pages/build-pages-site.mjs` arma `_site` con una lista explícita de archivos (los que cargan `index.html`, `sw.js`, `manifest.json`, `alta-cliente.html`, `politica-privacidad.html` y `chunks/`), quita el sourcemap inline solo de lo publicado y falla si falta un requerido o se cuela algo prohibido. `deploy-pages.yml` publica `_site`.
+- `src/pure/html-safe.js`: `safeImgSrc` (solo `data:image/<tipo>;base64` de una lista corta o `https:`) y `safeDownloadHref` (`data:` con MIME de pdf, imágenes o planillas, o `https:`). Lo que no cumple no se renderiza. Aplicado en `src/domains/notificaciones.js` y `src/domains/rendiciones.js`.
+- `escapeAttr` (inline y pure, idénticos) escapa `&`, `\`, `'`, `"`, `<`, `>`. Botón "Abrir cliente" y botones Pass/2FA usan comillas simples escapadas.
+- Segunda ronda (revisión adversarial del PR): nuevo helper `jsArgAttr` en `src/pure/html-safe.js` (argumento JS entre comillas simples, escapado para atributo y con saltos de línea escapados). Reemplaza todos los usos de `JSON.stringify(...)` con reemplazo de comillas dentro de handlers inline en `notificaciones.js`, `master-clientes.js`, `rutas.js`, `sap-admin-panel.js` y `exports-sap.js`. La clase `type-*` de cada notificación sale de una lista de tipos conocidos (si no, clase genérica). IDs de documento escapados en atributos `id` y en handlers de `notificaciones.js`, `sap-admin-panel.js`, `campanias.js`, `admin-users.js`, `forecast.js` y en dos handlers del Planner en `index.html`. `safeDownloadHref` exige MIME explícito en `data:`. Las opciones del selector de localidad se escapan.
+- La contraseña de la cuenta de prueba se lee de `E2E_PRUEBAS_PASSWORD`; sin la variable el script termina con error y el spec saltea los tests con login.
+- Rebuild de `app.bundle.js` y `chunks/`; `APP_VERSION` y `CACHE_VERSION` a v1569.
+
+**Por qué**: defensa en profundidad del lado del cliente. Las reglas de Firestore que validan el formato de esos campos se coordinan aparte.
+
+**Verificación**:
+- `npm run test:unit`: 240 archivos, 3162 tests OK. `npm run test:smoke`: 25 OK. Tests nuevos: `tests/unit/audit/html-safe.test.js`, `html-safe-sync.test.js`, `no-hardcoded-test-password.test.js`, `handlers-inline-escape.test.js` (falla si reaparece el patrón `JSON.stringify` + reemplazo de comillas en `src/` o `index.html`); `pages-site-allowlist.test.js` (13) del PR #1307.
+- `npm run typecheck`: sin errores nuevos (los existentes son de `functions/index.js`, sin cambios en este PR).
+- Smoke local: sitio armado (30 archivos) servido por HTTP y abierto en Chromium: cero 404 de recursos propios en `index.html`, `alta-cliente.html` y `politica-privacidad.html`; los 11 chunks cargan con `loadChunk`; el service worker instala y cachea las 21 entradas de `STATIC_ASSETS`; los archivos internos del repo (documentación, `src/`, `functions/`, `tests/`, reglas, `package.json`) responden 404. Los errores de JS observados vienen de CDN externos no alcanzables desde el entorno de prueba.
+
+**Rollback**: revertir los commits del PR. Para volver a publicar el repo completo alcanza con `path: '.'` en `deploy-pages.yml`.
+
+**Pendiente manual (fuera del código)**: rotar la contraseña de la cuenta de prueba en la consola de Auth; la vieja queda en el historial git.
+
+**Agregado (manejo de rechazo por rol)**: cuando un callable rechaza con `permission-denied` y `details.errorCode='ROLE_REQUIRED'` (gate de rol del servidor), la app muestra un mensaje propio de `src/pure/mensajes-vendedor.js` con `Código técnico: ROLE_REQUIRED`, en lugar del mensaje genérico de permisos. En el OCR de rendiciones ya no se interpreta como bloqueo de App Check: no reintenta ni sugiere borrar datos del sitio. Aplica a confirmar pedido, guardar backorder manual y quitar producto o rechazar una orden con stock asignado; en stock en vivo se mantiene el uso del dato guardado y queda registrado el motivo. Test: `tests/unit/audit/role-required-cliente.test.js`.
+
 ### sec functions batch (2026-11-24) — Lote de seguridad en Cloud Functions (grupos 3-5 de F1B, sin bump de versión)
 
 - Integra #1312, #1390, #1395, #1386 (D10), #1387, #1394, #1382, #1385 (D3), #1398 (solo cores), #1403, #1391 y el ajuste de lectura de rol fallida (`ROLE_CHECK_UNAVAILABLE`). Solo `functions/` y tests; no toca `index.html`, `src/` ni rules.
@@ -5506,6 +5537,22 @@ Archivos: `bigquery/views/v_rentabilidad_pesca.sql`, `scripts/apply_v_rentabilid
 **Deploy**: `git pull origin main` en `C:\Users\shimano.sandbox\app-vendedores-deploy`, luego `firebase deploy --only functions:dashboardVentasCF --project app-vendedores-shimano`. El front publica con el merge; hacer "Recargar limpio".
 
 **Rollback**: revert del commit/PR + redeploy de `dashboardVentasCF`.
+### Hotfix Pages (2026-10-29) — publicar sólo la PWA (allowlist) y sin sourcemaps con código fuente
+
+**Antes:** `deploy-pages.yml` subía `path: '.'`, es decir, el repo entero: `CLAUDE.md`, `docs/`, `tests/fixtures`, `functions/` y las reglas. Además, el bundle y los chunks se publicaban con sourcemap inline, que incluye el código fuente de `src/`.
+
+**Cambio:**
+- `scripts/pages/build-pages-site.mjs` publica una allowlist en `_site`;
+- quita el sourcemap inline sólo de lo publicado;
+- falla si falta un archivo requerido o si se cuela algo prohibido;
+- el directorio de salida no puede ser una carpeta del repo.
+
+**Verificación:**
+- 13 tests;
+- Chromium local sobre v1528: cero 404, 9 chunks en 200, SW con 19 entradas, rutas prohibidas en 404;
+- el bundle publicado baja de 3,1 MB a 820 KB.
+
+**Rollback:** volver a `path: '.'` en `deploy-pages.yml`.
 
 ### v1530 (2026-10-29) — "Exportar pedido" marca en rojo lo que queda en back order
 
@@ -5906,7 +5953,7 @@ Verificado con script `scripts/audit/check_price_list.cjs`: `prices` tiene 741 S
 4. **Error state** (`_renderErrorsState`): lista con `padding + border-left rojo` + hasta 100 filas visibles + resumen "Hay N error(es). Corregí el Excel y volvé a subirlo. No se aplica nada."
 
 5. **Script user pruebas** (`scripts/create-pruebas-gerente-user.cjs`):
-   - Idempotente: crea / actualiza user `pruebas.gerente@shimano.com.ar` con password `Shimano2025`, role=`gerente`, doc `roles/{uid}` + entry en `allowed_emails`.
+   - Idempotente: crea / actualiza user `pruebas.gerente@shimano.com.ar` con la contraseña que se pasa por la variable de entorno `E2E_PRUEBAS_PASSWORD` (nunca en el repo), role=`gerente`, doc `roles/{uid}` + entry en `allowed_emails`.
    - **NO EJECUTADO** — Mariano lo corre manualmente con el service account del admin SDK.
 
 6. **Playwright** (`tests/e2e/pablo-import-reparto.spec.ts`): 5 escenarios:

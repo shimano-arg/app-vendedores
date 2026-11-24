@@ -34,13 +34,23 @@ jobs:
           # al hacer GET /repos/.../pages y prod queda atascado.
           enablement: true
 
+      # SEC-07 (P0, 2026-10-29): publicar SOLO los archivos de la PWA.
+      # Antes se subía la raíz del repo (todo el repo público: CLAUDE.md, README,
+      # docs/ incl. docs/auditoria, tests/ con fixtures de prod, scripts/,
+      # functions/, reglas). El script copia una allowlist explícita a _site/
+      # y falla si falta un archivo requerido o si se cuela algo prohibido.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Armar sitio (allowlist)
+        run: node scripts/pages/build-pages-site.mjs _site
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Todo el repo se sirve tal cual (mismo comportamiento que legacy
-          # con .nojekyll). Archivos: index.html, app.bundle.js, chunks/,
-          # sw.js, geo.json, stock.json, logos, etc.
-          path: '.'
+          path: '_site'
 
   deploy:
     environment:

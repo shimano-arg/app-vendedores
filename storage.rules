@@ -71,7 +71,11 @@ service firebase.storage {
     //    /waitlist-excels/{ownerUid}/... y el uid del path tiene que
     //    matchear request.auth.uid.
     match /waitlist-excels/{ownerUid}/{allPaths=**} {
-      allow read: if request.auth != null;
+      // Lote B (batch 2026-11-24): antes cualquier logueado leia el Excel de
+      // cualquier vendedor. Ahora: el duenio (con rol activo) y roles internos.
+      // El adjunto del mail lo arma la CF con Admin SDK (no pasa por rules).
+      allow read: if (isReader() && request.auth.uid == ownerUid)
+                  || (request.auth != null && _role() in ['admin', 'gerente', 'interno']);
       allow write: if request.auth != null
                    && request.auth.uid == ownerUid
                    && request.auth.token.email.matches('.*@shimano[.](com[.]ar|uy)$')
