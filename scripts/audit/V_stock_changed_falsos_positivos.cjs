@@ -3,6 +3,9 @@
 /**
  * §64 (2026-10-23 v1443) — Audit STOCK_CHANGED falsos positivos.
  *
+ * v3 INCIDENTE PEDIDOS 2026-11-24 — paginación iterativa startAfter para
+ * superar límite 500 docs + classifier más robusto de false positives.
+ *
  * Lee operations_log con type='commit_pedido_rejected' + errorCode='STOCK_CHANGED'
  * del día + N días previos. Para cada entry: tabula SKU, cliente, cardCode,
  * valores de cada lado (cliente y CF), mismatch flags.
@@ -11,11 +14,13 @@
  * en src/pure §39 (si procede).
  *
  * Uso:
- *   node scripts/audit/V_stock_changed_falsos_positivos.cjs [--days=N] [--full]
+ *   node scripts/audit/V_stock_changed_falsos_positivos.cjs [--days=N] [--full] [--page-size N] [--max-docs N]
  *
  * Opts:
- *   --days=N   Lee los últimos N días (default 1).
- *   --full     Imprime JSON completo de cada entry (default: resumen).
+ *   --days=N        Lee los últimos N días (default 1).
+ *   --full          Imprime JSON completo de cada entry (default: resumen).
+ *   --page-size N   Tamaño de página Firestore (default 500).
+ *   --max-docs N    Safety cap total (default 5000). Scan no-exhaustivo al alcanzarlo.
  *
  * Salida: tabla ASCII + resumen al final (total rejections, SKUs top-N,
  * clientes top-N, divergencias cliente↔CF).
@@ -36,29 +41,53 @@ async function main() {
   const daysArg = args.find((a) => a.startsWith('--days='));
   const days = daysArg ? Number(daysArg.split('=')[1]) || 1 : 1;
   const full = args.includes('--full');
+  const pageSizeArg = args.find((a) => a.startsWith('--page-size='));
+  const pageSize = pageSizeArg ? Number(pageSizeArg.split('=')[1]) || 500 : 500;
+  const maxDocsArg = args.find((a) => a.startsWith('--max-docs='));
+  const maxDocs = maxDocsArg ? Number(maxDocsArg.split('=')[1]) || 5000 : 5000;
 
   const now = Date.now();
   const since = new Date(now - days * 24 * 60 * 60 * 1000);
-  console.log('[audit V §64] Buscando commit_pedido_rejected STOCK_CHANGED desde', since.toISOString());
+  console.log('[audit V §64 v3] Buscando commit_pedido_rejected STOCK_CHANGED desde', since.toISOString());
+  console.log('[audit V §64 v3] pageSize=' + pageSize + ' maxDocs=' + maxDocs);
 
-  // Query solo por timestamp (single-field index automático). Filtramos type + errorCode en memoria.
-  const rawSnap = await db
-    .collection('operations_log')
-    .where('timestamp', '>=', since)
-    .orderBy('timestamp', 'desc')
-    .get();
-
+  // v3: paginación iterativa startAfter. Query solo por timestamp (single-field index automático).
+  // Filtramos type + errorCode en memoria.
   const docs = [];
   let totalCommitRejected = 0;
-  rawSnap.forEach((doc) => {
-    const d = doc.data();
-    if (d.type === 'commit_pedido_rejected') {
-      totalCommitRejected++;
-      if (d.errorCode === 'STOCK_CHANGED') docs.push({ _id: doc.id, ...d });
-    }
-  });
+  let totalRead = 0;
+  let pages = 0;
+  let lastDoc = null;
+  let hitSafetyCap = false;
 
-  console.log(`[audit V §64] operations_log entries total: ${rawSnap.size}, commit_pedido_rejected: ${totalCommitRejected}, STOCK_CHANGED filtrados: ${docs.length}`);
+  for (;;) {
+    let q = db
+      .collection('operations_log')
+      .where('timestamp', '>=', since)
+      .orderBy('timestamp', 'desc')
+      .limit(pageSize);
+    if (lastDoc) q = q.startAfter(lastDoc);
+    const page = await q.get();
+    pages++;
+    totalRead += page.size;
+    page.forEach((doc) => {
+      const d = doc.data();
+      if (d.type === 'commit_pedido_rejected') {
+        totalCommitRejected++;
+        if (d.errorCode === 'STOCK_CHANGED') docs.push({ _id: doc.id, ...d });
+      }
+    });
+    if (page.size < pageSize) break;
+    if (totalRead >= maxDocs) { hitSafetyCap = true; break; }
+    lastDoc = page.docs[page.docs.length - 1];
+  }
+
+  console.log(`[audit V §64 v3] páginas: ${pages}  docs totales: ${totalRead}  commit_pedido_rejected: ${totalCommitRejected}  STOCK_CHANGED filtrados: ${docs.length}`);
+  if (hitSafetyCap) {
+    console.log(`⚠ SAFETY CAP ALCANZADO (${totalRead} >= ${maxDocs}). Scan NO exhaustivo. Subí --max-docs o achicá --days.`);
+  } else {
+    console.log(`✓ Scan exhaustivo: ${totalRead} docs leídos en ${days} día(s).`);
+  }
 
   if (docs.length === 0) {
     console.log('No se encontraron rechazos STOCK_CHANGED en los últimos', days, 'día(s).');
