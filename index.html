@@ -33882,6 +33882,79 @@ window.publishStockSnapshot = async function(){
 // v1070 (2026-09-25): helper que aplica un snapshot doc de stock_snapshot a
 // las globals. Extraído del callback onSnapshot para poder reusarlo desde
 // el fallback .get() cuando el listener queda zombie.
+// P5 DIAG_PERF (2026-11-25): cache memoizado de los 4 JSON.parse grandes
+// del snapshot v9 (~169 KB total parseado). Antes se re-parseaba en CADA
+// invocación del listener (onSnapshot dispara por metadata changes, cache
+// sync, fallback .get(), etc.). Ahora se parsea solo cuando el snapshot
+// cambia (una vez cada 5 min por syncSapCatalogStockCF §65).
+// Scope: warehouseBreakdown + backorderBySku + asignadasBySku + confirmadasBySku.
+// quantities + warehouseCommittedBreakdown + preLanzamientoBySku siguen sin
+// memoizar — fuera del scope DIAG_PERF (impacto menor y semántica legacy).
+var _snapshotParseCache = {
+  key: null,
+  warehouseBreakdown: null,
+  backorderBySku: null,
+  asignadasBySku: null,
+  confirmadasBySku: null,
+};
+
+function _parseSnapshotMemoized(d) {
+  // Key: timestamp del write server-side. Cualquiera de los 3 campos
+  // cambia cuando el sync escribe un snapshot nuevo (§65 + §39 v9).
+  // Normaliza Firestore Timestamp / Date / string ISO / seconds a ms.
+  var _keyToMs = function(v) {
+    if (!v) return null;
+    if (typeof v.toMillis === 'function') { try { return v.toMillis(); } catch(_) {} }
+    if (typeof v.toDate === 'function') { try { return v.toDate().getTime(); } catch(_) {} }
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === 'string') { var t = Date.parse(v); return isNaN(t) ? null : t; }
+    if (typeof v === 'object' && typeof v.seconds === 'number') return v.seconds * 1000;
+    if (typeof v === 'number') return v;
+    return null;
+  };
+  var key = null;
+  if (d && d._syncRun && d._syncRun.timestamp) key = _keyToMs(d._syncRun.timestamp);
+  if (!key && d && d._backorderUpdatedAt) key = _keyToMs(d._backorderUpdatedAt);
+  if (!key && d && d._agregadosUpdatedAt) key = _keyToMs(d._agregadosUpdatedAt);
+  if (!key && d && d.updatedAt) key = _keyToMs(d.updatedAt);
+  if (!key) key = 'nokey';
+
+  if (_snapshotParseCache.key === key) {
+    return _snapshotParseCache;
+  }
+
+  // Cache miss: re-parsear los 4 campos. Try/catch individual para que una
+  // string corrupta en un campo no tire los otros 3 (preserva comportamiento
+  // pre-v1565: catch inline por campo).
+  var warehouseBreakdown = null;
+  if (typeof d.warehouseBreakdown === 'string' && d.warehouseBreakdown) {
+    try { warehouseBreakdown = JSON.parse(d.warehouseBreakdown) || {}; }
+    catch (e) { console.warn('[stock] no pude parsear warehouseBreakdown:', e); warehouseBreakdown = null; }
+  }
+  var backorderBySku = null;
+  if (typeof d.backorderBySku === 'string' && d.backorderBySku) {
+    try { backorderBySku = JSON.parse(d.backorderBySku) || {}; }
+    catch (e) { console.warn('[stock] no pude parsear backorderBySku:', e); backorderBySku = null; }
+  }
+  var asignadasBySku = null;
+  if (typeof d.asignadasBySku === 'string' && d.asignadasBySku) {
+    try { asignadasBySku = JSON.parse(d.asignadasBySku) || {}; } catch (e) { asignadasBySku = null; }
+  }
+  var confirmadasBySku = null;
+  if (typeof d.confirmadasBySku === 'string' && d.confirmadasBySku) {
+    try { confirmadasBySku = JSON.parse(d.confirmadasBySku) || {}; } catch (e) { confirmadasBySku = null; }
+  }
+
+  _snapshotParseCache = {
+    key: key,
+    warehouseBreakdown: warehouseBreakdown,
+    backorderBySku: backorderBySku,
+    asignadasBySku: asignadasBySku,
+    confirmadasBySku: confirmadasBySku,
+  };
+  return _snapshotParseCache;
+}
+
 function _applyStockSnapshotDoc(d, source) {
   if (!d) return;
   STOCK_MAP = d.stock || {};
@@ -33891,9 +33964,11 @@ function _applyStockSnapshotDoc(d, source) {
   } else {
     STOCK_QUANTITIES = d.quantities || {};
   }
+  // P5 DIAG_PERF (2026-11-25): parse memoizado por _syncRun.timestamp. Si el
+  // snapshot no cambió, reusa el cache (evita ~169 KB de JSON.parse por render).
+  var _parsed = _parseSnapshotMemoized(d);
   if (typeof d.warehouseBreakdown === 'string') {
-    try { STOCK_WAREHOUSE_BREAKDOWN = JSON.parse(d.warehouseBreakdown) || {}; }
-    catch(e) { console.warn('[stock] no pude parsear warehouseBreakdown:', e); STOCK_WAREHOUSE_BREAKDOWN = {}; }
+    STOCK_WAREHOUSE_BREAKDOWN = _parsed.warehouseBreakdown || {};
   } else {
     STOCK_WAREHOUSE_BREAKDOWN = {};
   }
@@ -33903,9 +33978,9 @@ function _applyStockSnapshotDoc(d, source) {
   } else {
     STOCK_WAREHOUSE_COMMITTED = {};
   }
+  // P5 DIAG_PERF: parse memoizado (ver _parseSnapshotMemoized arriba).
   if (typeof d.backorderBySku === 'string') {
-    try { STOCK_BACKORDER = JSON.parse(d.backorderBySku) || {}; }
-    catch(e) { console.warn('[stock] no pude parsear backorderBySku:', e); STOCK_BACKORDER = {}; }
+    STOCK_BACKORDER = _parsed.backorderBySku || {};
   } else {
     STOCK_BACKORDER = {};
   }
@@ -33925,15 +34000,17 @@ function _applyStockSnapshotDoc(d, source) {
   // window._stockAgregadosAsignadasBySku / window._stockAgregadosConfirmadasBySku.
   // Si falta cualquiera de los 3 → fallback a iterate legacy (snapshotAgregadosActive=false).
   try {
+    // P5 DIAG_PERF: parse memoizado para agregados v9. Si el snapshot no
+    // cambió, reusa _parsed.asignadasBySku / _parsed.confirmadasBySku.
     let _asigMap = null;
     let _confMap = null;
     if (typeof d.asignadasBySku === 'string') {
-      try { _asigMap = JSON.parse(d.asignadasBySku) || {}; } catch(e) { _asigMap = null; }
+      _asigMap = _parsed.asignadasBySku; // null si falló parse → cae a legacy iterate
     } else if (d.asignadasBySku && typeof d.asignadasBySku === 'object') {
       _asigMap = d.asignadasBySku;
     }
     if (typeof d.confirmadasBySku === 'string') {
-      try { _confMap = JSON.parse(d.confirmadasBySku) || {}; } catch(e) { _confMap = null; }
+      _confMap = _parsed.confirmadasBySku;
     } else if (d.confirmadasBySku && typeof d.confirmadasBySku === 'object') {
       _confMap = d.confirmadasBySku;
     }
