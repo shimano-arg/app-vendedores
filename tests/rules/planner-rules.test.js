@@ -28,7 +28,7 @@ const MARIANO_EMAIL = 'erbinomariano@gmail.com';
 
 /** DB autenticado como Mariano (email en token). */
 function marianoDb() {
-  return authedDb('uid-mariano', { email: MARIANO_EMAIL });
+  return authedDb('uid-mariano', { email: MARIANO_EMAIL, email_verified: true });
 }
 
 /** DB autenticado como admin NO-Mariano. */

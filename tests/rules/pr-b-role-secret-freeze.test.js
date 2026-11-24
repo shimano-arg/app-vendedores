@@ -26,6 +26,7 @@ import {
   initTestEnv,
   seedCanonicalRoles,
   seedDoc,
+  seedRole,
   setDoc,
   UID,
   updateDoc,
@@ -131,7 +132,13 @@ describe('PR-B — comportamiento preservado (PERMITIDOS / sin cambio)', () => {
     // Mariano. Admin no-Mariano NO puede (escalada a Ficha Cliente cross-cliente).
     // Antes de HARD6-F4-S3 cualquier admin podia. Ahora el test cubre el flow
     // legitimo (Mariano habilita editores).
-    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+    // Ajuste post-revision #1418 (B1): el email de Mariano solo habilita
+    // campos extra a una cuenta que ya es admin y tiene email verificado.
+    await seedRole('uid-mariano', 'admin');
+    const marianoDb = authedDb('uid-mariano', {
+      email: 'erbinomariano@gmail.com',
+      email_verified: true,
+    });
     await assertSucceeds(
       updateDoc(doc(marianoDb, 'roles', UID.vendor), { fichaClienteEditorFull: true })
     );

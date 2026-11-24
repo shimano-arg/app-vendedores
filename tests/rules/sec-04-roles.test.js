@@ -128,7 +128,13 @@ describe('SEC-04 — create de roles/{uid}', () => {
         role: 'vendedor',
       })
     );
-    const marianoDb = authedDb('uid-mariano', { email: 'erbinomariano@gmail.com' });
+    // Ajuste post-revision #1418 (B1): el email de Mariano solo habilita
+    // campos extra a una cuenta que ya es admin y tiene email verificado.
+    await seedRole('uid-mariano', 'admin');
+    const marianoDb = authedDb('uid-mariano', {
+      email: 'erbinomariano@gmail.com',
+      email_verified: true,
+    });
     await assertSucceeds(
       updateDoc(doc(marianoDb, 'roles', UID.vendor), {
         fichaClienteEditorFull: true,

@@ -62,8 +62,12 @@ service cloud.firestore {
       // traia email (tests con authedDb(uid) sin tokenExtras). El patron
       // `'email' in request.auth.token` chequea existencia de la key en el
       // map safe antes del acceso al valor, previniendo "Property undefined".
+      // Ajuste post-revision #1418 (B1): ademas del email exige email
+      // verificado, con el mismo chequeo seguro de existencia de la key.
       return request.auth != null
         && 'email' in request.auth.token
+        && 'email_verified' in request.auth.token
+        && request.auth.token.email_verified == true
         && (
           request.auth.token.email == 'erbinomariano@gmail.com'
           || request.auth.token.email == 'mariano.erbino@shimano.com.ar'
@@ -206,18 +210,21 @@ service cloud.firestore {
       //   (hijack de partnership VDI, D18: un admin podia reasignar el
       //   partner VDI de un vendedor a si mismo y leer rendiciones ajenas).
       // - Ambos siguen bloqueados en S04b (passwordHash/salt/totpSecret/totpEnabled).
-      allow update: if (isMariano()
-                        && !request.resource.data.diff(resource.data).affectedKeys()
-                             .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled']))
-                     || (isAdmin()
-                         && !isMariano()
-                         && !request.resource.data.diff(resource.data).affectedKeys()
-                              .hasAny([
-                                'passwordHash', 'passwordSalt',
-                                'totpSecret', 'totpEnabled',
-                                'fichaClienteEditorFull',
-                                'internalPartnerUid'
-                              ]));
+      // Ajuste post-revision #1418:
+      // - B1: las dos ramas exigen isAdmin(); el email de Mariano solo
+      //   habilita campos extra a una cuenta que ya es admin.
+      // - B2: para el admin no-Mariano, fichaClienteEditorFull e
+      //   internalPartnerUid se comparan por valor (get con default null).
+      //   Reenviar el mismo valor (o null sobre un doc sin el campo, como
+      //   hace saveUserRole) pasa; cambiarlo sigue bloqueado.
+      allow update: if isAdmin()
+                     && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled'])
+                     && (isMariano()
+                         || (request.resource.data.get('internalPartnerUid', null)
+                               == resource.data.get('internalPartnerUid', null)
+                             && request.resource.data.get('fichaClienteEditorFull', null)
+                               == resource.data.get('fichaClienteEditorFull', null)));
       allow delete: if isAdmin();
     }
 
@@ -375,7 +382,10 @@ service cloud.firestore {
             'revertedFromConfirmedAt', 'revertedBy',
             'previousSapDocNum', 'previousSapDocEntryCancelled',
             // Audit del auto-split (confirmarDefinitivo preCheck, index.html:39509)
-            'autoSplitByStock'
+            'autoSplitByStock',
+            // Ajuste post-revision #1418 (B3): ajuste +/- de Stock Asignado
+            // (_adjustAsigQty) escribe lines + historial de reparto.
+            'repartoHistory', 'lastRepartoAt', 'lastRepartoBy'
           ])
           // SEC-C1 Opcion A.2: guard semantico transferidoSAP solo via='app_only' o delete
           // (1) campo no modificado, OR (2) campo borrado (FieldValue.delete), OR
@@ -413,8 +423,12 @@ service cloud.firestore {
             // Fase 2 v1035 (2026-09-22): sync SAP payments escribe estos
             // fields desde el CF syncSapPaymentsToApp cada 15min.
             'invoicedAmount', 'paidSyncedAt',
-            // SEC-C1 Opcion A.2: transferidoSAP (con guard abajo, solo via=='app_only' o delete)
-            'transferidoSAP',
+            // Ajuste post-revision #1418 (S1): transferidoSAP fuera de la
+            // lista del vendedor. Ningun flujo vivo del vendedor lo escribe
+            // (la marca app_only la pone el servidor o el listener de
+            // admin/gerente; volverAPendientes no lo borra en pedidos
+            // app_only). El guard transferidoSapChangeIsAppOnly() queda
+            // como defensa extra.
             // Audit del revert (volverAPendientes app_only)
             'revertedFromConfirmedAt', 'revertedBy',
             'previousSapDocNum', 'previousSapDocEntryCancelled',
@@ -838,7 +852,8 @@ service cloud.firestore {
                  // Antes: cualquier unauthenticated podia crear docs multi-MB con
                  // base64 photos (constanciaArca, fotosLocal[]) sin size cap ni
                  // field whitelist. Vector DoS + storage exhaustion.
-                 // Ahora: size <1.5MB + CUIT regex (11 digitos AR) + comercio length
+                 // Ahora: size <1.5MB + CUIT regex (11 digitos AR, con o sin
+                 // guiones: ajuste post-revision #1418 F1) + comercio length
                  // razonable. Fotos deberian subirse a Storage con signed URL, no
                  // embebidas en Firestore — pero mantenemos tolerancia hasta migrar.
                  // Batch 2026-11-24 (C-01): la rama publica acepta solo los
@@ -849,7 +864,7 @@ service cloud.firestore {
                      && request.resource.data.comercio.size() > 2
                      && request.resource.data.comercio.size() < 200
                      && request.resource.data.cuit is string
-                     && request.resource.data.cuit.matches('[0-9]{11}')
+                     && request.resource.data.cuit.matches('^[0-9]{2}-?[0-9]{8}-?[0-9]$')
                      && request.resource.data.status == 'pending_approval'
                      && request.resource.size() < 1500000
                      && publicAltaIsValid(request.resource.data));

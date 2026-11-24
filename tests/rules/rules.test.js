@@ -2097,9 +2097,12 @@ describe('SEC-C1: pedidos.update isInterno() hasOnly', () => {
     );
   });
 
-  // TC-A2-2: VDE propietario puede setear transferidoSAP via=app_only sobre pedido propio
-  it('VDE propietario puede setear transferidoSAP via=app_only', async () => {
-    await assertSucceeds(
+  // TC-A2-2: ajuste post-revision #1418 (S1). El vendedor ya no escribe
+  // transferidoSAP: la marca app_only la ponen el servidor o el listener de
+  // admin/gerente (el auto-confirm del navegador quedo en codigo muerto).
+  // Antes este test esperaba exito; ahora documenta el cierre.
+  it('VDE propietario NO puede setear transferidoSAP via=app_only (S1)', async () => {
+    await assertFails(
       updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
         stage: 'confirmed',
         finalizedAt: '2026-11-19T00:00:00.000Z',

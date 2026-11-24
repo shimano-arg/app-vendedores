@@ -77,9 +77,13 @@ describe('pedidos.update — transferidoSAP solo app_only (ajuste #1375)', () =>
     );
   });
 
-  it('VDE marca su pedido 100% BO como app_only (auto-confirm)', async () => {
+  // Ajuste post-revision #1418 (S1): el vendedor ya no escribe
+  // transferidoSAP. La marca app_only la ponen el servidor o el listener de
+  // admin/gerente; el auto-confirm del navegador quedo en codigo muerto.
+  // El guard app_only se sigue probando con el interno.
+  it('VDE NO marca su pedido como app_only (S1)', async () => {
     await seedDoc('pedidos/p-app-only-set', base({ stage: 'pending' }));
-    await assertSucceeds(
+    await assertFails(
       updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-app-only-set'), {
         stage: 'confirmed',
         transferidoSAP: { via: 'app_only', reason: 'all_lines_bo', docEntry: null, docNum: null },
@@ -87,14 +91,55 @@ describe('pedidos.update — transferidoSAP solo app_only (ajuste #1375)', () =>
     );
   });
 
-  it('VDE borra transferidoSAP si el previo es app_only', async () => {
+  it('interno marca un pedido 100% BO como app_only (guard)', async () => {
+    await seedDoc('pedidos/p-app-only-set-vdi', base({ stage: 'pending' }));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-app-only-set-vdi'), {
+        stage: 'confirmed',
+        transferidoSAP: { via: 'app_only', reason: 'all_lines_bo', docEntry: null, docNum: null },
+      })
+    );
+  });
+
+  it('VDE NO borra transferidoSAP aunque el previo sea app_only (S1)', async () => {
     const { deleteField } = await import('firebase/firestore');
     await seedDoc(
       'pedidos/p-app-only-del',
       base({ transferidoSAP: { via: 'app_only', docEntry: null } })
     );
-    await assertSucceeds(
+    await assertFails(
       updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-app-only-del'), {
+        stage: 'pending',
+        transferidoSAP: deleteField(),
+      })
+    );
+  });
+
+  it('VDE revierte su pedido app_only a pendiente sin tocar transferidoSAP (volverAPendientes)', async () => {
+    const { deleteField } = await import('firebase/firestore');
+    await seedDoc(
+      'pedidos/p-app-only-revert',
+      base({
+        finalizedAt: '2026-11-24T00:00:00Z',
+        transferidoSAP: { via: 'app_only', docEntry: null, docNum: null },
+      })
+    );
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-app-only-revert'), {
+        stage: 'pending',
+        finalizedAt: deleteField(),
+      })
+    );
+  });
+
+  it('interno borra transferidoSAP si el previo es app_only (guard)', async () => {
+    const { deleteField } = await import('firebase/firestore');
+    await seedDoc(
+      'pedidos/p-app-only-del-vdi',
+      base({ transferidoSAP: { via: 'app_only', docEntry: null } })
+    );
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-app-only-del-vdi'), {
         stage: 'pending',
         transferidoSAP: deleteField(),
       })
@@ -513,6 +558,20 @@ describe('client_applications.create publico (C-01)', () => {
     await assertSucceeds(addDoc(collection(anonDb(), 'client_applications'), publico()));
   });
 
+  // Ajuste post-revision #1418 (F1): el formulario sugiere 20-12345678-9 y no
+  // normaliza; la regla acepta el CUIT con o sin guiones.
+  it('acepta el CUIT con guiones (F1)', async () => {
+    await assertSucceeds(
+      addDoc(collection(anonDb(), 'client_applications'), publico({ cuit: '20-12345678-9' }))
+    );
+  });
+
+  it('rechaza CUIT con letras o con otra longitud (F1)', async () => {
+    for (const cuit of ['20-1234567A-9', '2012345678', '201234567890', '20-123456789-9', '']) {
+      await assertFails(addDoc(collection(anonDb(), 'client_applications'), publico({ cuit })));
+    }
+  });
+
   it('acepta el link de un vendedor con rol (ownerUid real)', async () => {
     await assertSucceeds(
       addDoc(
@@ -648,7 +707,7 @@ describe('roles.create — email del token (H10)', () => {
 });
 
 describe('roles.update — D14/D18 (#1398 parte sana)', () => {
-  const MARIANO = { email: 'erbinomariano@gmail.com' };
+  const MARIANO = { email: 'erbinomariano@gmail.com', email_verified: true };
 
   it('Mariano asigna internalPartnerUid', async () => {
     await seedRole('uid-mariano', 'admin');
@@ -716,6 +775,257 @@ describe('Lote B — lecturas solo con rol', () => {
   it('allowed_emails: un rol aprobado lee cualquiera (get)', async () => {
     await assertSucceeds(
       getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'otro_shimano_com_ar'))
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// Ajustes post-revision adversarial #1418 (B1, B2, B3)
+// ------------------------------------------------------------------
+describe('roles.update — ajustes post-revision (B1, B2)', () => {
+  const MARIANO_OK = { email: 'erbinomariano@gmail.com', email_verified: true };
+  const MARIANO_CORP_OK = { email: 'mariano.erbino@shimano.com.ar', email_verified: true };
+
+  it('B1: cuenta sin rol con el email de Mariano NO puede ponerse admin', async () => {
+    await seedRole('uid-mariano-fake', 'unassigned');
+    await assertFails(
+      updateDoc(doc(authedDb('uid-mariano-fake', MARIANO_OK), 'roles', 'uid-mariano-fake'), {
+        role: 'admin',
+      })
+    );
+  });
+
+  it('B1: cuenta sin doc de rol con el email de Mariano NO edita roles ajenos', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb('uid-sin-doc-m', MARIANO_CORP_OK), 'roles', UID.unassigned), {
+        role: 'admin',
+      })
+    );
+  });
+
+  it('B1: admin con email de Mariano NO verificado se trata como admin comun', async () => {
+    await seedRole('uid-mariano-nv', 'admin');
+    const db = authedDb('uid-mariano-nv', {
+      email: 'erbinomariano@gmail.com',
+      email_verified: false,
+    });
+    await assertFails(
+      updateDoc(doc(db, 'roles', UID.vendorOther), { internalPartnerUid: UID.interno })
+    );
+    const dbSinFlag = authedDb('uid-mariano-nv', { email: 'erbinomariano@gmail.com' });
+    await assertFails(
+      updateDoc(doc(dbSinFlag, 'roles', UID.vendorOther), { fichaClienteEditorFull: true })
+    );
+  });
+
+  it('B1: cuenta sin rol con email de Mariano no verificado NO puede ponerse admin', async () => {
+    await seedRole('uid-mariano-nv2', 'unassigned');
+    await assertFails(
+      updateDoc(
+        doc(
+          authedDb('uid-mariano-nv2', { email: 'erbinomariano@gmail.com', email_verified: false }),
+          'roles',
+          'uid-mariano-nv2'
+        ),
+        { role: 'admin' }
+      )
+    );
+  });
+
+  it('B1: Mariano admin verificado asigna rol, pareja y flag de ficha', async () => {
+    await seedRole('uid-mariano', 'admin');
+    const db = authedDb('uid-mariano', MARIANO_OK);
+    await assertSucceeds(updateDoc(doc(db, 'roles', UID.unassigned), { role: 'admin' }));
+    await assertSucceeds(
+      updateDoc(doc(db, 'roles', UID.vendorOther), {
+        internalPartnerUid: UID.interno,
+        fichaClienteEditorFull: true,
+      })
+    );
+  });
+
+  it('B1: Mariano admin verificado sigue sin tocar los secretos', async () => {
+    await seedRole('uid-mariano', 'admin');
+    await assertFails(
+      updateDoc(doc(authedDb('uid-mariano', MARIANO_OK), 'roles', UID.vendor), {
+        totpEnabled: false,
+      })
+    );
+  });
+
+  /** Payload real de saveUserRole (src/domains/admin-users.js) con set(merge). */
+  const saveUserRolePayload = (internalPartnerUid) => ({
+    role: 'vendedor',
+    vendor: 'VDE_NUEVO',
+    internalPartnerUid,
+    whatsapp: null,
+    rendicionesApproverUid: null,
+    rendicionesApproverEmail: null,
+    assignedBy: UID.admin,
+    assignedAt: serverTimestamp(),
+  });
+  const adminNoMariano = () =>
+    authedDb(UID.admin, { email: 'otro.admin@shimano.com.ar', email_verified: true });
+
+  it('B2: admin no-Mariano habilita usuario nuevo (doc de 5 campos, internalPartnerUid null)', async () => {
+    await seedRole('uid-nuevo-b2', 'unassigned', {
+      email: 'nuevo@shimano.com.ar',
+      displayName: 'Nuevo',
+      photoURL: null,
+      createdAt: '2026-11-24T00:00:00Z',
+    });
+    await assertSucceeds(
+      setDoc(doc(adminNoMariano(), 'roles', 'uid-nuevo-b2'), saveUserRolePayload(null), {
+        merge: true,
+      })
+    );
+  });
+
+  it('B2: admin no-Mariano reenvia la pareja existente sin cambiarla', async () => {
+    await seedRole('uid-con-pareja-b2', 'vendedor', { internalPartnerUid: UID.interno });
+    await assertSucceeds(
+      setDoc(
+        doc(adminNoMariano(), 'roles', 'uid-con-pareja-b2'),
+        saveUserRolePayload(UID.interno),
+        { merge: true }
+      )
+    );
+  });
+
+  it('B2: admin no-Mariano NO cambia la pareja (doc sin campo, doc con campo)', async () => {
+    await seedRole('uid-sin-pareja-b2', 'vendedor');
+    await assertFails(
+      setDoc(doc(adminNoMariano(), 'roles', 'uid-sin-pareja-b2'), saveUserRolePayload(UID.admin), {
+        merge: true,
+      })
+    );
+    await seedRole('uid-con-pareja-b2b', 'vendedor', { internalPartnerUid: UID.interno });
+    await assertFails(
+      setDoc(doc(adminNoMariano(), 'roles', 'uid-con-pareja-b2b'), saveUserRolePayload(UID.admin), {
+        merge: true,
+      })
+    );
+    await assertFails(
+      setDoc(doc(adminNoMariano(), 'roles', 'uid-con-pareja-b2b'), saveUserRolePayload(null), {
+        merge: true,
+      })
+    );
+  });
+
+  it('B2: fichaClienteEditorFull se compara por valor', async () => {
+    await seedRole('uid-ficha-b2', 'vendedor');
+    // null explicito sobre un doc sin el campo: mismo valor, pasa.
+    await assertSucceeds(
+      updateDoc(doc(adminNoMariano(), 'roles', 'uid-ficha-b2'), {
+        role: 'vendedor',
+        fichaClienteEditorFull: null,
+      })
+    );
+    await assertFails(
+      updateDoc(doc(adminNoMariano(), 'roles', 'uid-ficha-b2'), { fichaClienteEditorFull: true })
+    );
+    await seedRole('uid-ficha-b2b', 'vendedor', { fichaClienteEditorFull: true });
+    await assertSucceeds(
+      updateDoc(doc(adminNoMariano(), 'roles', 'uid-ficha-b2b'), {
+        role: 'interno',
+        fichaClienteEditorFull: true,
+      })
+    );
+    await assertFails(
+      updateDoc(doc(adminNoMariano(), 'roles', 'uid-ficha-b2b'), { fichaClienteEditorFull: false })
+    );
+  });
+});
+
+describe('pedidos.update — ajuste +/- de Stock Asignado (B3)', () => {
+  /** Payload real de _adjustAsigQty (index.html). */
+  const ajuste = () => ({
+    lines: [{ code: 'SKU1', qty: 3, qtyOpen: 3, state: 'ASIG' }],
+    repartoHistory: [
+      {
+        sku: 'SKU1',
+        delta: 1,
+        newAsig: 3,
+        at: '2026-11-24T00:00:00Z',
+        by: 'i@x',
+        viaInlineButton: true,
+      },
+    ],
+    lastRepartoAt: '2026-11-24T00:00:00Z',
+    lastRepartoBy: 'interno@shimano.com.ar',
+  });
+  const seed = (id) =>
+    seedDoc(`pedidos/${id}`, {
+      ownerUid: UID.vendorOther,
+      assignedVendorUid: UID.vendorOther,
+      stage: 'confirmed',
+      lines: [{ code: 'SKU1', qty: 2, qtyOpen: 2, state: 'ASIG' }],
+    });
+
+  it('interno ajusta ASIG de un pedido ajeno con el payload real', async () => {
+    await seed('p-b3-vdi');
+    await assertSucceeds(updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-b3-vdi'), ajuste()));
+  });
+
+  it('interno ajusta ASIG con un pedido que ya tenia historial', async () => {
+    await seedDoc('pedidos/p-b3-vdi-hist', {
+      ownerUid: UID.vendorOther,
+      stage: 'confirmed',
+      lines: [{ code: 'SKU1', qty: 2, qtyOpen: 2, state: 'ASIG' }],
+      repartoHistory: [{ sku: 'SKU1', delta: 2 }],
+      lastRepartoAt: '2026-11-20T00:00:00Z',
+      lastRepartoBy: 'x',
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-b3-vdi-hist'), ajuste())
+    );
+  });
+
+  it('el vendedor sigue sin escribir repartoHistory (decision pendiente)', async () => {
+    await seedDoc('pedidos/p-b3-vde', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendor,
+      stage: 'confirmed',
+      lines: [{ code: 'SKU1', qty: 2, qtyOpen: 2, state: 'ASIG' }],
+    });
+    await assertFails(updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-b3-vde'), ajuste()));
+  });
+});
+
+describe('pedidos.update — vendedor sin transferidoSAP (S1)', () => {
+  it('VDE NO escribe transferidoSAP en su pedido (ni app_only ni otro via)', async () => {
+    await seedDoc('pedidos/p-s1', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendor,
+      stage: 'confirmed',
+      lines: [{ code: 'SKU1', qty: 1, state: 'BO' }],
+    });
+    const db = authedDb(UID.vendor);
+    await assertFails(
+      updateDoc(doc(db, 'pedidos', 'p-s1'), {
+        transferidoSAP: { via: 'app_only', docEntry: null, docNum: 999 },
+      })
+    );
+    await assertFails(
+      updateDoc(doc(db, 'pedidos', 'p-s1'), {
+        transferidoSAP: { via: 'service_layer_auto', docEntry: 1, docNum: 2 },
+      })
+    );
+  });
+
+  it('VDE sigue editando su pedido sin tocar transferidoSAP', async () => {
+    await seedDoc('pedidos/p-s1-ok', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendor,
+      stage: 'pending',
+      lines: [{ code: 'SKU1', qty: 1, state: 'confirmed' }],
+      transferidoSAP: { via: 'app_only', docEntry: null },
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-s1-ok'), {
+        lines: [{ code: 'SKU1', qty: 2, state: 'confirmed' }],
+        observaciones: 'x',
+      })
     );
   });
 });
