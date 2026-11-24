@@ -427,6 +427,50 @@ export function isEligibleForAutoSend(beforeData, afterData) {
 export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   const log = deps.sl.log || (() => {});
 
+  // BATCH B.1 SEC-H2 (2026-11-19) — OBSERVE-ONLY: loguear a operations_log
+  // cuando un pedido llega a stage='confirmed' sin `_commitVersion` válido
+  // (marker que escriben los caminos de servidor). Se observa primero para
+  // medir la línea de base; el bloqueo real queda para una etapa posterior,
+  // cuando todos los caminos legítimos escriban su marker.
+  const COMMIT_VERSION_VALID_SET = new Set([
+    'commitPedidoCore_v1',
+    // Agregar futuros markers de otros paths server a medida que B.2 los migra.
+  ]);
+  if (afterData && afterData.stage === 'confirmed' && !afterData.transferidoSAP) {
+    const _cv = afterData._commitVersion;
+    const _isValidCv = typeof _cv === 'string' && COMMIT_VERSION_VALID_SET.has(_cv);
+    if (!_isValidCv) {
+      // Fire-and-forget: NO bloquea el envío. Solo observa.
+      try {
+        if (deps.fbDb && typeof deps.fbDb.collection === 'function') {
+          const now = deps.now ? deps.now() : Date.now();
+          await deps.fbDb.collection('operations_log').add({
+            type: 'sec_h2_commit_version_missing',
+            severity: 'observe',
+            pedidoId,
+            clientName: afterData.clientName || null,
+            clientCardCode: afterData.clientCardCode || null,
+            stage: afterData.stage,
+            _commitVersion: _cv == null ? null : String(_cv),
+            commitVersionValid: false,
+            ownerUid: afterData.ownerUid || null,
+            ownerEmail: afterData.ownerEmail || null,
+            stageTransition: beforeData ? beforeData.stage || null : null,
+            via: 'trigger_onPedidoConfirmedSendToSap',
+            timestamp: new Date(now).toISOString(),
+          });
+          log('[auto-send] SEC-H2 observe: _commitVersion missing/invalid', {
+            pedidoId,
+            _commitVersion: _cv,
+            clientName: afterData.clientName,
+          });
+        }
+      } catch (_logErr) {
+        // No propagar — el logging es best-effort.
+      }
+    }
+  }
+
   const elig = isEligibleForAutoSend(beforeData, afterData);
   if (!elig.eligible) {
     log('[auto-send] skip', { pedidoId, reason: elig.reason });
