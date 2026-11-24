@@ -28,8 +28,10 @@ describe('E3 — doConfirmPedido usa commitPedidoCF', () => {
     // skipSap, vendorAssigned, assignedVendorUid, routing fields key/tipo/
     // province/locName/clientProvince/clientLocality/orderNumber + mapping
     // extendido source → origen).
+    // §91 (Fix D12 2026-11-20): subido a {0,6500} por discountPct +
+    // discountSnapshot + comentario explicativo.
     const match = INDEX_HTML.match(
-      /window\._tryCommitPedidoCF\s*=[\s\S]{0,5500}httpsCallable\(['"]commitPedidoCF['"]\)/
+      /window\._tryCommitPedidoCF\s*=[\s\S]{0,6500}httpsCallable\(['"]commitPedidoCF['"]\)/
     );
     expect(match, '_tryCommitPedidoCF debe llamar httpsCallable(commitPedidoCF)').toBeTruthy();
   });

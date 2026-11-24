@@ -71,6 +71,7 @@ import { healAsigRefs } from './asig-ref-healing.js';
 // eslint-disable-next-line no-unused-vars
 // biome-ignore lint/correctness/noUnusedImports: preservación intencional — sync con el espejo cliente (ver comentario arriba)
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
+import { resolveDiscountForPersist } from './discount-validator.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 // v1491 §89 HOTFIX (2026-10-27): resolver UID server-side cuando el cliente
@@ -1845,7 +1846,14 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
     observaciones: payload.observaciones || '',
     netAmountArs: netAmount,
     subtotalArs: netAmount,
-    discountPct: 0,
+    // §91 (Fix D12-CRITICAL-01 + defense ATK-004 2026-11-20): persistimos el
+    // descuento comercial que el cliente ya calculo + validado. Pre-fix v1430
+    // era hardcode 0 -> SAP recibia DiscountPercent=0 siempre -> doble bug.
+    // resolveDiscountForPersist hace: clamp [0,100] + coherencia flat vs
+    // snapshot.pctTotal (si ambos vienen, tolerancia 0.01) + throw
+    // DISCOUNT_COHERENCE_MISMATCH en divergencia > tolerancia.
+    // Ver src/pure/discount-validator.js + mirror functions/core/.
+    ...resolveDiscountForPersist(payload),
     ownerUid: payload.ownerUid || null,
     ownerEmail: payload.ownerEmail || null,
     ownerVendor: payload.ownerVendor || null,
