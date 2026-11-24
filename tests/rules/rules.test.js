@@ -1649,3 +1649,348 @@ describe('SEC-M1: revision_waitlist.update hasOnly', () => {
     );
   });
 });
+
+// ============================================================
+// SEC-C1 (Fase 2B, 2026-11-18): pedidos.update para isInterno()
+// con hasOnly whitelist de 30 campos (paridad con VDE).
+//
+// Antes del fix: blanket para interno. Vector CHAIN-01 vigente (VDI podia
+// mutar transferidoSAP, assignedVendorUid, orderNumberPrev, etc.).
+// Despues del fix: 30 campos exactos permitidos. Flows UI legitimos de
+// VDI (editar lines/stage/observaciones/Planner) siguen OK. Campos
+// sensibles bloqueados.
+// ============================================================
+describe('SEC-C1: pedidos.update isInterno() hasOnly', () => {
+  beforeEach(async () => {
+    // Pedido base: owned por VDE_GONZALO (UID.vendor), assigned a VDE_OTRO.
+    await seedDoc('pedidos/pedido_sec_c1', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendorOther,
+      vendorAssigned: 'VDE_OTRO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST CLIENT',
+      stage: 'pending',
+      lines: [{ code: 'SKU1', qty: 1 }],
+      netAmountArs: 1000,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
+  // TC1: VDI puede editar campos WHITELIST
+  it('VDI puede editar observaciones de pedido ajeno', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        observaciones: 'Nota VDI',
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede cambiar plannerStage (Kanban drag) de pedido ajeno', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        plannerStage: 'oferta',
+        plannerHistory: [],
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede editar lines y netAmountArs (contenido comercial)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        lines: [{ code: 'SKU1', qty: 2 }],
+        netAmountArs: 2000,
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede cerrar pedido (closedAt + stage)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'closed',
+        closedAt: '2026-11-18T00:00:00.000Z',
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede editar formaEntrega + deliveryDetails', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        formaEntrega: 'transportista',
+        deliveryDetails: { sucursal: 'X' },
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  // TC2: VDI NO puede editar campos BLACKLIST
+  it('VDI NO puede mutar transferidoSAP (CHAIN-01)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: null,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar sendingSapLock', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        sendingSapLock: null,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar orderNumberPrev', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        orderNumberPrev: 'X',
+      })
+    );
+  });
+
+  it('VDI NO puede mutar assignedVendorUid (viola §44)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        assignedVendorUid: UID.vendor,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar ownerUid', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        ownerUid: UID.interno,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar clientCardCode', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        clientCardCode: 'C99999999999',
+      })
+    );
+  });
+
+  it('VDI NO puede mutar createdAt (immutable)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        createdAt: '2020-01-01T00:00:00.000Z',
+      })
+    );
+  });
+
+  // TC3: admin mantiene blanket (recovery humano por diseño)
+  it('admin puede mutar transferidoSAP (blanket intencional)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: null,
+      })
+    );
+  });
+
+  // TC4: VDE propietario sigue bloqueado para campos sensibles
+  it('VDE propietario NO puede mutar transferidoSAP (sin cambio de whitelist VDE)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: null,
+      })
+    );
+  });
+
+  // TC5: VDE ajeno (no owner ni assigned) no puede update (sin cambio)
+  it('VDE ajeno (no owner ni assigned) NO puede mutar ningún campo', async () => {
+    await seedDoc('pedidos/pedido_sec_c1_otro', {
+      ownerUid: UID.vendorOther,
+      assignedVendorUid: UID.vendorOther,
+      vendorAssigned: 'VDE_OTRO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST',
+      stage: 'pending',
+      lines: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1_otro'), {
+        observaciones: 'Soy ajeno',
+      })
+    );
+  });
+
+  // ============================================================
+  // SEC-C1 Opcion A.2 (2026-11-19): guard semantico transferidoSAP
+  // + 6 campos nuevos (transferidoSAP, revertedFromConfirmedAt,
+  // revertedBy, previousSapDocNum, previousSapDocEntryCancelled,
+  // autoSplitByStock). Cubre los 3 flows VDE+VDI legitimos pre-rotos:
+  // H-01 auto-confirm 100% BO, H-02 volverAPendientes app_only,
+  // H-03 confirmarDefinitivo auto-split. Bloquea CHAIN-01 (via='sap_sl').
+  // ============================================================
+
+  // TC-A2-1: VDI auto-confirm 100% BO con via='app_only' debe pasar (H-01 resuelto)
+  it('VDI puede setear transferidoSAP via=app_only (auto-confirm 100% BO)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'confirmed',
+        finalizedAt: '2026-11-19T00:00:00.000Z',
+        transferidoSAP: {
+          via: 'app_only',
+          reason: 'all_lines_bo',
+          docEntry: null,
+          docNum: null,
+          transferredAt: '2026-11-19T00:00:00.000Z',
+          transferredBy: 'auto/confirm-on-save/santi@shimano.com.ar',
+        },
+      })
+    );
+  });
+
+  // TC-A2-2: VDE propietario puede setear transferidoSAP via=app_only sobre pedido propio
+  it('VDE propietario puede setear transferidoSAP via=app_only', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'confirmed',
+        finalizedAt: '2026-11-19T00:00:00.000Z',
+        transferidoSAP: {
+          via: 'app_only',
+          reason: 'all_lines_bo',
+          docEntry: null,
+        },
+      })
+    );
+  });
+
+  // TC-A2-3: VDI con transferidoSAP via='sap_sl' debe fallar (bloquea CHAIN-01)
+  it('VDI NO puede setear transferidoSAP via=sap_sl (bloquea CHAIN-01)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'sap_sl',
+          docEntry: 999,
+          docNum: 'SQ-FAKE',
+        },
+      })
+    );
+  });
+
+  // TC-A2-4: VDE con transferidoSAP via='service_layer' también debe fallar
+  it('VDE NO puede setear transferidoSAP via=service_layer (bloquea CHAIN-01)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'service_layer',
+          docEntry: 1234,
+        },
+      })
+    );
+  });
+
+  // TC-A2-5: VDI puede deletear transferidoSAP en el flow revert app_only (H-02 resuelto)
+  // Nota: FieldValue.delete() simulado seteando el field a FieldValue.delete()
+  // El emulator Firebase JS SDK v10+ reporta esto como "campo no está en request.resource.data".
+  it('VDI puede deletear transferidoSAP (revert app_only)', async () => {
+    // Seed pedido confirmed con transferidoSAP app_only
+    await seedDoc('pedidos/pedido_sec_c1_revert', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendorOther,
+      vendorAssigned: 'VDE_OTRO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST',
+      stage: 'confirmed',
+      lines: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      finalizedAt: '2026-11-18T00:00:00.000Z',
+      transferidoSAP: { via: 'app_only', docEntry: null },
+    });
+    // Import FieldValue para delete
+    const { deleteField } = await import('firebase/firestore');
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1_revert'), {
+        stage: 'pending',
+        finalizedAt: deleteField(),
+        transferidoSAP: deleteField(),
+        revertedFromConfirmedAt: '2026-11-19T00:00:00.000Z',
+        revertedBy: 'santi@shimano.com.ar',
+      })
+    );
+  });
+
+  // TC-A2-6: VDI puede escribir todos los audit del revert
+  it('VDI puede escribir revertedFromConfirmedAt + revertedBy + previousSapDocNum + previousSapDocEntryCancelled', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'pending',
+        revertedFromConfirmedAt: '2026-11-19T00:00:00.000Z',
+        revertedBy: 'santi@shimano.com.ar',
+        previousSapDocNum: 'SQ-12345',
+        previousSapDocEntryCancelled: 999,
+      })
+    );
+  });
+
+  // TC-A2-7: VDI puede escribir autoSplitByStock (H-03 resuelto)
+  it('VDI puede escribir autoSplitByStock (audit del auto-split)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'confirmed',
+        finalizedAt: '2026-11-19T00:00:00.000Z',
+        lines: [{ code: 'SKU1', qty: 1, state: 'confirmed' }],
+        autoSplitByStock: {
+          at: '2026-11-19T00:00:00.000Z',
+          by: 'santi@shimano.com.ar',
+          source: 'confirmarDefinitivo-preCheck',
+          lost: 500,
+          movedToBO: 1,
+        },
+      })
+    );
+  });
+
+  // TC-A2-8 (reescrito post re-review red team): VDI NO puede setear
+  // transferidoSAP via='app_only' + docEntry != null (vector de sabotaje
+  // H-A2-02 — el CF podría skipear envío legítimo asumiendo "ya enviado").
+  // Guard reforzado: via='app_only' solo si docEntry == null.
+  it('VDI NO puede setear transferidoSAP via=app_only con docEntry falso (H-A2-02 bloqueado)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'app_only',
+          docEntry: 999,
+          docNum: 'FAKE',
+          reason: 'all_lines_bo',
+        },
+      })
+    );
+  });
+
+  // TC-A2-9: VDI via=app_only con docEntry=null explicit debe pasar
+  it('VDI puede setear transferidoSAP via=app_only con docEntry=null (auto-confirm 100% BO legítimo)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'app_only',
+          reason: 'all_lines_bo',
+          docEntry: null,
+          docNum: null,
+          transferredAt: '2026-11-19T00:00:00.000Z',
+          transferredBy: 'auto/confirm-on-save/santi@shimano.com.ar',
+        },
+      })
+    );
+  });
+
+  // TC-A2-10: VDE via=app_only + docEntry presente también bloqueado (simetría)
+  it('VDE NO puede setear transferidoSAP via=app_only con docEntry falso (simetría H-A2-02)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'app_only',
+          docEntry: 1234,
+          docNum: 'VDE-FAKE',
+        },
+      })
+    );
+  });
+});

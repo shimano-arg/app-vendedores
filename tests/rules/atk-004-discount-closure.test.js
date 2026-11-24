@@ -9,7 +9,7 @@
  * - VDE NO puede update AMBOS campos juntos.
  * - Admin SI puede update (su rama no tiene hasOnly).
  * - Gerente SI puede update.
- * - Interno SI puede update.
+ * - Interno NO puede update (whitelist VDI, ajuste #1375).
  * - VDE puede seguir update otros campos del whitelist (regression: formaEntrega, stage).
  */
 
@@ -131,7 +131,7 @@ describe('HARDENING6 §ATK-004 — VDE NO puede update discountPct post-create',
   });
 });
 
-describe('HARDENING6 §ATK-004 — Admin/gerente/interno SI pueden update discount (sin cambio)', () => {
+describe('HARDENING6 §ATK-004 — Admin/gerente SI, interno NO pueden update discount', () => {
   it('Admin puede setear discountPct=95 (rama blanket sin hasOnly)', async () => {
     await seedPedidoDelVendor('pedido-atk004-6');
     const db = authedDb(UID.admin);
@@ -152,10 +152,12 @@ describe('HARDENING6 §ATK-004 — Admin/gerente/interno SI pueden update discou
     );
   });
 
-  it('Interno (v747 blanket) puede setear ambos campos', async () => {
+  // Ajuste #1375 (2026-11-24): el VDI ya no tiene blanket update; su whitelist
+  // tampoco incluye el descuento.
+  it('Interno NO puede setear discountPct/discountSnapshot (whitelist VDI sin descuento)', async () => {
     await seedPedidoDelVendor('pedido-atk004-8');
     const db = authedDb(UID.interno);
-    await assertSucceeds(
+    await assertFails(
       updateDoc(doc(db, 'pedidos', 'pedido-atk004-8'), {
         discountPct: 15,
         discountSnapshot: { pctTotal: 15 },
