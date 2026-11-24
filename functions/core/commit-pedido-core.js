@@ -436,12 +436,20 @@ export async function commitPedidoCore(deps, payload) {
         // commitInTransaction propagan metadata via `err._data._logExtra`.
         // Para errores sin _logExtra (ej. SAP_UNAVAILABLE), igual se
         // loguea con el shape básico de logCommitRejection.
+        //
+        // Incidente Fase 2 (2026-11-24, observabilidad): los 8 throwError
+        // de ASIG_REF_INVALID en accumulateCancelAsigMutations pasan la
+        // metadata (reason/pedidoOrigenId/lineIndex/etc.) en err._data
+        // TOP-LEVEL — no bajo _logExtra. Sin mergear esos campos el log
+        // queda sin sub-reason → imposible auditar per-reason en prod.
+        // Fix: extraer whitelist de err._data top-level antes del merge.
         const logExtra = err._data && err._data._logExtra ? err._data._logExtra : {};
+        const fromDataTop = extractWhitelistedForLog(err._data);
         await logCommitRejection(
           deps,
           err._errorCode,
           payload,
-          Object.assign({}, logExtra, {
+          Object.assign({}, fromDataTop, logExtra, {
             errMessage: err.message || null,
             // Clean err._data for return (remove internal _logExtra).
           })
@@ -1944,6 +1952,104 @@ async function logCommitRejection(deps, errorCode, payload, extra) {
       });
     }
   }
+}
+
+/**
+ * Incidente Fase 2 (2026-11-24, observabilidad §64.2 extensión).
+ *
+ * Whitelist de campos diagnósticos que pueden venir en err._data top-level
+ * (set por throwError(code, msg, {...}) en el core) y que queremos persistir
+ * a operations_log para audit per-reason.
+ *
+ * ¿Por qué whitelist y no blacklist? Zero chance de filtrar PII accidental
+ * (clientName, clientEmail, etc.). Un `throwError` futuro que pase un campo
+ * nuevo necesita agregarse acá explícitamente — intencional + visible.
+ *
+ * Fuentes documentadas de los 8 throwError ASIG_REF_INVALID en
+ * accumulateCancelAsigMutations (líneas 1388-1495):
+ *   - reason: PEDIDO_ORIGEN_NOT_FOUND | LINE_INDEX_INVALID | LINE_MISSING
+ *             | SKU_CONFLICT_IN_DUPES | SKU_MISMATCH | STATE_MISMATCH
+ *             | QTY_ZERO | QTY_INSUFFICIENT
+ *   - pedidoOrigenId, lineIndex, sku
+ *   - arrayLength (LINE_INDEX_INVALID)
+ *   - conflictingSkus, actualLineCode (SKU_CONFLICT_IN_DUPES)
+ *   - expectedSku, actualSku (SKU_MISMATCH)
+ *   - expectedState, actualState (STATE_MISMATCH)
+ *   - qtyOpen (QTY_ZERO)
+ *   - qtyAsignada, qtyOpen (QTY_INSUFFICIENT)
+ *
+ * Fuentes de otros errorCodes:
+ *   - CLIENT_HAS_OPEN_WAITLIST: conflictingWaitlistId, conflictingOrderNumber,
+ *                               conflictingItemsCount
+ *   - SNAPSHOT_TOO_OLD: snapshotAgeMinutes, snapshotUpdatedAt, snapshotOrigin,
+ *                       canRefresh
+ *   - VERSION_OLD: minVersion, currentVersion
+ *   - PERMISSION_DENIED (G4.03): reason, existingPedidoId, sapDocNum,
+ *                                sapDocEntry, via
+ *   - VALIDATION_ERROR: validationReason (algunos paths lo pasan en extra,
+ *                       otros en _data).
+ *   - VENDOR_UID_MISSING: resolvedVendorKey, resolvedVendorUid (§89 fallback)
+ *
+ * **EXCLUIDOS explícitamente** (PII — nunca a operations_log):
+ *   - clientName, clientEmail, clientCardCode (cardCode SÍ se loguea aparte
+ *     como campo operacional ya establecido por logCommitRejection — ese es
+ *     el único cardCode)
+ *   - Cualquier free-text que pueda arrastrar datos de cliente.
+ *   - `rows[]` de UNRESOLVED_BO_ENTRY_ROWS (array potencialmente grande + nombres).
+ *
+ * @param {any} errData
+ * @returns {Record<string, any>}
+ */
+export function extractWhitelistedForLog(errData) {
+  if (!errData || typeof errData !== 'object') return {};
+  /** @type {string[]} */
+  const WHITELIST_KEYS = [
+    // ASIG_REF_INVALID sub-fields
+    'reason',
+    'pedidoOrigenId',
+    'lineIndex',
+    'sku',
+    'arrayLength',
+    'conflictingSkus',
+    'actualLineCode',
+    'expectedSku',
+    'actualSku',
+    'expectedState',
+    'actualState',
+    'qtyOpen',
+    'qtyAsignada',
+    // CLIENT_HAS_OPEN_WAITLIST
+    'conflictingWaitlistId',
+    'conflictingOrderNumber',
+    'conflictingItemsCount',
+    // SNAPSHOT_TOO_OLD
+    'snapshotAgeMinutes',
+    'snapshotUpdatedAt',
+    'snapshotOrigin',
+    'canRefresh',
+    // VERSION_OLD
+    'minVersion',
+    'currentVersion',
+    // PERMISSION_DENIED
+    'existingPedidoId',
+    'sapDocNum',
+    'sapDocEntry',
+    'via',
+    // VALIDATION_ERROR
+    'validationReason',
+    // VENDOR_UID_MISSING (§89)
+    'resolvedVendorKey',
+    'resolvedVendorUid',
+  ];
+  /** @type {Record<string, any>} */
+  const out = {};
+  for (const k of WHITELIST_KEYS) {
+    // biome-ignore lint/suspicious/noPrototypeBuiltins: tsconfig target es2020 — Object.hasOwn requiere es2022
+    if (Object.prototype.hasOwnProperty.call(errData, k) && errData[k] !== undefined) {
+      out[k] = errData[k];
+    }
+  }
+  return out;
 }
 
 /**

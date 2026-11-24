@@ -3962,6 +3962,41 @@ export const commitPedidoCF = onCall(
       return r;
     } catch (e) {
       // Error inesperado (no de negocio). Log + throw.
+      // Incidente Fase 2 (2026-11-24, observabilidad): antes del throw,
+      // persistimos a operations_log con context operacional (sin PII, sin
+      // stack trace). Esto permite correlacionar INTERNAL con timestamp,
+      // user, cardCode, revisionName — y cross-check con gcloud logging
+      // (stack trace sigue sólo en console.error → Cloud Logging, no en
+      // Firestore).
+      try {
+        /** @type {any} */
+        const _err = e || {};
+        await db.collection('operations_log').add({
+          type: 'commit_pedido_rejected',
+          errorCode: 'INTERNAL',
+          userId: (auth && auth.uid) || null,
+          userEmail: email || null,
+          cardCode: (data && data.cardCode) || null,
+          draftId: (data && data.draftId) || null,
+          origen: (data && data.origen) || null,
+          clientVersion: (data && data.clientVersion) || null,
+          waitlistOrigenId: (data && data.waitlistOrigenId) || null,
+          // Sólo message (no stack trace; no logeamos paths internos).
+          errMessage: String(_err.message || '').slice(0, 2000),
+          errName: String(_err.name || ''),
+          errCode: _err.code || null,
+          // Contexto Cloud Run — crítico para debuggear OOM / cold start.
+          revisionName: process.env.K_REVISION || null,
+          memoryLimit: process.env.FUNCTION_MEMORY_MB || null,
+          timestamp: new Date(),
+        });
+      } catch (_logErr) {
+        // Fire-and-forget: si el log falla también, warn + seguir con throw.
+        console.warn(
+          'operations_log write failed for INTERNAL',
+          (_logErr && _logErr.message) || _logErr
+        );
+      }
       console.error('commitPedidoCF unexpected', e);
       throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
     }
