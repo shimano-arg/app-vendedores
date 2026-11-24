@@ -147,10 +147,31 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     }
     /** @type {Array<{ref: any, newLines: Array<any>}>} */
     const pedidoWrites = [];
+    /** @type {Array<{pedidoId:string, reason:string}>} */
+    const crossClientSkipped = [];
+    const waitlistCardCode = String(w.clientCardCode || '').trim();
     for (const [pedidoId, refsForPed] of refsByPedido) {
       const snap = snapshots.get(pedidoId);
       if (!snap || !snap.exists) continue;
       const data = snap.data || {};
+      // SEC-M6 (2026-11-19): solo se mutan pedidos del mismo cliente que la
+      // orden en espera. Admin/gerente/interno pueden operar entre clientes
+      // (reconciliación legítima); el resto no.
+      //
+      // D10 (2026-11-24): para no privilegiados el chequeo es fail-closed:
+      // si falta el cardCode de la orden o del pedido, también se saltea
+      // (antes se dejaba pasar por compatibilidad con pedidos viejos).
+      const pedidoCardCode = String(data.clientCardCode || '').trim();
+      if (!isPrivileged) {
+        let skipReason = '';
+        if (!waitlistCardCode) skipReason = 'waitlist_sin_cardCode';
+        else if (!pedidoCardCode) skipReason = 'pedido_sin_cardCode';
+        else if (pedidoCardCode !== waitlistCardCode) skipReason = 'cross_client_cardCode_mismatch';
+        if (skipReason) {
+          crossClientSkipped.push({ pedidoId, reason: skipReason });
+          continue;
+        }
+      }
       /** @type {Array<any>} */
       const newLines = Array.isArray(data.lines)
         ? data.lines.map((/** @type {any} */ l) => Object.assign({}, l))
@@ -212,6 +233,7 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
       linesCancelled,
       pedidosMutated: pedidoWrites.length,
       waitlistDeleted,
+      crossClientSkipped,
     };
   });
 
@@ -240,6 +262,26 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     const addResult = deps.fbDb.collection('operations_log').add(logEntry);
     if (addResult && typeof addResult.catch === 'function') {
       addResult.catch(() => {});
+    }
+    // SEC-M6 (2026-11-19): log separado si se salteó algún pedido por el
+    // chequeo de cliente.
+    if (result.crossClientSkipped && result.crossClientSkipped.length > 0) {
+      const secLog = {
+        type: 'sec_m6_idor_cross_client_skipped',
+        severity: 'warning',
+        waitlistId,
+        waitlistCardCode: w.clientCardCode || null,
+        waitlistOrderNumber: w.orderNumber || null,
+        skipped: result.crossClientSkipped,
+        skippedCount: result.crossClientSkipped.length,
+        userId: auth.uid,
+        userEmail,
+        role,
+        via: 'releaseAsigCF',
+        timestamp: new Date(now),
+      };
+      const addSec = deps.fbDb.collection('operations_log').add(secLog);
+      if (addSec && typeof addSec.catch === 'function') addSec.catch(() => {});
     }
   } catch (_logErr) {
     // No bloquea.
