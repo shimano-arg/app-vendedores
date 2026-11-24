@@ -58,6 +58,10 @@ import {
   buildBackfillUpdate,
   computeBoAbsorption,
 } from './absorb-bo-on-confirm.js';
+// v1565 Incidente Frente A (2026-11-24): healing de asigRefs stale post
+// revertSobreAsignadas / recorte_vendedor_cpst / cliente_rechazo_cpst.
+// Pure fn mirror de src/pure/asig-ref-healing.js. Ver §108 CLAUDE.md.
+import { healAsigRefs } from './asig-ref-healing.js';
 // Tarea L (v1457 2026-10-25): payload gate "entrada del backorder" (filas rojas).
 // Si llegan al CF con `boEntryResolved===null`, es bug cliente → errorCode
 // UNRESOLVED_BO_ENTRY_ROWS. Importamos la función solo por sync con el espejo,
@@ -455,6 +459,34 @@ export async function commitPedidoCore(deps, payload) {
           });
       } catch (_e) {
         // No propagar.
+      }
+      // v1565 Frente A (2026-11-24, §108): audit fire-and-forget si el healing
+      // modificó refs stale. Guardamos los events para que Mariano pueda
+      // auditar en Firestore qué refs se healearon por pedido.
+      const _healEvents = /** @type {any} */ (payload)._asigRefHealingEvents;
+      if (Array.isArray(_healEvents) && _healEvents.length > 0) {
+        try {
+          deps.fbDb
+            .collection('operations_log')
+            .add({
+              type: 'asig_ref_healed',
+              newPedidoId: result.pedidoId,
+              cardCode: payload.cardCode,
+              userId: payload.ownerUid || null,
+              userEmail: payload.ownerEmail || null,
+              waitlistOrigenId: payload.waitlistOrigenId || null,
+              draftId: payload.draftId,
+              clientVersion: payload.clientVersion || null,
+              events: _healEvents,
+              totalHealed: _healEvents.length,
+              timestamp: new Date(now),
+            })
+            .catch((/** @type {any} */ _e) => {
+              log('operations_log asig_ref_healed write failed', { err: _e && _e.message });
+            });
+        } catch (_e) {
+          // No propagar.
+        }
       }
       // §J (v1455): operations_log entry fire-and-forget si hubo absorciones.
       if (Array.isArray(result.absorptions) && result.absorptions.length > 0) {
@@ -1279,6 +1311,45 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   const pendingPedidoWrites = new Map();
 
   // 5.9 Acumular cancelación ASIG si origen='cpst'.
+  // v1565 Frente A (2026-11-24, §108): ANTES de los 7 CHECKs semánticos,
+  // healear refs stale que pueden haber quedado obsoletas desde la creación
+  // del waitlist. Casos tratados:
+  //   - Línea revertida a BO por reconcile automático (§40.11) → DROP ref.
+  //   - Línea cancelled por rechazo explícito VDE/admin (§40.6/§40.7/§40.10) → DROP.
+  //   - Línea cancelled consumida por otro pedido (waitlist-confirm) → DROP.
+  //   - Línea cancelled + splitFromLineIndex → REPOINT a gemela viva, o DROP.
+  //   - Línea ASIG con qtyAsignada > qtyOpen → CLAMP a qtyOpen.
+  // Las inconsistencias SKU_MISMATCH / LINE_INDEX_INVALID / LINE_MISSING NO se
+  // healean (siguen abortando downstream) — son bugs reales del payload.
+  // Precedente: SNAKE SRL waitlist 5a0KYAoRAiDO7uKalO6i, 4 refs STATE_MISMATCH
+  // por revertida_a_bo. Ver docs/auditoria/BA_incidente_frente_a_*.md.
+  /** @type {Array<any>} */
+  let _healingEvents = [];
+  if (payload.origen === 'cpst' && asigOrigenSnapshots.size > 0) {
+    try {
+      const healResult = healAsigRefs(payload, asigOrigenSnapshots);
+      if (healResult.healedCount > 0) {
+        _healingEvents = healResult.events;
+        (deps.log || (() => {}))('asig_refs_healed', {
+          draftId: payload.draftId,
+          cardCode: payload.cardCode,
+          waitlistOrigenId: payload.waitlistOrigenId || null,
+          droppedRefs: healResult.droppedRefs,
+          repointedRefs: healResult.repointedRefs,
+          clampedRefs: healResult.clampedRefs,
+          healedCount: healResult.healedCount,
+        });
+      }
+    } catch (healErr) {
+      (deps.log || (() => {}))('asig_ref_healing_error', {
+        draftId: payload.draftId,
+        err: (healErr && healErr.message) || String(healErr),
+      });
+      // Fail-open §77: si el healing crashea, dejamos pasar al CHECK downstream
+      // que abortará con ASIG_REF_INVALID. Nunca bloqueamos por bug del healing.
+    }
+  }
+
   // VALIDACIONES SEMÁNTICAS (informe 032 §2) — abortan la tx completa si fallan.
   if (payload.origen === 'cpst' && asigOrigenSnapshots.size > 0) {
     accumulateCancelAsigMutations(
@@ -1288,6 +1359,11 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
       pedidoRef.id,
       nowIso
     );
+  }
+
+  // Propagar events para audit log fuera de la tx (patrón §64.2).
+  if (_healingEvents.length > 0) {
+    /** @type {any} */ (payload)._asigRefHealingEvents = _healingEvents;
   }
 
   // 5.9b §J (v1455 2026-10-25) — Acumular absorciones de BO sobre el mismo
