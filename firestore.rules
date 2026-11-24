@@ -1007,7 +1007,63 @@ service cloud.firestore {
       // ORDEN 178, 3 SQs 2000183/2000184/2000185). Delete queda scoped al
       // owner del doc — no permite wipe masivo (defensa v926 preservada).
       // Admin/gerente/interno siguen pudiendo borrar cualquier doc.
-      allow update: if isReader();
+      //
+      // SEC-M1 (Fase 2B, 2026-11-18, reintegrado 2026-11-19 iter 2.2 post
+      // red team adversarial): whitelist estricto sobre update directo
+      // desde cliente. Los 4 CFs cross-vendor (releaseAsigCF,
+      // commitPedidoCF, movePedidoToWaitlistCF, unifyWaitlistsCF) usan
+      // Admin SDK y bypassean esta rule.
+      //
+      // Iteración 2.2 (post red team): whitelist extendido a 20 campos
+      // para cubrir flujos legítimos cliente-side pre-existentes:
+      //   - "Unificar orden" modal (_wcardUnificarOrden index.html:27378).
+      //   - §42 helper (_createOrUnifyWaitlistPayload index.html:18800).
+      //   - Marcado de órdenes absorbidas (consumed + unifiedInto).
+      //   - Re-resolve §44 vendor en target legacy (pre-§44).
+      //
+      // Campos bloqueados (solo CF los escribe): clientCardCode, ownerUid,
+      // asigRefs, createdAt, createdByUid, cancelledAt, _unifiedFromWaitlistId.
+      //
+      // Guard legacy §44: los 4 campos de vendor (assignedVendorUid,
+      // vendorAssigned, assignedVendorEmail, ownerVendor) solo son
+      // modificables si el doc es legacy pre-§44 (resource.data.assignedVendorUid
+      // vacío o ausente). VDE hostil que intenta reasignar un waitlist
+      // post-§44 es bloqueado (preserva mitigación §59).
+      //
+      // Riesgos residuales DEUDA-M1-R1 (editar items ajenos) y DEUDA-M1-R2
+      // (consumed silencioso ajeno) persisten — Fase 3.
+      allow update: if isReader()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          // Contenido editable (modal "Pedido en Espera" + CPST + Excel)
+          'items',
+          // Editar orderNumber (waitlistEditOrden desde modal)
+          'orderNumber',
+          // Transicion a consumed via commitPedidoCF flow .then()
+          // (index.html:39230 — defense-in-depth v953)
+          'stage', 'consumedByPedidoId', 'consumedAt',
+          // §42.2 review guard unify local
+          'closedAt', 'closedReason',
+          'unifiedIntoCurrentOrder', 'unifiedAt', 'unifiedBy',
+          // Timestamp update automatico
+          'updatedAt',
+          // SEC-M1 iter 2.2: Unificar orden target update (audit + heredar CPST)
+          'unifiedFrom', 'pedidosOrigenes', 'source',
+          // SEC-M1 iter 2.2: Marcado de órdenes absorbidas
+          'unifiedInto', 'unifiedIntoOrderNumber',
+          // SEC-M1 iter 2.2: Re-resolve §44 en target legacy (con guard abajo)
+          'assignedVendorUid', 'vendorAssigned', 'assignedVendorEmail', 'ownerVendor'
+        ])
+        // Guard legacy §44: los 4 campos de vendor solo si resource es legacy
+        // (assignedVendorUid vacío o ausente). Preserva mitigación §59.
+        && (
+          !(
+            'assignedVendorUid' in request.resource.data.diff(resource.data).affectedKeys()
+            || 'vendorAssigned' in request.resource.data.diff(resource.data).affectedKeys()
+            || 'assignedVendorEmail' in request.resource.data.diff(resource.data).affectedKeys()
+            || 'ownerVendor' in request.resource.data.diff(resource.data).affectedKeys()
+          )
+          || resource.data.get('assignedVendorUid', '') == ''
+        );
       allow delete: if isAdminOrGerente() || isInterno()
                     || (isReader() && resource.data.ownerUid == request.auth.uid);
     }

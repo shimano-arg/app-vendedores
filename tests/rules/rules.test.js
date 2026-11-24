@@ -1409,3 +1409,243 @@ describe('revision_waitlist_locks — server-side only', () => {
     );
   });
 });
+
+// ============================================================
+// SEC-M1 (Fase 2B, 2026-11-18, reintegrado 2026-11-19): whitelist
+// estricto de 11 campos sobre revision_waitlist.update desde cliente.
+// Antes: isReader() blanket. Vector §59: VDE hostil cambiaba
+// assignedVendorUid de waitlist ajeno para "robar" la carga.
+// Despues: hasOnly whitelist bloquea campos sensibles.
+// ============================================================
+describe('SEC-M1: revision_waitlist.update hasOnly', () => {
+  beforeEach(async () => {
+    await seedDoc('revision_waitlist/wl_sec_m1', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendor,
+      vendorAssigned: 'VDE_GONZALO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST CLIENT',
+      stage: 'active',
+      items: [{ code: 'SKU1', qty: 1 }],
+      orderNumber: 123,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdByUid: UID.vendor,
+    });
+  });
+
+  // TC1: VDE puede editar campos WHITELIST
+  it('VDE puede editar items de su propio waitlist', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        items: [{ code: 'SKU1', qty: 2 }],
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE puede marcar waitlist como consumed (confirm flow index.html:39230)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        stage: 'consumed',
+        consumedByPedidoId: 'pedido_abc',
+        consumedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE puede unificar waitlist localmente (§42.2 guard)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        stage: 'consumed',
+        closedAt: '2026-11-18T00:00:00.000Z',
+        closedReason: 'unified_at_review',
+        unifiedIntoCurrentOrder: true,
+        unifiedAt: '2026-11-18T00:00:00.000Z',
+        unifiedBy: 'vde.a@shimano.com.ar',
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE puede editar orderNumber (waitlistEditOrden)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        orderNumber: 456,
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  // TC2: VDE hostil no puede escalar privilegios
+  it('VDE ajeno NO puede cambiar assignedVendorUid de waitlist (vector §59)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendorOther), 'revision_waitlist', 'wl_sec_m1'), {
+        assignedVendorUid: UID.vendorOther,
+        vendorAssigned: 'VDE_OTRO',
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar ownerUid', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        ownerUid: UID.vendorOther,
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar clientCardCode', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        clientCardCode: 'C99999999999',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2 (post red team): este test originalmente verificaba
+  // que VDE NO podía cambiar source/pedidosOrigenes. Pero el red team
+  // demostró que el flow legítimo "Unificar orden absorbiendo CPST"
+  // (index.html:18806 y 27386) escribe estos campos para heredar
+  // source='stock-asignado-batch' al unificar con waitlist CPST.
+  // El test se refactoriza: VDE PUEDE escribir source + pedidosOrigenes
+  // (whitelisted para el flow legítimo). Riesgo residual DEUDA-M1-R3
+  // (audit pollution: VDE podría marcar un waitlist no-CPST como CPST
+  // falso). Mitigación Fase 3: CF trigger valida que pedidosOrigenes
+  // apunte a pedidos reales del mismo cliente.
+  it('VDE puede escribir source + pedidosOrigenes (flow Unificar CPST; riesgo residual DEUDA-M1-R3)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        source: 'stock-asignado-batch',
+        pedidosOrigenes: [{ pedidoId: 'ped_x', lineIndex: 0, sku: 'SKU1', qtyAsignada: 1 }],
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar createdAt (immutable)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        createdAt: '2020-01-01T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva Unificar orden
+  // (index.html:27378 _wcardUnificarOrden + index.html:18800 _createOrUnifyWaitlistPayload)
+  it('VDE puede ejecutar "Unificar orden" (items + unifiedFrom + updatedAt)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        items: [
+          { code: 'SKU1', qty: 2 },
+          { code: 'SKU2', qty: 1 },
+        ],
+        unifiedFrom: [
+          {
+            source: 'creacion_manual',
+            timestamp: '2026-11-19T00:00:00.000Z',
+            by: 'vde@shimano.com.ar',
+          },
+        ],
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva absorber CPST con pedidosOrigenes + source
+  it('VDE puede unificar waitlist con pedidosOrigenes + source (CPST absorbida)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        items: [{ code: 'SKU1', qty: 1 }],
+        pedidosOrigenes: [{ pedidoId: 'ped_xyz', lineIndex: 0, sku: 'SKU1', qtyAsignada: 1 }],
+        source: 'stock-asignado-batch',
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva marcar order absorbida
+  // (index.html:27391 / index.html:18830 target.others loop)
+  it('VDE puede marcar waitlist absorbida (unifiedInto + unifiedIntoOrderNumber)', async () => {
+    await seedDoc('revision_waitlist/wl_sec_m1_absorbida', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendor,
+      vendorAssigned: 'VDE_GONZALO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST',
+      stage: 'active',
+      items: [],
+      orderNumber: 124,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1_absorbida'), {
+        stage: 'consumed',
+        closedAt: '2026-11-19T00:00:00.000Z',
+        closedReason: 'unified_into_v42',
+        unifiedInto: 'wl_sec_m1',
+        unifiedIntoOrderNumber: 123,
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva re-resolve §44 en target LEGACY
+  // (index.html:18819 _createOrUnifyWaitlistPayload condicional !_targetHasVendor)
+  it('VDE puede re-resolver vendor en target legacy pre-§44 (assignedVendorUid vacío)', async () => {
+    await seedDoc('revision_waitlist/wl_sec_m1_legacy', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: '', // ← legacy pre-§44 (campo existe pero vacío)
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST LEGACY',
+      stage: 'active',
+      items: [],
+      orderNumber: 125,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1_legacy'), {
+        items: [{ code: 'SKU1', qty: 1 }],
+        vendorAssigned: 'VDE_GONZALO',
+        assignedVendorUid: UID.vendor,
+        assignedVendorEmail: 'gonzalo@shimano.com.ar',
+        ownerVendor: 'VDE_GONZALO',
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: guard legacy §44 bloquea reasignar vendor en target NO legacy
+  it('VDE NO puede cambiar assignedVendorUid en target post-§44 (guard legacy activo)', async () => {
+    // wl_sec_m1 ya tiene assignedVendorUid populated (UID.vendor); intentar
+    // reasignar a UID.vendorOther debe fallar aunque los 4 campos están whitelisted.
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        assignedVendorUid: UID.vendorOther,
+        vendorAssigned: 'VDE_OTRO',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: guard legacy bloquea reasignar aunque VDE sea ajeno
+  it('VDE ajeno NO puede re-resolver vendor en target post-§44 (preserva §59)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendorOther), 'revision_waitlist', 'wl_sec_m1'), {
+        assignedVendorUid: UID.vendorOther,
+        vendorAssigned: 'VDE_OTRO',
+        assignedVendorEmail: 'otro@shimano.com.ar',
+        ownerVendor: 'VDE_OTRO',
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar unifiedFrom con shape invalido para audit (ex: campos no esperados en el record)', async () => {
+    // El whitelist permite unifiedFrom pero la rule NO valida su shape interno.
+    // Esto queda como riesgo residual: VDE puede sembrar entries falsas en
+    // unifiedFrom (audit pollution). Fase 3 CF trigger valida el shape.
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        unifiedFrom: [{ source: 'arbitrary', fakeField: 'malicious' }],
+      })
+    );
+  });
+});
