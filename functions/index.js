@@ -3998,7 +3998,7 @@ export const commitPedidoCF = onCall(
         );
       }
       console.error('commitPedidoCF unexpected', e);
-      throw new HttpsError('internal', 'error inesperado: ' + (e?.message || String(e)));
+      throw new HttpsError('internal', 'error inesperado, reintenta en unos segundos');
     }
   }
 );
