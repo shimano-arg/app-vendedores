@@ -243,8 +243,9 @@ describe('/pedidos', () => {
     await assertSucceeds(getDocs(collection(authedDb(UID.interno), 'pedidos')));
   });
 
-  it('vendor puede crear pedido propio', async () => {
-    await assertSucceeds(
+  // Batch 2026-11-24 (#1379 ajustado): pedidos.create directo solo admin/gerente.
+  it('vendor NO puede crear pedido directo (solo via commitPedidoCF)', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new'), { ownerUid: UID.vendor })
     );
   });
@@ -254,16 +255,16 @@ describe('/pedidos', () => {
     );
   });
   // v991 (SecAudit run-1 HIGH #5): create rule valida ownerVendor
-  it('v991: vendor puede crear pedido con ownerVendor=myVendorKey (VDE_GONZALO)', async () => {
-    await assertSucceeds(
+  it('v991: vendor NO puede crear pedido directo aun con ownerVendor propio', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-own'), {
         ownerUid: UID.vendor,
         ownerVendor: 'VDE_GONZALO',
       })
     );
   });
-  it('v991: vendor puede crear pedido con ownerVendor=null (unset)', async () => {
-    await assertSucceeds(
+  it('v991: vendor NO puede crear pedido directo con ownerVendor=null', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-null'), {
         ownerUid: UID.vendor,
         ownerVendor: null,
@@ -417,8 +418,8 @@ describe('/pedidos', () => {
     );
   });
 
-  it('interno partnered puede crear pedido en nombre de su VDE (onBehalfOf=true)', async () => {
-    await assertSucceeds(
+  it('interno partnered NO puede crear pedido directo en nombre de su VDE (solo via CF)', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-on-behalf'), {
         ownerUid: UID.vendor,
         createdByUid: UID.internoPartnered,

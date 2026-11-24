@@ -265,23 +265,13 @@ service cloud.firestore {
       // seteado por admin+gerente. La CF ademas hace fresh lookup a
       // roles/{ownerUid}.vendor (defensa en profundidad), pero cerrar el
       // create al nivel de rule ya bloquea el vector de fraude.
-      allow create: if isAdminOrGerente()
-        || (
-          isVendor()
-          && request.resource.data.ownerUid == request.auth.uid
-          && (
-            !('ownerVendor' in request.resource.data)
-            || request.resource.data.ownerVendor == null
-            || request.resource.data.ownerVendor == myVendorKey()
-          )
-        )
-        || (isInterno()
-            && request.resource.data.ownerUid == request.auth.uid
-            && request.resource.data.onBehalfOf == false)
-        || (isInterno()
-            && request.resource.data.createdByUid == request.auth.uid
-            && request.resource.data.onBehalfOf == true
-            && isMyPartnerVDE(request.resource.data.ownerUid));
+      // SEC rules batch 2026-11-24 (#1379 con ajuste): create directo solo
+      // admin/gerente. Todo pedido de vendedor o interno nace en
+      // commitPedidoCF (Admin SDK, no pasa por rules; §67 v1454 elimino el
+      // pedidos.add del cliente). Cerrar el camino directo evita pedidos
+      // creados fuera del servidor con datos (descuento, vendedor, estado)
+      // que el servidor no valido.
+      allow create: if isAdminOrGerente();
       // v747 (2026-08-31): relajada la rule de update/delete para internos.
       // Antes: internos solo podian update pedidos donde eran ownerUid
       // (onBehalfOf=false) o createdByUid (onBehalfOf=true). Bug reportado
