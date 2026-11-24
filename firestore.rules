@@ -284,7 +284,12 @@ service cloud.firestore {
             // Delivery info (usuario cambia transportista/sucursal/retiro post-envio)
             'formaEntrega', 'deliveryDetails',
             // Contenido del pedido (edit lines pre-transfer, aggregate updates)
-            'lines', 'netAmountArs', 'subtotalArs', 'discountPct', 'discountSnapshot',
+            // HARDENING6 (2026-11-23): 'discountPct' y 'discountSnapshot' fuera del
+            // whitelist del VDE. El descuento se fija al crear el pedido (server-side);
+            // ningun call-site del cliente lo actualiza despues. Si hiciera falta
+            // editarlo post-create, hacerlo via CF dedicada con tope por rol + log
+            // (pattern releaseAsigCF §63), no reabriendo este whitelist.
+            'lines', 'netAmountArs', 'subtotalArs',
             'condicionPago',
             // Transiciones de estado (waitlist -> pending -> confirmed)
             'stage', 'confirmedAt', 'finalizedAt', 'closedAt',
