@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1569';
+const APP_VERSION = 'v1570';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -18325,8 +18325,14 @@ window._maybeFetchLiveStockForWaitlist = async function(w){
     window._liveStockFisico = null;
     // ROLE_REQUIRED (gate de rol server-side): mismo fallback silencioso al
     // snapshot; el motivo queda registrado para diagnóstico.
+    // ROLE_CHECK_UNAVAILABLE y TOO_MANY_SKUS: mismo fallback, con motivo propio.
     const _liveRoleReq = !!(e && e.details && e.details.errorCode === 'ROLE_REQUIRED');
-    window._liveStockMeta = { reason: _liveRoleReq ? 'role_required' : 'callable_error', fetchedAt: new Date().toISOString(), snapshotFallback: true };
+    const _liveSrvCode = window._serverErrorCodeOf ? window._serverErrorCodeOf(e) : '';
+    const _liveReason = _liveRoleReq ? 'role_required'
+      : _liveSrvCode === 'ROLE_CHECK_UNAVAILABLE' ? 'role_check_unavailable'
+      : _liveSrvCode === 'TOO_MANY_SKUS' ? 'too_many_skus'
+      : 'callable_error';
+    window._liveStockMeta = { reason: _liveReason, fetchedAt: new Date().toISOString(), snapshotFallback: true };
     window._updateLiveStockBadge();
   }
 };
@@ -18583,6 +18589,15 @@ window._tryCommitPedidoCF = async function(docData){
         };
       }
 
+      // Falla transitoria al verificar el rol (details.errorCode
+      // ROLE_CHECK_UNAVAILABLE, code 'unavailable'): el servidor corta antes
+      // de escribir, así que no hay pedido que recuperar. Se informa con su
+      // mensaje propio en vez de tratarlo como caída de red.
+      const _srvCode = window._serverErrorCodeOf ? window._serverErrorCodeOf(e) : '';
+      if (_srvCode === 'ROLE_CHECK_UNAVAILABLE') {
+        return { ok: false, errorCode: 'ROLE_CHECK_UNAVAILABLE', message, _rawCode: code };
+      }
+
       // Rama RED: idempotency check pre-fallback.
       const isNetwork = window._FALLBACK_LEGACY_NETWORK_CODES.has(code)
         || (!code && /network|fetch|offline|timeout/i.test(message));
@@ -18622,8 +18637,10 @@ window._tryCommitPedidoCF = async function(docData){
       // Rama NEGOCIO: NUNCA fallback, devolver errorCode.
       console.error('[_tryCommitPedidoCF] error de negocio NO cae a fallback:', code, message);
       const _isRoleReq = !!(e && e.details && e.details.errorCode === 'ROLE_REQUIRED');
+      const _isTooMany = _srvCode === 'TOO_MANY_SKUS';
       const mappedErrorCode =
         _isRoleReq ? 'ROLE_REQUIRED' :
+        _isTooMany ? 'TOO_MANY_SKUS' :
         code === 'functions/unauthenticated' || code === 'functions/permission-denied' ? 'PERMISSION_DENIED' :
         code === 'functions/invalid-argument' ? 'VALIDATION_ERROR' :
         'INTERNAL';
@@ -27580,15 +27597,45 @@ window._wcardDeleteChoiceClose = function(){
 // §63 (2026-10-23 v1442): la cancelación cross-vendor va server-side via
 // releaseAsigCF. El cliente solo invoca la callable; el servidor valida
 // permiso + ejecuta el batch con runTransaction (§58).
-// Gate de rol server-side (releaseAsigCF y otros callables): si el error es
-// permission-denied con details.errorCode='ROLE_REQUIRED', devuelve el mensaje
-// humano de mensajes-vendedor (§68); si no, null.
+// Errores de negocio del servidor (releaseAsigCF y otros callables): si el
+// error trae en details.errorCode un código con mensaje propio (ROLE_REQUIRED,
+// ROLE_CHECK_UNAVAILABLE, CLIENT_DATA_MISSING, RELEASE_CROSS_CLIENT,
+// TOO_MANY_SKUS, GEMINI_OCR_FAILED, EMAIL_SEND_FAILED), devuelve el mensaje
+// humano de mensajes-vendedor (§68); si no, null. Fallback inline por si el
+// bundle viene stale (SW sirviendo una versión previa).
+window._SERVER_ERROR_FALLBACK_TEXTS = {
+  ROLE_REQUIRED: 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.',
+  ROLE_CHECK_UNAVAILABLE: 'No pudimos verificar tu permiso en este momento. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
+  CLIENT_DATA_MISSING: 'No pudimos liberar la reserva porque al pedido le falta el dato del cliente. Avisale a Mariano o a un administrador.',
+  RELEASE_CROSS_CLIENT: 'No pudimos liberar la reserva porque pertenece a otro cliente. Revisá la orden y, si sigue, avisale a Mariano.',
+  TOO_MANY_SKUS: 'El pedido tiene demasiados productos para procesarlo de una vez. Dividilo en dos o más pedidos y volvé a intentar.',
+  GEMINI_OCR_FAILED: 'No pudimos leer el comprobante. Completá los datos a mano o volvé a intentar en un minuto.',
+  EMAIL_SEND_FAILED: 'No pudimos enviar el mail. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
+};
+window._serverErrorCodeOf = function(e){
+  const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+  if (_mv && _mv.getServerErrorCode) return _mv.getServerErrorCode(e);
+  if (!e || typeof e !== 'object') return '';
+  const raw = (e.details && typeof e.details === 'object' && e.details.errorCode) || e.errorCode || '';
+  return typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+};
+window._serverErrorAlertText = function(e){
+  const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+  if (_mv && _mv.formatServerErrorAlert) return _mv.formatServerErrorAlert(e);
+  const code = window._serverErrorCodeOf(e);
+  const txt = code && window._SERVER_ERROR_FALLBACK_TEXTS[code];
+  return txt ? txt + '\n\nCódigo técnico: ' + code : null;
+};
+// Alias histórico (#1415): solo ROLE_REQUIRED.
 window._roleRequiredAlertText = function(e){
-  if (!(e && e.details && e.details.errorCode === 'ROLE_REQUIRED')) return null;
+  return window._serverErrorCodeOf(e) === 'ROLE_REQUIRED' ? window._serverErrorAlertText(e) : null;
+};
+// Mensaje genérico §68 para un fallo de releaseAsigCF sin código propio.
+window._releaseFailedAlertText = function(){
   const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
   return (_mv && _mv.formatMensajeConCodigo)
-    ? _mv.formatMensajeConCodigo('ROLE_REQUIRED')
-    : 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.\n\nCódigo técnico: ROLE_REQUIRED';
+    ? _mv.formatMensajeConCodigo('RELEASE_FAILED')
+    : 'No pudimos quitar el producto. Volvé a intentar; si sigue, avisale a Mariano.\n\nCódigo técnico: RELEASE_FAILED';
 };
 window._wcardDeleteChoicePick = async function(choice){
   const pending = window._wcardDeleteChoicePending;
@@ -27644,7 +27691,7 @@ window._wcardDeleteChoicePick = async function(choice){
     try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
   } catch (e) {
     console.error('_wcardDeleteChoicePick commit', e);
-    alert(window._roleRequiredAlertText(e) || ('Error aplicando el cambio: ' + (e.message || e)));
+    alert(window._serverErrorAlertText(e) || window._releaseFailedAlertText());
     if (modal) modal.classList.remove('open');
     window._wcardDeleteChoicePending = null;
   }
@@ -27731,11 +27778,13 @@ window.waitlistRemoveItem = async function(docId, idx){
       const callable = firebase.app().functions('southamerica-east1').httpsCallable('releaseAsigCF');
       const resp = await callable({ action: 'remove_item', waitlistId: docId, itemIndex: idx });
       const d = (resp && resp.data) || {};
-      showSyncTag('Producto quitado · ' + (d.unitsCancelled || unitsToFree) + 'u liberadas');
+      // Unidades reales que liberó el servidor (sin estimar del lado cliente).
+      const _unitsServer = Number(d.unitsCancelled) || 0;
+      showSyncTag('Producto quitado · ' + _unitsServer + 'u liberadas');
       try {
         if (typeof logOp === 'function') logOp('cpst_item_removed_release', 'revision_waitlist/' + docId, w.clientName, {
-          cliente: w.clientName, sku: it.code, unidadesLiberadas: d.unitsCancelled || unitsToFree,
-          lineasAfectadas: d.linesCancelled || refsItem.length,
+          cliente: w.clientName, sku: it.code, unidadesLiberadas: _unitsServer,
+          lineasAfectadas: Number(d.linesCancelled) || 0,
           via: 'releaseAsigCF',
         });
       } catch (_e) {}
@@ -27744,7 +27793,7 @@ window.waitlistRemoveItem = async function(docId, idx){
     } catch (e) {
       console.error('waitlistRemoveItem (release via CF)', e);
       // Rollback optimistic: re-fetch del server.
-      alert(window._roleRequiredAlertText(e) || ('Error guardando: ' + ((e && e.message) || e)));
+      alert(window._serverErrorAlertText(e) || window._releaseFailedAlertText());
     }
     return;
   }
@@ -37912,7 +37961,13 @@ async function resendPlannerNotif(column) {
     renderPlannerModal();
   } catch (err) {
     console.error('[planner] resend notif failed:', err);
-    alert('Error al reenviar: ' + ((err && err.message) || err));
+    // §68: mensaje humano. Si el servidor trae un código con mensaje propio
+    // (rol, verificación de permiso) se usa ese; si no, EMAIL_SEND_FAILED.
+    const _srvMsg = window._serverErrorAlertText ? window._serverErrorAlertText(err) : null;
+    const _mvPl = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+    alert(_srvMsg || ((_mvPl && _mvPl.formatMensajeConCodigo)
+      ? _mvPl.formatMensajeConCodigo('EMAIL_SEND_FAILED')
+      : 'No pudimos enviar el mail. Volvé a intentar en un minuto; si sigue, avisale a Mariano.\n\nCódigo técnico: EMAIL_SEND_FAILED'));
   }
 }
 
@@ -39032,7 +39087,11 @@ window._doConfirmPedidoImpl = async function(){
         // que SÍ tenían mensaje: SKU_NOT_IN_SAP_CATALOG + VENDOR_UID_MISSING
         // (reportado prod 2026-10-26 "No pudimos confirmar... Código: UNKNOWN").
         const _hasMsg = !!(_mv && _mv.MENSAJES_VENDEDOR && _mv.MENSAJES_VENDEDOR[code]);
-        alert(_fmt(_hasMsg ? code : 'UNKNOWN'));
+        // Bundle stale sin el código nuevo (ROLE_CHECK_UNAVAILABLE, TOO_MANY_SKUS,
+        // etc.): usar el texto inline en vez de caer a UNKNOWN.
+        const _fbTxt = !_hasMsg && window._SERVER_ERROR_FALLBACK_TEXTS && window._SERVER_ERROR_FALLBACK_TEXTS[code];
+        if (_fbTxt) alert(_fbTxt + '\n\nCódigo técnico: ' + code);
+        else alert(_fmt(_hasMsg ? code : 'UNKNOWN'));
       }
       return;
     }

@@ -4717,6 +4717,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1570 (2026-11-24) — Mensajes para los códigos de error nuevos del servidor
+
+- Mensajes §68 para `ROLE_CHECK_UNAVAILABLE`, `CLIENT_DATA_MISSING`, `RELEASE_CROSS_CLIENT`, `TOO_MANY_SKUS`, `GEMINI_OCR_FAILED` y `EMAIL_SEND_FAILED`, conectados en `releaseAsigCF`, `commitPedidoCF`, `fetchStockLiveCF`, el OCR de rendiciones y el reenvío de mails del planner, con fallback inline por si el bundle viene stale.
+- Quitar producto con reserva: el cartel muestra las unidades que devuelve el servidor, sin estimarlas en el cliente.
+- Ajustes de la revisión de #1415: el reintento de OCR que falla por rol ya no muestra el cartel de App Check; `safeDownloadHref` acepta `https:` solo de los hosts de Storage; `data-uid` escapado en el panel de usuarios.
+- Detalle: [`docs/CHANGELOG-sec-client-msgs-2026-11-24.md`](docs/CHANGELOG-sec-client-msgs-2026-11-24.md).
+
 ### v1569 (2026-11-24) — Endurecimiento de Pages y del armado de HTML (auditoría de seguridad)
 
 **Antes**:

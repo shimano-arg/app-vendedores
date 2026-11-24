@@ -8,7 +8,11 @@
 // 2026-09-09 anti-duplicados (Fase 3): import de logica pura + chequeo
 // pre-submit contra Firestore por ticketNormalizado.
 import { safeDownloadHref, safeImgSrc } from '../pure/html-safe.js';
-import { formatMensajeConCodigo, isRoleRequiredError } from '../pure/mensajes-vendedor.js';
+import {
+  formatMensajeConCodigo,
+  getServerErrorCode,
+  isRoleRequiredError,
+} from '../pure/mensajes-vendedor.js';
 import { chequearMatchDuplicado, normalizarTicket } from '../pure/rendicion-duplicate.js';
 
 // Módulo extraído verbatim: tipado real fuera de scope E2.e.
@@ -80,6 +84,10 @@ async function extractTicketDataWithGemini(dataUrl) {
       // Check; reintentar o borrar datos del sitio no lo resuelve.
       throw new Error(formatMensajeConCodigo('ROLE_REQUIRED'));
     }
+    if (getServerErrorCode(e) === 'ROLE_CHECK_UNAVAILABLE') {
+      // Falla transitoria al verificar el permiso: tampoco es App Check.
+      throw new Error(formatMensajeConCodigo('ROLE_CHECK_UNAVAILABLE'));
+    }
     if (code === 'functions/unauthenticated' || code === 'functions/permission-denied') {
       // v985 (2026-09-17): Fix reporte VDE. Antes solo mostrabamos el error
       // sin intentar recovery. Ahora hacemos 2 cosas:
@@ -95,6 +103,8 @@ async function extractTicketDataWithGemini(dataUrl) {
         msg,
       });
       let retryOk = false;
+      /** @type {string|null} */
+      let retryRoleMsg = null;
       try {
         if (typeof firebase !== 'undefined' && firebase.appCheck) {
           // force refresh — devuelve un token nuevo o lanza si throttle real
@@ -108,7 +118,15 @@ async function extractTicketDataWithGemini(dataUrl) {
           retryCode: retryErr && retryErr.code,
           retryMsg: retryErr && retryErr.message,
         });
+        // Si el reintento ya pasó App Check y lo rechazó el gate de rol, el
+        // problema es de permiso, no de App Check: mostrar ese mensaje.
+        if (isRoleRequiredError(retryErr)) {
+          retryRoleMsg = formatMensajeConCodigo('ROLE_REQUIRED');
+        } else if (getServerErrorCode(retryErr) === 'ROLE_CHECK_UNAVAILABLE') {
+          retryRoleMsg = formatMensajeConCodigo('ROLE_CHECK_UNAVAILABLE');
+        }
       }
+      if (retryRoleMsg) throw new Error(retryRoleMsg);
       if (!retryOk) {
         const instrucciones =
           'Hace esto en tu telefono:\n' +
@@ -129,6 +147,12 @@ async function extractTicketDataWithGemini(dataUrl) {
     } else {
       // v961: log detallado para diagnostico. Mantener el mensaje al user simple.
       console.warn('[OCR rendicion] callable failed', { code, msg, err: e });
+      // GEMINI_OCR_FAILED con code 'internal': el servidor manda un texto
+      // genérico; se muestra el mensaje §68. Con otro code (imagen grande,
+      // tipo no soportado) el servidor manda un texto fijo y útil: se conserva.
+      if (getServerErrorCode(e) === 'GEMINI_OCR_FAILED' && code === 'functions/internal') {
+        throw new Error(formatMensajeConCodigo('GEMINI_OCR_FAILED'));
+      }
       throw new Error('OCR fallo: ' + msg);
     }
   }

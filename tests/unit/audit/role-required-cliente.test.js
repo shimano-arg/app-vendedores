@@ -81,7 +81,7 @@ describe('ROLE_REQUIRED — contrato rendiciones (OCR)', () => {
 
   it('importa los helpers del pure', () => {
     expect(src).toMatch(
-      /import \{ formatMensajeConCodigo, isRoleRequiredError \} from '\.\.\/pure\/mensajes-vendedor\.js';/
+      /import \{\s*formatMensajeConCodigo,\s*getServerErrorCode,\s*isRoleRequiredError,\s*\} from '\.\.\/pure\/mensajes-vendedor\.js';/
     );
   });
 });
@@ -101,14 +101,20 @@ describe('ROLE_REQUIRED — contrato index.html', () => {
     expect(html).toContain('Código técnico: ROLE_REQUIRED');
   });
 
-  it('releaseAsigCF: ambos catch usan _roleRequiredAlertText', () => {
+  it('releaseAsigCF: ambos catch usan _serverErrorAlertText (incluye ROLE_REQUIRED)', () => {
     expect(html).toContain('window._roleRequiredAlertText = function(e)');
-    const n = (html.match(/alert\(window\._roleRequiredAlertText\(e\) \|\|/g) || []).length;
+    expect(html).toContain('window._serverErrorAlertText = function(e)');
+    const n = (
+      html.match(
+        /alert\(window\._serverErrorAlertText\(e\) \|\| window\._releaseFailedAlertText\(\)\)/g
+      ) || []
+    ).length;
     expect(n).toBe(2);
   });
 
   it('fetchStockLiveCF registra role_required en el fallback', () => {
-    expect(html).toContain("reason: _liveRoleReq ? 'role_required' : 'callable_error'");
+    expect(html).toContain("const _liveReason = _liveRoleReq ? 'role_required'");
+    expect(html).toContain('window._liveStockMeta = { reason: _liveReason,');
   });
 
   it('main.js expone isRoleRequiredError', () => {
