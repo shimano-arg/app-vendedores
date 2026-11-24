@@ -79,10 +79,13 @@ import { L_BO_ENTRY_TEXTS } from './pure/l_bo_entry_texts.js';
 // jerga técnica. Formato: una oración qué pasó + una oración qué hacer.
 import {
   formatMensajeConCodigo,
+  formatServerErrorAlert,
   getMensajeParaErrorCode,
+  getServerErrorCode,
   isRoleRequiredError,
   MENSAJES_VENDEDOR,
   PALABRAS_PROHIBIDAS,
+  SERVER_ERROR_CODES_MAPEADOS,
 } from './pure/mensajes-vendedor.js';
 import {
   displayVendorName,
@@ -555,6 +558,9 @@ const phase0 = {
       MENSAJES_VENDEDOR,
       PALABRAS_PROHIBIDAS,
       getMensajeParaErrorCode,
+      SERVER_ERROR_CODES_MAPEADOS,
+      getServerErrorCode,
+      formatServerErrorAlert,
       formatMensajeConCodigo,
       isRoleRequiredError,
     },

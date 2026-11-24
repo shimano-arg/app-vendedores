@@ -699,7 +699,7 @@ window.openAdminPanel = async function () {
           totpStatusTag +
           '</button>';
         // Desktop row
-        tableHtml += '<tr data-uid="' + docId + '">';
+        tableHtml += '<tr data-uid="' + escapeHtml(docId) + '">';
         tableHtml += '<td>' + escapeHtml(d.email || '') + youTag + protectedTag + '</td>';
         tableHtml += '<td>' + escapeHtml(d.displayName || '') + '</td>';
         tableHtml += '<td><select class="role-sel">' + roleOptions + '</select></td>';
@@ -723,7 +723,7 @@ window.openAdminPanel = async function () {
           '\', this)">Guardar</button></td>';
         tableHtml += '</tr>';
         // Mobile card
-        cardsHtml += '<div class="users-card" data-uid="' + docId + '">';
+        cardsHtml += '<div class="users-card" data-uid="' + escapeHtml(docId) + '">';
         cardsHtml +=
           '<div><div class="uc-email">' +
           escapeHtml(d.email || '') +

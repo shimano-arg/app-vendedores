@@ -4,7 +4,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { safeDownloadHref, safeImgSrc } from '../../../src/pure/html-safe.js';
+import {
+  DOWNLOAD_HOSTS_PERMITIDOS,
+  safeDownloadHref,
+  safeImgSrc,
+} from '../../../src/pure/html-safe.js';
 
 const ROOT = resolve(__dirname, '../../..');
 const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -74,8 +78,26 @@ describe('safeDownloadHref', () => {
     expect(safeDownloadHref('data:text/html;base64,PHNjcmlwdD4=')).toBe('');
     expect(safeDownloadHref('data:application/pdf;base64,QUJD" onclick="x')).toBe('');
   });
-  it('acepta https', () => {
-    expect(safeDownloadHref('https://example.com/f.pdf')).toBe('https://example.com/f.pdf');
+  it('acepta https solo de los hosts de Storage', () => {
+    const fb =
+      'https://firebasestorage.googleapis.com/v0/b/bucket/o/rendiciones%2Ff.pdf?alt=media&token=abc';
+    expect(safeDownloadHref(fb)).toBe(fb.replace(/&/g, '&amp;'));
+    const gcs = 'https://storage.googleapis.com/bucket/f.pdf';
+    expect(safeDownloadHref(gcs)).toBe(gcs);
+    expect(safeDownloadHref('HTTPS://FIREBASESTORAGE.GOOGLEAPIS.COM/v0/b/x/o/y')).not.toBe('');
+  });
+  it('descarta https a otros hosts', () => {
+    expect(safeDownloadHref('https://example.com/f.pdf')).toBe('');
+    expect(safeDownloadHref('https://firebasestorage.googleapis.com.example.com/f.pdf')).toBe('');
+    expect(safeDownloadHref('https://evil.com/?h=firebasestorage.googleapis.com')).toBe('');
+    expect(safeDownloadHref('https://user@example.com/f.pdf')).toBe('');
+    expect(safeDownloadHref('http://firebasestorage.googleapis.com/f.pdf')).toBe('');
+  });
+  it('expone la lista de hosts permitidos', () => {
+    expect(DOWNLOAD_HOSTS_PERMITIDOS).toEqual([
+      'firebasestorage.googleapis.com',
+      'storage.googleapis.com',
+    ]);
   });
 });
 

@@ -142,6 +142,38 @@ export const MENSAJES_VENDEDOR = Object.freeze({
   RELEASE_FAILED: {
     texto: 'No pudimos quitar el producto. Volvé a intentar; si sigue, avisale a Mariano.',
   },
+
+  // Códigos nuevos del servidor (2026-11-24). Llegan en `details.errorCode`
+  // del error de la función (o en `errorCode` del resultado de commitPedidoCF).
+  // Falla transitoria al leer el permiso del usuario: reintentar sirve.
+  ROLE_CHECK_UNAVAILABLE: {
+    texto:
+      'No pudimos verificar tu permiso en este momento. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
+  },
+  // releaseAsigCF: al pedido de origen le falta el dato del cliente.
+  CLIENT_DATA_MISSING: {
+    texto:
+      'No pudimos liberar la reserva porque al pedido le falta el dato del cliente. Avisale a Mariano o a un administrador.',
+  },
+  // releaseAsigCF: la reserva pertenece a otro cliente.
+  RELEASE_CROSS_CLIENT: {
+    texto:
+      'No pudimos liberar la reserva porque pertenece a otro cliente. Revisá la orden y, si sigue, avisale a Mariano.',
+  },
+  // commitPedidoCF / fetchStockLiveCF: límite de productos por pedido.
+  TOO_MANY_SKUS: {
+    texto:
+      'El pedido tiene demasiados productos para procesarlo de una vez. Dividilo en dos o más pedidos y volvé a intentar.',
+  },
+  // geminiOcrProxy: no se pudo leer el comprobante.
+  GEMINI_OCR_FAILED: {
+    texto:
+      'No pudimos leer el comprobante. Completá los datos a mano o volvé a intentar en un minuto.',
+  },
+  // Reenvío de mails del planner.
+  EMAIL_SEND_FAILED: {
+    texto: 'No pudimos enviar el mail. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
+  },
 });
 
 /**
@@ -233,4 +265,47 @@ export function isRoleRequiredError(e) {
   if (details && details.errorCode === 'ROLE_REQUIRED') return true;
   if (e.errorCode === 'ROLE_REQUIRED') return true;
   return false;
+}
+
+/**
+ * Códigos de error del servidor que tienen mensaje propio para el vendedor y
+ * que el cliente muestra tal cual, sin texto técnico del error original.
+ */
+export const SERVER_ERROR_CODES_MAPEADOS = Object.freeze([
+  'ROLE_REQUIRED',
+  'ROLE_CHECK_UNAVAILABLE',
+  'CLIENT_DATA_MISSING',
+  'RELEASE_CROSS_CLIENT',
+  'TOO_MANY_SKUS',
+  'GEMINI_OCR_FAILED',
+  'EMAIL_SEND_FAILED',
+]);
+
+/**
+ * Extrae el errorCode de negocio de un error de función: `details.errorCode`
+ * (HttpsError) o `errorCode` en la raíz (resultado ya normalizado). Devuelve
+ * '' si no hay.
+ *
+ * @param {any} e
+ * @returns {string}
+ */
+export function getServerErrorCode(e) {
+  if (!e || typeof e !== 'object') return '';
+  const details = e.details && typeof e.details === 'object' ? e.details : null;
+  const raw = (details && details.errorCode) || e.errorCode || '';
+  return typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+}
+
+/**
+ * Si el error trae uno de los códigos de `SERVER_ERROR_CODES_MAPEADOS`,
+ * devuelve el mensaje completo para el vendedor (con el código técnico al
+ * final). Si no, devuelve null y el call-site decide su propio mensaje.
+ *
+ * @param {any} e
+ * @returns {string|null}
+ */
+export function formatServerErrorAlert(e) {
+  const code = getServerErrorCode(e);
+  if (!code || !SERVER_ERROR_CODES_MAPEADOS.includes(code)) return null;
+  return formatMensajeConCodigo(code);
 }

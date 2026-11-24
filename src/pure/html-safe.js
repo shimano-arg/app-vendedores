@@ -20,7 +20,8 @@
  *   `https:`. Cualquier otra cosa devuelve `''` y no se renderiza.
  * - `safeDownloadHref(v)`: idem para `<a href="…" download>` de adjuntos:
  *   `data:` con MIME explícito de una lista corta (pdf, imágenes, planillas)
- *   o `https:`. Un `data:` sin MIME no se acepta.
+ *   o `https:` a un host de `DOWNLOAD_HOSTS_PERMITIDOS` (Storage). Un `data:`
+ *   sin MIME no se acepta.
  */
 
 /** @type {Record<string, string>} */
@@ -105,6 +106,31 @@ export function safeDownloadHref(v) {
   if (typeof v !== 'string') return '';
   const s = v.trim();
   if (!s) return '';
-  if (DATA_DOWNLOAD_RE.test(s) || isHttpsUrl(s)) return escapeHtmlLocal(s);
+  if (DATA_DOWNLOAD_RE.test(s) || isAllowedDownloadUrl(s)) return escapeHtmlLocal(s);
   return '';
+}
+
+/**
+ * Hosts desde los que la app sirve archivos descargables: las URLs que
+ * devuelve `getDownloadURL()` de Firebase Storage (firebasestorage) y las
+ * públicas de Cloud Storage. Los adjuntos de rendiciones hoy se guardan como
+ * `data:`; un `https:` a otro host no es un adjunto de la app.
+ */
+export const DOWNLOAD_HOSTS_PERMITIDOS = Object.freeze([
+  'firebasestorage.googleapis.com',
+  'storage.googleapis.com',
+]);
+
+/**
+ * @param {string} s
+ * @returns {boolean}
+ */
+function isAllowedDownloadUrl(s) {
+  if (!isHttpsUrl(s)) return false;
+  try {
+    const host = new URL(s).hostname.toLowerCase();
+    return DOWNLOAD_HOSTS_PERMITIDOS.includes(host);
+  } catch (_e) {
+    return false;
+  }
 }
