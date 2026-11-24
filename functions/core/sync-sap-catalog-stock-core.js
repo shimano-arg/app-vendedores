@@ -508,9 +508,15 @@ export async function syncSapCatalogStockCore(deps) {
       snapshot._agregadosSource = source;
       snapshot._agregadosUpdatedAt = new Date();
       snapshot._version = 9;
+    } else {
+      // Desactivar agregados previos: si este ciclo actualiza stock pero no
+      // pudo refrescar reservas, el cliente debe volver al fallback legacy.
+      // La UI también controla la edad de _agregadosUpdatedAt para cubrir
+      // escrituras de otros sincronizadores que no ejecuten este core.
+      snapshot._version = 8;
     }
-    // Si NO agregadosComputed: NO tocamos _version → merge:true preserva
-    // valor previo (snapshot queda con el _version anterior o sin él).
+    // merge:true preserva mapas previos si el cálculo falló, pero version=8
+    // impide que el cliente los consuma hasta la próxima corrida exitosa.
     // merge:true preserva campos que la CF no mandó + cualquier otro field escrito
     // por Python que la CF no computa (ej. legacySource).
     await deps.fbDb.collection('app_config').doc('stock_snapshot').set(snapshot, { merge: true });

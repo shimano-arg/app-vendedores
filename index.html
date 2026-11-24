@@ -33929,7 +33929,25 @@ function _applyStockSnapshotDoc(d, source) {
       _confMap = d.confirmadasBySku;
     }
     const _snapVersion = Number(d._version) || 0;
-    const _active = _snapVersion >= 9 && _asigMap && _confMap;
+    // No consumir agregados v9 viejos si una corrida posterior actualizó el
+    // stock pero falló al leer pedidos. El CF escribe ambos timestamps en la
+    // misma corrida; toleramos hasta 15 min (schedule cada 5 min + reintento).
+    // `updatedAt` pertenece al snapshot general y detecta también escrituras
+    // de otro sincronizador que hayan dejado los agregados intactos.
+    const _toMs = (v) => {
+      if (v && typeof v.toMillis === 'function') return v.toMillis();
+      if (v && typeof v.toDate === 'function') return v.toDate().getTime();
+      if (v instanceof Date) return v.getTime();
+      if (typeof v === 'string') return Date.parse(v);
+      return NaN;
+    };
+    const _aggregateAtMs = _toMs(d._agregadosUpdatedAt);
+    const _snapshotAtMs = _toMs(d.updatedAt);
+    const _aggregateFresh = Number.isFinite(_aggregateAtMs) &&
+      Number.isFinite(_snapshotAtMs) &&
+      (_snapshotAtMs - _aggregateAtMs) <= 15 * 60 * 1000 &&
+      (Date.now() - _aggregateAtMs) <= 15 * 60 * 1000;
+    const _active = _snapVersion >= 9 && _asigMap && _confMap && _aggregateFresh;
     window._stockAgregadosAsignadasBySku = _asigMap || {};
     window._stockAgregadosConfirmadasBySku = _confMap || {};
     window._stockAgregadosActive = _active === true;
