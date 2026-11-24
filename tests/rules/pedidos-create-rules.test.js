@@ -42,23 +42,43 @@ beforeEach(async () => {
   await seedCanonicalRoles();
 });
 
-// §67 Fase 1 (v1454): tests de compat positivo (rule actual). Ya pasa con la
-// rule vigente sin requerir `_commitVersion`.
-describe('/pedidos — v1454 §67 Fase 1 compat (rule actual)', () => {
-  it('vendor puede crear pedido con _commitVersion (post-§67, flow CF OK)', async () => {
-    await assertSucceeds(
+// Batch 2026-11-24 (#1379 ajustado): pedidos.create directo solo admin/gerente.
+// Los pedidos de vendedor/interno nacen en commitPedidoCF (Admin SDK).
+describe('/pedidos — create directo solo admin/gerente', () => {
+  it('vendor NO puede crear pedido directo con _commitVersion', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-v67-cf-ok'), {
         ownerUid: UID.vendor,
         _commitVersion: 'commitPedidoCore_v1',
       })
     );
   });
-  it('vendor puede crear pedido sin _commitVersion (hasta activar Fase 2)', async () => {
-    // Esta aserción se INVIERTE cuando se active la rule deny-legacy.
-    await assertSucceeds(
+  it('vendor NO puede crear pedido directo sin _commitVersion', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-v67-sin-marker'), {
         ownerUid: UID.vendor,
       })
+    );
+  });
+  it('interno NO puede crear pedido directo', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.interno), 'pedidos', 'p-int-direct'), {
+        ownerUid: UID.interno,
+        onBehalfOf: false,
+      })
+    );
+  });
+  it('viewer NO puede crear pedido', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.viewer), 'pedidos', 'p-viewer'), { ownerUid: UID.viewer })
+    );
+  });
+  it('admin y gerente SI pueden crear pedido directo', async () => {
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.admin), 'pedidos', 'p-admin-direct'), { ownerUid: UID.vendor })
+    );
+    await assertSucceeds(
+      setDoc(doc(authedDb(UID.gerente), 'pedidos', 'p-ger-direct'), { ownerUid: UID.vendor })
     );
   });
 });

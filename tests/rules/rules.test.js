@@ -73,7 +73,7 @@ describe('anon (no auth)', () => {
       addDoc(collection(anonDb(), 'client_applications'), {
         submittedByPublicForm: true,
         comercio: 'Público SA',
-        cuit: '20-12345678-9',
+        cuit: '20123456789',
         status: 'pending_approval',
       })
     );
@@ -100,9 +100,12 @@ describe('unassigned role', () => {
     await assertFails(getDoc(doc(db, 'app_config', 'sap_integration')));
   });
   it('sí puede leer su propio /roles/{uid} y allowed_emails (para el bootstrap)', async () => {
-    const db = authedDb(UID.unassigned);
+    // Lote B (2026-11-24): sin rol solo puede leer el allowed_emails de SU
+    // propio email (id = emailToDocId del email del token).
+    const db = authedDb(UID.unassigned, { email: 'test@example.com' });
     await assertSucceeds(getDoc(doc(db, 'roles', UID.unassigned)));
-    await assertSucceeds(getDoc(doc(db, 'allowed_emails', 'test@example.com')));
+    await assertSucceeds(getDoc(doc(db, 'allowed_emails', 'test_example_com')));
+    await assertFails(getDoc(doc(db, 'allowed_emails', 'otro_example_com')));
   });
   it('puede crear su propio /roles/{uid} con role=unassigned', async () => {
     // Simulamos un uid nuevo que aún no tiene doc en /roles
@@ -130,7 +133,11 @@ describe('unassigned role', () => {
       email_verified: true,
       firebase: { sign_in_provider: 'google.com' },
     });
-    await assertSucceeds(setDoc(doc(db, 'roles', newUid), { role: 'admin' }));
+    // H10 (2026-11-24): el doc debe llevar el email del token, como hace
+    // fetchAndApplyRole en la app.
+    await assertSucceeds(
+      setDoc(doc(db, 'roles', newUid), { role: 'admin', email: 'bot.shimano.pesca@gmail.com' })
+    );
   });
 });
 
@@ -243,8 +250,9 @@ describe('/pedidos', () => {
     await assertSucceeds(getDocs(collection(authedDb(UID.interno), 'pedidos')));
   });
 
-  it('vendor puede crear pedido propio', async () => {
-    await assertSucceeds(
+  // Batch 2026-11-24 (#1379 ajustado): pedidos.create directo solo admin/gerente.
+  it('vendor NO puede crear pedido directo (solo via commitPedidoCF)', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new'), { ownerUid: UID.vendor })
     );
   });
@@ -254,16 +262,16 @@ describe('/pedidos', () => {
     );
   });
   // v991 (SecAudit run-1 HIGH #5): create rule valida ownerVendor
-  it('v991: vendor puede crear pedido con ownerVendor=myVendorKey (VDE_GONZALO)', async () => {
-    await assertSucceeds(
+  it('v991: vendor NO puede crear pedido directo aun con ownerVendor propio', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-own'), {
         ownerUid: UID.vendor,
         ownerVendor: 'VDE_GONZALO',
       })
     );
   });
-  it('v991: vendor puede crear pedido con ownerVendor=null (unset)', async () => {
-    await assertSucceeds(
+  it('v991: vendor NO puede crear pedido directo con ownerVendor=null', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-new-null'), {
         ownerUid: UID.vendor,
         ownerVendor: null,
@@ -417,8 +425,8 @@ describe('/pedidos', () => {
     );
   });
 
-  it('interno partnered puede crear pedido en nombre de su VDE (onBehalfOf=true)', async () => {
-    await assertSucceeds(
+  it('interno partnered NO puede crear pedido directo en nombre de su VDE (solo via CF)', async () => {
+    await assertFails(
       setDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-on-behalf'), {
         ownerUid: UID.vendor,
         createdByUid: UID.internoPartnered,
@@ -672,9 +680,13 @@ describe('/client_applications', () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.gerente), 'client_applications', 'ca-huerfano')));
     await assertSucceeds(getDoc(doc(authedDb(UID.interno), 'client_applications', 'ca-huerfano')));
   });
+  // Batch 2026-11-24 (#1398 parte sana): el create autenticado exige status.
   it('vendor crea alta propia', async () => {
     await assertSucceeds(
-      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), { ownerUid: UID.vendor })
+      setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-new'), {
+        ownerUid: UID.vendor,
+        status: 'pending_approval',
+      })
     );
   });
   // v991 (SecAudit run-1 HIGH #6): create rule valida assignedVendor
@@ -683,6 +695,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-mine'), {
         ownerUid: UID.vendor,
         assignedVendor: 'VDE_GONZALO',
+        status: 'pending_approval',
       })
     );
   });
@@ -691,6 +704,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.vendor), 'client_applications', 'ca-null'), {
         ownerUid: UID.vendor,
         assignedVendor: null,
+        status: 'pending_approval',
       })
     );
   });
@@ -707,6 +721,7 @@ describe('/client_applications', () => {
       setDoc(doc(authedDb(UID.admin), 'client_applications', 'ca-admin-assign'), {
         ownerUid: UID.admin,
         assignedVendor: 'VDE_OTRO',
+        status: 'approved',
       })
     );
   });
@@ -942,6 +957,108 @@ describe('/notifications', () => {
       })
     );
   });
+  // ============================================================
+  // A2.2 (SEC-M2 / SEC-NIGHT-R-04, 2026-11-19): hasOnly + guards
+  // ============================================================
+  describe('A2.2: notifications.create/update hasOnly', () => {
+    it('A2.2 CREATE: vendor puede crear con payload legitimo (10 call-sites patron)', async () => {
+      // Representativo de rendiciones.js:510 (rendicion_approval).
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-legit'), {
+          fromUid: UID.vendor,
+          fromEmail: 'vendor@shimano.com.ar',
+          fromName: 'Vendor',
+          fromDisplayName: 'Vendor Display',
+          targetUid: UID.admin,
+          targetEmail: 'admin@shimano.com.ar',
+          type: 'rendicion_approval',
+          subtype: 'pending',
+          title: 'Rendicion pendiente',
+          body: 'Revisar rendicion',
+          message: 'Revisar rendicion',
+          rendicionId: 'rend-123',
+          mes: '2026-11',
+          anio: 2026,
+          vendor: 'VDE_GONZALO',
+          status: 'pending',
+          read: false,
+          createdAt: '2026-11-19T10:00:00Z',
+        })
+      );
+    });
+    it('A2.2 CREATE: vendor puede crear notif minima (fromUid + targetUid)', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-min'), {
+          fromUid: UID.vendor,
+          targetUid: UID.admin,
+        })
+      );
+    });
+    it('A2.2 CREATE: vendor NO puede crear con campo random fuera whitelist', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-rand'), {
+          fromUid: UID.vendor,
+          targetUid: UID.admin,
+          foo: 'bar',
+        })
+      );
+    });
+    it('A2.2 CREATE: vendor NO puede falsificar fromUid (anti-spoof preservado)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'notifications', 'n-a22-spoof'), {
+          fromUid: UID.admin,
+          targetUid: UID.vendor,
+          type: 'admin_override',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target puede marcar status=done + doneAt', async () => {
+      await assertSucceeds(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          status: 'done',
+          doneAt: 't',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target puede marcar read=true + readAt', async () => {
+      await assertSucceeds(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          read: true,
+          readAt: 't',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target NO puede re-escribir title (reescritura maliciosa)', async () => {
+      // Pre-A2.2 un target podía reescribir el body de una notif propia para
+      // "ocultar" su contenido real. Post-A2.2 solo campos state.
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          title: 'OCULTO',
+        })
+      );
+    });
+    it('A2.2 UPDATE: target NO puede cambiar targetUid (anti-hijack)', async () => {
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          targetUid: UID.vendorOther,
+        })
+      );
+    });
+    it('A2.2 UPDATE: target NO puede cambiar type (anti-escalation)', async () => {
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-me'), {
+          type: 'admin_override',
+        })
+      );
+    });
+    it('A2.2 UPDATE: no-target NO puede marcar la notif ajena como leida', async () => {
+      await assertFails(
+        updateDoc(doc(authedDb(UID.vendor), 'notifications', 'n-to-other'), {
+          read: true,
+        })
+      );
+    });
+  });
 });
 
 // ============================================================
@@ -972,6 +1089,131 @@ describe('/operations_log', () => {
   it('nadie puede update ni delete (audit-only)', async () => {
     await assertFails(updateDoc(doc(authedDb(UID.admin), 'operations_log', 'l1'), { x: 1 }));
     await assertFails(deleteDoc(doc(authedDb(UID.admin), 'operations_log', 'l1')));
+  });
+  // ============================================================
+  // A2.3 (SEC-M3 / SEC-NIGHT-R-06, 2026-11-19): hasOnly + type guard
+  // ============================================================
+  describe('A2.3: operations_log.create hasOnly + type guard', () => {
+    it('A2.3 CREATE: legacy logOp() sin type (audit panel) PASA', async () => {
+      // Shape legacy que escribe `logOp()` en index.html (audit panel).
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-legacy'), {
+          userUid: UID.vendor,
+          userEmail: 'v@shimano.com.ar',
+          userRole: 'vendedor',
+          timestamp: 't',
+          action: 'open_modal',
+          entityType: 'pedido',
+          entityName: 'ORDEN 100',
+          details: 'click X',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=client_write_failed (§70) PASA', async () => {
+      // Shape que escribe `_logClientWriteFailed()` en index.html.
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-write-fail'), {
+          userUid: UID.vendor,
+          userEmail: 'v@shimano.com.ar',
+          type: 'client_write_failed',
+          collection: 'revision_waitlist',
+          documentId: 'wl-X',
+          errMessage: 'Unsupported field value: undefined',
+          errCode: 'invalid-argument',
+          op: 'update',
+          handler: 'revisionDejarRecalculando',
+          clientVersion: 'v1500',
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=asig_huerfana PASA', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-huerfana'), {
+          userUid: UID.vendor,
+          type: 'asig_huerfana',
+          sku: 'SKU-1',
+          pedidoId: 'p-1',
+          lineIndex: 0,
+          motivo: 'qtyOpen<=0',
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=client_confirm_exception PASA', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-exc'), {
+          userUid: UID.vendor,
+          type: 'client_confirm_exception',
+          errMessage: 'random',
+          errStack: 'stack',
+          orderKey: 'k',
+          waitlistOrigenId: 'wl',
+          orderNumber: 100,
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: type=commitPedidoCF_fallback_legacy PASA', async () => {
+      await assertSucceeds(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-fallback'), {
+          userUid: UID.vendor,
+          type: 'commitPedidoCF_fallback_legacy',
+          code: 'UNKNOWN',
+          email: 'v@shimano.com.ar',
+          appVersion: 'v1500',
+          timestamp: 't',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede falsificar userUid ajeno (preservado)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-spoof'), {
+          userUid: UID.admin,
+          action: 'x',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede inyectar type=admin_override (type guard)', async () => {
+      // Vector principal del fix: pre-A2.3 el cliente podía crear log entry
+      // con type arbitrario para "fabricar" evidencia de admin action.
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-forge-admin'), {
+          userUid: UID.vendor,
+          type: 'admin_override',
+          action: 'x',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede inyectar type=sap_item_not_found_degraded (server-only)', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-forge-server'), {
+          userUid: UID.vendor,
+          type: 'sap_item_not_found_degraded',
+          sku: 'FAKE',
+        })
+      );
+    });
+    it('A2.3 CREATE: vendor NO puede agregar campo random fuera whitelist', async () => {
+      await assertFails(
+        setDoc(doc(authedDb(UID.vendor), 'operations_log', 'l-a23-rand'), {
+          userUid: UID.vendor,
+          action: 'x',
+          foo: 'bar',
+        })
+      );
+    });
+    it('A2.3 CREATE: admin tampoco puede inyectar type server-only desde cliente', async () => {
+      // Admin también está sujeto al type guard (el bypass server-only solo
+      // lo hace Admin SDK, no admin via rules).
+      await assertFails(
+        setDoc(doc(authedDb(UID.admin), 'operations_log', 'l-a23-admin-forge'), {
+          userUid: UID.admin,
+          type: 'pedido_deleted',
+          pedidoId: 'p-1',
+        })
+      );
+    });
   });
 });
 
@@ -1026,9 +1268,13 @@ describe('/allowed_emails', () => {
   beforeEach(async () => {
     await seedDoc('allowed_emails/foo@x.com', { granted: true });
   });
-  it('cualquier auth lee (bootstrap)', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'foo@x.com')));
+  it('roles internos leen; sin rol solo el doc de su email (Lote B 2026-11-24)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'foo@x.com')));
+    await assertFails(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'foo@x.com')));
+    await seedDoc('allowed_emails/foo_x_com', { granted: true });
+    await assertSucceeds(
+      getDoc(doc(authedDb(UID.unassigned, { email: 'foo@x.com' }), 'allowed_emails', 'foo_x_com'))
+    );
   });
   it('anon NO lee', async () => {
     await assertFails(getDoc(doc(anonDb(), 'allowed_emails', 'foo@x.com')));
@@ -1291,8 +1537,12 @@ describe('/allowed_emails split get/list (v934 MED-05 VULN-208)', () => {
   it('vendor puede get de un email especifico (flow login check)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'allowed_emails', 'test@x.com')));
   });
-  it('unassigned puede get de un email especifico', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'test@x.com')));
+  it('unassigned solo puede get del doc de su propio email (Lote B 2026-11-24)', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.unassigned), 'allowed_emails', 'test@x.com')));
+    await seedDoc('allowed_emails/test_x_com', { granted: true });
+    await assertSucceeds(
+      getDoc(doc(authedDb(UID.unassigned, { email: 'test@x.com' }), 'allowed_emails', 'test_x_com'))
+    );
   });
   it('CRIT: vendor NO puede list la coleccion completa (staff directory enum)', async () => {
     await assertFails(getDocs(collection(authedDb(UID.vendor), 'allowed_emails')));
@@ -1349,6 +1599,650 @@ describe('/rendiciones duplicado_detectado bypass (v934 MED-13 VULN-707)', () =>
     await assertFails(
       updateDoc(doc(authedDb(UID.gerente), 'rendiciones', 'r-dup'), {
         status: 'pending_approval',
+      })
+    );
+  });
+});
+
+// ============================================================
+// A1.3 (2026-11-19): revision_waitlist_locks — colección 100%
+// server-side (Admin SDK only). Rules: allow read/write = false
+// para cualquier cliente. CFs movePedidoToWaitlistCF /
+// unifyWaitlistsCF + scripts W/Y usan Admin SDK y bypassean.
+// ============================================================
+describe('revision_waitlist_locks — server-side only', () => {
+  beforeEach(async () => {
+    await seedDoc('revision_waitlist_locks/C30718510291', {
+      cardCode: 'C30718510291',
+      waitlistId: 'wl_test',
+      ownerUid: UID.vendor,
+      createdAt: '2026-11-19T00:00:00.000Z',
+    });
+  });
+
+  it('admin NO puede read (bypass solo Admin SDK)', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.admin), 'revision_waitlist_locks', 'C30718510291')));
+  });
+
+  it('admin NO puede write (bypass solo Admin SDK)', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.admin), 'revision_waitlist_locks', 'C99999'), {
+        cardCode: 'C99999',
+      })
+    );
+  });
+
+  it('VDE NO puede read', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.vendor), 'revision_waitlist_locks', 'C30718510291')));
+  });
+
+  it('VDE NO puede write', async () => {
+    await assertFails(
+      setDoc(doc(authedDb(UID.vendor), 'revision_waitlist_locks', 'C99999'), {
+        cardCode: 'C99999',
+      })
+    );
+  });
+
+  it('interno NO puede read', async () => {
+    await assertFails(
+      getDoc(doc(authedDb(UID.interno), 'revision_waitlist_locks', 'C30718510291'))
+    );
+  });
+
+  it('anon NO puede read ni write', async () => {
+    await assertFails(getDoc(doc(anonDb(), 'revision_waitlist_locks', 'C30718510291')));
+    await assertFails(
+      setDoc(doc(anonDb(), 'revision_waitlist_locks', 'C99999'), {
+        cardCode: 'C99999',
+      })
+    );
+  });
+});
+
+// ============================================================
+// SEC-M1 (Fase 2B, 2026-11-18, reintegrado 2026-11-19): whitelist
+// estricto de 11 campos sobre revision_waitlist.update desde cliente.
+// Antes: isReader() blanket. Vector §59: VDE hostil cambiaba
+// assignedVendorUid de waitlist ajeno para "robar" la carga.
+// Despues: hasOnly whitelist bloquea campos sensibles.
+// ============================================================
+describe('SEC-M1: revision_waitlist.update hasOnly', () => {
+  beforeEach(async () => {
+    await seedDoc('revision_waitlist/wl_sec_m1', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendor,
+      vendorAssigned: 'VDE_GONZALO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST CLIENT',
+      stage: 'active',
+      items: [{ code: 'SKU1', qty: 1 }],
+      orderNumber: 123,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      createdByUid: UID.vendor,
+    });
+  });
+
+  // TC1: VDE puede editar campos WHITELIST
+  it('VDE puede editar items de su propio waitlist', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        items: [{ code: 'SKU1', qty: 2 }],
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE puede marcar waitlist como consumed (confirm flow index.html:39230)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        stage: 'consumed',
+        consumedByPedidoId: 'pedido_abc',
+        consumedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE puede unificar waitlist localmente (§42.2 guard)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        stage: 'consumed',
+        closedAt: '2026-11-18T00:00:00.000Z',
+        closedReason: 'unified_at_review',
+        unifiedIntoCurrentOrder: true,
+        unifiedAt: '2026-11-18T00:00:00.000Z',
+        unifiedBy: 'vde.a@shimano.com.ar',
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE puede editar orderNumber (waitlistEditOrden)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        orderNumber: 456,
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  // TC2: VDE hostil no puede escalar privilegios
+  it('VDE ajeno NO puede cambiar assignedVendorUid de waitlist (vector §59)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendorOther), 'revision_waitlist', 'wl_sec_m1'), {
+        assignedVendorUid: UID.vendorOther,
+        vendorAssigned: 'VDE_OTRO',
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar ownerUid', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        ownerUid: UID.vendorOther,
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar clientCardCode', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        clientCardCode: 'C99999999999',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2 (post red team): este test originalmente verificaba
+  // que VDE NO podía cambiar source/pedidosOrigenes. Pero el red team
+  // demostró que el flow legítimo "Unificar orden absorbiendo CPST"
+  // (index.html:18806 y 27386) escribe estos campos para heredar
+  // source='stock-asignado-batch' al unificar con waitlist CPST.
+  // El test se refactoriza: VDE PUEDE escribir source + pedidosOrigenes
+  // (whitelisted para el flow legítimo). Riesgo residual DEUDA-M1-R3
+  // (audit pollution: VDE podría marcar un waitlist no-CPST como CPST
+  // falso). Mitigación Fase 3: CF trigger valida que pedidosOrigenes
+  // apunte a pedidos reales del mismo cliente.
+  it('VDE puede escribir source + pedidosOrigenes (flow Unificar CPST; riesgo residual DEUDA-M1-R3)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        source: 'stock-asignado-batch',
+        pedidosOrigenes: [{ pedidoId: 'ped_x', lineIndex: 0, sku: 'SKU1', qtyAsignada: 1 }],
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar createdAt (immutable)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        createdAt: '2020-01-01T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva Unificar orden
+  // (index.html:27378 _wcardUnificarOrden + index.html:18800 _createOrUnifyWaitlistPayload)
+  it('VDE puede ejecutar "Unificar orden" (items + unifiedFrom + updatedAt)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        items: [
+          { code: 'SKU1', qty: 2 },
+          { code: 'SKU2', qty: 1 },
+        ],
+        unifiedFrom: [
+          {
+            source: 'creacion_manual',
+            timestamp: '2026-11-19T00:00:00.000Z',
+            by: 'vde@shimano.com.ar',
+          },
+        ],
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva absorber CPST con pedidosOrigenes + source
+  it('VDE puede unificar waitlist con pedidosOrigenes + source (CPST absorbida)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        items: [{ code: 'SKU1', qty: 1 }],
+        pedidosOrigenes: [{ pedidoId: 'ped_xyz', lineIndex: 0, sku: 'SKU1', qtyAsignada: 1 }],
+        source: 'stock-asignado-batch',
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva marcar order absorbida
+  // (index.html:27391 / index.html:18830 target.others loop)
+  it('VDE puede marcar waitlist absorbida (unifiedInto + unifiedIntoOrderNumber)', async () => {
+    await seedDoc('revision_waitlist/wl_sec_m1_absorbida', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendor,
+      vendorAssigned: 'VDE_GONZALO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST',
+      stage: 'active',
+      items: [],
+      orderNumber: 124,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1_absorbida'), {
+        stage: 'consumed',
+        closedAt: '2026-11-19T00:00:00.000Z',
+        closedReason: 'unified_into_v42',
+        unifiedInto: 'wl_sec_m1',
+        unifiedIntoOrderNumber: 123,
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: regresión positiva re-resolve §44 en target LEGACY
+  // (index.html:18819 _createOrUnifyWaitlistPayload condicional !_targetHasVendor)
+  it('VDE puede re-resolver vendor en target legacy pre-§44 (assignedVendorUid vacío)', async () => {
+    await seedDoc('revision_waitlist/wl_sec_m1_legacy', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: '', // ← legacy pre-§44 (campo existe pero vacío)
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST LEGACY',
+      stage: 'active',
+      items: [],
+      orderNumber: 125,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1_legacy'), {
+        items: [{ code: 'SKU1', qty: 1 }],
+        vendorAssigned: 'VDE_GONZALO',
+        assignedVendorUid: UID.vendor,
+        assignedVendorEmail: 'gonzalo@shimano.com.ar',
+        ownerVendor: 'VDE_GONZALO',
+        updatedAt: '2026-11-19T00:00:00.000Z',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: guard legacy §44 bloquea reasignar vendor en target NO legacy
+  it('VDE NO puede cambiar assignedVendorUid en target post-§44 (guard legacy activo)', async () => {
+    // wl_sec_m1 ya tiene assignedVendorUid populated (UID.vendor); intentar
+    // reasignar a UID.vendorOther debe fallar aunque los 4 campos están whitelisted.
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        assignedVendorUid: UID.vendorOther,
+        vendorAssigned: 'VDE_OTRO',
+      })
+    );
+  });
+
+  // SEC-M1 iter 2.2: guard legacy bloquea reasignar aunque VDE sea ajeno
+  it('VDE ajeno NO puede re-resolver vendor en target post-§44 (preserva §59)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendorOther), 'revision_waitlist', 'wl_sec_m1'), {
+        assignedVendorUid: UID.vendorOther,
+        vendorAssigned: 'VDE_OTRO',
+        assignedVendorEmail: 'otro@shimano.com.ar',
+        ownerVendor: 'VDE_OTRO',
+      })
+    );
+  });
+
+  it('VDE NO puede cambiar unifiedFrom con shape invalido para audit (ex: campos no esperados en el record)', async () => {
+    // El whitelist permite unifiedFrom pero la rule NO valida su shape interno.
+    // Esto queda como riesgo residual: VDE puede sembrar entries falsas en
+    // unifiedFrom (audit pollution). Fase 3 CF trigger valida el shape.
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.vendor), 'revision_waitlist', 'wl_sec_m1'), {
+        unifiedFrom: [{ source: 'arbitrary', fakeField: 'malicious' }],
+      })
+    );
+  });
+});
+
+// ============================================================
+// SEC-C1 (Fase 2B, 2026-11-18): pedidos.update para isInterno()
+// con hasOnly whitelist de 30 campos (paridad con VDE).
+//
+// Antes del fix: blanket para interno. Vector CHAIN-01 vigente (VDI podia
+// mutar transferidoSAP, assignedVendorUid, orderNumberPrev, etc.).
+// Despues del fix: 30 campos exactos permitidos. Flows UI legitimos de
+// VDI (editar lines/stage/observaciones/Planner) siguen OK. Campos
+// sensibles bloqueados.
+// ============================================================
+describe('SEC-C1: pedidos.update isInterno() hasOnly', () => {
+  beforeEach(async () => {
+    // Pedido base: owned por VDE_GONZALO (UID.vendor), assigned a VDE_OTRO.
+    await seedDoc('pedidos/pedido_sec_c1', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendorOther,
+      vendorAssigned: 'VDE_OTRO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST CLIENT',
+      stage: 'pending',
+      lines: [{ code: 'SKU1', qty: 1 }],
+      netAmountArs: 1000,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
+  // TC1: VDI puede editar campos WHITELIST
+  it('VDI puede editar observaciones de pedido ajeno', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        observaciones: 'Nota VDI',
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede cambiar plannerStage (Kanban drag) de pedido ajeno', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        plannerStage: 'oferta',
+        plannerHistory: [],
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede editar lines y netAmountArs (contenido comercial)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        lines: [{ code: 'SKU1', qty: 2 }],
+        netAmountArs: 2000,
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede cerrar pedido (closedAt + stage)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'closed',
+        closedAt: '2026-11-18T00:00:00.000Z',
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('VDI puede editar formaEntrega + deliveryDetails', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        formaEntrega: 'transportista',
+        deliveryDetails: { sucursal: 'X' },
+        updatedAt: '2026-11-18T00:00:00.000Z',
+      })
+    );
+  });
+
+  // TC2: VDI NO puede editar campos BLACKLIST
+  it('VDI NO puede mutar transferidoSAP (CHAIN-01)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: null,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar sendingSapLock', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        sendingSapLock: null,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar orderNumberPrev', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        orderNumberPrev: 'X',
+      })
+    );
+  });
+
+  it('VDI NO puede mutar assignedVendorUid (viola §44)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        assignedVendorUid: UID.vendor,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar ownerUid', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        ownerUid: UID.interno,
+      })
+    );
+  });
+
+  it('VDI NO puede mutar clientCardCode', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        clientCardCode: 'C99999999999',
+      })
+    );
+  });
+
+  it('VDI NO puede mutar createdAt (immutable)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        createdAt: '2020-01-01T00:00:00.000Z',
+      })
+    );
+  });
+
+  // TC3: admin mantiene blanket (recovery humano por diseño)
+  it('admin puede mutar transferidoSAP (blanket intencional)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.admin), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: null,
+      })
+    );
+  });
+
+  // TC4: VDE propietario sigue bloqueado para campos sensibles
+  it('VDE propietario NO puede mutar transferidoSAP (sin cambio de whitelist VDE)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: null,
+      })
+    );
+  });
+
+  // TC5: VDE ajeno (no owner ni assigned) no puede update (sin cambio)
+  it('VDE ajeno (no owner ni assigned) NO puede mutar ningún campo', async () => {
+    await seedDoc('pedidos/pedido_sec_c1_otro', {
+      ownerUid: UID.vendorOther,
+      assignedVendorUid: UID.vendorOther,
+      vendorAssigned: 'VDE_OTRO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST',
+      stage: 'pending',
+      lines: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1_otro'), {
+        observaciones: 'Soy ajeno',
+      })
+    );
+  });
+
+  // ============================================================
+  // SEC-C1 Opcion A.2 (2026-11-19): guard semantico transferidoSAP
+  // + 6 campos nuevos (transferidoSAP, revertedFromConfirmedAt,
+  // revertedBy, previousSapDocNum, previousSapDocEntryCancelled,
+  // autoSplitByStock). Cubre los 3 flows VDE+VDI legitimos pre-rotos:
+  // H-01 auto-confirm 100% BO, H-02 volverAPendientes app_only,
+  // H-03 confirmarDefinitivo auto-split. Bloquea CHAIN-01 (via='sap_sl').
+  // ============================================================
+
+  // TC-A2-1: VDI auto-confirm 100% BO con via='app_only' debe pasar (H-01 resuelto)
+  it('VDI puede setear transferidoSAP via=app_only (auto-confirm 100% BO)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'confirmed',
+        finalizedAt: '2026-11-19T00:00:00.000Z',
+        transferidoSAP: {
+          via: 'app_only',
+          reason: 'all_lines_bo',
+          docEntry: null,
+          docNum: null,
+          transferredAt: '2026-11-19T00:00:00.000Z',
+          transferredBy: 'auto/confirm-on-save/santi@shimano.com.ar',
+        },
+      })
+    );
+  });
+
+  // TC-A2-2: ajuste post-revision #1418 (S1). El vendedor ya no escribe
+  // transferidoSAP: la marca app_only la ponen el servidor o el listener de
+  // admin/gerente (el auto-confirm del navegador quedo en codigo muerto).
+  // Antes este test esperaba exito; ahora documenta el cierre.
+  it('VDE propietario NO puede setear transferidoSAP via=app_only (S1)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'confirmed',
+        finalizedAt: '2026-11-19T00:00:00.000Z',
+        transferidoSAP: {
+          via: 'app_only',
+          reason: 'all_lines_bo',
+          docEntry: null,
+        },
+      })
+    );
+  });
+
+  // TC-A2-3: VDI con transferidoSAP via='sap_sl' debe fallar (bloquea CHAIN-01)
+  it('VDI NO puede setear transferidoSAP via=sap_sl (bloquea CHAIN-01)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'sap_sl',
+          docEntry: 999,
+          docNum: 'SQ-FAKE',
+        },
+      })
+    );
+  });
+
+  // TC-A2-4: VDE con transferidoSAP via='service_layer' también debe fallar
+  it('VDE NO puede setear transferidoSAP via=service_layer (bloquea CHAIN-01)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'service_layer',
+          docEntry: 1234,
+        },
+      })
+    );
+  });
+
+  // TC-A2-5: VDI puede deletear transferidoSAP en el flow revert app_only (H-02 resuelto)
+  // Nota: FieldValue.delete() simulado seteando el field a FieldValue.delete()
+  // El emulator Firebase JS SDK v10+ reporta esto como "campo no está en request.resource.data".
+  it('VDI puede deletear transferidoSAP (revert app_only)', async () => {
+    // Seed pedido confirmed con transferidoSAP app_only
+    await seedDoc('pedidos/pedido_sec_c1_revert', {
+      ownerUid: UID.vendor,
+      assignedVendorUid: UID.vendorOther,
+      vendorAssigned: 'VDE_OTRO',
+      clientCardCode: 'C30718510291',
+      clientName: 'TEST',
+      stage: 'confirmed',
+      lines: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      finalizedAt: '2026-11-18T00:00:00.000Z',
+      transferidoSAP: { via: 'app_only', docEntry: null },
+    });
+    // Import FieldValue para delete
+    const { deleteField } = await import('firebase/firestore');
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1_revert'), {
+        stage: 'pending',
+        finalizedAt: deleteField(),
+        transferidoSAP: deleteField(),
+        revertedFromConfirmedAt: '2026-11-19T00:00:00.000Z',
+        revertedBy: 'santi@shimano.com.ar',
+      })
+    );
+  });
+
+  // TC-A2-6: VDI puede escribir todos los audit del revert
+  it('VDI puede escribir revertedFromConfirmedAt + revertedBy + previousSapDocNum + previousSapDocEntryCancelled', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'pending',
+        revertedFromConfirmedAt: '2026-11-19T00:00:00.000Z',
+        revertedBy: 'santi@shimano.com.ar',
+        previousSapDocNum: 'SQ-12345',
+        previousSapDocEntryCancelled: 999,
+      })
+    );
+  });
+
+  // TC-A2-7: VDI puede escribir autoSplitByStock (H-03 resuelto)
+  it('VDI puede escribir autoSplitByStock (audit del auto-split)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        stage: 'confirmed',
+        finalizedAt: '2026-11-19T00:00:00.000Z',
+        lines: [{ code: 'SKU1', qty: 1, state: 'confirmed' }],
+        autoSplitByStock: {
+          at: '2026-11-19T00:00:00.000Z',
+          by: 'santi@shimano.com.ar',
+          source: 'confirmarDefinitivo-preCheck',
+          lost: 500,
+          movedToBO: 1,
+        },
+      })
+    );
+  });
+
+  // TC-A2-8 (reescrito post re-review red team): VDI NO puede setear
+  // transferidoSAP via='app_only' + docEntry != null (vector de sabotaje
+  // H-A2-02 — el CF podría skipear envío legítimo asumiendo "ya enviado").
+  // Guard reforzado: via='app_only' solo si docEntry == null.
+  it('VDI NO puede setear transferidoSAP via=app_only con docEntry falso (H-A2-02 bloqueado)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'app_only',
+          docEntry: 999,
+          docNum: 'FAKE',
+          reason: 'all_lines_bo',
+        },
+      })
+    );
+  });
+
+  // TC-A2-9: VDI via=app_only con docEntry=null explicit debe pasar
+  it('VDI puede setear transferidoSAP via=app_only con docEntry=null (auto-confirm 100% BO legítimo)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'app_only',
+          reason: 'all_lines_bo',
+          docEntry: null,
+          docNum: null,
+          transferredAt: '2026-11-19T00:00:00.000Z',
+          transferredBy: 'auto/confirm-on-save/santi@shimano.com.ar',
+        },
+      })
+    );
+  });
+
+  // TC-A2-10: VDE via=app_only + docEntry presente también bloqueado (simetría)
+  it('VDE NO puede setear transferidoSAP via=app_only con docEntry falso (simetría H-A2-02)', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.vendor), 'pedidos', 'pedido_sec_c1'), {
+        transferidoSAP: {
+          via: 'app_only',
+          docEntry: 1234,
+          docNum: 'VDE-FAKE',
+        },
       })
     );
   });

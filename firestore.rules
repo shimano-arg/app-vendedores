@@ -45,12 +45,33 @@ service cloud.firestore {
     }
 
     // Section MERCADOLIBRE (Mariano-only). Ver docs/specs/2026-09-18-mercadolibre-crm-section-design.md
+    // HARDENING 6 F9-ITER-2 (2026-11-20): guard contra token sin email.
+    // Antes: `request.auth.token.email in [...]` tiraba "Null value error"
+    // cuando el token no traia email (tests con authedDb(uid) sin
+    // tokenExtras, o cuentas anonimas con auth.uid pero sin email). Al ser
+    // evaluada como primer branch de las OR (ej. roles.update C-hibrida S3+D18),
+    // el error propagaba y Firestore devolvia PERMISSION_DENIED aunque el
+    // segundo branch (admin no-Mariano) hubiera fallado tambien. Ahora el
+    // guard `'email' in request.auth.token.keys()` es chequeo de existencia
+    // de la key antes de hacer el `in [...]`, deja la expresion safe y
+    // permite que el OR caiga al segundo branch con una condicion booleana.
     function isMariano() {
+      // HARDENING 6 F9-ITER-2 (2026-11-20): safe check contra tokens sin
+      // email. Antes: `request.auth.token.email in [...]` tiraba "Null value
+      // error" / "Property email is undefined on object" cuando el token no
+      // traia email (tests con authedDb(uid) sin tokenExtras). El patron
+      // `'email' in request.auth.token` chequea existencia de la key en el
+      // map safe antes del acceso al valor, previniendo "Property undefined".
+      // Ajuste post-revision #1418 (B1): ademas del email exige email
+      // verificado, con el mismo chequeo seguro de existencia de la key.
       return request.auth != null
-        && request.auth.token.email in [
-          'erbinomariano@gmail.com',
-          'mariano.erbino@shimano.com.ar'
-        ];
+        && 'email' in request.auth.token
+        && 'email_verified' in request.auth.token
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email == 'erbinomariano@gmail.com'
+          || request.auth.token.email == 'mariano.erbino@shimano.com.ar'
+        );
     }
 
     // v1420 §54 (2026-10-22): editores de Ficha Cliente opt-in. Usuarios con
@@ -100,11 +121,12 @@ service cloud.firestore {
     // src/domains/exports-core.js (INFRACCIONES_MELI_READERS).
     function canReadInfraccionesMeli() {
       return request.auth != null
-        && request.auth.token.email in [
-          'erbinomariano@gmail.com',
-          'mariano.erbino@shimano.com.ar',
-          'diego.valsi@shimano.uy'
-        ];
+        && 'email' in request.auth.token
+        && (
+          request.auth.token.email == 'erbinomariano@gmail.com'
+          || request.auth.token.email == 'mariano.erbino@shimano.com.ar'
+          || request.auth.token.email == 'diego.valsi@shimano.uy'
+        );
     }
 
     match /roles/{uid} {
@@ -148,6 +170,15 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == uid
                      && request.resource.data.keys().hasOnly(['email', 'displayName', 'role', 'vendor', 'createdAt'])
                      && (!('vendor' in request.resource.data) || request.resource.data.vendor == null)
+                     // H10 (batch 2026-11-24): el email del doc es el del token,
+                     // no texto libre. Sin email en el token, solo '' o ausente
+                     // (el login escribe user.email || '').
+                     && (
+                       ('email' in request.auth.token
+                         && request.resource.data.get('email', null) == request.auth.token.email)
+                       || (!('email' in request.auth.token)
+                         && request.resource.data.get('email', '') == '')
+                     )
                      && (
                        request.resource.data.role == 'unassigned'
                        || (
@@ -170,9 +201,30 @@ service cloud.firestore {
       // reglas de read y create no se tocan (create ya los excluye por el
       // hasOnly de 5 campos de SEC-04). affectedKeys() cubre alta/edición/baja
       // de esos campos (una eliminación de campo también aparece en el diff).
+      // HARDENING 6 F9 HARD6-F4-S3 + D18 (2026-11-20): C-hibrida en roles.update.
+      // - Mariano (isMariano()): puede escribir cualquier campo (incluido
+      //   fichaClienteEditorFull + internalPartnerUid). Es la persona que
+      //   asigna partnership VDI<->VDE + habilita editores de ficha.
+      // - Admin no-Mariano: NO puede escribir fichaClienteEditorFull (vector
+      //   de escalada a Ficha Cliente cross-cliente) ni internalPartnerUid
+      //   (hijack de partnership VDI, D18: un admin podia reasignar el
+      //   partner VDI de un vendedor a si mismo y leer rendiciones ajenas).
+      // - Ambos siguen bloqueados en S04b (passwordHash/salt/totpSecret/totpEnabled).
+      // Ajuste post-revision #1418:
+      // - B1: las dos ramas exigen isAdmin(); el email de Mariano solo
+      //   habilita campos extra a una cuenta que ya es admin.
+      // - B2: para el admin no-Mariano, fichaClienteEditorFull e
+      //   internalPartnerUid se comparan por valor (get con default null).
+      //   Reenviar el mismo valor (o null sobre un doc sin el campo, como
+      //   hace saveUserRole) pasa; cambiarlo sigue bloqueado.
       allow update: if isAdmin()
                      && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled']);
+                          .hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled'])
+                     && (isMariano()
+                         || (request.resource.data.get('internalPartnerUid', null)
+                               == resource.data.get('internalPartnerUid', null)
+                             && request.resource.data.get('fichaClienteEditorFull', null)
+                               == resource.data.get('fichaClienteEditorFull', null)));
       allow delete: if isAdmin();
     }
 
@@ -191,6 +243,28 @@ service cloud.firestore {
     }
 
     // Pedidos: get (por id) abierto a reader; list restringido para vendedor a own.
+    // SEC rules batch 2026-11-24 (ajuste #1375): VDE/VDI solo tocan
+    // transferidoSAP en pedidos que nunca fueron a SAP. Permitido si:
+    //   - el campo no cambia, o
+    //   - el valor previo es nulo/ausente o via == 'app_only', Y el nuevo
+    //     valor se borra (FieldValue.delete) o es via == 'app_only' sin docEntry.
+    // Un pedido con cotizacion real en SAP (via distinto de app_only) no se
+    // puede desmarcar ni reescribir desde el cliente; eso evita reenvios.
+    function transferidoSapChangeIsAppOnly() {
+      return !('transferidoSAP' in request.resource.data.diff(resource.data).affectedKeys())
+        || (
+          (resource.data.get('transferidoSAP', null) == null
+            || resource.data.get(['transferidoSAP', 'via'], '') == 'app_only')
+          && (
+            !('transferidoSAP' in request.resource.data)
+            || (
+              request.resource.data.get(['transferidoSAP', 'via'], '') == 'app_only'
+              && request.resource.data.get(['transferidoSAP', 'docEntry'], null) == null
+            )
+          )
+        );
+    }
+
     match /pedidos/{pedidoId} {
       allow get: if isReader();
       // v1406 §44 (2026-10-22): VDE list permite OR ownerUid=self (compat
@@ -207,23 +281,13 @@ service cloud.firestore {
       // seteado por admin+gerente. La CF ademas hace fresh lookup a
       // roles/{ownerUid}.vendor (defensa en profundidad), pero cerrar el
       // create al nivel de rule ya bloquea el vector de fraude.
-      allow create: if isAdminOrGerente()
-        || (
-          isVendor()
-          && request.resource.data.ownerUid == request.auth.uid
-          && (
-            !('ownerVendor' in request.resource.data)
-            || request.resource.data.ownerVendor == null
-            || request.resource.data.ownerVendor == myVendorKey()
-          )
-        )
-        || (isInterno()
-            && request.resource.data.ownerUid == request.auth.uid
-            && request.resource.data.onBehalfOf == false)
-        || (isInterno()
-            && request.resource.data.createdByUid == request.auth.uid
-            && request.resource.data.onBehalfOf == true
-            && isMyPartnerVDE(request.resource.data.ownerUid));
+      // SEC rules batch 2026-11-24 (#1379 con ajuste): create directo solo
+      // admin/gerente. Todo pedido de vendedor o interno nace en
+      // commitPedidoCF (Admin SDK, no pasa por rules; §67 v1454 elimino el
+      // pedidos.add del cliente). Cerrar el camino directo evita pedidos
+      // creados fuera del servidor con datos (descuento, vendedor, estado)
+      // que el servidor no valido.
+      allow create: if isAdminOrGerente();
       // v747 (2026-08-31): relajada la rule de update/delete para internos.
       // Antes: internos solo podian update pedidos donde eran ownerUid
       // (onBehalfOf=false) o createdByUid (onBehalfOf=true). Bug reportado
@@ -272,8 +336,62 @@ service cloud.firestore {
       // Pablo. Un VDE que NO es el assignedVendorUid (otro VDE) no puede
       // update aunque la haya visto en su sidebar (filtrado client-side
       // por §59 pero defensiva server-side via rule).
+      // SEC-C1 (Fase 2B, 2026-11-18): VDI (`isInterno()`) tambien recibe
+      // whitelist, identica al VDE (30 campos). El flow operativo del VDI
+      // (Santi/Ioannis) toca los mismos campos que el VDE — pero puede
+      // operar sobre pedidos AJENOS (sin ownerUid/assignedVendorUid check).
+      // Antes del fix: blanket update habilitaba mutar transferidoSAP (CHAIN-01
+      // commission fraud), assignedVendorUid (viola §44), orderNumberPrev,
+      // netAmountArs, discountPct. Admin/gerente mantienen blanket (recovery
+      // humano post-incidente).
+      // SEC-C1 Opcion A.2 (2026-11-19):
+      // whitelist extendida con 6 campos (transferidoSAP + 5 audit) + guard
+      // semantico sobre transferidoSAP: solo permitido si via=='app_only'
+      // (auto-confirm 100% BO legitimo) o si el campo se esta deleteando
+      // (FieldValue.delete() tras revert). Bloquea CHAIN-01: via='sap_sl' o
+      // 'service_layer' desde cliente. Cubre 3 flows pre-existentes rotos
+      // en VDE+VDI post-whitelist original (H-01 auto-confirm 100% BO
+      // index.html:39009, H-02 volverAPendientes app_only index.html:39936,
+      // H-03 confirmarDefinitivo auto-split index.html:39509).
       allow update: if isAdminOrGerente()
-        || isInterno()
+        || (
+          isInterno()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            // Delivery info (VDI edita logistica post-envio para el VDE)
+            'formaEntrega', 'deliveryDetails',
+            // Contenido del pedido
+            // Sin discountPct/discountSnapshot: el descuento lo fija el servidor
+            // al crear (mismo criterio que el VDE, #1401).
+            'lines', 'netAmountArs', 'subtotalArs',
+            'condicionPago',
+            // Transiciones de estado (waitlist -> pending -> confirmed)
+            'stage', 'confirmedAt', 'finalizedAt', 'closedAt',
+            // Metadata del pedido
+            'observaciones', 'notes', 'clientNotes', 'updatedAt', 'updatedBy',
+            'month', 'monthIdx', 'year',
+            // orderNumber: decision Mariano 2026-09-14 (Sprint 1 Q2)
+            'orderNumber',
+            // Planner Kanban
+            'plannerStage', 'plannerHistory', 'plannerEmails',
+            'plannerAttachments', 'paidStatus', 'paidAmount', 'paidToDate',
+            // Sync SAP payments escribe desde CF syncSapPaymentsToApp
+            'invoicedAmount', 'paidSyncedAt',
+            // SEC-C1 Opcion A.2: transferidoSAP (con guard abajo, solo via=='app_only' o delete)
+            'transferidoSAP',
+            // Audit del revert (volverAPendientes app_only, index.html:39936-39947)
+            'revertedFromConfirmedAt', 'revertedBy',
+            'previousSapDocNum', 'previousSapDocEntryCancelled',
+            // Audit del auto-split (confirmarDefinitivo preCheck, index.html:39509)
+            'autoSplitByStock',
+            // Ajuste post-revision #1418 (B3): ajuste +/- de Stock Asignado
+            // (_adjustAsigQty) escribe lines + historial de reparto.
+            'repartoHistory', 'lastRepartoAt', 'lastRepartoBy'
+          ])
+          // SEC-C1 Opcion A.2: guard semantico transferidoSAP solo via='app_only' o delete
+          // (1) campo no modificado, OR (2) campo borrado (FieldValue.delete), OR
+          // (3) campo con via='app_only'. Bloquea via='sap_sl' y variantes CHAIN-01.
+          && transferidoSapChangeIsAppOnly()
+        )
         || (
           isVendor()
           && (
@@ -284,7 +402,12 @@ service cloud.firestore {
             // Delivery info (usuario cambia transportista/sucursal/retiro post-envio)
             'formaEntrega', 'deliveryDetails',
             // Contenido del pedido (edit lines pre-transfer, aggregate updates)
-            'lines', 'netAmountArs', 'subtotalArs', 'discountPct', 'discountSnapshot',
+            // HARDENING6 (2026-11-23): 'discountPct' y 'discountSnapshot' fuera del
+            // whitelist del VDE. El descuento se fija al crear el pedido (server-side);
+            // ningun call-site del cliente lo actualiza despues. Si hiciera falta
+            // editarlo post-create, hacerlo via CF dedicada con tope por rol + log
+            // (pattern releaseAsigCF §63), no reabriendo este whitelist.
+            'lines', 'netAmountArs', 'subtotalArs',
             'condicionPago',
             // Transiciones de estado (waitlist -> pending -> confirmed)
             'stage', 'confirmedAt', 'finalizedAt', 'closedAt',
@@ -299,8 +422,21 @@ service cloud.firestore {
             'plannerAttachments', 'paidStatus', 'paidAmount', 'paidToDate',
             // Fase 2 v1035 (2026-09-22): sync SAP payments escribe estos
             // fields desde el CF syncSapPaymentsToApp cada 15min.
-            'invoicedAmount', 'paidSyncedAt'
+            'invoicedAmount', 'paidSyncedAt',
+            // Ajuste post-revision #1418 (S1): transferidoSAP fuera de la
+            // lista del vendedor. Ningun flujo vivo del vendedor lo escribe
+            // (la marca app_only la pone el servidor o el listener de
+            // admin/gerente; volverAPendientes no lo borra en pedidos
+            // app_only). El guard transferidoSapChangeIsAppOnly() queda
+            // como defensa extra.
+            // Audit del revert (volverAPendientes app_only)
+            'revertedFromConfirmedAt', 'revertedBy',
+            'previousSapDocNum', 'previousSapDocEntryCancelled',
+            // Audit del auto-split (confirmarDefinitivo preCheck)
+            'autoSplitByStock'
           ])
+          // SEC-C1 Opcion A.2: guard semantico transferidoSAP (ver comentario en isInterno arriba)
+          && transferidoSapChangeIsAppOnly()
         );
       allow delete: if isAdminOrGerente() || isInterno();
     }
@@ -346,7 +482,65 @@ service cloud.firestore {
 
     match /operations_log/{logId} {
       allow read: if isAdmin() || isViewer();
-      allow create: if request.auth != null && request.resource.data.userUid == request.auth.uid;
+      // A2.3 (SEC-M3 / SEC-NIGHT-R-06, 2026-11-19): hasOnly + guard userUid
+      // + guard type contra falsificación de eventos privilegiados.
+      //
+      // Pre-A2.3: cliente podía crear log con `type='admin_override'` o
+      // sembrar `userRole='admin'` para hacer appear que un admin autorizó
+      // una acción. Post-A2.3:
+      //   - hasOnly(whitelist): solo los campos que los call-sites reales
+      //     escriben (inventario de call-sites, rehecho 2026-11-24).
+      //   - userUid == auth.uid: preservado (no falsificar actor).
+      //   - type: limitado al set CLIENT (5 types). Los types SERVER
+      //     (bo_absorbed, commit_pedido_warning, pedido_deleted, etc.) solo
+      //     los escribe Admin SDK bypassando rules.
+      //
+      // Set CLIENT (5 types permitidos):
+      //   - 'asig_huerfana'                    (index.html orchestration)
+      //   - 'commitPedidoCF_fallback_legacy'   (index.html diag)
+      //   - 'client_confirm_exception'         (catch del commit flow)
+      //   - 'client_write_failed'              (§70 defensa write logger)
+      //   - 'export_failed'                    (exports-reparto.js)
+      // Además `logOp()` del audit panel usa campos genéricos (action +
+      // entityType) sin `type` — se permite si `type` NO está en el doc
+      // (uso legacy del audit panel).
+      allow create: if request.auth != null
+        && request.resource.data.userUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          // Identity
+          'userUid', 'userEmail', 'userRole',
+          // Timestamp
+          'timestamp', 'createdAt',
+          // Legacy audit panel shape (logOp)
+          'action', 'entityType', 'entityName', 'details',
+          // Discriminated type (CLIENT set validado abajo)
+          'type',
+          // Contexto compartido
+          'sku', 'pedidoId', 'lineIndex', 'motivo',
+          'lineState', 'lineQtyOpen', 'qtyEsperada', 'qtyFaltanteSku',
+          'clientName', 'cardCode', 'orderNumber', 'orderKey',
+          'waitlistOrigenId', 'draftId', 'via', 'appVersion',
+          'clientVersion',
+          // client_confirm_exception
+          'errStack', 'code', 'email',
+          // client_write_failed (§70)
+          'collection', 'documentId', 'errMessage', 'errCode',
+          'op', 'handler', 'clientCardCode', 'batchRefsCount',
+          // Ajuste batch 2026-11-24: commitPedidoCF_fallback_legacy escribe
+          // firebaseCode + skus; export_failed (exports-reparto.js) escribe
+          // exportKind + error. Faltaban en #1381.
+          'firebaseCode', 'skus', 'exportKind', 'error'
+        ])
+        && (
+          !('type' in request.resource.data)
+          || request.resource.data.type in [
+            'asig_huerfana',
+            'commitPedidoCF_fallback_legacy',
+            'client_confirm_exception',
+            'client_write_failed',
+            'export_failed'
+          ]
+        );
       allow update, delete: if false;
     }
 
@@ -390,8 +584,56 @@ service cloud.firestore {
         || resource.data.fromUid == request.auth.uid
         || isAdmin() || isGerente()
       );
-      allow create: if request.auth != null && request.resource.data.fromUid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.targetUid == request.auth.uid;
+      // A2.2 (SEC-M2 / SEC-NIGHT-R-04, 2026-11-19): hasOnly + guard sobre
+      // `fromUid` para que un usuario autenticado NO pueda sembrar
+      // notifications con campos fuera del shape legitimo (ej. inyectar
+      // `type='admin_override'` + payload confuso al targetUid).
+      //
+      // Whitelist derivada del inventario de los call-sites del cliente
+      // (re-inventariado 2026-11-24: 15 add + 9 update): creator +
+      // 2 target + 6 content + 11 payload + 4 state + 8 handler-specific
+      // (approvedBy, rejectedBy, derivedToUid, etc.). Server-side (CFs Admin
+      // SDK) bypassa rules.
+      //
+      // Guard: `fromUid == auth.uid` ya preservado (no cambia). Un VDE sigue
+      // pudiendo crear notifs pero no puede falsificar remitente.
+      allow create: if request.auth != null
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          // Creator
+          'fromUid', 'fromEmail', 'fromName', 'fromDisplayName',
+          'createdByUid', 'createdByEmail',
+          // Target
+          'targetUid', 'targetEmail',
+          'derivedToUid', 'derivedToEmail',
+          // Content
+          'type', 'subtype', 'title', 'body', 'message', 'description',
+          // Payload / metadata
+          'tienda', 'localidad', 'provincia', 'vendor', 'mes', 'anio',
+          'clientName', 'rendicionId', 'pedidoId',
+          'minutesInPending', 'ageMinutes', 'relatedTaskId',
+          // Ajuste batch 2026-11-24: campos que escriben hoy las altas de
+          // clientes (applicationId, comercio) y las tareas con fotos
+          // (images, targetName). Faltaban en #1380.
+          'applicationId', 'comercio', 'images', 'targetName',
+          // Approval flow (rendiciones)
+          'approvedBy', 'approvedByEmail',
+          'rejectedBy', 'rejectedByEmail',
+          // State (presente al crear: valores iniciales)
+          'status', 'read',
+          // Server-only (tolerado si el cliente lo manda, pero realmente lo
+          // escribe el server). No bloquea porque es serverTimestamp inocuo.
+          'createdAt'
+        ]);
+      // A2.2 UPDATE: solo el target puede marcar estado + solo campos state.
+      // Pre-A2.2 el update era blanket sobre todo el doc — un target
+      // malicioso podia reescribir `title`, `body`, `type` del doc + cambiar
+      // `targetUid` a otro user para "ocultar" la notif. Ahora cerrado a 3
+      // campos de estado (`status`, `doneAt`, `readAt`).
+      allow update: if request.auth != null
+        && resource.data.targetUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['status', 'doneAt', 'readAt', 'read']);
       allow delete: if isAdminOrGerente()
         || (request.auth != null && resource.data.targetUid == request.auth.uid);
     }
@@ -541,7 +783,16 @@ service cloud.firestore {
     // en index.html:21457 y 21646 (check "estoy en la whitelist?"). List
     // (colecccion entera) restringido a admin+gerente.
     match /allowed_emails/{docId} {
-      allow get: if request.auth != null;
+      // Lote B (batch 2026-11-24): el login (isUserAllowed, index.html) lee
+      // este doc ANTES de tener rol, asi que no puede exigir isReader(). Lo
+      // minimo: un usuario sin rol solo puede leer el doc de SU propio email
+      // (mismo id que emailToDocId: lower + trim + no-alfanumerico -> '_').
+      // Ya no sirve para probar si un email ajeno esta habilitado.
+      allow get: if isReader()
+        || (request.auth != null
+            && 'email' in request.auth.token
+            && request.auth.token.email is string
+            && docId == request.auth.token.email.lower().trim().replace('[^a-z0-9]', '_'));
       allow list: if isAdminOrGerente();
       allow write: if isAdmin();
     }
@@ -572,6 +823,12 @@ service cloud.firestore {
       // vendor, o admin+gerente overrides. Formulario publico
       // (submittedByPublicForm) sigue permitido sin auth para el flow web
       // externo.
+      // HARDENING 6 F9 D1-H1 (2026-11-20): validar status en create auth.
+      // Antes: el create autenticado aceptaba cualquier valor de status
+      // (approved, rejected, custom) -> un VDE podia auto-aprobar un alta
+      // saltando el flow admin. Ahora: status DEBE existir y estar en
+      // {pending_approval, approved}. 'approved' solo admin/gerente, o el
+      // alta rapida del vendedor (source alta_rapida + manualSapPending).
       allow create: if (
                    request.auth != null
                    && request.resource.data.ownerUid == request.auth.uid
@@ -581,22 +838,91 @@ service cloud.firestore {
                      || request.resource.data.assignedVendor == myVendorKey()
                      || isAdminOrGerente()
                    )
+                   && request.resource.data.status in ['pending_approval', 'approved']
+                   && (
+                     request.resource.data.status == 'pending_approval'
+                     || isAdminOrGerente()
+                     // Alta rapida del vendedor (notificaciones.js submitAltaRapida):
+                     // nace 'approved' pero marcada para carga manual en SAP.
+                     || (request.resource.data.get('source', '') == 'alta_rapida'
+                         && request.resource.data.get('manualSapPending', false) == true)
+                   )
                  )
                  // v1172 (audit 2026-10-07, Security C-01): endurecer public form.
                  // Antes: cualquier unauthenticated podia crear docs multi-MB con
                  // base64 photos (constanciaArca, fotosLocal[]) sin size cap ni
                  // field whitelist. Vector DoS + storage exhaustion.
-                 // Ahora: size <1.5MB + CUIT regex (11 digitos AR) + comercio length
+                 // Ahora: size <1.5MB + CUIT regex (11 digitos AR, con o sin
+                 // guiones: ajuste post-revision #1418 F1) + comercio length
                  // razonable. Fotos deberian subirse a Storage con signed URL, no
                  // embebidas en Firestore — pero mantenemos tolerancia hasta migrar.
+                 // Batch 2026-11-24 (C-01): la rama publica acepta solo los
+                 // campos que escribe alta-cliente.html, con tipo y largo
+                 // acotados (ver publicAltaIsValid abajo).
                  || (request.resource.data.submittedByPublicForm == true
                      && request.resource.data.comercio is string
                      && request.resource.data.comercio.size() > 2
                      && request.resource.data.comercio.size() < 200
                      && request.resource.data.cuit is string
-                     && request.resource.data.cuit.matches('[0-9]{11}')
+                     && request.resource.data.cuit.matches('^[0-9]{2}-?[0-9]{8}-?[0-9]$')
                      && request.resource.data.status == 'pending_approval'
-                     && request.resource.size() < 1500000);
+                     && request.resource.size() < 1500000
+                     && publicAltaIsValid(request.resource.data));
+
+      // C-01 (batch 2026-11-24): formulario publico de alta (sin login).
+      // Lista cerrada de campos (los que escribe alta-cliente.html submitForm),
+      // textos con largo maximo, metadata fija y adjuntos solo como data URI
+      // base64 de imagen/PDF o URL https de Firebase Storage. Ningun campo de
+      // asignacion (assignedVendor, cardCodeSap, approvedAt...) entra por aca.
+      function pubText(d, k, max) {
+        return !(k in d) || (d[k] is string && d[k].size() <= max);
+      }
+      function pubAttachment(v) {
+        return v is string
+          && v.size() < 1400000
+          && (v.matches('^data:(image/(png|jpeg|jpg|webp|gif|heic|heif)|application/pdf);base64,[A-Za-z0-9+/=]+$')
+              || v.matches('^https://firebasestorage[.]googleapis[.]com/[A-Za-z0-9._~%/?&=+-]+$'));
+      }
+      function pubFotoOk(l, i) {
+        return l.size() <= i || pubAttachment(l[i]);
+      }
+      function publicAltaIsValid(d) {
+        return d.keys().hasOnly([
+            'email', 'comercio', 'fantasia', 'cuit', 'condicionFiscal',
+            'calle', 'numero', 'localidad', 'provincia', 'cp',
+            'telefono', 'web', 'redes',
+            'contactoNombre', 'contactoTelParticular', 'contactoWhatsapp', 'contactoEmail',
+            'tipoComercio', 'tiendaOnline',
+            'constanciaArca', 'constanciaIIBB', 'fotosLocal',
+            'submittedByPublicForm', 'ownerUid', 'ownerEmail', 'ownerName',
+            'vendor', 'status', 'approvals', 'createdAt'
+          ])
+          && pubText(d, 'email', 200) && pubText(d, 'fantasia', 200)
+          && pubText(d, 'condicionFiscal', 100)
+          && pubText(d, 'calle', 200) && pubText(d, 'numero', 50)
+          && pubText(d, 'localidad', 120) && pubText(d, 'provincia', 60)
+          && pubText(d, 'cp', 20) && pubText(d, 'telefono', 60)
+          && pubText(d, 'web', 300) && pubText(d, 'redes', 300)
+          && pubText(d, 'contactoNombre', 200) && pubText(d, 'contactoTelParticular', 60)
+          && pubText(d, 'contactoWhatsapp', 60) && pubText(d, 'contactoEmail', 200)
+          && pubText(d, 'tipoComercio', 100) && pubText(d, 'tiendaOnline', 300)
+          && pubText(d, 'ownerEmail', 200) && pubText(d, 'ownerName', 200)
+          // Dueno: '__public__' o el uid (con rol) del vendedor que compartio el link.
+          && (!('ownerUid' in d)
+              || d.ownerUid == '__public__'
+              || (d.ownerUid is string && d.ownerUid.size() <= 128
+                  && exists(/databases/$(database)/documents/roles/$(d.ownerUid))))
+          && (!('vendor' in d) || d.vendor == null)
+          && (!('approvals' in d) || (d.approvals is map && d.approvals.size() == 0))
+          && (!('createdAt' in d) || d.createdAt == request.time)
+          && (!('constanciaArca' in d) || d.constanciaArca == null || pubAttachment(d.constanciaArca))
+          && (!('constanciaIIBB' in d) || d.constanciaIIBB == null || pubAttachment(d.constanciaIIBB))
+          && (!('fotosLocal' in d)
+              || (d.fotosLocal is list && d.fotosLocal.size() <= 5
+                  && pubFotoOk(d.fotosLocal, 0) && pubFotoOk(d.fotosLocal, 1)
+                  && pubFotoOk(d.fotosLocal, 2) && pubFotoOk(d.fotosLocal, 3)
+                  && pubFotoOk(d.fotosLocal, 4)));
+      }
       // v396 (2026-08-04): permitir a cualquier reader (vendedor incluido)
       // updatear SOLO los campos de estado del LEAD (leadEstado + auditoria).
       // Los demas campos siguen restringidos a admin/gerente/interno.
@@ -737,7 +1063,9 @@ service cloud.firestore {
       // (info operacional del sync, no relevante a vendedores hasta cutover E5).
       allow read: if (docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini'] && isAdminOrGerente())
                   || (!(docId in ['sap_integration', 'sap_sync_state', 'stock_snapshot_shadow_v3', 'gemini', 'planner_responsables', 'planner_config']) && isReader())
-                  || (docId == 'planner_config' && request.auth != null)
+                  // Lote B (batch 2026-11-24): planner_config y feature_flags
+                  // solo para roles aprobados (antes: cualquier logueado).
+                  || (docId == 'planner_config' && isReader())
                   || (docId == 'planner_responsables' && (isAdmin() || isGerente() || isMariano()));
       // Planner Task 2: planner_responsables y planner_config tienen su propio
       // gate de write (isMariano-only). El catch-all `isAdmin()` queda excluido
@@ -756,7 +1084,7 @@ service cloud.firestore {
     // autenticado lee (necesario para que los clientes resuelvan el estado
     // del flag). Solo Mariano puede escribir desde el Panel de Control.
     match /app_config/feature_flags {
-      allow read: if request.auth != null;
+      allow read: if isReader();
       allow write: if isMariano();
     }
 
@@ -764,7 +1092,7 @@ service cloud.firestore {
     // (etapas, columnas, labels). Cualquier usuario autenticado puede leer
     // para renderizar el tablero. Solo Mariano puede configurarlo.
     match /app_config/planner_config {
-      allow read: if request.auth != null;
+      allow read: if isReader();
       allow write: if isMariano();
     }
 
@@ -1002,9 +1330,81 @@ service cloud.firestore {
       // ORDEN 178, 3 SQs 2000183/2000184/2000185). Delete queda scoped al
       // owner del doc — no permite wipe masivo (defensa v926 preservada).
       // Admin/gerente/interno siguen pudiendo borrar cualquier doc.
-      allow update: if isReader();
+      //
+      // SEC-M1 (Fase 2B, 2026-11-18, reintegrado 2026-11-19 iter 2.2 post
+      // red team adversarial): whitelist estricto sobre update directo
+      // desde cliente. Los 4 CFs cross-vendor (releaseAsigCF,
+      // commitPedidoCF, movePedidoToWaitlistCF, unifyWaitlistsCF) usan
+      // Admin SDK y bypassean esta rule.
+      //
+      // Iteración 2.2 (post red team): whitelist extendido a 20 campos
+      // para cubrir flujos legítimos cliente-side pre-existentes:
+      //   - "Unificar orden" modal (_wcardUnificarOrden index.html:27378).
+      //   - §42 helper (_createOrUnifyWaitlistPayload index.html:18800).
+      //   - Marcado de órdenes absorbidas (consumed + unifiedInto).
+      //   - Re-resolve §44 vendor en target legacy (pre-§44).
+      //
+      // Campos bloqueados (solo CF los escribe): clientCardCode, ownerUid,
+      // asigRefs, createdAt, createdByUid, cancelledAt, _unifiedFromWaitlistId.
+      //
+      // Guard legacy §44: los 4 campos de vendor (assignedVendorUid,
+      // vendorAssigned, assignedVendorEmail, ownerVendor) solo son
+      // modificables si el doc es legacy pre-§44 (resource.data.assignedVendorUid
+      // vacío o ausente). VDE hostil que intenta reasignar un waitlist
+      // post-§44 es bloqueado (preserva mitigación §59).
+      //
+      // Riesgos residuales DEUDA-M1-R1 (editar items ajenos) y DEUDA-M1-R2
+      // (consumed silencioso ajeno) persisten — Fase 3.
+      allow update: if isReader()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          // Contenido editable (modal "Pedido en Espera" + CPST + Excel)
+          'items',
+          // Editar orderNumber (waitlistEditOrden desde modal)
+          'orderNumber',
+          // Transicion a consumed via commitPedidoCF flow .then()
+          // (index.html:39230 — defense-in-depth v953)
+          'stage', 'consumedByPedidoId', 'consumedAt',
+          // §42.2 review guard unify local
+          'closedAt', 'closedReason',
+          'unifiedIntoCurrentOrder', 'unifiedAt', 'unifiedBy',
+          // Timestamp update automatico
+          'updatedAt',
+          // SEC-M1 iter 2.2: Unificar orden target update (audit + heredar CPST)
+          'unifiedFrom', 'pedidosOrigenes', 'source',
+          // SEC-M1 iter 2.2: Marcado de órdenes absorbidas
+          'unifiedInto', 'unifiedIntoOrderNumber',
+          // SEC-M1 iter 2.2: Re-resolve §44 en target legacy (con guard abajo)
+          'assignedVendorUid', 'vendorAssigned', 'assignedVendorEmail', 'ownerVendor',
+          // Ajuste batch 2026-11-24: la carga por Excel guarda la ruta del
+          // archivo subido a Storage (index.html revisionDejarRecalculando).
+          // Faltaba en #1376: sin esto el Excel original no queda enlazado.
+          'sourceExcelPath', 'sourceExcelName'
+        ])
+        // Guard legacy §44: los 4 campos de vendor solo si resource es legacy
+        // (assignedVendorUid vacío o ausente). Preserva mitigación §59.
+        && (
+          !(
+            'assignedVendorUid' in request.resource.data.diff(resource.data).affectedKeys()
+            || 'vendorAssigned' in request.resource.data.diff(resource.data).affectedKeys()
+            || 'assignedVendorEmail' in request.resource.data.diff(resource.data).affectedKeys()
+            || 'ownerVendor' in request.resource.data.diff(resource.data).affectedKeys()
+          )
+          || resource.data.get('assignedVendorUid', '') == ''
+        );
       allow delete: if isAdminOrGerente() || isInterno()
                     || (isReader() && resource.data.ownerUid == request.auth.uid);
+    }
+
+    // R01 Fase 1 (v1557-dev 2026-11-17, integrado 2026-11-19 A1.3): locks
+    // atomicos para garantizar §42 (a lo sumo 1 waitlist abierta por
+    // cardCode). Colección 100% server-side: solo las CFs
+    // movePedidoToWaitlistCF / unifyWaitlistsCF escriben via Admin SDK
+    // dentro de runTransaction. Los scripts W_waitlist_lock_drift +
+    // Y_seed_waitlist_locks también usan Admin SDK (bypassa rules).
+    // Nunca cliente.
+    match /revision_waitlist_locks/{cardCode} {
+      allow read: if false;
+      allow write: if false;
     }
 
     // MERCADOLIBRE (v>=997) -- solo Mariano lee, nadie escribe desde client.
@@ -1059,7 +1459,9 @@ service cloud.firestore {
     // Write SOLO CF (via admin SDK, bypassa rules).
     // _meta_ doc: con status de la ultima corrida (lastRun, duration, errors).
     match /client_buyer_stats/{cardCode} {
-      allow read: if request.auth != null;
+      // Lote B (batch 2026-11-24): antes cualquier cuenta logueada (incluso
+      // sin rol) leia y listaba la coleccion. Ahora solo roles aprobados.
+      allow read: if isReader();
       allow write: if false;
     }
 

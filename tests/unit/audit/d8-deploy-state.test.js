@@ -28,9 +28,11 @@ describe('analyzeRules', () => {
     });
   });
   it('reglas sin freeze (versión anterior a PR-B) → freezePresent=false', () => {
+    // Batch 2026-11-24: /roles.update pasó a dos ramas (Mariano / admin), cada
+    // una con su freeze. "Sin freeze" = la regla update vuelve a isAdmin() solo.
     const viejo = LOCAL_RULES.replace(
-      /&& !request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\s*\.hasAny\(\[[^\]]*\]\);/,
-      ';'
+      /allow update: if [\s\S]*?\]\)\);/,
+      'allow update: if isAdmin();'
     );
     expect(viejo).not.toBe(LOCAL_RULES);
     const r = dcore.analyzeRules(viejo, LOCAL_RULES);
@@ -408,7 +410,7 @@ describe('Correcciones de la revisión independiente (P2-2 a P2-5)', () => {
   });
   it('P2-2: freeze solo en un comentario → no cuenta', () => {
     const c = lf.replace(
-      /allow update: if isAdmin\(\)[\s\S]*?\.hasAny\(\[[^\]]*\]\);/,
+      /allow update: if [\s\S]*?\]\)\);/,
       "// .affectedKeys().hasAny(['passwordHash', 'passwordSalt', 'totpSecret', 'totpEnabled'])\n      allow update: if isAdmin();"
     );
     expect(dcore.analyzeRules(c, LOCAL_RULES).freezePresent).toBe(false);

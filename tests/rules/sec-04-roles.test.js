@@ -36,9 +36,9 @@ beforeEach(async () => {
 });
 
 /** Payload legítimo de alta (mismo shape que index.html fetchAndApplyRole). */
-function altaLegitima(role = 'unassigned') {
+function altaLegitima(role = 'unassigned', email = 'nuevo@example.com') {
   return {
-    email: 'nuevo@example.com',
+    email,
     displayName: 'Nuevo Usuario',
     role,
     vendor: null,
@@ -55,7 +55,10 @@ describe('SEC-04 — precondición', () => {
 describe('SEC-04 — create de roles/{uid}', () => {
   it('R1: alta legítima con los 5 campos → permitida', async () => {
     const uid = 'uid-alta-ok';
-    await assertSucceeds(setDoc(doc(authedDb(uid), 'roles', uid), altaLegitima()));
+    // H10 (batch 2026-11-24): el email del doc debe ser el del token.
+    await assertSucceeds(
+      setDoc(doc(authedDb(uid, { email: 'nuevo@example.com' }), 'roles', uid), altaLegitima())
+    );
   });
 
   it('R2: alta mínima {role:"unassigned"} → permitida (compat test histórico)', async () => {
@@ -110,15 +113,30 @@ describe('SEC-04 — create de roles/{uid}', () => {
           'roles',
           uid
         ),
-        altaLegitima('admin')
+        altaLegitima('admin', 'bot.shimano.pesca@gmail.com')
       )
     );
   });
 
-  it('R8: admin conserva el update de roles (asignar rol y flag de editor)', async () => {
+  it('R8: admin conserva el update de roles (asignar rol — flag editor solo Mariano post-HARD6-F4-S3)', async () => {
+    // Pre-HARD6 (v15703dfb, 2026-11-20): este test usaba admin para ambos
+    // campos. Post-HARD6-F4-S3+D18: fichaClienteEditorFull solo lo escribe
+    // Mariano (vector S3 cerrado). Este test se divide: admin sigue pudiendo
+    // asignar rol (flow Panel Usuarios); Mariano asigna el flag editor.
     await assertSucceeds(
       updateDoc(doc(authedDb(UID.admin), 'roles', UID.vendor), {
         role: 'vendedor',
+      })
+    );
+    // Ajuste post-revision #1418 (B1): el email de Mariano solo habilita
+    // campos extra a una cuenta que ya es admin y tiene email verificado.
+    await seedRole('uid-mariano', 'admin');
+    const marianoDb = authedDb('uid-mariano', {
+      email: 'erbinomariano@gmail.com',
+      email_verified: true,
+    });
+    await assertSucceeds(
+      updateDoc(doc(marianoDb, 'roles', UID.vendor), {
         fichaClienteEditorFull: true,
       })
     );

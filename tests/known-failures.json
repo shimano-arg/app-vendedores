@@ -46,15 +46,6 @@
       "securityRelevant": false,
       "revisarAntesDe": "2026-11-30",
       "nota": "Las colecciones seguimiento_notes/seguimiento_status se eliminaron en v1283 (firestore.rules ~l.863). Test obsoleto: actualizar o retirar con justificación (CLAUDE.md §6)."
-    },
-    {
-      "file": "tests/rules/rules.test.js",
-      "test": "anon (no auth) permite crear client_applications via submittedByPublicForm (alta pública)",
-      "signature": "FirebaseError: # PERMISSION_DENIED:",
-      "hallazgo": "F17",
-      "securityRelevant": false,
-      "revisarAntesDe": "2026-11-30",
-      "nota": "Bug funcional real: la regla exige CUIT de 11 dígitos (fb2b4cfa v1172) y alta-cliente.html manda guiones. Además el test no manda createdAt. Se corrige con la propuesta S16/F17."
     }
   ],
   "functions": [],
@@ -99,6 +90,22 @@
         "securityRelevant": true,
         "revisarAntesDe": "2026-11-30",
         "nota": "Regla deny-legacy de /pedidos (exigir _commitVersion: crear pedidos solo vía commitPedidoCF) aún no implementada."
+      },
+      {
+        "file": "tests/rules/storage-waitlist-excels.test.js",
+        "test": "storage waitlist-excels (Lote B 2026-11-24) el duenio con rol lee su Excel",
+        "hallazgo": "LOTE-B-STORAGE",
+        "securityRelevant": false,
+        "revisarAntesDe": "2026-12-15",
+        "nota": "Caso permitido de storage.rules que usa firestore.get() cross-service: el job de CI no levanta el emulador de Storage y en local el emulador devuelve null. Verificar manualmente tras el deploy de storage (dueño con rol e interno leen un Excel de waitlist)."
+      },
+      {
+        "file": "tests/rules/storage-waitlist-excels.test.js",
+        "test": "storage waitlist-excels (Lote B 2026-11-24) admin, gerente e interno leen",
+        "hallazgo": "LOTE-B-STORAGE",
+        "securityRelevant": false,
+        "revisarAntesDe": "2026-12-15",
+        "nota": "Caso permitido de storage.rules que usa firestore.get() cross-service: el job de CI no levanta el emulador de Storage y en local el emulador devuelve null. Verificar manualmente tras el deploy de storage (dueño con rol e interno leen un Excel de waitlist)."
       }
     ],
     "functions": [],
