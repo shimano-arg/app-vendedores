@@ -427,6 +427,68 @@ export function isEligibleForAutoSend(beforeData, afterData) {
 export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
   const log = deps.sl.log || (() => {});
 
+  // BATCH B.1 SEC-H2 (2026-11-19) — OBSERVE-ONLY: loguear a operations_log
+  // cuando un pedido llega a stage='confirmed' sin `_commitVersion` válido
+  // (marker que escriben los caminos de servidor). Se observa primero para
+  // medir la línea de base; el bloqueo real queda para una etapa posterior,
+  // cuando todos los caminos legítimos escriban su marker.
+  const COMMIT_VERSION_VALID_SET = new Set([
+    'commitPedidoCore_v1',
+    // Markers de los otros caminos de servidor que confirman pedidos:
+    // - auto-confirm-pending-core (marker de #1398; reemplaza al
+    //   'autoConfirmPending_v1' de #1383, que se cierra por superado).
+    // - confirmDefinitivo_v1: reservado para la función de confirmación
+    //   definitiva (#1384, pendiente).
+    'autoConfirmPendingCore_v1',
+    'confirmDefinitivo_v1',
+    // Sigue siendo observe-only: se bloquea recién cuando prod opere un
+    // período con el set completo y sin falsos positivos.
+  ]);
+  // Ajuste post-revisión H6 (2026-11-24): se registra solo en la transición
+  // a confirmed (antes: en cada escritura a un pedido que ya estaba
+  // confirmado, lo que repetía el registro).
+  const _becameConfirmed = !beforeData || beforeData.stage !== 'confirmed';
+  if (
+    afterData &&
+    afterData.stage === 'confirmed' &&
+    _becameConfirmed &&
+    !afterData.transferidoSAP
+  ) {
+    const _cv = afterData._commitVersion;
+    const _isValidCv = typeof _cv === 'string' && COMMIT_VERSION_VALID_SET.has(_cv);
+    if (!_isValidCv) {
+      // NO bloquea el envío: solo observa. El registro se espera (await)
+      // para no perderlo en Gen 2; si falla, se ignora.
+      try {
+        if (deps.fbDb && typeof deps.fbDb.collection === 'function') {
+          const now = deps.now ? deps.now() : Date.now();
+          await deps.fbDb.collection('operations_log').add({
+            type: 'sec_h2_commit_version_missing',
+            severity: 'observe',
+            pedidoId,
+            clientName: afterData.clientName || null,
+            clientCardCode: afterData.clientCardCode || null,
+            stage: afterData.stage,
+            _commitVersion: _cv == null ? null : String(_cv),
+            commitVersionValid: false,
+            ownerUid: afterData.ownerUid || null,
+            ownerEmail: afterData.ownerEmail || null,
+            stageTransition: beforeData ? beforeData.stage || null : null,
+            via: 'trigger_onPedidoConfirmedSendToSap',
+            timestamp: new Date(now).toISOString(),
+          });
+          log('[auto-send] SEC-H2 observe: _commitVersion missing/invalid', {
+            pedidoId,
+            _commitVersion: _cv,
+            clientName: afterData.clientName,
+          });
+        }
+      } catch (_logErr) {
+        // No propagar — el logging es best-effort.
+      }
+    }
+  }
+
   const elig = isEligibleForAutoSend(beforeData, afterData);
   if (!elig.eligible) {
     log('[auto-send] skip', { pedidoId, reason: elig.reason });

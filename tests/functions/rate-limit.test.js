@@ -172,4 +172,48 @@ describe('RATE_LIMITS defaults', () => {
     expect(RATE_LIMITS.geminiOcrProxy.threshold).toBe(100);
     expect(RATE_LIMITS.geminiOcrProxy.windowMs).toBe(60 * 60 * 1000);
   });
+
+  // SEC-M11/M12/M13 (2026-11-19) — presets BQ + SL + reporte Excel.
+  it('SEC-M11 dashboardVentasCF: 60/hr (BQ lectura dashboard)', () => {
+    expect(RATE_LIMITS.dashboardVentasCF.threshold).toBe(60);
+    expect(RATE_LIMITS.dashboardVentasCF.windowMs).toBe(60 * 60 * 1000);
+  });
+  it('SEC-M11 pedidosDelMesCF: 120/hr (BQ lectura pedidos mes, uso mas frecuente)', () => {
+    expect(RATE_LIMITS.pedidosDelMesCF.threshold).toBe(120);
+    expect(RATE_LIMITS.pedidosDelMesCF.windowMs).toBe(60 * 60 * 1000);
+  });
+  it('SEC-M12 generateVentasReportCF: 10/day (1GiB memoria + BQ scan completo)', () => {
+    expect(RATE_LIMITS.generateVentasReportCF.threshold).toBe(10);
+    expect(RATE_LIMITS.generateVentasReportCF.windowMs).toBe(24 * 60 * 60 * 1000);
+  });
+  it('SEC-M13 closeSqsManuallyCF: 20/hr (SAP SL login/logout, pooled sessions)', () => {
+    expect(RATE_LIMITS.closeSqsManuallyCF.threshold).toBe(20);
+    expect(RATE_LIMITS.closeSqsManuallyCF.windowMs).toBe(60 * 60 * 1000);
+  });
+});
+
+describe('SEC-M11/M12/M13 wrapper integration (grep contract)', () => {
+  it('functions/index.js invoca checkAndIncrementRateLimit para las 4 CFs', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('functions/index.js', 'utf8');
+    for (const cf of [
+      'dashboardVentasCF',
+      'pedidosDelMesCF',
+      'closeSqsManuallyCF',
+      'generateVentasReportCF',
+    ]) {
+      // Buscar el string `RATE_LIMITS.<cf>` que indica integración del preset.
+      const re = new RegExp(`RATE_LIMITS\\.${cf}\\.threshold`);
+      expect(src, `${cf} debe usar RATE_LIMITS.${cf}`).toMatch(re);
+    }
+  });
+
+  it('las 4 CFs lanzan HttpsError resource-exhausted cuando el limit se alcanza', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync('functions/index.js', 'utf8');
+    // Contar ocurrencias de HttpsError resource-exhausted + Rate limit alcanzado.
+    const matches =
+      src.match(/HttpsError\(\s*'resource-exhausted'[^)]*Rate limit alcanzado/g) || [];
+    expect(matches.length).toBeGreaterThanOrEqual(4);
+  });
 });

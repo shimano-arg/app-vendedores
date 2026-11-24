@@ -437,6 +437,238 @@ describe('§63 releaseAsigCore', () => {
     }
     expect(caught._errorCode).toBe('invalid-argument');
   });
+
+  // ============================================================
+  // SEC-M6 + ATK-001 (2026-11-19): cross-reference clientCardCode
+  // ============================================================
+  /** Fixture con waitlist C001 pero asigRefs apuntando a pedido de C999 (cliente ajeno). */
+  function makeCrossClientState() {
+    return {
+      roles: {
+        'vde-X-uid': { role: 'vendedor' },
+        'admin-uid': { role: 'admin' },
+      },
+      revision_waitlist: {
+        wl_attack: {
+          clientName: 'CLIENTE PROPIO',
+          clientCardCode: 'C001',
+          orderNumber: 500,
+          ownerUid: 'vde-X-uid',
+          assignedVendorUid: 'vde-X-uid',
+          items: [
+            {
+              code: 'SKU1',
+              qty: 2,
+              // asigRef target es pedido de OTRO cliente (ataque IDOR)
+              asigRefs: [{ pedidoId: 'ped-victim', lineIndex: 0, qtyAsignada: 2, sku: 'SKU1' }],
+            },
+          ],
+          pedidosOrigenes: [{ pedidoId: 'ped-victim', lineIndex: 0, qtyAsignada: 2, sku: 'SKU1' }],
+        },
+      },
+      pedidos: {
+        'ped-victim': {
+          _fsId: 'ped-victim',
+          ownerUid: 'otro-vde',
+          assignedVendorUid: 'otro-vde',
+          clientCardCode: 'C999', // ← cliente DISTINTO al waitlist
+          lines: [{ sku: 'SKU1', state: 'ASIG', qty: 2, qtyOpen: 2 }],
+        },
+      },
+    };
+  }
+
+  /** Corre el core esperando un rechazo; devuelve el error. */
+  async function runExpectReject(fbDb, uid, action, waitlistId, extra) {
+    let caught = null;
+    try {
+      await releaseAsigCore(
+        { fbDb },
+        Object.assign(
+          { auth: { uid, token: { email: 'vde@shimano.com.ar' } }, action, waitlistId },
+          extra || {}
+        )
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).not.toBeNull();
+    return caught;
+  }
+
+  // Ajuste post-revisión (2026-11-24): cardCode distinto → aborta todo, sin
+  // escribir (antes salteaba el pedido y borraba la orden con 0 unidades).
+  it('SEC-M6 T1: VDE con pedido de otro cliente → RELEASE_CROSS_CLIENT y no escribe nada', async () => {
+    const { fbDb, _state, _written } = makeMockDb(makeCrossClientState());
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    expect(e._errorCode).toBe('permission-denied');
+    expect(e._errorDetails).toEqual({ errorCode: 'RELEASE_CROSS_CLIENT' });
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
+    expect(_state.pedidos['ped-victim'].lines[0].qtyOpen).toBe(2);
+    // La orden en espera sigue intacta.
+    expect(_state.revision_waitlist.wl_attack).toBeDefined();
+    expect(_state.revision_waitlist.wl_attack.items).toHaveLength(1);
+    // Ninguna escritura fuera de operations_log.
+    expect(_written.filter((w) => !w.path.startsWith('operations_log/'))).toHaveLength(0);
+  });
+
+  it('SEC-M6 T2: operations_log recibe el rechazo (sec_m6_idor_cross_client_skipped, aborted)', async () => {
+    const { fbDb, _operationsLog } = makeMockDb(makeCrossClientState());
+    await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    const secEntries = _operationsLog.filter((l) => l.type === 'sec_m6_idor_cross_client_skipped');
+    expect(secEntries).toHaveLength(1);
+    const entry = secEntries[0];
+    expect(entry.severity).toBe('warning');
+    expect(entry.errorCode).toBe('RELEASE_CROSS_CLIENT');
+    expect(entry.aborted).toBe(true);
+    expect(entry.waitlistId).toBe('wl_attack');
+    expect(entry.waitlistCardCode).toBe('C001');
+    expect(entry.userId).toBe('vde-X-uid');
+    expect(entry.skippedCount).toBe(1);
+    expect(entry.skipped[0]).toEqual({
+      pedidoId: 'ped-victim',
+      reason: 'cross_client_cardCode_mismatch',
+    });
+    // No hay registro de éxito.
+    expect(
+      _operationsLog.filter((l) => l.type === 'cpst_cancel_asig_cliente_rechazo')
+    ).toHaveLength(0);
+  });
+
+  it('SEC-M6 T2b: cardCode igual salvo mayúsculas/espacios → se considera el mismo cliente', async () => {
+    const state = makeCrossClientState();
+    state.pedidos['ped-victim'].clientCardCode = ' c001 ';
+    const { fbDb, _state } = makeMockDb(state);
+    const r = await releaseAsigCore(
+      { fbDb },
+      {
+        auth: { uid: 'vde-X-uid', token: { email: 'vde@shimano.com.ar' } },
+        action: 'rechazo_cpst',
+        waitlistId: 'wl_attack',
+      }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.unitsCancelled).toBe(2);
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('cancelled');
+  });
+
+  it('SEC-M6 T3: admin PUEDE operar cross-client (reconciliación legítima)', async () => {
+    const { fbDb, _state } = makeMockDb(makeCrossClientState());
+    const r = await releaseAsigCore(
+      { fbDb },
+      {
+        auth: { uid: 'admin-uid', token: { email: 'admin@shimano.com.ar' } },
+        action: 'rechazo_cpst',
+        waitlistId: 'wl_attack',
+      }
+    );
+    expect(r.ok).toBe(true);
+    // Admin bypassa cross-check — sí cancela la ASIG (bien o mal, es decisión del admin).
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('cancelled');
+    expect(r.pedidosMutated).toBe(1);
+  });
+
+  it('SEC-M6 T4: VDE puede operar cuando pedido target y waitlist tienen MISMO clientCardCode', async () => {
+    // Fixture base: waitlist C001 + pedido origen C001. Mismo cliente.
+    const { fbDb, _state } = makeMockDb(makeBaseState());
+    const r = await releaseAsigCore(
+      { fbDb },
+      {
+        auth: { uid: 'vde-X-uid', token: { email: 'vde@shimano.com.ar' } },
+        action: 'rechazo_cpst',
+        waitlistId: 'wl1',
+      }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.pedidosMutated).toBe(1);
+  });
+
+  // D10 (2026-11-24) + ajuste post-revisión: falta de cardCode para no
+  // privilegiados aborta la operación entera con CLIENT_DATA_MISSING. Antes
+  // salteaba el pedido y devolvía éxito con 0 unidades mientras borraba la
+  // orden (cambio de SUT documentado, no test bug).
+  it('SEC-M6 T5: VDE con pedido sin clientCardCode → CLIENT_DATA_MISSING, orden intacta', async () => {
+    const state = makeCrossClientState();
+    delete state.pedidos['ped-victim'].clientCardCode;
+    const { fbDb, _state, _written, _operationsLog } = makeMockDb(state);
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    expect(e._errorCode).toBe('failed-precondition');
+    expect(e._errorDetails).toEqual({ errorCode: 'CLIENT_DATA_MISSING' });
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
+    expect(_state.revision_waitlist.wl_attack).toBeDefined();
+    expect(_written.filter((w) => !w.path.startsWith('operations_log/'))).toHaveLength(0);
+    const rej = _operationsLog.filter((l) => l.type === 'release_asig_rejected');
+    expect(rej).toHaveLength(1);
+    expect(rej[0].errorCode).toBe('CLIENT_DATA_MISSING');
+    expect(rej[0].skipped).toEqual([{ pedidoId: 'ped-victim', reason: 'pedido_sin_cardCode' }]);
+  });
+
+  it('SEC-M6 T6: VDE con orden en espera sin clientCardCode → CLIENT_DATA_MISSING', async () => {
+    const state = makeCrossClientState();
+    delete state.revision_waitlist.wl_attack.clientCardCode;
+    const { fbDb, _state, _operationsLog } = makeMockDb(state);
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    expect(e._errorDetails.errorCode).toBe('CLIENT_DATA_MISSING');
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
+    expect(_state.revision_waitlist.wl_attack).toBeDefined();
+    expect(_operationsLog[0].skipped[0].reason).toBe('waitlist_sin_cardCode');
+  });
+
+  it('SEC-M6 T6b: remove_item con dato faltante tampoco quita el ítem', async () => {
+    const state = makeCrossClientState();
+    delete state.pedidos['ped-victim'].clientCardCode;
+    state.revision_waitlist.wl_attack.items.push({ code: 'SKU9', qty: 1 });
+    const { fbDb, _state } = makeMockDb(state);
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'remove_item', 'wl_attack', {
+      itemIndex: 0,
+    });
+    expect(e._errorDetails.errorCode).toBe('CLIENT_DATA_MISSING');
+    expect(_state.revision_waitlist.wl_attack.items).toHaveLength(2);
+  });
+
+  it('SEC-M6 T6c: ítem sin reserva en orden sin cardCode → se puede quitar (no hay nada que verificar)', async () => {
+    const state = makeCrossClientState();
+    delete state.revision_waitlist.wl_attack.clientCardCode;
+    state.revision_waitlist.wl_attack.pedidosOrigenes = [];
+    state.revision_waitlist.wl_attack.items = [
+      {
+        code: 'SKU1',
+        qty: 2,
+        asigRefs: [{ pedidoId: 'ped-victim', lineIndex: 0, qtyAsignada: 2, sku: 'SKU1' }],
+      },
+      { code: 'SKU9', qty: 1 },
+    ];
+    const { fbDb, _state } = makeMockDb(state);
+    const r = await releaseAsigCore(
+      { fbDb },
+      {
+        auth: { uid: 'vde-X-uid', token: { email: 'vde@shimano.com.ar' } },
+        action: 'remove_item',
+        waitlistId: 'wl_attack',
+        itemIndex: 1,
+      }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.unitsCancelled).toBe(0);
+    expect(_state.revision_waitlist.wl_attack.items).toHaveLength(1);
+  });
+
+  it('SEC-M6 T7 (D10): admin con pedido sin clientCardCode sigue pudiendo operar', async () => {
+    const state = makeCrossClientState();
+    delete state.pedidos['ped-victim'].clientCardCode;
+    state.roles['admin-uid'] = { role: 'admin' };
+    const { fbDb } = makeMockDb(state);
+    const r = await releaseAsigCore(
+      { fbDb },
+      {
+        auth: { uid: 'admin-uid', token: { email: 'admin@shimano.com.ar' } },
+        action: 'rechazo_cpst',
+        waitlistId: 'wl_attack',
+      }
+    );
+    expect(r.ok).toBe(true);
+    expect(r.pedidosMutated).toBe(1);
+  });
 });
 
 // SEC F1A-H12 (2026-11-24): ser ownerUid de la orden ya no alcanza sin rol
@@ -490,5 +722,69 @@ describe('SEC F1A-H12 releaseAsigCore — isOwner exige rol aprobado', () => {
   it('dueño vendedor deshabilitado (disabled:true) → permission-denied', async () => {
     const { caught } = await runAsOwner({ role: 'vendedor', disabled: true });
     expect(caught?._errorCode).toBe('permission-denied');
+  });
+
+  it('dueño sin rol aprobado → details.errorCode ROLE_REQUIRED', async () => {
+    const { caught } = await runAsOwner({ role: 'viewer' });
+    expect(caught?._errorCode).toBe('permission-denied');
+    expect(caught?._errorDetails?.errorCode).toBe('ROLE_REQUIRED');
+  });
+
+  it('vendedor aprobado sin vínculo con la orden → details.errorCode RELEASE_PERMISSION_DENIED', async () => {
+    const state = makeBaseState();
+    state.revision_waitlist.wl1.ownerUid = 'otro-owner';
+    state.revision_waitlist.wl1.assignedVendorUid = 'otro-vde';
+    state.roles['vde-ajeno'] = { role: 'vendedor' };
+    const { fbDb } = makeMockDb(state);
+    let caught;
+    try {
+      await releaseAsigCore(
+        { fbDb },
+        {
+          auth: { uid: 'vde-ajeno', token: { email: 'vde@shimano.com.ar' } },
+          action: 'rechazo_cpst',
+          waitlistId: 'wl1',
+        }
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught?._errorCode).toBe('permission-denied');
+    expect(caught?._errorDetails?.errorCode).toBe('RELEASE_PERMISSION_DENIED');
+  });
+
+  it('falla la lectura de roles → unavailable + ROLE_CHECK_UNAVAILABLE, sin detalle interno', async () => {
+    const state = makeBaseState();
+    const { fbDb } = makeMockDb(state);
+    const realCollection = fbDb.collection;
+    fbDb.collection = (name) => {
+      if (name === 'roles') {
+        return {
+          doc: () => ({
+            get: async () => {
+              throw new Error('read boom /roles/x');
+            },
+          }),
+        };
+      }
+      return realCollection(name);
+    };
+    let caught;
+    try {
+      await releaseAsigCore(
+        { fbDb },
+        {
+          auth: { uid: 'owner-uid', token: { email: 'owner@shimano.com.ar' } },
+          action: 'rechazo_cpst',
+          waitlistId: 'wl1',
+        }
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught?._errorCode).toBe('unavailable');
+    expect(caught?._errorDetails?.errorCode).toBe('ROLE_CHECK_UNAVAILABLE');
+    expect(String(caught?.message)).not.toContain('boom');
+    expect(state.pedidos['ped-origen'].lines[0].state).toBe('ASIG');
   });
 });

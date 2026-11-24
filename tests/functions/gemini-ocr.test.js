@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { _test, runGeminiOcr } from '../../functions/core/gemini-ocr-core.js';
+import {
+  _test,
+  OCR_GENERIC_CLIENT_MESSAGE,
+  runGeminiOcr,
+  toClientOcrError,
+} from '../../functions/core/gemini-ocr-core.js';
 
 /**
  * Helper: build deps con overrides. fetch mock devuelve una respuesta
@@ -163,7 +168,10 @@ describe('runGeminiOcr — Gemini API', () => {
     expect(body.generationConfig.temperature).toBe(0.1);
   });
 
-  it('response non-2xx → internal error con status', async () => {
+  it('response non-2xx (429/5xx transient) → unavailable, mensaje generico', async () => {
+    // SEC-M5 (HARDENING5 B2, 2026-11-19): el core sanitiza el mensaje
+    // (no propaga status ni body de Gemini al cliente). Code semantico:
+    // 'unavailable' para 429+5xx (transient), 'internal' para 4xx no auth.
     const deps = makeDeps({
       fetch: vi.fn(async () => ({
         ok: false,
@@ -172,8 +180,8 @@ describe('runGeminiOcr — Gemini API', () => {
       })),
     });
     await expect(runGeminiOcr(deps, validAuth(), validInput())).rejects.toMatchObject({
-      code: 'internal',
-      message: expect.stringContaining('429'),
+      code: 'unavailable',
+      message: expect.stringContaining('Gemini'),
     });
   });
 
@@ -243,14 +251,22 @@ describe('runGeminiOcr — Gemini API', () => {
     });
   });
 
-  it('fetch tira error random → internal wrapping', async () => {
+  it('fetch tira error random → unavailable, mensaje generico (no leak err.message)', async () => {
+    // SEC-M5 (HARDENING5 B2, 2026-11-19): el core sanitiza. El err.message del
+    // fetch puede contener la URL completa con `?key=<API_KEY>` (patron
+    // node-fetch/undici "request to <URL> failed"). NO propagar al cliente.
+    // Code: 'unavailable' (fetch fallo = servicio no disponible).
     const deps = makeDeps({
       fetch: vi.fn(async () => {
         throw new Error('ECONNREFUSED');
       }),
     });
     await expect(runGeminiOcr(deps, validAuth(), validInput())).rejects.toMatchObject({
-      code: 'internal',
+      code: 'unavailable',
+      message: expect.stringContaining('Gemini'),
+    });
+    // Anti-regresion: el mensaje NO debe incluir el err.message interno.
+    await expect(runGeminiOcr(deps, validAuth(), validInput())).rejects.not.toMatchObject({
       message: expect.stringContaining('ECONNREFUSED'),
     });
   });
@@ -449,5 +465,76 @@ describe('runGeminiOcr — v992 validation en flow completo', () => {
     });
     const res = await runGeminiOcr(deps, validAuth(), validInput());
     expect(res.observaciones.length).toBe(500);
+  });
+});
+
+// Ajuste post-revisión H4 (2026-11-24): el wrapper deja pasar los mensajes
+// fijos del core y tapa los crudos/internos.
+describe('toClientOcrError (H4)', () => {
+  const okAuth = { uid: 'u', email: 'vde@shimano.com.ar' };
+  async function errOf(deps, input) {
+    try {
+      await runGeminiOcr({ fetch: vi.fn(), apiKey: 'k', ...deps }, okAuth, input);
+    } catch (e) {
+      return e;
+    }
+    throw new Error('esperaba error');
+  }
+
+  it('imagen demasiado grande → mensaje del core tal cual', async () => {
+    const e = await errOf({}, { imageBase64: 'A'.repeat(11_000_000), mimeType: 'image/jpeg' });
+    expect(toClientOcrError(e)).toEqual({
+      code: 'invalid-argument',
+      message: 'imagen demasiado grande (max ~7.5 MB)',
+    });
+  });
+
+  it('tipo de archivo no soportado → mensaje del core', async () => {
+    const e = await errOf({}, { imageBase64: 'AAAA', mimeType: 'application/pdf' });
+    expect(toClientOcrError(e).message).toBe('mimeType no soportado (jpeg/png/webp/heic/heif)');
+  });
+
+  it('tiempo agotado → mensaje con sugerencia de completar a mano', () => {
+    const r = toClientOcrError({
+      code: 'deadline-exceeded',
+      message: 'Gemini tardo mas de 25s. Reintentar o completar manual.',
+    });
+    expect(r).toEqual({
+      code: 'deadline-exceeded',
+      message: 'Gemini tardo mas de 25s. Reintentar o completar manual.',
+    });
+  });
+
+  it('importe fuera de rango → plantilla fija pasa', () => {
+    const msg = `importe (99999999) excede el maximo permitido (${_test.MAX_IMPORTE_ARS} ARS). Cargalo manual y verifica.`;
+    expect(toClientOcrError({ code: 'failed-precondition', message: msg }).message).toBe(msg);
+  });
+
+  it('config faltante del servidor → genérico (no expone configuración)', async () => {
+    const e = await errOf({ apiKey: '' }, { imageBase64: 'AAAA', mimeType: 'image/jpeg' });
+    const r = toClientOcrError(e);
+    expect(r.code).toBe('failed-precondition');
+    expect(r.message).toBe(OCR_GENERIC_CLIENT_MESSAGE);
+  });
+
+  it('internal con texto de la respuesta → genérico', () => {
+    const r = toClientOcrError({ code: 'internal', message: 'Gemini devolvio JSON invalido: {x' });
+    expect(r).toEqual({ code: 'internal', message: OCR_GENERIC_CLIENT_MESSAGE });
+  });
+
+  it('Error nativo con mensaje de un texto permitido igual va genérico', () => {
+    const err = Object.assign(new Error('imageBase64 requerido'), { code: 'invalid-argument' });
+    expect(toClientOcrError(err).message).toBe(OCR_GENERIC_CLIENT_MESSAGE);
+  });
+
+  it('code desconocido → internal + genérico', () => {
+    expect(toClientOcrError({ code: 'raro', message: 'requiere login' })).toEqual({
+      code: 'internal',
+      message: OCR_GENERIC_CLIENT_MESSAGE,
+    });
+    expect(toClientOcrError(null)).toEqual({
+      code: 'internal',
+      message: OCR_GENERIC_CLIENT_MESSAGE,
+    });
   });
 });

@@ -23,14 +23,27 @@
  * @param {{ auth: any, action: 'remove_item'|'rechazo_cpst'|string, waitlistId: string, itemIndex?: number }} params
  */
 
-import { evaluateCallerRole } from './caller-role-gate.js';
+import { evaluateCallerRole, ROLE_CHECK_UNAVAILABLE_MESSAGE } from './caller-role-gate.js';
 import { collectAsigRefsForCancel, collectAsigRefsForItemCancel } from './cpst-cancel-refs.js';
 
 /** Error with code — compatible con HttpsError pero sin importar firebase-functions. */
-function mkErr(/** @type {string} */ code, /** @type {string} */ message) {
+/**
+ * @param {string} code
+ * @param {string} message
+ * @param {any} [details]
+ */
+function mkErr(code, message, details) {
   const e = /** @type {any} */ (new Error(message));
   e._errorCode = code;
+  if (details) e._errorDetails = details;
   return e;
+}
+
+/** trim + mayúsculas (§46). @param {any} v */
+function normCardCode(v) {
+  return String(v || '')
+    .trim()
+    .toUpperCase();
 }
 
 export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} */ params) {
@@ -61,8 +74,17 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     roleData = roleSnap && roleSnap.exists !== false ? roleSnap.data() || null : null;
     role = String((roleData || {}).role || '').toLowerCase();
   } catch (e) {
-    // Si no se puede leer rol → unauthenticated (nunca permission-denied).
-    throw mkErr('internal', 'no se pudo resolver rol: ' + ((e && e.message) || String(e)));
+    // Lectura de rol fallida: rechazo reintentable (falla cerrada). El
+    // detalle queda en el log del servidor, no en el mensaje al cliente.
+    if (deps.log) {
+      deps.log('releaseAsigCore roles/{uid} read failed', {
+        uid: auth.uid,
+        err: (e && e.message) || String(e),
+      });
+    }
+    throw mkErr('unavailable', ROLE_CHECK_UNAVAILABLE_MESSAGE, {
+      errorCode: 'ROLE_CHECK_UNAVAILABLE',
+    });
   }
 
   // === FETCH WAITLIST (snapshot inicial fuera de la tx para pre-validar) ===
@@ -81,9 +103,19 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
   const isOwner = w.ownerUid === auth.uid && evaluateCallerRole(roleData, auth.uid).ok;
   const isAssignedVendor = role === 'vendedor' && w.assignedVendorUid === auth.uid;
   if (!isPrivileged && !isOwner && !isAssignedVendor) {
+    // Sin rol aprobado → ROLE_REQUIRED (mensaje de rol); con rol aprobado pero
+    // sin vínculo con la orden → RELEASE_PERMISSION_DENIED.
+    const roleCheck = evaluateCallerRole(roleData, auth.uid);
+    if (!roleCheck.ok) {
+      throw mkErr('permission-denied', roleCheck.message, {
+        errorCode: 'ROLE_REQUIRED',
+        reason: roleCheck.reason,
+      });
+    }
     throw mkErr(
       'permission-denied',
-      'solo admin, gerente, Pablo o el vendedor del cliente (ownerUid/assignedVendorUid) puede operar'
+      'solo admin, gerente, Pablo o el vendedor del cliente (ownerUid/assignedVendorUid) puede operar',
+      { errorCode: 'RELEASE_PERMISSION_DENIED' }
     );
   }
 
@@ -108,116 +140,201 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
   const userEmail = String((auth.token && auth.token.email) || '').toLowerCase();
 
   // === TRANSACTION (§58: ALL reads before ALL writes) ===
-  const result = await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
-    // --- READS ---
-    const wReSnap = await tx.get(wRef);
-    if (!wReSnap.exists) {
-      // Caso borde: waitlist desapareció entre el pre-fetch y la tx (otro user borró).
-      // Si venimos de rechazo_cpst/remove_item (último item), es equivalente al goal → OK.
-      // Si venimos de remove_item parcial, es error (ya no podemos mutar items).
-      if (action === 'remove_item' && itemsAfter && itemsAfter.length > 0) {
-        throw mkErr('aborted', 'waitlist desaparecio mid-transaccion');
-      }
-      // En otros casos: idempotente, devolvemos 0.
-      return { unitsCancelled: 0, linesCancelled: 0, pedidosMutated: 0, waitlistDeleted: true };
-    }
-    /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
-    const snapshots = new Map();
-    for (const r of refs) {
-      if (!r || !r.pedidoId) continue;
-      if (snapshots.has(r.pedidoId)) continue; // dedup pedidos
-      const pRef = deps.fbDb.collection('pedidos').doc(r.pedidoId);
-      const pSnap = await tx.get(pRef);
-      snapshots.set(r.pedidoId, {
-        ref: pRef,
-        exists: pSnap.exists,
-        data: pSnap.data() || null,
-      });
-    }
-
-    // --- COMPUTE (no tx writes yet) ---
-    let unitsCancelled = 0;
-    let linesCancelled = 0;
-    /** @type {Map<string, Array<any>>} */
-    const refsByPedido = new Map();
-    for (const r of refs) {
-      if (!r || !r.pedidoId) continue;
-      if (!refsByPedido.has(r.pedidoId)) refsByPedido.set(r.pedidoId, []);
-      /** @type {Array<any>} */ (refsByPedido.get(r.pedidoId)).push(r);
-    }
-    /** @type {Array<{ref: any, newLines: Array<any>}>} */
-    const pedidoWrites = [];
-    for (const [pedidoId, refsForPed] of refsByPedido) {
-      const snap = snapshots.get(pedidoId);
-      if (!snap || !snap.exists) continue;
-      const data = snap.data || {};
-      /** @type {Array<any>} */
-      const newLines = Array.isArray(data.lines)
-        ? data.lines.map((/** @type {any} */ l) => Object.assign({}, l))
-        : [];
-      let changed = false;
-      for (const r of refsForPed) {
-        const li = Number(r.lineIndex);
-        const line = newLines[li];
-        if (!line) continue;
-        // Idempotencia: ya cancelled con closedReason del set §40.6/§40.7 → skip.
-        if (
-          line.state === 'cancelled' &&
-          (line.closedReason === 'cliente_rechazo_cpst' ||
-            line.closedReason === 'quitado_por_vendedor_cpst')
-        ) {
-          continue;
+  /** @type {any} */
+  let result;
+  try {
+    result = await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+      // --- READS ---
+      const wReSnap = await tx.get(wRef);
+      if (!wReSnap.exists) {
+        // Caso borde: waitlist desapareció entre el pre-fetch y la tx (otro user borró).
+        // Si venimos de rechazo_cpst/remove_item (último item), es equivalente al goal → OK.
+        // Si venimos de remove_item parcial, es error (ya no podemos mutar items).
+        if (action === 'remove_item' && itemsAfter && itemsAfter.length > 0) {
+          throw mkErr('aborted', 'waitlist desaparecio mid-transaccion');
         }
-        // Solo cancel si ASIG vigente. Otros estados (BO revertida §40.5,
-        // invoiced, confirmed) NO los tocamos.
-        if (line.state !== 'ASIG') continue;
-        const prevQo = Number(line.qtyOpen) || 0;
-        unitsCancelled += prevQo;
-        linesCancelled += 1;
-        newLines[li] = Object.assign({}, line, {
-          state: 'cancelled',
-          qtyOpen: 0,
-          qtyCancelled: (Number(line.qtyCancelled) || 0) + prevQo,
-          closedReason,
-          cancelledAt: nowIso,
-          cancelledBy: userEmail,
-          asigReserva: false,
+        // En otros casos: idempotente, devolvemos 0.
+        return { unitsCancelled: 0, linesCancelled: 0, pedidosMutated: 0, waitlistDeleted: true };
+      }
+      /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
+      const snapshots = new Map();
+      for (const r of refs) {
+        if (!r || !r.pedidoId) continue;
+        if (snapshots.has(r.pedidoId)) continue; // dedup pedidos
+        const pRef = deps.fbDb.collection('pedidos').doc(r.pedidoId);
+        const pSnap = await tx.get(pRef);
+        snapshots.set(r.pedidoId, {
+          ref: pRef,
+          exists: pSnap.exists,
+          data: pSnap.data() || null,
         });
-        changed = true;
       }
-      if (changed) {
-        pedidoWrites.push({ ref: snap.ref, newLines });
-      }
-    }
 
-    // --- WRITES ---
-    for (const pw of pedidoWrites) {
-      tx.update(pw.ref, { lines: pw.newLines, updatedAt: nowIso });
-    }
-    // Waitlist mutation.
-    let waitlistDeleted = false;
-    if (action === 'rechazo_cpst') {
-      tx.delete(wRef);
-      waitlistDeleted = true;
-    } else {
-      if (!itemsAfter || itemsAfter.length === 0) {
+      // --- COMPUTE (no tx writes yet) ---
+      let unitsCancelled = 0;
+      let linesCancelled = 0;
+      /** @type {Map<string, Array<any>>} */
+      const refsByPedido = new Map();
+      for (const r of refs) {
+        if (!r || !r.pedidoId) continue;
+        if (!refsByPedido.has(r.pedidoId)) refsByPedido.set(r.pedidoId, []);
+        /** @type {Array<any>} */ (refsByPedido.get(r.pedidoId)).push(r);
+      }
+      /** @type {Array<{ref: any, newLines: Array<any>}>} */
+      const pedidoWrites = [];
+      /** @type {Array<{pedidoId:string, reason:string}>} */
+      const clientCheckProblems = [];
+      const waitlistCardCode = normCardCode(w.clientCardCode);
+      for (const [pedidoId, refsForPed] of refsByPedido) {
+        const snap = snapshots.get(pedidoId);
+        if (!snap || !snap.exists) continue;
+        const data = snap.data || {};
+        // SEC-M6 (2026-11-19): solo se mutan pedidos del mismo cliente que la
+        // orden en espera. Admin/gerente/interno pueden operar entre clientes
+        // (reconciliación legítima); el resto no.
+        //
+        // Ajuste post-revisión (2026-11-24): si para un no privilegiado algún
+        // pedido de origen no se puede verificar (falta el cardCode de la orden
+        // o del pedido) o es de otro cliente, la operación se aborta ENTERA
+        // antes de escribir. Nunca se devuelve éxito parcial con la orden ya
+        // modificada o borrada y la reserva todavía viva.
+        if (!isPrivileged) {
+          const pedidoCardCode = normCardCode(data.clientCardCode);
+          let problem = '';
+          if (!waitlistCardCode) problem = 'waitlist_sin_cardCode';
+          else if (!pedidoCardCode) problem = 'pedido_sin_cardCode';
+          else if (pedidoCardCode !== waitlistCardCode) problem = 'cross_client_cardCode_mismatch';
+          if (problem) {
+            clientCheckProblems.push({ pedidoId, reason: problem });
+            continue;
+          }
+        }
+        /** @type {Array<any>} */
+        const newLines = Array.isArray(data.lines)
+          ? data.lines.map((/** @type {any} */ l) => Object.assign({}, l))
+          : [];
+        let changed = false;
+        for (const r of refsForPed) {
+          const li = Number(r.lineIndex);
+          const line = newLines[li];
+          if (!line) continue;
+          // Idempotencia: ya cancelled con closedReason del set §40.6/§40.7 → skip.
+          if (
+            line.state === 'cancelled' &&
+            (line.closedReason === 'cliente_rechazo_cpst' ||
+              line.closedReason === 'quitado_por_vendedor_cpst')
+          ) {
+            continue;
+          }
+          // Solo cancel si ASIG vigente. Otros estados (BO revertida §40.5,
+          // invoiced, confirmed) NO los tocamos.
+          if (line.state !== 'ASIG') continue;
+          const prevQo = Number(line.qtyOpen) || 0;
+          unitsCancelled += prevQo;
+          linesCancelled += 1;
+          newLines[li] = Object.assign({}, line, {
+            state: 'cancelled',
+            qtyOpen: 0,
+            qtyCancelled: (Number(line.qtyCancelled) || 0) + prevQo,
+            closedReason,
+            cancelledAt: nowIso,
+            cancelledBy: userEmail,
+            asigReserva: false,
+          });
+          changed = true;
+        }
+        if (changed) {
+          pedidoWrites.push({ ref: snap.ref, newLines });
+        }
+      }
+
+      // Abortar ANTES de cualquier escritura (la tx no escribe nada).
+      if (clientCheckProblems.length > 0) {
+        const hasMismatch = clientCheckProblems.some(
+          (p) => p.reason === 'cross_client_cardCode_mismatch'
+        );
+        if (hasMismatch) {
+          throw mkErr(
+            'permission-denied',
+            'La reserva pertenece a otro cliente; no se modificó nada.',
+            { errorCode: 'RELEASE_CROSS_CLIENT', _problems: clientCheckProblems }
+          );
+        }
+        throw mkErr(
+          'failed-precondition',
+          'Faltan datos del cliente en la orden o en el pedido de origen; no se modificó nada.',
+          { errorCode: 'CLIENT_DATA_MISSING', _problems: clientCheckProblems }
+        );
+      }
+
+      // --- WRITES ---
+      for (const pw of pedidoWrites) {
+        tx.update(pw.ref, { lines: pw.newLines, updatedAt: nowIso });
+      }
+      // Waitlist mutation.
+      let waitlistDeleted = false;
+      if (action === 'rechazo_cpst') {
         tx.delete(wRef);
         waitlistDeleted = true;
       } else {
-        tx.update(wRef, { items: itemsAfter, updatedAt: nowIso });
+        if (!itemsAfter || itemsAfter.length === 0) {
+          tx.delete(wRef);
+          waitlistDeleted = true;
+        } else {
+          tx.update(wRef, { items: itemsAfter, updatedAt: nowIso });
+        }
       }
+      return {
+        unitsCancelled,
+        linesCancelled,
+        pedidosMutated: pedidoWrites.length,
+        waitlistDeleted,
+      };
+    });
+  } catch (e) {
+    const ex = /** @type {any} */ (e);
+    const det = ex && ex._errorDetails;
+    if (
+      det &&
+      (det.errorCode === 'CLIENT_DATA_MISSING' || det.errorCode === 'RELEASE_CROSS_CLIENT')
+    ) {
+      const problems = Array.isArray(det._problems) ? det._problems : [];
+      // Registro del rechazo con await (§64.2): existe antes de responder.
+      try {
+        await deps.fbDb.collection('operations_log').add({
+          type:
+            det.errorCode === 'RELEASE_CROSS_CLIENT'
+              ? 'sec_m6_idor_cross_client_skipped'
+              : 'release_asig_rejected',
+          errorCode: det.errorCode,
+          severity: 'warning',
+          aborted: true,
+          action,
+          waitlistId,
+          waitlistCardCode: w.clientCardCode || null,
+          waitlistOrderNumber: w.orderNumber || null,
+          itemIndex: action === 'remove_item' ? itemIndex : null,
+          skipped: problems,
+          skippedCount: problems.length,
+          userId: auth.uid,
+          userEmail,
+          role,
+          via: 'releaseAsigCF',
+          timestamp: new Date(now),
+        });
+      } catch (_logErr) {
+        if (deps.log)
+          deps.log('releaseAsigCore operations_log write failed', { errorCode: det.errorCode });
+      }
+      // El detalle interno (_problems) no viaja al cliente.
+      throw mkErr(ex._errorCode, ex.message, { errorCode: det.errorCode });
     }
-    return {
-      unitsCancelled,
-      linesCancelled,
-      pedidosMutated: pedidoWrites.length,
-      waitlistDeleted,
-    };
-  });
+    throw e;
+  }
 
-  // === OPERATIONS LOG (fire-and-forget, no bloquea el return) ===
+  // === OPERATIONS LOG (con await: en Gen 2 un add sin esperar se puede perder) ===
   try {
-    const logEntry = {
+    await deps.fbDb.collection('operations_log').add({
       type:
         action === 'rechazo_cpst'
           ? 'cpst_cancel_asig_cliente_rechazo'
@@ -236,13 +353,9 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
       role,
       via: 'releaseAsigCF',
       timestamp: new Date(now),
-    };
-    const addResult = deps.fbDb.collection('operations_log').add(logEntry);
-    if (addResult && typeof addResult.catch === 'function') {
-      addResult.catch(() => {});
-    }
+    });
   } catch (_logErr) {
-    // No bloquea.
+    // No bloquea: la operación ya se aplicó.
   }
 
   return Object.assign({ ok: true }, result);
