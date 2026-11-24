@@ -74,6 +74,15 @@ import { fetchStockLiveCore } from './core/fetch-stock-live-core.js';
 // v1277 dual mode → v1278 FIFO disabled → v1279 FIFO deleted.
 import { runGeminiOcr } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
+// v1564+ (HARDENING6 line-inflation observer): shadow mode 4 semanas
+// para detectar mutaciones post-commit a pedidos.lines/qty/code/netAmountArs.
+// Observer-only — NO rechaza writes. Follow-up (post-shadow): updatePedidoLinesCF
+// callable + remover whitelist VDE en firestore.rules.
+import {
+  buildObservationLogEntry,
+  detectLineMutations,
+  isLegitimateActor,
+} from './core/line-mutation-observer-core.js';
 // R01 Fase 2 (v1557-dev 2026-11-18): CFs callable que reemplazan el flow
 // cliente-side de volverAListaEspera + waitlistUnificarOrden. Garantizan
 // §42 via lock atómico. Hoy el frontend NO las invoca (migración queda
@@ -820,6 +829,110 @@ export const onPedidoWriteTrackAsigTransitions = onDocumentWritten(
       });
     } catch (e) {
       console.error('onPedidoWriteTrackAsigTransitions error', {
+        pedidoId: event.params.pedidoId,
+        error: e?.message || String(e),
+      });
+      // No relanzar - fire-and-forget para no bloquear otros triggers.
+    }
+  }
+);
+
+/**
+ * v1564+ (HARDENING6 line-inflation observer, shadow 4 semanas):
+ * onPedidoLineMutationObserver — trigger on-write pedidos/{id} que detecta
+ * mutaciones post-commit a lines[]/netAmountArs/subtotalArs por actores no
+ * admin/interno/gerente, y los loguea a operations_log.
+ *
+ * Vector (HARDENING6_28): un VDE con DevTools puede modificar
+ * pedidos.doc(X).update({lines: [...qty inflada...]}) antes de que
+ * onPedidoConfirmedSendToSap arme el payload SL. SAP crea la SQ con qty
+ * falsificada (precio lo resuelve SAP desde PriceListNum, no es manipulable).
+ *
+ * Esta CF es OBSERVE-ONLY: no rechaza writes, no rollbackea, no bloquea.
+ * Shadow 4 semanas para sizing + baseline de falsos positivos. Follow-up PR
+ * (post-shadow): updatePedidoLinesCF callable server-side + remover
+ * lines/netAmountArs/subtotalArs del whitelist VDE en firestore.rules.
+ *
+ * Shadow start: 2026-11-24.
+ *
+ * Actor resolution: Firestore Gen 2 triggers NO exponen event.auth.
+ * Se infiere del doc: afterData.updatedByUid > afterData.updatedBy (email).
+ * Fallback null → se loguea igual con actorRole=null (shadow mode).
+ */
+const SHADOW_STARTED_AT = '2026-11-24';
+
+async function resolveActorRole(db, afterData, beforeData) {
+  const uid =
+    (afterData && typeof afterData.updatedByUid === 'string' && afterData.updatedByUid) ||
+    (beforeData && typeof beforeData.updatedByUid === 'string' && beforeData.updatedByUid) ||
+    null;
+  const email =
+    (afterData && typeof afterData.updatedBy === 'string' && afterData.updatedBy) ||
+    (beforeData && typeof beforeData.updatedBy === 'string' && beforeData.updatedBy) ||
+    null;
+
+  if (!uid) return { uid: null, email, role: null };
+
+  try {
+    const snap = await db.collection('roles').doc(uid).get();
+    if (!snap.exists) return { uid, email, role: null };
+    const role = String((snap.data() || {}).role || '').toLowerCase() || null;
+    return { uid, email, role };
+  } catch (_e) {
+    return { uid, email, role: null };
+  }
+}
+
+export const onPedidoLineMutationObserver = onDocumentWritten(
+  {
+    region: REGION,
+    document: 'pedidos/{pedidoId}',
+    retry: false,
+    memory: '256MiB',
+    timeoutSeconds: 30,
+  },
+  async (event) => {
+    try {
+      const beforeData = event.data?.before?.data() ?? null;
+      const afterData = event.data?.after?.data() ?? null;
+
+      const result = detectLineMutations(beforeData, afterData);
+      if (!result.hasMutation || !result.inScope) return;
+
+      const db = getFirestore();
+      const actor = await resolveActorRole(db, afterData, beforeData);
+
+      // Admin / interno / gerente → skip. Correcciones legítimas.
+      if (isLegitimateActor(actor.role)) {
+        console.log('onPedidoLineMutationObserver skip legitimate actor', {
+          pedidoId: event.params.pedidoId,
+          actorRole: actor.role,
+          mutationsCount: result.mutations.length,
+        });
+        return;
+      }
+
+      const entry = buildObservationLogEntry({
+        pedidoId: event.params.pedidoId,
+        mutations: result.mutations,
+        actorUid: actor.uid,
+        actorEmail: actor.email,
+        actorRole: actor.role,
+        afterData,
+        nowIso: new Date().toISOString(),
+        shadowStartedAt: SHADOW_STARTED_AT,
+      });
+
+      await db.collection('operations_log').add(entry);
+
+      console.log('onPedidoLineMutationObserver observed', {
+        pedidoId: event.params.pedidoId,
+        actorRole: actor.role || 'unknown',
+        mutationsCount: result.mutations.length,
+        kinds: result.mutations.map((m) => m.kind),
+      });
+    } catch (e) {
+      console.error('onPedidoLineMutationObserver error', {
         pedidoId: event.params.pedidoId,
         error: e?.message || String(e),
       });
