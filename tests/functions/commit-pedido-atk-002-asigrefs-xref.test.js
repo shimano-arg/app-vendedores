@@ -251,11 +251,49 @@ describe('ATK-002: commit-pedido-core asigRefs cross-reference', () => {
     expect(r.data).toBeDefined();
     expect(r.data.reason).toBe('CROSS_CLIENT_CARDCODE_MISMATCH');
     expect(r.data.pedidoOrigenId).toBe('ped-origen-c999');
-    expect(r.data.payloadCardCode).toBe('C001');
-    expect(r.data.origenCardCode).toBe('C999');
+    // Ajuste post-revisión H5: los cardCodes no viajan al cliente; quedan
+    // solo en el registro del rechazo en operations_log.
+    expect(r.data.payloadCardCode).toBeUndefined();
+    expect(r.data.origenCardCode).toBeUndefined();
+    expect(r.data._logExtra).toBeUndefined();
+    const logs = Object.values(state.operations_log || {}).filter(
+      (l) => l.type === 'commit_pedido_rejected' && l.errorCode === 'ASIG_REF_INVALID'
+    );
+    expect(logs).toHaveLength(1);
+    expect(logs[0].payloadCardCode).toBe('C001');
+    expect(logs[0].origenCardCode).toBe('C999');
+    expect(logs[0].reason).toBe('CROSS_CLIENT_CARDCODE_MISMATCH');
     // Línea del pedido víctima NO fue mutada.
     expect(state.pedidos['ped-origen-c999'].lines[0].state).toBe('ASIG');
     expect(state.pedidos['ped-origen-c999'].lines[0].qtyOpen).toBe(5);
+  });
+
+  it('T1b (H5): mismo cliente con distinta capitalización/espacios → no es cross-client', async () => {
+    const state = baseFixture();
+    state.pedidos['ped-origen-c001'].clientCardCode = ' c001 ';
+    state.revision_waitlist['wl-ok'] = { clientCardCode: 'C001', ownerUid: 'atacante-uid' };
+    const deps = makeDeps(state);
+    const r = await commitPedidoCore(deps, {
+      origen: 'cpst',
+      cardCode: 'C001',
+      clientName: 'CLIENTE PROPIO',
+      ownerUid: 'atacante-uid',
+      ownerVendor: 'VDE_ATACANTE',
+      lines: [
+        {
+          sku: 'SKU1',
+          cantidad: 2,
+          origenLinea: 'stock-asignado',
+          asigRefs: [{ pedidoId: 'ped-origen-c001', lineIndex: 0, sku: 'SKU1', qtyAsignada: 2 }],
+        },
+      ],
+      waitlistOrigenId: 'wl-ok',
+      draftId: 'd_atk002_T1b',
+      clientVersion: 'test',
+    });
+    if (!r.ok) {
+      expect(r.data?.reason).not.toBe('CROSS_CLIENT_CARDCODE_MISMATCH');
+    }
   });
 
   it('T2: asigRef apuntando a pedido del MISMO cliente → OK (no regresión)', async () => {

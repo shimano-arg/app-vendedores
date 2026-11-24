@@ -159,8 +159,10 @@ describe('SEC-M5 anti-regresión: functions/index.js post-fix (batch-2)', () => 
   // Verificación específica M4: geminiOcrProxy no propaga err.message crudo.
   it('geminiOcrProxy: whitelist de codes canónicos + errorCode GEMINI_OCR_FAILED', () => {
     expect(INDEX_SOURCE.includes("errorCode: 'GEMINI_OCR_FAILED'")).toBe(true);
-    // Mensaje genérico de OCR al cliente.
-    expect(INDEX_SOURCE.includes("'OCR fallo, reintenta en unos segundos'")).toBe(true);
+    // Ajuste post-revisión H4: el wrapper delega en toClientOcrError (core),
+    // que deja pasar solo los mensajes fijos del core y tapa el resto.
+    expect(INDEX_SOURCE.includes('toClientOcrError(e)')).toBe(true);
+    expect(INDEX_SOURCE.includes('safeErr.message')).toBe(true);
   });
 
   // Verificación específica H10: triggerPlannerSync NO propaga e.message al cliente.

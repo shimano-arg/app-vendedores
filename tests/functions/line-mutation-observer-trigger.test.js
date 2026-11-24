@@ -13,58 +13,22 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  buildObservationLogEntry,
-  detectLineMutations,
-  isLegitimateActor,
-} from '../../functions/core/line-mutation-observer-core.js';
+import { handleLineMutationObservation } from '../../functions/core/line-mutation-observer-core.js';
 
 const SHADOW_STARTED_AT = '2026-11-24';
 
-// Replica del resolveActorRole del trigger. Mantener en sync.
-async function resolveActorRole(db, afterData, beforeData) {
-  const uid =
-    (afterData && typeof afterData.updatedByUid === 'string' && afterData.updatedByUid) ||
-    (beforeData && typeof beforeData.updatedByUid === 'string' && beforeData.updatedByUid) ||
-    null;
-  const email =
-    (afterData && typeof afterData.updatedBy === 'string' && afterData.updatedBy) ||
-    (beforeData && typeof beforeData.updatedBy === 'string' && beforeData.updatedBy) ||
-    null;
-  if (!uid) return { uid: null, email, role: null };
-  try {
-    const snap = await db.collection('roles').doc(uid).get();
-    if (!snap.exists) return { uid, email, role: null };
-    const role = String((snap.data() || {}).role || '').toLowerCase() || null;
-    return { uid, email, role };
-  } catch (_e) {
-    return { uid, email, role: null };
-  }
-}
-
-// Replica del cuerpo del trigger. Si el trigger real cambia, este test también
-// debe actualizarse (manteniendo la misma invariante observable).
+// Ajuste post-revisión H3: el cuerpo del trigger vive en el core
+// (handleLineMutationObservation) y functions/index.js solo lo invoca; el
+// test usa la implementación real en vez de una réplica.
 async function runTrigger(event, db, nowIso) {
-  const beforeData = event.data?.before?.data() ?? null;
-  const afterData = event.data?.after?.data() ?? null;
-  const result = detectLineMutations(beforeData, afterData);
-  if (!result.hasMutation || !result.inScope) return { skipped: 'no_mutation' };
-
-  const actor = await resolveActorRole(db, afterData, beforeData);
-  if (isLegitimateActor(actor.role)) return { skipped: 'legitimate_actor', role: actor.role };
-
-  const entry = buildObservationLogEntry({
+  return handleLineMutationObservation({
+    db,
     pedidoId: event.params.pedidoId,
-    mutations: result.mutations,
-    actorUid: actor.uid,
-    actorEmail: actor.email,
-    actorRole: actor.role,
-    afterData,
+    beforeData: event.data?.before?.data() ?? null,
+    afterData: event.data?.after?.data() ?? null,
     nowIso: nowIso || '2026-11-24T12:00:00.000Z',
     shadowStartedAt: SHADOW_STARTED_AT,
   });
-  await db.collection('operations_log').add(entry);
-  return { skipped: null, entry };
 }
 
 function mockDb(roles = {}, addSink = []) {
@@ -207,6 +171,8 @@ describe('onPedidoLineMutationObserver — trigger behaviour', () => {
     expect(addSink).toHaveLength(1);
     expect(addSink[0].actorRole).toBe(null);
     expect(addSink[0].actorUid).toBe('uid-unknown');
+    // uid sin rol resuelto: no se clasifica HIGH.
+    expect(addSink[0].severity).toBe('MEDIUM');
   });
 
   it('no updatedByUid → actorUid=null, logs anyway (shadow mode)', async () => {
@@ -217,6 +183,9 @@ describe('onPedidoLineMutationObserver — trigger behaviour', () => {
     expect(r.skipped).toBe(null);
     expect(addSink).toHaveLength(1);
     expect(addSink[0].actorUid).toBe(null);
+    // H3: actor no identificable → severidad baja + actor 'unknown'.
+    expect(addSink[0].severity).toBe('LOW');
+    expect(addSink[0].actor).toBe('unknown');
   });
 
   it('stage invoiced (terminal) → skip incluso con mutation obvia por VDE', async () => {
@@ -343,5 +312,105 @@ describe('onPedidoLineMutationObserver — trigger behaviour', () => {
     await expect(runTrigger(makeEvent('P1', before, after), brokenAddDb)).rejects.toThrow(
       'firestore write quota'
     );
+  });
+
+  describe('H3 — escrituras de servidor reconocibles se descartan', () => {
+    const asig = (qty, extra) => ({ code: 'X', qty, qtyOpen: qty, state: 'ASIG', ...extra });
+    const cases = [
+      [
+        'reversión automática de sobre-asignación (split con BO marcada)',
+        { stage: 'confirmed', lines: [asig(6)] },
+        {
+          stage: 'confirmed',
+          lines: [
+            asig(2),
+            {
+              code: 'X',
+              qty: 4,
+              qtyOpen: 4,
+              state: 'BO',
+              asigRevertidaBy: 'system:reconcile',
+              asigRevertidaReason: 'asig_sin_stock_revertida_a_bo',
+            },
+          ],
+        },
+        'asigRevertidaBy:system:reconcile',
+      ],
+      [
+        'liberación de reserva (releaseAsigCF)',
+        { stage: 'confirmed', lines: [asig(2)] },
+        {
+          stage: 'confirmed',
+          lines: [
+            {
+              ...asig(2),
+              state: 'cancelled',
+              qtyOpen: 0,
+              closedReason: 'quitado_por_vendedor_cpst',
+            },
+          ],
+        },
+        'closedReason:quitado_por_vendedor_cpst',
+      ],
+      [
+        'cancelación de reservas al confirmar (commitPedidoCF)',
+        { stage: 'confirmed', lines: [asig(1)] },
+        {
+          stage: 'confirmed',
+          lines: [{ ...asig(1), state: 'cancelled', qtyOpen: 0, closedReason: 'waitlist-confirm' }],
+        },
+        'closedReason:waitlist-confirm',
+      ],
+      [
+        'reparto (línea nueva con asigFromReparto)',
+        { stage: 'confirmed', lines: [{ code: 'X', qty: 5, qtyOpen: 5, state: 'BO' }] },
+        {
+          stage: 'confirmed',
+          lines: [
+            { code: 'X', qty: 3, qtyOpen: 3, state: 'BO' },
+            asig(2, { asigFromReparto: 'ing-1', splitFromLineIndex: 0 }),
+          ],
+        },
+        'asigFromReparto',
+      ],
+    ];
+    for (const [name, before, after, marker] of cases) {
+      it(name, async () => {
+        const db = mockDb({}, addSink);
+        const r = await runTrigger(makeEvent('P1', before, after), db);
+        expect(r.skipped).toBe('server_write');
+        expect(r.marker).toBe(marker);
+        expect(addSink).toHaveLength(0);
+      });
+    }
+
+    it('marcador que ya estaba antes (no cambió) no excluye la mutación', async () => {
+      const db = mockDb({ 'uid-vde': { role: 'vendedor' } }, addSink);
+      const marked = { code: 'Y', qty: 1, state: 'BO', asigRevertidaBy: 'system:reconcile' };
+      const before = {
+        stage: 'pending',
+        lines: [{ code: 'X', qty: 1, state: 'confirmed' }, marked],
+      };
+      const after = {
+        stage: 'pending',
+        lines: [{ code: 'X', qty: 9, state: 'confirmed' }, { ...marked }],
+        updatedByUid: 'uid-vde',
+      };
+      const r = await runTrigger(makeEvent('P1', before, after), db);
+      expect(r.skipped).toBe(null);
+      expect(addSink[0].severity).toBe('HIGH');
+    });
+
+    it('asigRevertidaBy que no es de sistema no cuenta como marcador', async () => {
+      const db = mockDb({}, addSink);
+      const before = { stage: 'pending', lines: [{ code: 'X', qty: 2, state: 'ASIG' }] };
+      const after = {
+        stage: 'pending',
+        lines: [{ code: 'X', qty: 7, state: 'ASIG', asigRevertidaBy: 'alguien@x' }],
+      };
+      const r = await runTrigger(makeEvent('P1', before, after), db);
+      expect(r.skipped).toBe(null);
+      expect(addSink[0].severity).toBe('LOW');
+    });
   });
 });

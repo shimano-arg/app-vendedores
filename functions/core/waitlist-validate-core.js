@@ -28,17 +28,34 @@
  * waitlistId + reason, no duplica.
  */
 
-/** Transiciones de stage permitidas: before→after. */
-const VALID_STAGE_TRANSITIONS = /** @type {Record<string, Set<any>>} */ ({
-  // Primera creación: cualquier valor inicial OK.
-  __create__: new Set([undefined, null, 'pending', 'consumed']),
-  // Post-create.
-  undefined: new Set([undefined, null, 'pending', 'consumed']),
-  null: new Set([undefined, null, 'pending', 'consumed']),
-  pending: new Set([undefined, null, 'pending', 'consumed']),
-  // consumed es terminal — no retorno a pending (indicaría reanimación).
-  consumed: new Set(['consumed']),
-});
+/**
+ * Valor normalizado para "sin stage". Las 5 rutas de creación del cliente
+ * (manual, Excel, CPST, pedido → espera, borrador → espera) crean la orden
+ * sin el campo `stage`; ausente, null y '' se tratan igual.
+ */
+const STAGE_NONE = '';
+
+/** Stages de una orden abierta. `active` lo escribe move-pedido-to-waitlist-core. */
+const OPEN_STAGES = [STAGE_NONE, 'pending', 'active'];
+
+/** Transiciones de stage permitidas: before→after (valores normalizados). */
+/** @type {Map<string, Set<string>>} */
+const VALID_STAGE_TRANSITIONS = new Map([
+  // Primera creación: abierta o ya consumida.
+  ['__create__', new Set([...OPEN_STAGES, 'consumed'])],
+  // Post-create, desde cualquier stage abierto.
+  [STAGE_NONE, new Set([...OPEN_STAGES, 'consumed'])],
+  ['pending', new Set([...OPEN_STAGES, 'consumed'])],
+  ['active', new Set([...OPEN_STAGES, 'consumed'])],
+  // consumed es terminal — no retorno a abierta (indicaría reanimación).
+  ['consumed', new Set(['consumed'])],
+]);
+
+/** @param {any} v */
+function normStage(v) {
+  if (v === undefined || v === null) return STAGE_NONE;
+  return String(v).trim();
+}
 
 /**
  * Valida un write a revision_waitlist y retorna lista de violaciones.
@@ -61,17 +78,18 @@ export function validateWaitlistWrite({ before, after, waitlistId, pedidoOrigenC
   if (!after) return violations;
 
   // === R2: Transición de stage ===
-  const beforeStage = before ? String(before.stage || '') : '__create__';
-  const afterStage = after ? String(after.stage || '') : '';
-  const allowedTargets = VALID_STAGE_TRANSITIONS[beforeStage];
+  const beforeStage = before ? normStage(before.stage) : '__create__';
+  const afterStage = normStage(after.stage);
+  // Un stage previo desconocido no se evalúa (observador: sin base para decidir).
+  const allowedTargets = VALID_STAGE_TRANSITIONS.get(beforeStage) || null;
   if (allowedTargets && !allowedTargets.has(afterStage)) {
     violations.push({
       rule: 'R2_INVALID_STAGE_TRANSITION',
       field: 'stage',
       severity: 'high',
       detail: {
-        from: before ? before.stage : null,
-        to: after.stage,
+        from: before ? (before.stage ?? null) : null,
+        to: after.stage ?? null,
         waitlistId,
       },
     });

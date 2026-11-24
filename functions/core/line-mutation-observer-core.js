@@ -234,9 +234,12 @@ export function isLegitimateActor(role) {
  */
 export function buildObservationLogEntry(params) {
   const afterData = params.afterData || {};
+  const actorIdentified = !!params.actorUid;
   return {
     type: 'LINE_MUTATION_OBSERVED',
-    severity: 'HIGH',
+    severity: classifyObservationSeverity(params.actorUid, params.actorRole),
+    // 'unknown' cuando el documento no permite identificar quién escribió.
+    actor: actorIdentified ? 'identified' : 'unknown',
     pedidoId: params.pedidoId,
     actorUid: params.actorUid || null,
     actorEmail: params.actorEmail || null,
@@ -258,4 +261,160 @@ export function buildObservationLogEntry(params) {
     _observerVersion: 'v1',
     timestamp: params.nowIso,
   };
+}
+
+/**
+ * Ajuste post-revisión H3 (2026-11-24): severidad según cuánto sabemos del
+ * actor. Hoy ningún escritor de `pedidos` setea `updatedByUid`, así que en la
+ * práctica casi todo cae en LOW; no tiene sentido marcar HIGH algo cuyo autor
+ * no se conoce (podría ser una escritura legítima del servidor).
+ *   - sin uid               → LOW
+ *   - uid sin rol resuelto  → MEDIUM
+ *   - uid con rol no privilegiado → HIGH
+ *
+ * @param {string | null | undefined} actorUid
+ * @param {string | null | undefined} actorRole
+ * @returns {'LOW' | 'MEDIUM' | 'HIGH'}
+ */
+export function classifyObservationSeverity(actorUid, actorRole) {
+  if (!actorUid) return 'LOW';
+  if (!actorRole) return 'MEDIUM';
+  return 'HIGH';
+}
+
+/**
+ * closedReason que solo escriben caminos de servidor al cerrar una línea.
+ * (Los de liberación de reservas los escribe releaseAsigCF desde §63.)
+ */
+const SERVER_CLOSED_REASONS = new Set([
+  'waitlist-confirm',
+  'asig_sin_stock_revertida_a_bo',
+  'partida_cancelada_en_transito',
+  'asig_transito_cancelada',
+  'sap_manual_close',
+  'cliente_rechazo_cpst',
+  'quitado_por_vendedor_cpst',
+]);
+
+/**
+ * @param {any} a
+ * @param {any} b
+ */
+function sameJson(a, b) {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch (_e) {
+    return false;
+  }
+}
+
+/**
+ * Ajuste post-revisión H3: reconoce escrituras de servidor por los marcadores
+ * de auditoría que esos caminos ya dejan en las líneas que tocan (reparto,
+ * reversión automática de sobre-asignación, scanners de tránsito, cancelación
+ * de reservas al confirmar, liberación de reservas, cierre manual en SAP).
+ *
+ * Basta con que UNA línea modificada o agregada traiga un marcador nuevo
+ * (los caminos de servidor también ajustan la línea original sin marcarla,
+ * ej. el split de la sobre-asignación). Los marcadores viven en el documento
+ * y no prueban el origen; esto reduce ruido del observador, no es un control.
+ *
+ * @param {any} before
+ * @param {any} after
+ * @returns {string | null} nombre del marcador reconocido o null.
+ */
+export function detectServerWriteMarker(before, after) {
+  if (!before || !after) return null;
+  const bl = Array.isArray(before.lines) ? before.lines : [];
+  const al = Array.isArray(after.lines) ? after.lines : [];
+  for (let i = 0; i < al.length; i++) {
+    const a = al[i];
+    const b = bl[i];
+    if (!a || typeof a !== 'object') continue;
+    if (b && sameJson(a, b)) continue;
+    const prev = b && typeof b === 'object' ? b : {};
+    if (
+      typeof a.asigRevertidaBy === 'string' &&
+      a.asigRevertidaBy.startsWith('system:') &&
+      a.asigRevertidaBy !== prev.asigRevertidaBy
+    ) {
+      return 'asigRevertidaBy:' + a.asigRevertidaBy;
+    }
+    if (
+      typeof a.closedReason === 'string' &&
+      SERVER_CLOSED_REASONS.has(a.closedReason) &&
+      a.closedReason !== prev.closedReason
+    ) {
+      return 'closedReason:' + a.closedReason;
+    }
+    if (a.asigFromReparto && a.asigFromReparto !== prev.asigFromReparto) {
+      return 'asigFromReparto';
+    }
+    if (a.enDep11At && a.enDep11At !== prev.enDep11At) {
+      return 'enDep11At';
+    }
+  }
+  return null;
+}
+
+/**
+ * Resuelve el actor del write a partir del documento (los triggers Gen 2 no
+ * exponen auth). Movido acá desde functions/index.js para testear el código
+ * real (§7).
+ *
+ * @param {any} db
+ * @param {any} afterData
+ * @param {any} beforeData
+ */
+export async function resolveObserverActor(db, afterData, beforeData) {
+  const uid =
+    (afterData && typeof afterData.updatedByUid === 'string' && afterData.updatedByUid) ||
+    (beforeData && typeof beforeData.updatedByUid === 'string' && beforeData.updatedByUid) ||
+    null;
+  const email =
+    (afterData && typeof afterData.updatedBy === 'string' && afterData.updatedBy) ||
+    (beforeData && typeof beforeData.updatedBy === 'string' && beforeData.updatedBy) ||
+    null;
+
+  if (!uid) return { uid: null, email, role: null };
+
+  try {
+    const snap = await db.collection('roles').doc(uid).get();
+    if (!snap.exists) return { uid, email, role: null };
+    const role = String((snap.data() || {}).role || '').toLowerCase() || null;
+    return { uid, email, role };
+  } catch (_e) {
+    return { uid, email, role: null };
+  }
+}
+
+/**
+ * Cuerpo del trigger onPedidoLineMutationObserver (sin plumbing Firebase).
+ * Devuelve qué hizo; escribe en operations_log solo si corresponde.
+ *
+ * @param {{ db: any, pedidoId: string, beforeData: any, afterData: any, nowIso: string, shadowStartedAt: string }} p
+ * @returns {Promise<{ skipped: string | null, role?: string | null, marker?: string, entry?: any }>}
+ */
+export async function handleLineMutationObservation(p) {
+  const result = detectLineMutations(p.beforeData, p.afterData);
+  if (!result.hasMutation || !result.inScope) return { skipped: 'no_mutation' };
+
+  const marker = detectServerWriteMarker(p.beforeData, p.afterData);
+  if (marker) return { skipped: 'server_write', marker };
+
+  const actor = await resolveObserverActor(p.db, p.afterData, p.beforeData);
+  if (isLegitimateActor(actor.role)) return { skipped: 'legitimate_actor', role: actor.role };
+
+  const entry = buildObservationLogEntry({
+    pedidoId: p.pedidoId,
+    mutations: result.mutations,
+    actorUid: actor.uid,
+    actorEmail: actor.email,
+    actorRole: actor.role,
+    afterData: p.afterData,
+    nowIso: p.nowIso,
+    shadowStartedAt: p.shadowStartedAt,
+  });
+  await p.db.collection('operations_log').add(entry);
+  return { skipped: null, entry };
 }

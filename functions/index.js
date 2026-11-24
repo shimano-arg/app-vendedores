@@ -74,17 +74,13 @@ import { fetchStockLiveCore } from './core/fetch-stock-live-core.js';
 // v1279 (2026-10-14): FIFO automatico eliminado — reemplazado por reparto
 // manual (reparto-core.js + reparto-migration-core.js). Historia:
 // v1277 dual mode → v1278 FIFO disabled → v1279 FIFO deleted.
-import { runGeminiOcr } from './core/gemini-ocr-core.js';
+import { runGeminiOcr, toClientOcrError } from './core/gemini-ocr-core.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v1564+ (HARDENING6 line-inflation observer): shadow mode 4 semanas
 // para detectar mutaciones post-commit a pedidos.lines/qty/code/netAmountArs.
 // Observer-only — NO rechaza writes. Follow-up (post-shadow): updatePedidoLinesCF
 // callable + remover whitelist VDE en firestore.rules.
-import {
-  buildObservationLogEntry,
-  detectLineMutations,
-  isLegitimateActor,
-} from './core/line-mutation-observer-core.js';
+import { handleLineMutationObservation } from './core/line-mutation-observer-core.js';
 // R01 Fase 2 (v1557-dev 2026-11-18): CFs callable que reemplazan el flow
 // cliente-side de volverAListaEspera + waitlistUnificarOrden. Garantizan
 // §42 via lock atómico. Hoy el frontend NO las invoca (migración queda
@@ -859,36 +855,12 @@ export const onPedidoWriteTrackAsigTransitions = onDocumentWritten(
  *
  * Actor resolution: Firestore Gen 2 triggers NO exponen event.auth.
  * Se infiere del doc: afterData.updatedByUid > afterData.updatedBy (email).
- * Fallback null → se loguea igual con actorRole=null (shadow mode).
+ * Ajuste post-revisión H3: sin actor identificable el registro va con
+ * severity LOW y actor 'unknown'; las escrituras de servidor reconocibles
+ * por sus marcadores de auditoría se descartan. Lógica en
+ * core/line-mutation-observer-core.js (handleLineMutationObservation).
  */
 const SHADOW_STARTED_AT = '2026-11-24';
-
-/**
- * @param {any} db
- * @param {any} afterData
- * @param {any} beforeData
- */
-async function resolveActorRole(db, afterData, beforeData) {
-  const uid =
-    (afterData && typeof afterData.updatedByUid === 'string' && afterData.updatedByUid) ||
-    (beforeData && typeof beforeData.updatedByUid === 'string' && beforeData.updatedByUid) ||
-    null;
-  const email =
-    (afterData && typeof afterData.updatedBy === 'string' && afterData.updatedBy) ||
-    (beforeData && typeof beforeData.updatedBy === 'string' && beforeData.updatedBy) ||
-    null;
-
-  if (!uid) return { uid: null, email, role: null };
-
-  try {
-    const snap = await db.collection('roles').doc(uid).get();
-    if (!snap.exists) return { uid, email, role: null };
-    const role = String((snap.data() || {}).role || '').toLowerCase() || null;
-    return { uid, email, role };
-  } catch (_e) {
-    return { uid, email, role: null };
-  }
-}
 
 export const onPedidoLineMutationObserver = onDocumentWritten(
   {
@@ -903,40 +875,32 @@ export const onPedidoLineMutationObserver = onDocumentWritten(
       const beforeData = event.data?.before?.data() ?? null;
       const afterData = event.data?.after?.data() ?? null;
 
-      const result = detectLineMutations(beforeData, afterData);
-      if (!result.hasMutation || !result.inScope) return;
-
-      const db = getFirestore();
-      const actor = await resolveActorRole(db, afterData, beforeData);
-
-      // Admin / interno / gerente → skip. Correcciones legítimas.
-      if (isLegitimateActor(actor.role)) {
-        console.log('onPedidoLineMutationObserver skip legitimate actor', {
-          pedidoId: event.params.pedidoId,
-          actorRole: actor.role,
-          mutationsCount: result.mutations.length,
-        });
-        return;
-      }
-
-      const entry = buildObservationLogEntry({
+      const r = await handleLineMutationObservation({
+        db: getFirestore(),
         pedidoId: event.params.pedidoId,
-        mutations: result.mutations,
-        actorUid: actor.uid,
-        actorEmail: actor.email,
-        actorRole: actor.role,
+        beforeData,
         afterData,
         nowIso: new Date().toISOString(),
         shadowStartedAt: SHADOW_STARTED_AT,
       });
-
-      await db.collection('operations_log').add(entry);
-
+      if (r.skipped) {
+        if (r.skipped !== 'no_mutation') {
+          console.log('onPedidoLineMutationObserver skip', {
+            pedidoId: event.params.pedidoId,
+            reason: r.skipped,
+            marker: r.marker || null,
+            actorRole: r.role || null,
+          });
+        }
+        return;
+      }
+      const entry = r.entry;
       console.log('onPedidoLineMutationObserver observed', {
         pedidoId: event.params.pedidoId,
-        actorRole: actor.role || 'unknown',
-        mutationsCount: result.mutations.length,
-        kinds: result.mutations.map((m) => m.kind),
+        actorRole: entry.actorRole || 'unknown',
+        severity: entry.severity,
+        mutationsCount: entry.mutationsCount,
+        kinds: entry.mutations.map((/** @type {any} */ m) => m.kind),
       });
     } catch (e) {
       console.error('onPedidoLineMutationObserver error', {
@@ -1560,6 +1524,10 @@ export const applyRepartoManualCF = onCall(
  *
  * Response:
  *   { ok: true, unitsCancelled, linesCancelled, pedidosMutated, waitlistDeleted }
+ *
+ * Rechazos de negocio sin escrituras (details.errorCode): CLIENT_DATA_MISSING
+ * (falta el cardCode de la orden o del pedido de origen) y
+ * RELEASE_CROSS_CLIENT (la reserva es de otro cliente), además de los de rol.
  */
 export const releaseAsigCF = onCall(
   {
@@ -2228,20 +2196,11 @@ export const geminiOcrProxy = onCall(
       // puede incluir datos internos. Nunca re-propagar `err.message` crudo. Whitelist de codes canónicos
       // HttpsError; fallback `internal` + mensaje genérico ES.
       console.error('[geminiOcrProxy:general]', e);
-      const SAFE_CODES = new Set([
-        'unauthenticated',
-        'permission-denied',
-        'invalid-argument',
-        'deadline-exceeded',
-        'unavailable',
-        'failed-precondition',
-        'resource-exhausted',
-        'not-found',
-      ]);
-      const errAny = /** @type {any} */ (e);
-      const codeIn = String(errAny && errAny.code ? errAny.code : '');
-      const code = SAFE_CODES.has(codeIn) ? codeIn : 'internal';
-      throw new HttpsError(/** @type {any} */ (code), 'OCR fallo, reintenta en unos segundos', {
+      // Ajuste post-revisión H4: los mensajes fijos del core (imagen
+      // demasiado grande, tipo no soportado, tiempo agotado) pasan; el resto
+      // va genérico. Ver toClientOcrError en core/gemini-ocr-core.js.
+      const safeErr = toClientOcrError(e);
+      throw new HttpsError(/** @type {any} */ (safeErr.code), safeErr.message, {
         errorCode: 'GEMINI_OCR_FAILED',
       });
     }

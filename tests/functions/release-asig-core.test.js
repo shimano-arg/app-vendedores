@@ -478,8 +478,67 @@ describe('§63 releaseAsigCore', () => {
     };
   }
 
-  it('SEC-M6 T1: VDE NO puede cancelar ASIG de pedido cuyo clientCardCode no matchea el waitlist', async () => {
-    const { fbDb, _state, _operationsLog } = makeMockDb(makeCrossClientState());
+  /** Corre el core esperando un rechazo; devuelve el error. */
+  async function runExpectReject(fbDb, uid, action, waitlistId, extra) {
+    let caught = null;
+    try {
+      await releaseAsigCore(
+        { fbDb },
+        Object.assign(
+          { auth: { uid, token: { email: 'vde@shimano.com.ar' } }, action, waitlistId },
+          extra || {}
+        )
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).not.toBeNull();
+    return caught;
+  }
+
+  // Ajuste post-revisión (2026-11-24): cardCode distinto → aborta todo, sin
+  // escribir (antes salteaba el pedido y borraba la orden con 0 unidades).
+  it('SEC-M6 T1: VDE con pedido de otro cliente → RELEASE_CROSS_CLIENT y no escribe nada', async () => {
+    const { fbDb, _state, _written } = makeMockDb(makeCrossClientState());
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    expect(e._errorCode).toBe('permission-denied');
+    expect(e._errorDetails).toEqual({ errorCode: 'RELEASE_CROSS_CLIENT' });
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
+    expect(_state.pedidos['ped-victim'].lines[0].qtyOpen).toBe(2);
+    // La orden en espera sigue intacta.
+    expect(_state.revision_waitlist.wl_attack).toBeDefined();
+    expect(_state.revision_waitlist.wl_attack.items).toHaveLength(1);
+    // Ninguna escritura fuera de operations_log.
+    expect(_written.filter((w) => !w.path.startsWith('operations_log/'))).toHaveLength(0);
+  });
+
+  it('SEC-M6 T2: operations_log recibe el rechazo (sec_m6_idor_cross_client_skipped, aborted)', async () => {
+    const { fbDb, _operationsLog } = makeMockDb(makeCrossClientState());
+    await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    const secEntries = _operationsLog.filter((l) => l.type === 'sec_m6_idor_cross_client_skipped');
+    expect(secEntries).toHaveLength(1);
+    const entry = secEntries[0];
+    expect(entry.severity).toBe('warning');
+    expect(entry.errorCode).toBe('RELEASE_CROSS_CLIENT');
+    expect(entry.aborted).toBe(true);
+    expect(entry.waitlistId).toBe('wl_attack');
+    expect(entry.waitlistCardCode).toBe('C001');
+    expect(entry.userId).toBe('vde-X-uid');
+    expect(entry.skippedCount).toBe(1);
+    expect(entry.skipped[0]).toEqual({
+      pedidoId: 'ped-victim',
+      reason: 'cross_client_cardCode_mismatch',
+    });
+    // No hay registro de éxito.
+    expect(
+      _operationsLog.filter((l) => l.type === 'cpst_cancel_asig_cliente_rechazo')
+    ).toHaveLength(0);
+  });
+
+  it('SEC-M6 T2b: cardCode igual salvo mayúsculas/espacios → se considera el mismo cliente', async () => {
+    const state = makeCrossClientState();
+    state.pedidos['ped-victim'].clientCardCode = ' c001 ';
+    const { fbDb, _state } = makeMockDb(state);
     const r = await releaseAsigCore(
       { fbDb },
       {
@@ -489,35 +548,8 @@ describe('§63 releaseAsigCore', () => {
       }
     );
     expect(r.ok).toBe(true);
-    // El pedido víctima NO fue mutado — línea sigue ASIG.
-    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
-    expect(_state.pedidos['ped-victim'].lines[0].qtyOpen).toBe(2);
-    expect(r.unitsCancelled).toBe(0);
-    expect(r.pedidosMutated).toBe(0);
-    expect(r.crossClientSkipped).toHaveLength(1);
-    expect(r.crossClientSkipped[0].pedidoId).toBe('ped-victim');
-    expect(r.crossClientSkipped[0].reason).toBe('cross_client_cardCode_mismatch');
-  });
-
-  it('SEC-M6 T2: operations_log recibe entry high-severity sec_m6_idor_cross_client_skipped', async () => {
-    const { fbDb, _operationsLog } = makeMockDb(makeCrossClientState());
-    await releaseAsigCore(
-      { fbDb },
-      {
-        auth: { uid: 'vde-X-uid', token: { email: 'vde@shimano.com.ar' } },
-        action: 'rechazo_cpst',
-        waitlistId: 'wl_attack',
-      }
-    );
-    const secEntries = _operationsLog.filter((l) => l.type === 'sec_m6_idor_cross_client_skipped');
-    expect(secEntries).toHaveLength(1);
-    const entry = secEntries[0];
-    expect(entry.severity).toBe('warning');
-    expect(entry.waitlistId).toBe('wl_attack');
-    expect(entry.waitlistCardCode).toBe('C001');
-    expect(entry.userId).toBe('vde-X-uid');
-    expect(entry.skippedCount).toBe(1);
-    expect(entry.skipped[0].pedidoId).toBe('ped-victim');
+    expect(r.unitsCancelled).toBe(2);
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('cancelled');
   });
 
   it('SEC-M6 T3: admin PUEDE operar cross-client (reconciliación legítima)', async () => {
@@ -534,7 +566,6 @@ describe('§63 releaseAsigCore', () => {
     // Admin bypassa cross-check — sí cancela la ASIG (bien o mal, es decisión del admin).
     expect(_state.pedidos['ped-victim'].lines[0].state).toBe('cancelled');
     expect(r.pedidosMutated).toBe(1);
-    expect(r.crossClientSkipped).toHaveLength(0);
   });
 
   it('SEC-M6 T4: VDE puede operar cuando pedido target y waitlist tienen MISMO clientCardCode', async () => {
@@ -550,48 +581,76 @@ describe('§63 releaseAsigCore', () => {
     );
     expect(r.ok).toBe(true);
     expect(r.pedidosMutated).toBe(1);
-    expect(r.crossClientSkipped).toHaveLength(0);
   });
 
-  // D10 (2026-11-24): el chequeo pasó a fail-closed para no privilegiados.
-  // Antes T5 documentaba el fail-open por pedidos viejos sin clientCardCode;
-  // ese comportamiento se cerró a propósito (cambio de SUT, no test bug).
-  it('SEC-M6 T5 (D10): VDE con pedido sin clientCardCode → SKIP (fail-closed)', async () => {
+  // D10 (2026-11-24) + ajuste post-revisión: falta de cardCode para no
+  // privilegiados aborta la operación entera con CLIENT_DATA_MISSING. Antes
+  // salteaba el pedido y devolvía éxito con 0 unidades mientras borraba la
+  // orden (cambio de SUT documentado, no test bug).
+  it('SEC-M6 T5: VDE con pedido sin clientCardCode → CLIENT_DATA_MISSING, orden intacta', async () => {
     const state = makeCrossClientState();
     delete state.pedidos['ped-victim'].clientCardCode;
-    const { fbDb, _state } = makeMockDb(state);
-    const r = await releaseAsigCore(
-      { fbDb },
-      {
-        auth: { uid: 'vde-X-uid', token: { email: 'vde@shimano.com.ar' } },
-        action: 'rechazo_cpst',
-        waitlistId: 'wl_attack',
-      }
-    );
-    expect(r.ok).toBe(true);
-    expect(r.pedidosMutated).toBe(0);
-    expect(r.crossClientSkipped).toEqual([
-      { pedidoId: 'ped-victim', reason: 'pedido_sin_cardCode' },
-    ]);
+    const { fbDb, _state, _written, _operationsLog } = makeMockDb(state);
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    expect(e._errorCode).toBe('failed-precondition');
+    expect(e._errorDetails).toEqual({ errorCode: 'CLIENT_DATA_MISSING' });
     expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
+    expect(_state.revision_waitlist.wl_attack).toBeDefined();
+    expect(_written.filter((w) => !w.path.startsWith('operations_log/'))).toHaveLength(0);
+    const rej = _operationsLog.filter((l) => l.type === 'release_asig_rejected');
+    expect(rej).toHaveLength(1);
+    expect(rej[0].errorCode).toBe('CLIENT_DATA_MISSING');
+    expect(rej[0].skipped).toEqual([{ pedidoId: 'ped-victim', reason: 'pedido_sin_cardCode' }]);
   });
 
-  it('SEC-M6 T6 (D10): VDE con orden en espera sin clientCardCode → SKIP (fail-closed)', async () => {
+  it('SEC-M6 T6: VDE con orden en espera sin clientCardCode → CLIENT_DATA_MISSING', async () => {
     const state = makeCrossClientState();
     delete state.revision_waitlist.wl_attack.clientCardCode;
+    const { fbDb, _state, _operationsLog } = makeMockDb(state);
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'rechazo_cpst', 'wl_attack');
+    expect(e._errorDetails.errorCode).toBe('CLIENT_DATA_MISSING');
+    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
+    expect(_state.revision_waitlist.wl_attack).toBeDefined();
+    expect(_operationsLog[0].skipped[0].reason).toBe('waitlist_sin_cardCode');
+  });
+
+  it('SEC-M6 T6b: remove_item con dato faltante tampoco quita el ítem', async () => {
+    const state = makeCrossClientState();
+    delete state.pedidos['ped-victim'].clientCardCode;
+    state.revision_waitlist.wl_attack.items.push({ code: 'SKU9', qty: 1 });
+    const { fbDb, _state } = makeMockDb(state);
+    const e = await runExpectReject(fbDb, 'vde-X-uid', 'remove_item', 'wl_attack', {
+      itemIndex: 0,
+    });
+    expect(e._errorDetails.errorCode).toBe('CLIENT_DATA_MISSING');
+    expect(_state.revision_waitlist.wl_attack.items).toHaveLength(2);
+  });
+
+  it('SEC-M6 T6c: ítem sin reserva en orden sin cardCode → se puede quitar (no hay nada que verificar)', async () => {
+    const state = makeCrossClientState();
+    delete state.revision_waitlist.wl_attack.clientCardCode;
+    state.revision_waitlist.wl_attack.pedidosOrigenes = [];
+    state.revision_waitlist.wl_attack.items = [
+      {
+        code: 'SKU1',
+        qty: 2,
+        asigRefs: [{ pedidoId: 'ped-victim', lineIndex: 0, qtyAsignada: 2, sku: 'SKU1' }],
+      },
+      { code: 'SKU9', qty: 1 },
+    ];
     const { fbDb, _state } = makeMockDb(state);
     const r = await releaseAsigCore(
       { fbDb },
       {
         auth: { uid: 'vde-X-uid', token: { email: 'vde@shimano.com.ar' } },
-        action: 'rechazo_cpst',
+        action: 'remove_item',
         waitlistId: 'wl_attack',
+        itemIndex: 1,
       }
     );
     expect(r.ok).toBe(true);
-    expect(r.pedidosMutated).toBe(0);
-    expect(r.crossClientSkipped[0].reason).toBe('waitlist_sin_cardCode');
-    expect(_state.pedidos['ped-victim'].lines[0].state).toBe('ASIG');
+    expect(r.unitsCancelled).toBe(0);
+    expect(_state.revision_waitlist.wl_attack.items).toHaveLength(1);
   });
 
   it('SEC-M6 T7 (D10): admin con pedido sin clientCardCode sigue pudiendo operar', async () => {

@@ -168,6 +168,123 @@ describe('validateWaitlistWrite (pure fn)', () => {
     });
   });
 
+  // Ajuste post-revisión H2 (2026-11-24): las 5 rutas de creación del
+  // cliente arman el payload SIN `stage` (verificado con grep en index.html:
+  // CPST, Excel, manual, pedido → espera, borrador → espera) y
+  // move-pedido-to-waitlist-core crea con stage 'active'. Antes cualquiera de
+  // esos creates daba R2 de severidad alta (falso positivo).
+  describe('R2: creates reales (H2)', () => {
+    const common = {
+      clientCardCode: 'C001',
+      vendorAssigned: 'VDE_ALFA',
+      ownerUid: 'vde-uid',
+      ownerEmail: 'vde@example.com',
+      ownerDisplayName: 'VDE',
+      ownerVendor: 'VDE_ALFA',
+      orderNumber: 600,
+      createdAt: '2026-11-24T10:00:00.000Z',
+      updatedAt: '2026-11-24T10:00:00.000Z',
+    };
+    const clientPayloads = {
+      cpst: {
+        ...common,
+        clientName: 'CLIENTE SA',
+        clientProvince: 'BA',
+        clientLocality: 'X',
+        deliveryMethod: '',
+        deliveryDetails: '',
+        source: 'stock-asignado-batch',
+        items: [{ code: 'SKU1', qty: 1, origen: 'stock-asignado', asigRefs: [] }],
+        pedidosOrigenes: [],
+        expiresAt: '2026-12-01T10:00:00.000Z',
+      },
+      excel: {
+        ...common,
+        clientName: 'CLIENTE SA',
+        clientProvince: 'BA',
+        clientLocality: 'X',
+        deliveryMethod: '',
+        deliveryDetails: '',
+      },
+      manual: {
+        ...common,
+        clientName: 'CLIENTE SA',
+        clientProvince: 'BA',
+        clientLocality: 'X',
+        deliveryMethod: '',
+        deliveryDetails: '',
+        source: 'manual',
+      },
+      pedidoAEspera: { ...common, fromPedidoFsId: 'p1', fromPedidoMonth: '2026-11' },
+      borradorAEspera: { ...common, fromBorrador: true },
+    };
+    for (const [name, payload] of Object.entries(clientPayloads)) {
+      it(`OK create del cliente sin stage (${name})`, () => {
+        expect('stage' in payload).toBe(false);
+        const v = validateWaitlistWrite({ before: null, after: payload, waitlistId: 'wl-new' });
+        expect(v.filter((x) => x.rule === 'R2_INVALID_STAGE_TRANSITION')).toHaveLength(0);
+      });
+    }
+
+    it("OK create con stage 'active' (move-pedido-to-waitlist-core)", () => {
+      const v = validateWaitlistWrite({
+        before: null,
+        after: { ...common, stage: 'active' },
+        waitlistId: 'wl-new',
+      });
+      expect(v.filter((x) => x.rule === 'R2_INVALID_STAGE_TRANSITION')).toHaveLength(0);
+    });
+
+    it('OK update de orden sin stage (cambio de cantidad) y sin stage → consumed', () => {
+      const before = { ...common };
+      expect(
+        validateWaitlistWrite({ before, after: { ...common, items: [] }, waitlistId: 'wl' })
+      ).toEqual([]);
+      const v = validateWaitlistWrite({
+        before,
+        after: { ...common, stage: 'consumed' },
+        waitlistId: 'wl',
+      });
+      expect(v.filter((x) => x.rule === 'R2_INVALID_STAGE_TRANSITION')).toHaveLength(0);
+    });
+
+    it('OK pending → sin stage y active → consumed', () => {
+      for (const [from, to] of [
+        ['pending', undefined],
+        ['active', 'consumed'],
+        [null, 'pending'],
+      ]) {
+        const v = validateWaitlistWrite({
+          before: { ...common, stage: from },
+          after: { ...common, stage: to },
+          waitlistId: 'wl',
+        });
+        expect(v.filter((x) => x.rule === 'R2_INVALID_STAGE_TRANSITION')).toHaveLength(0);
+      }
+    });
+
+    it('VIOLATION R2: consumed → sin stage (reanimación)', () => {
+      const after = { ...common };
+      const v = validateWaitlistWrite({
+        before: { ...common, stage: 'consumed' },
+        after,
+        waitlistId: 'wl',
+      });
+      const r2 = v.filter((x) => x.rule === 'R2_INVALID_STAGE_TRANSITION');
+      expect(r2).toHaveLength(1);
+      expect(r2[0].detail.to).toBe(null);
+    });
+
+    it('VIOLATION R2: create con stage fuera de la lista', () => {
+      const v = validateWaitlistWrite({
+        before: null,
+        after: { ...common, stage: 'rarisimo' },
+        waitlistId: 'wl-new',
+      });
+      expect(v.filter((x) => x.rule === 'R2_INVALID_STAGE_TRANSITION')).toHaveLength(1);
+    });
+  });
+
   describe('R3: clientCardCode inmutable', () => {
     it('OK cardCode igual', () => {
       const v = validateWaitlistWrite({

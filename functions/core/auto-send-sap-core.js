@@ -444,11 +444,21 @@ export async function handleAutoSendSap(pedidoId, beforeData, afterData, deps) {
     // Sigue siendo observe-only: se bloquea recién cuando prod opere un
     // período con el set completo y sin falsos positivos.
   ]);
-  if (afterData && afterData.stage === 'confirmed' && !afterData.transferidoSAP) {
+  // Ajuste post-revisión H6 (2026-11-24): se registra solo en la transición
+  // a confirmed (antes: en cada escritura a un pedido que ya estaba
+  // confirmado, lo que repetía el registro).
+  const _becameConfirmed = !beforeData || beforeData.stage !== 'confirmed';
+  if (
+    afterData &&
+    afterData.stage === 'confirmed' &&
+    _becameConfirmed &&
+    !afterData.transferidoSAP
+  ) {
     const _cv = afterData._commitVersion;
     const _isValidCv = typeof _cv === 'string' && COMMIT_VERSION_VALID_SET.has(_cv);
     if (!_isValidCv) {
-      // Fire-and-forget: NO bloquea el envío. Solo observa.
+      // NO bloquea el envío: solo observa. El registro se espera (await)
+      // para no perderlo en Gen 2; si falla, se ignora.
       try {
         if (deps.fbDb && typeof deps.fbDb.collection === 'function') {
           const now = deps.now ? deps.now() : Date.now();

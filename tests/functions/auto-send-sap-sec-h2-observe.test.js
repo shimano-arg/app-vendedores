@@ -304,4 +304,19 @@ describe('BATCH B.1 SEC-H2 observe-only guard', () => {
     // No debe arrojar.
     await expect(handleAutoSendSap('p-broken', before, after, deps)).resolves.toBeDefined();
   });
+
+  it('H6: pedido que ya estaba confirmed sin marker NO vuelve a loguear en cada escritura', async () => {
+    const db = makeFakeDb({});
+    const deps = makeDeps(db);
+    const before = { stage: 'confirmed', lines: [{ code: 'X', qty: 1, state: 'confirmed' }] };
+    const after = {
+      stage: 'confirmed',
+      lines: [{ code: 'X', qty: 1, state: 'confirmed', precio: 100 }],
+      clientCardCode: 'C001',
+      observaciones: 'cambio cualquiera',
+    };
+    await handleAutoSendSap('p-old', before, after, deps);
+    const h2Logs = db._opsLog().filter((l) => l.type === 'sec_h2_commit_version_missing');
+    expect(h2Logs).toHaveLength(0);
+  });
 });

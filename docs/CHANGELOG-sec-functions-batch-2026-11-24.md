@@ -100,3 +100,73 @@ functions:onPedidoLineMutationObserver,functions:onWaitlistWriteValidate
 - **#1395**: el cliente pierde el detalle técnico en algunos errores (queda en Cloud Logging). `GEMINI_OCR_FAILED` y `EMAIL_SEND_FAILED` tampoco tienen texto en el cliente todavía.
 - **Rol**: el cliente trata `ROLE_REQUIRED`; `ROLE_CHECK_UNAVAILABLE` cae al mensaje genérico hasta que el coordinador agregue el texto.
 - Los observadores suman lecturas a `roles` y a `pedidos` por escritura.
+
+## Ajustes post-revisión (2026-11-24)
+
+Fuente: revisión adversarial independiente del PR #1419 (hallazgos H1-H13). Solo se tocaron `functions/`, `tests/` y `docs/`.
+
+### Antes
+
+- **H1** `releaseAsigCore`: para un vendedor, si faltaba el `clientCardCode` de la orden en espera o del pedido de origen (o era de otro cliente), el pedido se salteaba pero la transacción seguía: se quitaba el ítem o se borraba la orden y la respuesta era `ok: true` con `unitsCancelled: 0`. El cliente muestra `unitsCancelled || unitsToFree`, así que el vendedor veía "N u liberadas" con la reserva todavía viva. Los dos registros de éxito en `operations_log` no se esperaban.
+- **H2** `onWaitlistWriteValidate`: "sin `stage`" se normalizaba a `''`, que no estaba en el conjunto permitido; `'active'` tampoco. Las 5 rutas de creación del cliente crean sin `stage` y `move-pedido-to-waitlist-core` crea con `'active'`: cada creación daba R2 de severidad alta.
+- **H3** `onPedidoLineMutationObserver`: el actor se toma de `updatedByUid`, que ningún escritor de `pedidos` setea. Todo cambio de líneas (incluido el del servidor) quedaba como `severity: 'HIGH'`.
+- **H4** `geminiOcrProxy`: todos los mensajes se reemplazaban por "OCR fallo, reintenta en unos segundos", incluso los fijos del core (imagen demasiado grande, tipo no soportado, tiempo agotado).
+- **H5** CHECK G de `commitPedidoCore`: el rechazo devolvía al cliente el cardCode del pedido de origen, y la comparación no normalizaba mayúsculas.
+- **H6** observador SEC-H2 de `auto-send-sap-core`: registraba en cada escritura de un pedido ya confirmado sin marker, no solo en la transición.
+
+### Problema
+
+H1 da un éxito falso al vendedor y puede borrar una orden sin liberar nada. H2, H3 y H6 llenan la línea de base de falsos positivos. H4 deja al vendedor sin saber por qué falla una foto. H5 expone el cliente de un pedido ajeno.
+
+### Cambio
+
+- **H1** (`functions/core/release-asig-core.js`): para no privilegiados, si algún pedido de origen no se puede verificar, la transacción se aborta en la fase de cómputo, antes de cualquier escritura (§58). Falta de cardCode → `failed-precondition` + `errorCode: 'CLIENT_DATA_MISSING'`. CardCode distinto → `permission-denied` + `errorCode: 'RELEASE_CROSS_CLIENT'` (antes salteaba; ahora es coherente con el caso de dato faltante: nunca éxito con 0 unidades y la orden modificada). El rechazo se registra con `await` en `operations_log` (`release_asig_rejected` o `sec_m6_idor_cross_client_skipped`, con `aborted: true`, `errorCode` y la lista de pedidos) antes de responder (§64.2). El detalle de pedidos no viaja al cliente. Comparación de cardCode con trim + mayúsculas (§46). Admin/gerente/interno siguen operando entre clientes. El registro de éxito ahora se espera. `releaseAsigCF` ya reenviaba `details.errorCode`; se documentaron los códigos nuevos en su cabecera.
+- **H2** (`functions/core/waitlist-validate-core.js`): ausente/null/`''` se normalizan a un único valor aceptado; se agrega `'active'`. `consumed` sigue siendo terminal (volver a "sin stage" también es R2). Un stage previo desconocido no se evalúa.
+- **H3** (`functions/core/line-mutation-observer-core.js`, `functions/index.js`): el cuerpo del trigger pasó al core (`handleLineMutationObservation`, §7) y el test usa la implementación real. Severidad por actor: sin uid → `LOW` + `actor: 'unknown'`; uid sin rol → `MEDIUM`; uid con rol no privilegiado → `HIGH`. Se descartan (`skipped: 'server_write'`) las escrituras con un marcador de servidor nuevo en alguna línea modificada: `asigRevertidaBy: 'system:*'`, `closedReason` de caminos de servidor (`waitlist-confirm`, `asig_sin_stock_revertida_a_bo`, `partida_cancelada_en_transito`, `asig_transito_cancelada`, `sap_manual_close`, `cliente_rechazo_cpst`, `quitado_por_vendedor_cpst`), `asigFromReparto`, `enDep11At`. Los marcadores viven en el documento y no prueban el origen: reducen ruido, no son un control.
+- **H4** (`functions/core/gemini-ocr-core.js`, `functions/index.js`): nuevo `toClientOcrError`. Pasan los mensajes fijos del core (lista cerrada + 3 plantillas con un número); errores nativos, `internal`, la falta de configuración del servidor y cualquier texto con datos externos van con el genérico. Se conserva `details.errorCode: 'GEMINI_OCR_FAILED'` y el `code`.
+- **H5** (`functions/core/commit-pedido-core.js`): `payloadCardCode` y `origenCardCode` van a `_logExtra` (se registran, se quitan de la respuesta); comparación con trim + mayúsculas.
+- **H6** (`functions/core/auto-send-sap-core.js`): se registra solo cuando `before.stage !== 'confirmed'`. Comentario corregido (el registro se espera, no es fire-and-forget).
+
+### Por qué
+
+Fail-closed sin efectos parciales en la liberación; observadores con línea de base usable antes de pensar en bloquear (§77); mensajes útiles para el vendedor sin filtrar datos internos (§68).
+
+### Verificación
+
+- `npx vitest run tests/functions/`: 121 archivos, 1706/1706.
+- `npx vitest run tests/unit/`: 236 archivos, 3131/3131.
+- `npx biome check` sobre los 14 archivos tocados: sin errores (1 warning previo en `waitlist-validate-core.test.js`, parámetro sin usar en un mock existente).
+- `npm run typecheck`: limpio.
+- Tests nuevos o cambiados (test bug vs SUT bug, §6: todos son cambios de SUT pedidos por la revisión):
+  - `release-asig-core.test.js`: SEC-M6 T1/T2 pasan de "saltea" a "aborta con `RELEASE_CROSS_CLIENT` sin escrituras fuera de `operations_log`"; T5/T6 pasan a `CLIENT_DATA_MISSING` con la orden intacta; nuevos T2b (mayúsculas/espacios), T6b (`remove_item` no quita el ítem), T6c (ítem sin reserva en orden sin cardCode se puede quitar).
+  - `waitlist-validate-core.test.js`: creates con los payloads de las 5 rutas del cliente (verificadas con grep en `index.html`: CPST, Excel, manual, pedido → espera, borrador → espera), `'active'`, transiciones sin stage, reanimación `consumed` → sin stage, stage fuera de lista.
+  - `line-mutation-observer-trigger.test.js`: usa el core real; severidad LOW/MEDIUM; 4 escrituras de servidor descartadas; marcador previo sin cambio no excluye; `asigRevertidaBy` no-sistema no excluye.
+  - `gemini-ocr.test.js`: `toClientOcrError` (8 casos). `sec-m5-error-sanitization-index.test.js`: el contrato del wrapper ahora exige `toClientOcrError(e)`.
+  - `commit-pedido-atk-002-asigrefs-xref.test.js`: T1 verifica que los cardCodes no están en la respuesta y sí en el registro; T1b (mayúsculas).
+  - `auto-send-sap-sec-h2-observe.test.js`: pedido ya confirmado no vuelve a registrar.
+- No verificado: comportamiento desplegado, emulador de rules, datos de producción (cuántas órdenes/pedidos sin `clientCardCode` hay hoy).
+
+### errorCodes sin texto en el cliente
+
+Hoy caen en el mensaje genérico del cliente (`'Error aplicando el cambio: ' + message` en la liberación, que muestra el mensaje en español del servidor):
+
+- `CLIENT_DATA_MISSING` (nuevo, `releaseAsigCF`).
+- `RELEASE_CROSS_CLIENT` (nuevo, `releaseAsigCF`).
+- Ya anotados arriba y todavía pendientes: `TOO_MANY_SKUS`, `GEMINI_OCR_FAILED`, `EMAIL_SEND_FAILED`, `ROLE_CHECK_UNAVAILABLE`.
+
+También pendiente en el cliente (otro PR): no usar el fallback `|| unitsToFree` al mostrar las unidades liberadas.
+
+### Pendientes de la revisión (no aplicados)
+
+- **H7**: el marker `_commitVersion` lo puede escribir el cliente; se cierra en `firestore.rules`, fuera del alcance de este ajuste.
+- **H5 (parte)**: CHECK G no tiene excepción para roles privilegiados; falta confirmar con Mariano si es intencional.
+- **H8**: tope de 250 productos solo con stock en vivo; sin texto para `TOO_MANY_SKUS`; el mensaje del servidor usa "SKUs".
+- **H9**: `updatePedidoLinesCore` bloquea `confirmed` también para admin y chequea la invariante en todas las líneas (sin llamadores hoy).
+- **H10**: el contador de rate limit se consume antes de validar parámetros; mensaje del cliente al tope no refleja ventanas de hora/día.
+- **H11**: aviso de "snapshot degradado" en un caso normal (ruido) y el comentario dice `operations_log` pero solo va a consola.
+- **H12**: errores de transacción del reparto se devuelven como texto en `errors[]`; limpiarlo requiere tocar el cliente.
+- **H13**: costo de lecturas de `onWaitlistWriteValidate` en órdenes grandes.
+
+### Rollback
+
+`git revert <sha>` de este commit y redeploy de `releaseAsigCF`, `geminiOcrProxy`, `commitPedidoCF`, `onPedidoConfirmedSendToSap`, `onPedidoLineMutationObserver` y `onWaitlistWriteValidate`. Sin datos que limpiar: los cambios de observadores solo afectan qué se registra.

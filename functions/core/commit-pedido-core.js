@@ -1611,15 +1611,23 @@ function accumulateCancelAsigMutations(pending, payload, snapshots, newPedidoId,
     //
     // Compat: si el pedido origen no tiene clientCardCode persistido (pedidos
     // viejos), no bloquea.
-    const payloadCardCode = String(payload.cardCode || '').trim();
+    //
+    // Ajuste post-revisión H5 (2026-11-24): la comparación normaliza trim +
+    // mayúsculas (§46), y los cardCodes van solo al registro del servidor
+    // (_logExtra), no al cliente: el rechazo no revela a qué cliente
+    // pertenece un pedido ajeno.
+    const payloadCardCode = String(payload.cardCode || '')
+      .trim()
+      .toUpperCase();
     const snapData = /** @type {any} */ (snap && snap.data) || {};
-    const origenCardCode = String(snapData.clientCardCode || '').trim();
+    const origenCardCode = String(snapData.clientCardCode || '')
+      .trim()
+      .toUpperCase();
     if (payloadCardCode && origenCardCode && payloadCardCode !== origenCardCode) {
       throwError('ASIG_REF_INVALID', 'pedido origen pertenece a otro cliente', {
         reason: 'CROSS_CLIENT_CARDCODE_MISMATCH',
         pedidoOrigenId,
-        payloadCardCode,
-        origenCardCode,
+        _logExtra: { payloadCardCode, origenCardCode },
       });
     }
 

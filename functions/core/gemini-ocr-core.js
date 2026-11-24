@@ -376,4 +376,66 @@ export async function runGeminiOcr(deps, auth, input) {
 }
 
 // Exportado para tests unitarios directos (no parte del contrato publico).
+/** Mensaje genérico cuando el error no es uno de los fijos y seguros del core. */
+export const OCR_GENERIC_CLIENT_MESSAGE = 'OCR fallo, reintenta en unos segundos';
+
+/** Códigos que pueden viajar tal cual al cliente (el resto → internal). */
+const OCR_SAFE_CODES = new Set([
+  'unauthenticated',
+  'permission-denied',
+  'invalid-argument',
+  'deadline-exceeded',
+  'unavailable',
+  'failed-precondition',
+  'resource-exhausted',
+  'not-found',
+]);
+
+/**
+ * Mensajes fijos que arma este core y que le sirven al vendedor (qué está
+ * mal y qué hacer). No incluyen datos de la respuesta del proveedor ni de la
+ * configuración. Cualquier otro mensaje se reemplaza por el genérico.
+ */
+const OCR_SAFE_FIXED_MESSAGES = new Set([
+  'requiere login',
+  'solo @shimano puede OCRizar tickets',
+  'imageBase64 requerido',
+  'imagen demasiado grande (max ~7.5 MB)',
+  'mimeType no soportado (jpeg/png/webp/heic/heif)',
+  'imageBase64 debe ser base64 puro (sin data: prefix)',
+  'Gemini no responde. Reintentar o completar manual.',
+  'Gemini no respondio bien. Reintentar o completar manual.',
+  'importe invalido (no es numero)',
+  'importeUsd invalido (no es numero)',
+]);
+
+/** Plantillas fijas con un número variable (no hay texto externo). */
+const OCR_SAFE_MESSAGE_PATTERNS = [
+  /^Gemini tardo mas de \d+s\. Reintentar o completar manual\.$/,
+  /^importe \([0-9.eE+-]+\) excede el maximo permitido \(\d+ ARS\)\. Cargalo manual y verifica\.$/,
+  /^importeUsd \([0-9.eE+-]+\) excede el maximo permitido \(\d+ USD\)\. Cargalo manual y verifica\.$/,
+];
+
+/**
+ * Ajuste post-revisión H4 (2026-11-24): traduce un error del OCR a lo que
+ * puede ver el cliente. Deja pasar solo los mensajes fijos de este core
+ * (objetos `{code, message}` que tira runGeminiOcr, no instancias de Error);
+ * todo lo demás (errores nativos, textos con datos externos o de
+ * configuración) va con el mensaje genérico.
+ *
+ * @param {any} e
+ * @returns {{ code: string, message: string }}
+ */
+export function toClientOcrError(e) {
+  const codeIn = String(e && e.code ? e.code : '');
+  const code = OCR_SAFE_CODES.has(codeIn) ? codeIn : 'internal';
+  const isCoreError = !!e && typeof e === 'object' && !(e instanceof Error);
+  const msg = isCoreError && typeof e.message === 'string' ? e.message : '';
+  const safe =
+    code !== 'internal' &&
+    !!msg &&
+    (OCR_SAFE_FIXED_MESSAGES.has(msg) || OCR_SAFE_MESSAGE_PATTERNS.some((re) => re.test(msg)));
+  return { code, message: safe ? msg : OCR_GENERIC_CLIENT_MESSAGE };
+}
+
 export const _test = { _validateOcrResult, OCR_ENUMS, MAX_IMPORTE_ARS, MAX_IMPORTE_USD };
