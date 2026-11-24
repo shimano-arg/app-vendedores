@@ -127,9 +127,15 @@ describe('stock-breakdown-sync STRICT', () => {
   });
 
   describe('_version shape alineado (anti-drift)', () => {
-    it('ambos declaran _version 8 (v8 §E1 Reparto dep 12)', () => {
-      expect(SRC).toMatch(/_version:\s*8/);
-      expect(CF).toMatch(/_version:\s*8/);
+    it('ambos declaran _version dinámico 8 legacy o 9 §39 FIX v9 agregados', () => {
+      // §39 FIX v9 (2026-11-24): el _version se computa ternario según
+      // `_breakdownSource`. 8 iterate; 9 cuando usamos agregados precomputados.
+      expect(SRC).toMatch(
+        /_version:\s*_breakdownSource\s*===\s*'snapshot-agregados-v9'\s*\?\s*9\s*:\s*8/
+      );
+      expect(CF).toMatch(
+        /_version:\s*_breakdownSource\s*===\s*'snapshot-agregados-v9'\s*\?\s*9\s*:\s*8/
+      );
     });
   });
 

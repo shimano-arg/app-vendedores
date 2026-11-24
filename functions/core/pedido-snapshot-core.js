@@ -203,6 +203,9 @@ export function lineReservesStock(line, nowMs, pedido, opts) {
  *   waitlistEntries?: Array<any>,
  *   ingresosRepartoActivos?: Array<any>,
  *   sapBackorderSnapshot?: Object|null,
+ *   snapshotAgregados?: boolean,
+ *   getAsignadaBySku?: (sku:string) => number,
+ *   getConfirmadaBySku?: (sku:string) => number,
  * }} deps
  * @param {{now?: number}} [opts]
  */
@@ -424,7 +427,27 @@ export function getStockBreakdown(sku, deps, opts) {
 
   // v1394 §40.2 mirror: cap por fisico.
   // v8 §E1 mirror: reservadasTotal excluye enTransito (reservan dep 12, no dep 11).
-  const reservasNominales = confirmadasSinFacturar.totalFisico + asignadas.totalFisico;
+  //
+  // §39 FIX v9 mirror (2026-11-24): Server mirror acepta el mismo opt-in
+  // `snapshotAgregados` que el cliente (§57 byte-for-byte). El server
+  // server-side NO pasa `snapshotAgregados=true` — su iterate sobre todos
+  // los pedidos abiertos es la ground truth. El parámetro existe para
+  // tests de simetría que invocan el mirror con shape de agregados.
+  let _confFisicoFinal = confirmadasSinFacturar.totalFisico;
+  let _asigFisicoFinal = asignadas.totalFisico;
+  let _breakdownSource = 'iterate-pedidos-legacy';
+  if (
+    deps.snapshotAgregados === true &&
+    typeof deps.getAsignadaBySku === 'function' &&
+    typeof deps.getConfirmadaBySku === 'function'
+  ) {
+    const _a = Number(deps.getAsignadaBySku(skuUp)) || 0;
+    const _c = Number(deps.getConfirmadaBySku(skuUp)) || 0;
+    _asigFisicoFinal = _a;
+    _confFisicoFinal = _c;
+    _breakdownSource = 'snapshot-agregados-v9';
+  }
+  const reservasNominales = _confFisicoFinal + _asigFisicoFinal;
   const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
   // v8 §E1 mirror: libreTransito paralelo contra dep 12.
@@ -459,7 +482,8 @@ export function getStockBreakdown(sku, deps, opts) {
     libre,
     utilizablePara,
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 8,
+    // §39 FIX v9 mirror: _version=9 cuando usamos agregados; 8 en modo legacy iterate.
+    _version: _breakdownSource === 'snapshot-agregados-v9' ? 9 : 8,
   };
 }
 

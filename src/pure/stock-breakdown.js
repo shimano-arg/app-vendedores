@@ -37,6 +37,22 @@ import { lineReservesStock } from './stock-realmente-disponible.js';
  * @property {Array<any>} [ingresosRepartoActivos] Docs ingresos_reparto
  *   status in [pending, in_progress]. Usado para `pendienteReparto.repartoId`.
  * @property {Object|null} [sapBackorderSnapshot] Reservado para futuro feed SAP.
+ *
+ * §39 FIX v9 (2026-11-24) — modo agregados:
+ * @property {boolean} [snapshotAgregados] Si true (opt-in del caller) y los
+ *   dos getters siguientes están presentes, OVERRIDE `reservadasTotal` con
+ *   los agregados precomputados por el sync server-side. El cliente VDE
+ *   (cuyo `deps.pedidos` está filtrado por `assignedVendorUid`) ve el
+ *   MISMO `reservadasTotal` que el server. Server-side NO activa esto —
+ *   itera `deps.pedidos` que es todo. Default false (compat total).
+ * @property {(sku:string) => number} [getAsignadaBySku] Unidades ASIG
+ *   físico vigentes del SKU según `app_config/stock_snapshot.asignadasBySku`.
+ *   TTL §40 7d + §40.8 orderDocEntry + §E1 excluye tránsito ya aplicados
+ *   server-side en el helper `collectAsignadasConfirmadasFromPedidos`.
+ * @property {(sku:string) => number} [getConfirmadaBySku] Unidades
+ *   confirmed físico vigentes del SKU según
+ *   `app_config/stock_snapshot.confirmadasBySku`. TTL §38 soft 7d + hard 60d
+ *   + §40.8 orderDocEntry + §E1 excluye tránsito ya aplicados server-side.
  */
 
 /**
@@ -376,7 +392,36 @@ export function getStockBreakdown(sku, deps, opts) {
   // v8 §E1: reservadasTotal cuenta SOLO la porción físico (excluye enTransito).
   // Las líneas enTransito reservan contra dep 12 (libreTransito), no contra dep 11.
   // Precedente: BENGOCHEA 597151 (2026-10-21) ASIG 6 con fisico 2 → muestra 2.
-  const reservasNominales = confirmadasSinFacturar.totalFisico + asignadas.totalFisico;
+  //
+  // §39 FIX v9 (2026-11-24) — override agregados:
+  // Si el caller opt-in con `snapshotAgregados=true` y los getters están
+  // presentes, usamos los agregados precomputados server-side en vez del
+  // iterate local. Esto cierra la divergencia §39 cuando el cliente VDE
+  // tiene `deps.pedidos` filtrado por `assignedVendorUid`. El bucket
+  // `porCliente` + `detalle` siguen siendo del iterate (es la info que
+  // el VDE puede legítimamente ver de sus clientes). Server NO activa
+  // este modo — su iterate es la ground truth.
+  //
+  // Fallback automático (§77): si `snapshotAgregados=true` pero los
+  // getters devuelven valores inválidos o el snapshot no tiene `_version>=9`,
+  // los getters del caller ya devuelven 0 o null → acá caen al iterate.
+  // El caller (index.html) sólo pasa `snapshotAgregados=true` cuando el
+  // snapshot tiene ambos campos populated y `_version>=9`.
+  let _confFisicoFinal = confirmadasSinFacturar.totalFisico;
+  let _asigFisicoFinal = asignadas.totalFisico;
+  let _breakdownSource = 'iterate-pedidos-legacy';
+  if (
+    deps.snapshotAgregados === true &&
+    typeof deps.getAsignadaBySku === 'function' &&
+    typeof deps.getConfirmadaBySku === 'function'
+  ) {
+    const _a = Number(deps.getAsignadaBySku(skuUp)) || 0;
+    const _c = Number(deps.getConfirmadaBySku(skuUp)) || 0;
+    _asigFisicoFinal = _a;
+    _confFisicoFinal = _c;
+    _breakdownSource = 'snapshot-agregados-v9';
+  }
+  const reservasNominales = _confFisicoFinal + _asigFisicoFinal;
   const reservadasTotal = Math.min(reservasNominales, fisicoDep11);
   const libre = Math.max(0, fisicoDep11 - reservadasTotal);
   // v8 §E1: libreTransito paralelo contra dep 12.
@@ -415,6 +460,8 @@ export function getStockBreakdown(sku, deps, opts) {
     utilizablePara,
     // Alias compat v1391 — mismo info que repartoAbierto.
     pendienteReparto: { qty: repartoAbierto.qty, repartoId: repartoAbierto.repartoId },
-    _version: 8,
+    // §39 FIX v9: _version=9 cuando usamos agregados; 8 en modo legacy iterate.
+    // El consumer puede inferir la fuente por el _version (sin agregar key al shape).
+    _version: _breakdownSource === 'snapshot-agregados-v9' ? 9 : 8,
   };
 }
