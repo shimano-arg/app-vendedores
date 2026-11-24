@@ -166,6 +166,15 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == uid
                      && request.resource.data.keys().hasOnly(['email', 'displayName', 'role', 'vendor', 'createdAt'])
                      && (!('vendor' in request.resource.data) || request.resource.data.vendor == null)
+                     // H10 (batch 2026-11-24): el email del doc es el del token,
+                     // no texto libre. Sin email en el token, solo '' o ausente
+                     // (el login escribe user.email || '').
+                     && (
+                       ('email' in request.auth.token
+                         && request.resource.data.get('email', null) == request.auth.token.email)
+                       || (!('email' in request.auth.token)
+                         && request.resource.data.get('email', '') == '')
+                     )
                      && (
                        request.resource.data.role == 'unassigned'
                        || (
