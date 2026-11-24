@@ -861,6 +861,11 @@ export const onPedidoWriteTrackAsigTransitions = onDocumentWritten(
  */
 const SHADOW_STARTED_AT = '2026-11-24';
 
+/**
+ * @param {any} db
+ * @param {any} afterData
+ * @param {any} beforeData
+ */
 async function resolveActorRole(db, afterData, beforeData) {
   const uid =
     (afterData && typeof afterData.updatedByUid === 'string' && afterData.updatedByUid) ||
