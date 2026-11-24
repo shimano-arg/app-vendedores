@@ -212,7 +212,7 @@ async function main() {
     format: 'iife',
     target: 'es2020',
     platform: 'browser',
-    minify: false,
+    minify: true,
     sourcemap: 'inline',
     logLevel: 'info',
   });
@@ -230,7 +230,7 @@ async function main() {
       format: 'iife',
       target: 'es2020',
       platform: 'browser',
-      minify: false,
+      minify: true,
       sourcemap: 'inline',
       logLevel: 'error', // solo errores para no spamear
     });
