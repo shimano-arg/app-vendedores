@@ -7520,10 +7520,23 @@ window.getStockBreakdown = function(sku, opts){
       pendienteReparto: {qty: 0, repartoId: null}, _version: 1,
     };
   }
+  // §39 FIX v9 (2026-11-24) — opt-in agregados precomputados server-side:
+  // Si el snapshot cargó con _version>=9 + ambos campos, pasamos los
+  // getters al pure → override de reservadasTotal cliente↔server. Sin
+  // esto, el VDE ve `reservadasTotal` menor que el server (listener
+  // filtrado por assignedVendorUid) → STOCK_CHANGED false-ish.
+  // Fallback automático: si no está activo, caller pasa snapshotAgregados=false
+  // → pure usa iterate legacy. Zero impacto para pedidos normales.
+  const _agregadosActive = window._stockAgregadosActive === true;
+  const _asigMapForDeps = window._stockAgregadosAsignadasBySku || {};
+  const _confMapForDeps = window._stockAgregadosConfirmadasBySku || {};
   return _fn(sku, {
     getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
     pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
     waitlistEntries: _getWaitlistCpstEntries(),
+    snapshotAgregados: _agregadosActive,
+    getAsignadaBySku: (sku) => Number(_asigMapForDeps[String(sku || '').toUpperCase()] || 0),
+    getConfirmadaBySku: (sku) => Number(_confMapForDeps[String(sku || '').toUpperCase()] || 0),
   }, opts || {});
 };
 window.STOCK_LABELS = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.STOCK_LABELS) || {
@@ -33896,6 +33909,35 @@ function _applyStockSnapshotDoc(d, source) {
     catch(e) { console.warn('[stock] no pude parsear preLanzamientoBySku:', e); STOCK_PRE_LANZAMIENTO = {}; }
   } else {
     STOCK_PRE_LANZAMIENTO = {};
+  }
+  // §39 FIX v9 (2026-11-24) — agregados precomputados server-side:
+  // Si snapshot._version >= 9 y los 2 campos están presentes, el cliente
+  // los usa para `reservadasTotal` en getStockBreakdown via globals
+  // window._stockAgregadosAsignadasBySku / window._stockAgregadosConfirmadasBySku.
+  // Si falta cualquiera de los 3 → fallback a iterate legacy (snapshotAgregadosActive=false).
+  try {
+    let _asigMap = null;
+    let _confMap = null;
+    if (typeof d.asignadasBySku === 'string') {
+      try { _asigMap = JSON.parse(d.asignadasBySku) || {}; } catch(e) { _asigMap = null; }
+    } else if (d.asignadasBySku && typeof d.asignadasBySku === 'object') {
+      _asigMap = d.asignadasBySku;
+    }
+    if (typeof d.confirmadasBySku === 'string') {
+      try { _confMap = JSON.parse(d.confirmadasBySku) || {}; } catch(e) { _confMap = null; }
+    } else if (d.confirmadasBySku && typeof d.confirmadasBySku === 'object') {
+      _confMap = d.confirmadasBySku;
+    }
+    const _snapVersion = Number(d._version) || 0;
+    const _active = _snapVersion >= 9 && _asigMap && _confMap;
+    window._stockAgregadosAsignadasBySku = _asigMap || {};
+    window._stockAgregadosConfirmadasBySku = _confMap || {};
+    window._stockAgregadosActive = _active === true;
+    window._stockAgregadosVersion = _snapVersion;
+  } catch (_eAgregados) {
+    window._stockAgregadosActive = false;
+    window._stockAgregadosAsignadasBySku = {};
+    window._stockAgregadosConfirmadasBySku = {};
   }
   STOCK_UPDATED_AT = (d.updatedAt && d.updatedAt.toDate) ? d.updatedAt.toDate().toISOString() : null;
   try { window._updateSapHealthBadge && window._updateSapHealthBadge(); } catch(e) {}

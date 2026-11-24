@@ -35,9 +35,26 @@ describe('stock-breakdown sync src/pure vs functions/core', () => {
     }
   });
 
-  it('ambos tienen _version=8 (v8 §E1 Reparto dep 12)', () => {
-    expect(SRC).toMatch(/_version:\s*8/);
-    expect(CF).toMatch(/_version:\s*8/);
+  it('ambos tienen _version 8 (legacy iterate) o 9 (§39 FIX v9 agregados)', () => {
+    // §39 FIX v9 (2026-11-24): el _version ahora es dinámico según modo.
+    // 8 = iterate legacy (cliente VDE filtrado, server ground truth).
+    // 9 = snapshot-agregados-v9 (cliente VDE con getters agregados).
+    // Verificamos que ambos archivos tengan la expresión ternaria.
+    expect(SRC).toMatch(
+      /_version:\s*_breakdownSource\s*===\s*'snapshot-agregados-v9'\s*\?\s*9\s*:\s*8/
+    );
+    expect(CF).toMatch(
+      /_version:\s*_breakdownSource\s*===\s*'snapshot-agregados-v9'\s*\?\s*9\s*:\s*8/
+    );
+  });
+
+  it('ambos aceptan el opt-in snapshotAgregados (§39 FIX v9 2026-11-24)', () => {
+    expect(SRC).toMatch(/deps\.snapshotAgregados\s*===\s*true/);
+    expect(CF).toMatch(/deps\.snapshotAgregados\s*===\s*true/);
+    expect(SRC).toMatch(/getAsignadaBySku/);
+    expect(CF).toMatch(/getAsignadaBySku/);
+    expect(SRC).toMatch(/getConfirmadaBySku/);
+    expect(CF).toMatch(/getConfirmadaBySku/);
   });
 
   it('v8 §E1: ambos exponen libreTransito + asignadas.totalTransito + confirmadas.totalTransito', () => {

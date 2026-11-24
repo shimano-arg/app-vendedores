@@ -26,6 +26,10 @@
  */
 
 import { acquireBpSyncLock, releaseBpSyncLock } from './bp-sync-lock.js';
+// §39 FIX v9 (2026-11-24): agregados asignadasBySku/confirmadasBySku para
+// cerrar la divergencia §39 cliente↔server. Ver
+// INCIDENTE_PEDIDOS_17_FIX_S39_IMPL_2026-11-24.md.
+import { collectAsignadasConfirmadasFromPedidos } from './collect-asignadas-confirmadas-from-pedidos.js';
 import {
   collectBackorderFromSqs,
   fetchOpenSqsFromServiceLayer,
@@ -449,6 +453,64 @@ export async function syncSapCatalogStockCore(deps) {
       snapshot._backorderSource = source; // 'cf-scheduled' | 'manual-dispatch'
       snapshot._backorderUpdatedAt = new Date();
     }
+    // §39 FIX v9 (2026-11-24) — agregados asignadasBySku/confirmadasBySku:
+    //   - El CF server-side (Admin SDK) bypassa rules → ve TODOS los
+    //     pedidos abiertos. Precomputa 2 agregados por SKU (ASIG físico +
+    //     confirmed físico vigentes) y los escribe al snapshot.
+    //   - El cliente con `snapshotAgregados=true` consume los agregados
+    //     en vez de iterar `deps.pedidos` filtrado por VDE → cliente y
+    //     server ven el MISMO `reservadasTotal`.
+    //   - Fallback seguro: si la lectura de pedidos o el cálculo falla,
+    //     NO escribimos los 2 campos + NO bumpeamos _version → merge:true
+    //     preserva los valores que escribió la última corrida exitosa.
+    //     Cliente que ve snapshot sin los campos vuelve al modo legacy
+    //     (iterar pedidos filtrado) sin crash. §77 fail-open.
+    //   - Shape: {sku: int} serializado como JSON string, patrón §65.
+    //   - v8 §E1 preservado: SOLO cuenta líneas físico (excluye enTransito).
+    let agregadosComputed = false;
+    /** @type {Record<string, number>} */
+    let asignadasBySkuMap = {};
+    /** @type {Record<string, number>} */
+    let confirmadasBySkuMap = {};
+    try {
+      const pedidosOpenSnap = await deps.fbDb
+        .collection('pedidos')
+        .where('closedAt', '==', null)
+        .get();
+      /** @type {Array<any>} */
+      const pedidosOpen = [];
+      pedidosOpenSnap.forEach(
+        /** @param {any} doc */
+        (doc) => {
+          const data = doc.data() || {};
+          pedidosOpen.push({ _fsId: doc.id, ...data });
+        }
+      );
+      const result = collectAsignadasConfirmadasFromPedidos(pedidosOpen, Date.now());
+      asignadasBySkuMap = result.asignadasBySku;
+      confirmadasBySkuMap = result.confirmadasBySku;
+      agregadosComputed = true;
+      log(
+        '[sync] agregados §39 v9: ' +
+          `asig ${result.totalesStats.asignadasSkuCount} SKUs (${result.totalesStats.asignadasQty}u),` +
+          ` conf ${result.totalesStats.confirmadasSkuCount} SKUs (${result.totalesStats.confirmadasQty}u),` +
+          ` ${result.totalesStats.pedidosScanned} pedidos`
+      );
+    } catch (e) {
+      const errMsg = (e && /** @type {any} */ (e).message) || String(e);
+      errors.push('agregados-s39: ' + errMsg);
+      log('[sync] agregados §39 v9 fallo (preservando valor previo via merge:true): ' + errMsg);
+      agregadosComputed = false;
+    }
+    if (agregadosComputed) {
+      snapshot.asignadasBySku = JSON.stringify(asignadasBySkuMap);
+      snapshot.confirmadasBySku = JSON.stringify(confirmadasBySkuMap);
+      snapshot._agregadosSource = source;
+      snapshot._agregadosUpdatedAt = new Date();
+      snapshot._version = 9;
+    }
+    // Si NO agregadosComputed: NO tocamos _version → merge:true preserva
+    // valor previo (snapshot queda con el _version anterior o sin él).
     // merge:true preserva campos que la CF no mandó + cualquier otro field escrito
     // por Python que la CF no computa (ej. legacySource).
     await deps.fbDb.collection('app_config').doc('stock_snapshot').set(snapshot, { merge: true });
