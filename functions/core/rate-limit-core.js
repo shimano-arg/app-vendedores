@@ -153,6 +153,11 @@ export const RATE_LIMITS = /** @type {const} */ ({
   pedidosDelMesCF: { threshold: 120, windowMs: 60 * 60 * 1000 }, // 120/hr
   closeSqsManuallyCF: { threshold: 20, windowMs: 60 * 60 * 1000 }, // 20/hr (SL)
   generateVentasReportCF: { threshold: 10, windowMs: 24 * 60 * 60 * 1000 }, // 10/day (1GiB)
+  // S-7 P0-A Fase 2 (2026-11-25): directory de users sin secretos. Usado por
+  // Planner (loadVdiPartnerUsers + ensureVdeUsersLoaded) y Master Clientes.
+  // Reads constantes al render; 600/hr = 10/min por caller cubre operación
+  // normal (abrir/refrescar Planner varias veces) + corta abuse.
+  getUsersDirectoryCF: { threshold: 600, windowMs: 60 * 60 * 1000 }, // 600/hr
 });
 
 /**

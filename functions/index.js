@@ -67,6 +67,9 @@ import { dashboardVentasCore } from './core/dashboard-ventas-core.js';
 // v1056 (2026-09-24): denormaliza attrs comerciales de la última visita al doc
 // del cliente en client_master. Última visita gana (LWW por fecha).
 import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-core.js';
+// S-7 P0-A Fase 2 (2026-11-25): directory de users sin secretos. Cierra S04
+// para pantallas afectadas por #1445 (Planner + Master Clientes).
+import { getUsersDirectoryCore } from './core/directory-core.js';
 import { isDep12RepartoEnabled } from './core/feature-flags.js';
 // §63 Fase 3 Capa 2 (2026-10-23 v1445): fetchStockLiveCF — live query SL
 // gated por flag app_config/live_sl.enabled (default false).
@@ -1587,6 +1590,100 @@ export const releaseAsigCF = onCall(
       }
       console.error('[releaseAsigCF:general]', e);
       throw new HttpsError('internal', 'release asig fallo, reintenta en unos segundos');
+    }
+  }
+);
+
+/**
+ * S-7 P0-A Fase 2 (2026-11-25) — getUsersDirectoryCF
+ *
+ * Endpoint callable que devuelve la lista de users sin secretos. Cierra el
+ * hueco S04 para las pantallas client-side que antes leían
+ * `collection('roles').where('role','==','vendedor').get()` y post #1445
+ * recibirían snapshots vacíos (rama vulnerable removida).
+ *
+ * Consumidores migrados en el mismo PR:
+ *   - index.html loadVdiPartnerUsers (rama vendedor)
+ *   - index.html ensureVdeUsersLoaded
+ *   - src/domains/master-clientes.js (all users)
+ *
+ * Validaciones:
+ *   1. Auth requerida (auth.uid presente).
+ *   2. Rol caller ∈ {admin, gerente, interno, vendedor}. Otros → permission-denied.
+ *   3. Rate limit 600/hr por uid (defensa en profundidad).
+ *   4. Payload saneado por el core (filterRole validado, uids truncado a 50).
+ *
+ * Nunca retorna passwordHash, passwordSalt, totpSecret, totpEnabled
+ * (ver PRIVATE_FIELDS en directory-core.js). El core solo copia los
+ * campos de PUBLIC_FIELDS.
+ */
+export const getUsersDirectoryCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+
+    const db = getFirestore();
+
+    // Validar rol del caller. roles/{uid} queda cerrado a cross-vendor
+    // tras #1445; el caller siempre puede leer su propio doc (self-read).
+    let callerRole = null;
+    try {
+      const callerRoleSnap = await db.collection('roles').doc(auth.uid).get();
+      callerRole = callerRoleSnap.exists
+        ? String((callerRoleSnap.data() || {}).role || '').toLowerCase()
+        : null;
+    } catch (e) {
+      // SEC-M5: path contiene UID; log full al servidor, mensaje genérico ES.
+      if (e instanceof HttpsError) throw e;
+      console.error('[getUsersDirectoryCF:roleLookup]', e);
+      throw new HttpsError('internal', 'no se pudo validar rol');
+    }
+
+    if (!['admin', 'gerente', 'interno', 'vendedor'].includes(callerRole || '')) {
+      throw new HttpsError('permission-denied', 'rol no autorizado');
+    }
+
+    // Rate limit (defensa en profundidad). El preset `getUsersDirectoryCF`
+    // da 600 reqs/hr/uid: cubre uso legítimo (Planner refresca varias veces)
+    // y corta abuse loops.
+    const _rl = await checkAndIncrementRateLimit(
+      { fbDb: db, log: (m, extra) => console.log(m, extra || {}) },
+      auth.uid,
+      'getUsersDirectoryCF',
+      RATE_LIMITS.getUsersDirectoryCF.threshold,
+      RATE_LIMITS.getUsersDirectoryCF.windowMs
+    );
+    if (!_rl.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Rate limit alcanzado (${_rl.count}/${_rl.threshold}). Reintentá después de ${_rl.resetAt}.`,
+        { resetAt: _rl.resetAt, threshold: _rl.threshold }
+      );
+    }
+
+    try {
+      const result = await getUsersDirectoryCore(
+        {
+          fbDb: db,
+          log: (m, extra) => console.log(m, extra || {}),
+          now: () => new Date(),
+        },
+        req.data || {}
+      );
+      return result;
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      console.error('[getUsersDirectoryCF:general]', e);
+      throw new HttpsError('internal', 'error interno; reintentá en unos segundos');
     }
   }
 );
