@@ -103,12 +103,10 @@ describe('v1581 §H1 (adversarial PR #1431) — CSS vars faltantes en :root ligh
   });
 });
 
-describe('v1581 — bump APP_VERSION + CACHE_VERSION', () => {
-  it('APP_VERSION v1581 en index.html', () => {
-    expect(INDEX_HTML).toContain("const APP_VERSION = 'v1581'");
-  });
-  it('CACHE_VERSION v1581 en sw.js', () => {
-    const sw = readFileSync('sw.js', 'utf8');
-    expect(sw).toContain("const CACHE_VERSION = 'v1581'");
+describe('v1581 — fixes shippeados (helper + bump versión original)', () => {
+  // v1582 (2026-11-25): APP_VERSION bumpeado a v1582 por el PR de memo. El
+  // helper + los wrappers + el CSS de v1581 siguen activos.
+  it('helper _perfDebounce sigue disponible', () => {
+    expect(INDEX_HTML).toMatch(/window\._perfDebounce\s*=\s*function\(fn,\s*ms\)/);
   });
 });

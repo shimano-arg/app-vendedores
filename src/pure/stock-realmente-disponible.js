@@ -1,5 +1,5 @@
 // @ts-check
-import { getStockBreakdown } from './stock-breakdown.js';
+import { getStockBreakdown, invalidateStockBreakdownCache } from './stock-breakdown.js';
 
 /**
  * v701 (2026-08-28): Stock realmente disponible para vender.
@@ -403,6 +403,11 @@ export function getStockPorClienteMemo(sku, cardCode, deps, opts) {
     bucket = new Map();
     _stockPorClienteMemo.set(pedidos, bucket);
   }
+  // v1582 §PERF2: miss en este memo (cache key cambió por fisico/sku/cardCode
+  // o entry expiró TTL) → invalidar el memo global de getStockBreakdown para
+  // evitar leer el breakdown stale. Garantiza consistencia aunque el consumer
+  // no haya llamado `invalidateStockBreakdownCache()` desde su listener.
+  invalidateStockBreakdownCache();
   const result = getStockPorCliente(sku, cardCode, deps, opts);
   bucket.set(key, { result, ts: now });
   return result;

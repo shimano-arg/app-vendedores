@@ -145,6 +145,23 @@ export const STOCK_LABELS = Object.freeze({
   pendienteReparto: 'Pendientes de reparto',
 });
 
+// v1582 (2026-11-25) §PERF — memo scoped con validación de deps.
+// Cache key: sku uppercase. Cache value: {depsRef, pedidosLen, waitlistLen,
+// breakdown}. Si deps/pedidos.length/waitlistEntries.length cambian → miss.
+// Cualquier mutación inplace (rara) NO invalida — usar `invalidateStockBreakdownCache`
+// desde el consumer al snapshot change (ver index.html listeners).
+// Reporte Mariano 2026-11-25: v1581 (debounce + backdrop-filter) no alcanzó.
+// Culpable raíz: `getStockBreakdown` sin memo, invocado por SKU × waitlist ×
+// render = 100k+ ops por render.
+/** @type {Map<string, {depsRef:any, pedidosLen:number, waitlistLen:number, breakdown:any, now:number}>} */
+const _memoCache = new Map();
+let _memoGen = 0;
+
+export function invalidateStockBreakdownCache() {
+  _memoCache.clear();
+  _memoGen++;
+}
+
 /**
  * @param {string} sku
  * @param {StockBreakdownDeps} deps
@@ -152,6 +169,47 @@ export const STOCK_LABELS = Object.freeze({
  * @returns {StockBreakdown}
  */
 export function getStockBreakdown(sku, deps, opts) {
+  // v1582 §PERF: cache check antes del compute. Key: sku.
+  // Validación barata (no invoca deps.getStockFisico): depsRef + pedidosLen
+  // + waitlistLen. Si el stockSnapshot cambia (doc independiente) el consumer
+  // DEBE llamar `invalidateStockBreakdownCache()` desde el listener (ver
+  // index.html § onSnapshot stock_snapshot).
+  const _skuKey = String(sku || '').toUpperCase();
+  if (_skuKey && deps && Array.isArray(deps.pedidos)) {
+    const _cached = _memoCache.get(_skuKey);
+    const _pLen = deps.pedidos.length;
+    const _wLen = Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries.length : 0;
+    if (
+      _cached &&
+      _cached.depsRef === deps &&
+      _cached.pedidosLen === _pLen &&
+      _cached.waitlistLen === _wLen
+    ) {
+      return _cached.breakdown;
+    }
+  }
+  const _result = _computeStockBreakdown(sku, deps, opts);
+  if (_skuKey && deps && Array.isArray(deps.pedidos)) {
+    _memoCache.set(_skuKey, {
+      depsRef: deps,
+      pedidosLen: deps.pedidos.length,
+      waitlistLen: Array.isArray(deps.waitlistEntries) ? deps.waitlistEntries.length : 0,
+      breakdown: _result,
+      now: _memoGen,
+    });
+  }
+  return _result;
+}
+
+/**
+ * Implementación original de getStockBreakdown. Separada del cache wrapper
+ * para que el memo quede lipio en v1582.
+ * @param {string} sku
+ * @param {StockBreakdownDeps} deps
+ * @param {{now?: number}} [opts]
+ * @returns {StockBreakdown}
+ */
+function _computeStockBreakdown(sku, deps, opts) {
   const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
   const skuUp = String(sku || '').toUpperCase();
   const fisicoDep11 = skuUp ? Number(deps.getStockFisico(skuUp)) || 0 : 0;
