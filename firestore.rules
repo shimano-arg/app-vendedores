@@ -265,6 +265,28 @@ service cloud.firestore {
         );
     }
 
+    // H3 auditoria seguridad (2026-11-25): alcance del interno (VDI) sobre
+    // pedidos. Ver docs/CHANGELOG-sec-rules-vdi-pareja-2026-11-25.md.
+    // - Pedido propio: lo creo, lo cargo o es ownerUid el propio interno.
+    //   ownerUid/createdByUid/cargadoPorUid no estan en ninguna lista hasOnly
+    //   de VDE/VDI, asi que el cliente no puede "apropiarse" un pedido.
+    function pedidoPropioDelInterno() {
+      return resource.data.get('ownerUid', null) == request.auth.uid
+        || resource.data.get('createdByUid', null) == request.auth.uid
+        || resource.data.get('cargadoPorUid', null) == request.auth.uid;
+    }
+    // - Pedido de su pareja: el ownerUid o el assignedVendorUid (vendedor del
+    //   cliente, §44/§46) es el VDE cuyo roles.internalPartnerUid es este
+    //   interno. Cubre pedidos que cargo el gerente para clientes de la pareja.
+    //   Costo: roles/{ownerUid} y roles/{assignedVendorUid}; los accesos
+    //   repetidos al mismo doc en una evaluacion se cachean.
+    function pedidoDeMiParejaVDE() {
+      return (resource.data.get('ownerUid', null) is string
+          && isMyPartnerVDE(resource.data.ownerUid))
+        || (resource.data.get('assignedVendorUid', null) is string
+          && isMyPartnerVDE(resource.data.assignedVendorUid));
+    }
+
     match /pedidos/{pedidoId} {
       allow get: if isReader();
       // v1406 §44 (2026-10-22): VDE list permite OR ownerUid=self (compat
@@ -354,8 +376,12 @@ service cloud.firestore {
       // index.html:39009, H-02 volverAPendientes app_only index.html:39936,
       // H-03 confirmarDefinitivo auto-split index.html:39509).
       allow update: if isAdminOrGerente()
+        // H3 (2026-11-25): el interno solo modifica pedidos PROPIOS (lista
+        // completa de abajo) o de SU PAREJA VDE (lista reducida, mas abajo).
+        // Cualquier otro pedido queda denegado.
         || (
           isInterno()
+          && pedidoPropioDelInterno()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             // Delivery info (VDI edita logistica post-envio para el VDE)
             'formaEntrega', 'deliveryDetails',
@@ -391,6 +417,30 @@ service cloud.firestore {
           // (1) campo no modificado, OR (2) campo borrado (FieldValue.delete), OR
           // (3) campo con via='app_only'. Bloquea via='sap_sl' y variantes CHAIN-01.
           && transferidoSapChangeIsAppOnly()
+        )
+        // H3 (2026-11-25): pedido de la pareja VDE (no propio). Solo
+        // "modificar": contenido, entrega, notas y seguimiento del Planner.
+        // Fuera: estado (stage/confirmedAt/finalizedAt/closedAt), orderNumber,
+        // transferidoSAP y auditoria de revert/split, cobro/facturacion.
+        || (
+          isInterno()
+          && !pedidoPropioDelInterno()
+          && pedidoDeMiParejaVDE()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'formaEntrega', 'deliveryDetails',
+            'lines', 'netAmountArs', 'subtotalArs',
+            'condicionPago',
+            'observaciones', 'notes', 'clientNotes', 'updatedAt', 'updatedBy',
+            'month', 'monthIdx', 'year',
+            'repartoHistory', 'lastRepartoAt', 'lastRepartoBy',
+            'plannerStage', 'plannerHistory', 'plannerEmails', 'plannerAttachments'
+          ])
+          // H3 revision: mover la tarjeta a una columna de cobro equivale a
+          // marcar cobro; eso no entra en "modificar" para la pareja.
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plannerStage'])
+            || !(request.resource.data.get('plannerStage', '') in ['cobrado_parcial', 'cobrado_full'])
+          )
         )
         || (
           isVendor()
@@ -438,7 +488,10 @@ service cloud.firestore {
           // SEC-C1 Opcion A.2: guard semantico transferidoSAP (ver comentario en isInterno arriba)
           && transferidoSapChangeIsAppOnly()
         );
-      allow delete: if isAdminOrGerente() || isInterno();
+      // H3 (2026-11-25): el interno solo borra pedidos propios; nunca de la
+      // pareja ni ajenos.
+      allow delete: if isAdminOrGerente()
+        || (isInterno() && pedidoPropioDelInterno());
     }
 
     match /campaigns/{campaignId} {

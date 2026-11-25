@@ -4724,6 +4724,12 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 - Mensajes §68 para los dos códigos nuevos, con fallback inline. Rebuild de bundle y chunks; v1571.
 - Detalle: [`docs/CHANGELOG-sec-cf-interno-pareja-2026-11-25.md`](docs/CHANGELOG-sec-cf-interno-pareja-2026-11-25.md).
 
+### 2026-11-25 (solo reglas) — El interno solo modifica pedidos propios o de su pareja VDE
+
+- `firestore.rules` `/pedidos`: el interno edita sus pedidos con la lista completa; los de su VDE pareja (por `ownerUid` o `assignedVendorUid`) con una lista reducida (contenido, entrega, notas, Planner); el resto queda denegado. Solo borra pedidos propios.
+- Prerrequisito: cada VDE con `internalPartnerUid` cargado. Rollback: `firebase deploy --only firestore:rules` desde el commit anterior.
+- Detalle: [`docs/CHANGELOG-sec-rules-vdi-pareja-2026-11-25.md`](docs/CHANGELOG-sec-rules-vdi-pareja-2026-11-25.md).
+
 ### v1570 (2026-11-24) — Mensajes para los códigos de error nuevos del servidor
 
 - Mensajes §68 para `ROLE_CHECK_UNAVAILABLE`, `CLIENT_DATA_MISSING`, `RELEASE_CROSS_CLIENT`, `TOO_MANY_SKUS`, `GEMINI_OCR_FAILED` y `EMAIL_SEND_FAILED`, conectados en `releaseAsigCF`, `commitPedidoCF`, `fetchStockLiveCF`, el OCR de rendiciones y el reenvío de mails del planner, con fallback inline por si el bundle viene stale.
