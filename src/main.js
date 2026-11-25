@@ -241,7 +241,11 @@ import {
   mergeWaitlistIntoOrderLines,
 } from './pure/review-guard-unify.js';
 import { matchesAllTokens } from './pure/search.js';
-import { getStockBreakdown, STOCK_LABELS } from './pure/stock-breakdown.js';
+import {
+  getStockBreakdown,
+  invalidateStockBreakdownCache,
+  STOCK_LABELS,
+} from './pure/stock-breakdown.js';
 import {
   getStockDesglose,
   getStockPorCliente,
@@ -713,6 +717,7 @@ const phase0 = {
     getStockPorClienteMemo,
     getStockUtilizableParaClienteExAsig,
     getStockBreakdown,
+    invalidateStockBreakdownCache,
     STOCK_LABELS,
     buildPopupStockSkuLineas,
     renderPopupStockSkuPlainText,

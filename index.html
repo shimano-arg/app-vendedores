@@ -6351,7 +6351,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1581';
+const APP_VERSION = 'v1582';
 window.APP_VERSION = APP_VERSION;
 
 // v1581 (2026-11-25): helper debounce global para buscadores pesados.
@@ -33048,6 +33048,13 @@ function _parseSnapshotMemoized(d) {
 
 function _applyStockSnapshotDoc(d, source) {
   if (!d) return;
+  // v1582 §PERF2: invalidar memo de getStockBreakdown porque el snapshot
+  // cambió. Sin esto, renders post-snapshot siguen leyendo el cache stale
+  // hasta que `globalPedidos` también se re-emita.
+  try {
+    const _inv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockBreakdown && window.__phase0.pure.stockBreakdown.invalidateStockBreakdownCache;
+    if (typeof _inv === 'function') _inv();
+  } catch (_e) {}
   STOCK_MAP = d.stock || {};
   if (typeof d.quantities === 'string') {
     try { STOCK_QUANTITIES = JSON.parse(d.quantities) || {}; }
@@ -33177,6 +33184,11 @@ function ensureStockSnapshotListener(){
 function ensureStockSnapshotAppListener(){
   if (unsubStockSnapshotApp || !currentUser || !fbDb) return;
   unsubStockSnapshotApp = fbDb.collection('app_config').doc('stock_snapshot_app').onSnapshot(snap => {
+    // v1582 §PERF2: invalidar memo de getStockBreakdown.
+    try {
+      const _inv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockBreakdown && window.__phase0.pure.stockBreakdown.invalidateStockBreakdownCache;
+      if (typeof _inv === 'function') _inv();
+    } catch (_e) {}
     if (!snap.exists) {
       STOCK_BACKORDER_APP = {}; STOCK_ASIG_APP = {}; STOCK_ASIG_BY_CLIENT_APP = {}; STOCK_BO_BY_CLIENT_APP = {};
       return;
