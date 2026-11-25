@@ -56,6 +56,23 @@ function makeDeps({ ingresoDoc, pedidoDoc, stockSnapshotPreTx, stockSnapshotInTx
           writes.push({ op: 'add', path: name + '/auto', data });
           return { id: 'auto_' + Math.random().toString(36).slice(2, 10) };
         },
+        // v1575: soporte para `.where('closedAt', '==', null).get()` que usa
+        // applyRepartoManualCore para computar stock libre via getStockBreakdown.
+        where() {
+          return {
+            async get() {
+              const col = state[name] || {};
+              const docs = Object.entries(col)
+                .map(([id, d]) => ({ id, data: () => d }))
+                .filter(({ data }) => data() && data().closedAt == null);
+              return {
+                forEach(cb) {
+                  docs.forEach(cb);
+                },
+              };
+            },
+          };
+        },
       };
     },
     async runTransaction(fn) {

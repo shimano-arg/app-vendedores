@@ -37,6 +37,23 @@ function makeDb({ ingreso, pedidos, fisico = 50, asig = 0 }) {
           };
         },
         add: async () => ({ id: 'log' }),
+        // v1575: soporte para `.where('closedAt','==',null).get()` que usa
+        // applyRepartoManualCore para computar stock libre via getStockBreakdown.
+        where() {
+          return {
+            async get() {
+              const source = col === 'pedidos' ? mem.pedidos || {} : {};
+              const docs = Object.entries(source)
+                .map(([id, d]) => ({ id, data: () => JSON.parse(JSON.stringify(d)) }))
+                .filter(({ data }) => data() && data().closedAt == null);
+              return {
+                forEach(cb) {
+                  docs.forEach(cb);
+                },
+              };
+            },
+          };
+        },
       };
     },
     async runTransaction(fn) {
