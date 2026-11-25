@@ -14,12 +14,24 @@ const AUTO_SEND = readFileSync('functions/core/auto-send-sap-core.js', 'utf8');
 const INDEX_HTML = readFileSync('index.html', 'utf8');
 
 describe('v1418 §53 — DiscountPercent del header SL leído del pedido', () => {
-  it('auto-send-sap-core.js NO hardcodea DiscountPercent: 0', () => {
-    expect(AUTO_SEND).not.toMatch(/DiscountPercent\s*:\s*0\s*,/);
+  it('auto-send-sap-core.js NO hardcodea DiscountPercent: 0 sin gate (D1 gate válido a partir de STACK S-4 T5)', () => {
+    // STACK S-4 T5 (D12 fix 2026-11-25): el gate D1 agregó un ternario
+    // `_sendRealDiscount ? _discountPct : 0`. El `: 0` final del ternario es
+    // válido (parte del gate D1 condicional, no un hardcode). Lo que NO queremos
+    // es volver al pattern viejo `DiscountPercent: 0,` SIN gate alguno.
+    // Chequeo defensivo: si aparece exactamente el pattern viejo literal
+    // `DiscountPercent: 0,` (seguido por newline/space, NO por `_sendRealDiscount`)
+    // sin contexto del gate, falla.
+    expect(AUTO_SEND).not.toMatch(/DiscountPercent\s*:\s*0\s*,[\s]*\n[\s]*U_AppOrigen/);
   });
 
-  it('DiscountPercent se asigna desde _discountPct computed', () => {
-    expect(AUTO_SEND).toMatch(/DiscountPercent\s*:\s*_discountPct\s*,/);
+  it('DiscountPercent se asigna via gate _sendRealDiscount (STACK S-4 T5) o _discountPct directo', () => {
+    // STACK S-4 T5 (D12 fix 2026-11-25): aceptar tanto el pattern pre-fix
+    // (`DiscountPercent: _discountPct,`) como el nuevo con gate D1
+    // (`DiscountPercent: _sendRealDiscount ? _discountPct : 0,`).
+    const legacyPattern = /DiscountPercent\s*:\s*_discountPct\s*,/;
+    const d1GatePattern = /DiscountPercent\s*:\s*_sendRealDiscount\s*\?\s*_discountPct\s*:\s*0\s*,/;
+    expect(legacyPattern.test(AUTO_SEND) || d1GatePattern.test(AUTO_SEND)).toBe(true);
   });
 
   it('_discountPct lee pedido.discountPct o pedido.discountSnapshot.pctTotal', () => {
