@@ -33,6 +33,10 @@ import {
   makeGetRoleDoc,
 } from './interno-scope.js';
 
+// Código y texto alineados con MENSAJES_VENDEDOR.WAITLIST_BORRAR_SOLO_PROPIA.
+const WAITLIST_BORRAR_SOLO_PROPIA = 'WAITLIST_BORRAR_SOLO_PROPIA';
+const WAITLIST_BORRAR_SOLO_PROPIA_MESSAGE = 'Solo podés borrar órdenes en espera que cargaste vos.';
+
 /** Error with code — compatible con HttpsError pero sin importar firebase-functions. */
 /**
  * @param {string} code
@@ -125,6 +129,51 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
       }
       throw mkErr('permission-denied', INTERNO_FUERA_DE_PAREJA_MESSAGE, {
         errorCode: INTERNO_FUERA_DE_PAREJA,
+      });
+    }
+  }
+  // N5 (auditoría 2026-11-25): rechazo_cpst borra la orden en espera. El
+  // interno solo puede borrar órdenes propias (mismo criterio que el delete
+  // de firestore.rules); sobre una orden de su pareja se rechaza antes de
+  // leer o escribir pedidos. remove_item sigue permitido sobre la pareja
+  // (es una edición; si era el último producto, la orden queda vacía y se
+  // borra, residual documentado).
+  if (role === 'interno' && action === 'rechazo_cpst') {
+    const scopeDel = await evaluateWaitlistScopeInterno({
+      callerUid: auth.uid,
+      waitlist: w,
+      getRoleDoc,
+    });
+    if (scopeDel.via !== 'propio') {
+      const userEmailDel = String((auth.token && auth.token.email) || '').toLowerCase();
+      // Registro del rechazo con await (§64.2): existe antes de responder.
+      try {
+        await deps.fbDb.collection('operations_log').add({
+          type: 'release_asig_rejected',
+          errorCode: WAITLIST_BORRAR_SOLO_PROPIA,
+          severity: 'warning',
+          aborted: true,
+          action,
+          waitlistId,
+          waitlistCardCode: w.clientCardCode || null,
+          waitlistOrderNumber: w.orderNumber || null,
+          itemIndex: null,
+          reason: scopeDel.ok ? 'orden_de_pareja' : scopeDel.reason,
+          userId: auth.uid,
+          userEmail: userEmailDel,
+          role,
+          via: 'releaseAsigCF',
+          timestamp: new Date(now),
+        });
+      } catch (_logErr) {
+        if (deps.log) {
+          deps.log('releaseAsigCore operations_log write failed', {
+            errorCode: WAITLIST_BORRAR_SOLO_PROPIA,
+          });
+        }
+      }
+      throw mkErr('permission-denied', WAITLIST_BORRAR_SOLO_PROPIA_MESSAGE, {
+        errorCode: WAITLIST_BORRAR_SOLO_PROPIA,
       });
     }
   }

@@ -598,7 +598,12 @@ window.validateReviewAndPasarAPendientes = async function () {
           }
           // Unificar: mergear items al pedido actual + marcar waitlist consumed.
           try {
-            const ord = orders[currentOrderKey] || [];
+            // N4 (auditoría 2026-11-25): se mezcla sobre una COPIA de las
+            // líneas; el pedido local recién se reemplaza cuando Firestore
+            // confirma el update de la orden. Si falla (ej. orden de otro
+            // vendedor), el pedido local queda como estaba y reintentar no
+            // duplica líneas.
+            const ord = (orders[currentOrderKey] || []).slice();
             const mergeRes = _unifyPure
               ? _unifyPure.mergeWaitlistIntoOrderLines(ord, target)
               : (() => {
@@ -624,8 +629,6 @@ window.validateReviewAndPasarAPendientes = async function () {
                   }
                   return { added, totalUnidades: totalU };
                 })();
-            orders[currentOrderKey] = ord;
-            if (typeof saveOrders === 'function') saveOrders();
             const nowIso = new Date().toISOString();
             const _unifiedBy =
               typeof currentUser !== 'undefined' && currentUser
@@ -644,6 +647,8 @@ window.validateReviewAndPasarAPendientes = async function () {
             // serverTimestamp aparte (no es puro).
             updatePayload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
             await fbDb.collection('revision_waitlist').doc(target._id).update(updatePayload);
+            orders[currentOrderKey] = ord;
+            if (typeof saveOrders === 'function') saveOrders();
             console.warn(
               '[§42.2 review guard] unificado ORDEN ' +
                 target.orderNumber +
@@ -672,6 +677,15 @@ window.validateReviewAndPasarAPendientes = async function () {
             return;
           } catch (eUnify) {
             console.error('[§42.2 review guard] fallo unificacion:', eUnify);
+            // §68: sin permiso (orden de otro vendedor) → texto humano.
+            const _permTxt =
+              typeof window !== 'undefined' && typeof window._waitlistEditErrorText === 'function'
+                ? window._waitlistEditErrorText(eUnify)
+                : null;
+            if (_permTxt) {
+              showReviewError(_permTxt);
+              return;
+            }
             showReviewError(
               'No se pudo unificar la ORDEN ' +
                 target.orderNumber +

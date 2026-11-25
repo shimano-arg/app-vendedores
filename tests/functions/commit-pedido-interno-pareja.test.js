@@ -324,3 +324,103 @@ describe('commitPedidoCF — alcance del interno (A2)', () => {
     }
   });
 });
+
+// N1 (re-revisión adversarial #1422 R2): la absorción automática de back order
+// no toca pedidos de otras parejas cuando confirma un interno. Se saltean (el
+// back order queda como está) y el pedido nuevo se crea igual.
+describe('commitPedidoCF — absorción de back order y alcance del interno (N1)', () => {
+  function boPedido(id, owner, createdAt) {
+    return {
+      _fsId: id,
+      clientCardCode: 'C001',
+      closedAt: null,
+      createdAt,
+      lines: [{ code: 'SKU1', state: 'BO', qty: 2, qtyOpen: 2, precio: 100 }],
+      ...owner,
+    };
+  }
+  function stateWith(boPedidos) {
+    const st = fixture({ wlOwner: PAREJA, pedOwner: PAREJA });
+    delete st.revision_waitlist['wl-origen'];
+    delete st.pedidos['ped-origen'];
+    for (const p of boPedidos) st.pedidos[p._fsId] = p;
+    return st;
+  }
+  const directo = (uid, draftId, cantidad = 2) => ({
+    origen: 'manual',
+    cardCode: 'C001',
+    clientName: 'CLIENTE C001',
+    ownerUid: uid,
+    lines: [{ sku: 'SKU1', cantidad }],
+    draftId,
+    clientVersion: 'test',
+  });
+  const skipLogs = (st) =>
+    Object.values(st.operations_log || {}).filter(
+      (l) => l.type === 'bo_absorb_skipped_fuera_de_pareja'
+    );
+
+  it('back order de otra pareja → no se absorbe, pedido creado, salteo registrado', async () => {
+    const st = stateWith([boPedido('ped-bo-otra', OTRA, '2026-11-01T00:00:00.000Z')]);
+    const r = await run(st, 'interno', directo('uid-int', 'd-n1-1'));
+    expect(r.ok).toBe(true);
+    expect(r.absorptions).toEqual([]);
+    expect(r.boAbsorbSkippedCount).toBe(1);
+    expect(r._absorbSkipped).toBeUndefined();
+    expect(st.pedidos['ped-bo-otra'].lines[0]).toMatchObject({ state: 'BO', qtyOpen: 2 });
+    expect(Object.keys(st.pedidos)).toHaveLength(2);
+    const logs = skipLogs(st);
+    expect(logs).toHaveLength(1);
+    expect(logs[0].skipped).toEqual([{ pedidoId: 'ped-bo-otra', reason: 'fuera_de_pareja' }]);
+  });
+
+  it('back order de la pareja → se absorbe como siempre', async () => {
+    const st = stateWith([boPedido('ped-bo-pareja', PAREJA, '2026-11-01T00:00:00.000Z')]);
+    const r = await run(st, 'interno', directo('uid-int', 'd-n1-2'));
+    expect(r.ok).toBe(true);
+    expect(r.absorptions).toHaveLength(1);
+    expect(r.boAbsorbSkippedCount).toBe(0);
+    expect(st.pedidos['ped-bo-pareja'].lines[0].qtyOpen).toBe(0);
+    expect(skipLogs(st)).toHaveLength(0);
+  });
+
+  it('mezcla: el más viejo es de otra pareja → se saltea y la cantidad va al de la pareja', async () => {
+    const st = stateWith([
+      boPedido('ped-bo-otra', OTRA, '2026-11-01T00:00:00.000Z'),
+      boPedido('ped-bo-pareja', PAREJA, '2026-11-10T00:00:00.000Z'),
+    ]);
+    const r = await run(st, 'interno', directo('uid-int', 'd-n1-3'));
+    expect(r.ok).toBe(true);
+    expect(r.absorptions.map((a) => a.pedidoIdOrigen)).toEqual(['ped-bo-pareja']);
+    expect(r.boAbsorbSkippedCount).toBe(1);
+    expect(st.pedidos['ped-bo-otra'].lines[0]).toMatchObject({ state: 'BO', qtyOpen: 2 });
+    expect(st.pedidos['ped-bo-pareja'].lines[0].qtyOpen).toBe(0);
+  });
+
+  it('rol del VDE ilegible → no se absorbe (falla cerrada), el pedido se crea', async () => {
+    const st = stateWith([boPedido('ped-bo-pareja', PAREJA, '2026-11-01T00:00:00.000Z')]);
+    const r = await run(st, 'interno', directo('uid-int', 'd-n1-4'), {
+      getRoleDoc: async () => {
+        throw new Error('lectura de rol fallida');
+      },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.boAbsorbSkippedCount).toBe(1);
+    expect(st.pedidos['ped-bo-pareja'].lines[0]).toMatchObject({ state: 'BO', qtyOpen: 2 });
+  });
+
+  it('vendedor, gerente y admin → absorben back order de cualquier pareja (sin cambio)', async () => {
+    for (const [role, uid] of [
+      ['vendedor', 'uid-vde-otro'],
+      ['gerente', 'uid-ger'],
+      ['admin', 'uid-admin'],
+    ]) {
+      const st = stateWith([boPedido('ped-bo-otra', OTRA, '2026-11-01T00:00:00.000Z')]);
+      const r = await run(st, role, directo(uid, `d-n1-5-${role}`));
+      expect(r.ok).toBe(true);
+      expect(r.absorptions).toHaveLength(1);
+      expect(r.boAbsorbSkippedCount).toBe(0);
+      expect(st.pedidos['ped-bo-otra'].lines[0].qtyOpen).toBe(0);
+    }
+  });
+});

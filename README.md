@@ -4717,6 +4717,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1572 (2026-11-25) — Interno: seguimiento de la revisión (absorción de back order, borrado de órdenes, mensajes)
+
+- `commitPedidoCF`: si confirma un interno, la absorción automática de back order solo toca pedidos propios o de su pareja; los de otra pareja se saltean (no se rechaza el pedido) y quedan en `operations_log` (`bo_absorb_skipped_fuera_de_pareja`).
+- `releaseAsigCF` `rechazo_cpst`: el interno solo sobre órdenes propias; sobre la de la pareja, `WAITLIST_BORRAR_SOLO_PROPIA` con registro del rechazo.
+- Ediciones de órdenes en espera sin permiso muestran texto humano (`WAITLIST_FUERA_DE_PAREJA`, §68); el guard §42.2 ya no mezcla líneas en el pedido local antes de confirmar el update.
+- Detalle: [`docs/CHANGELOG-sec-interno-seguimiento-2026-11-25.md`](docs/CHANGELOG-sec-interno-seguimiento-2026-11-25.md).
+
 ### v1571 (2026-11-25) — Cloud Functions: el vendedor interno solo opera sobre su pareja (auditoría de seguridad)
 
 - `updatePedidoLinesCF`, `updateAsigLineStateCF`, `releaseAsigCF` y `unifyWaitlistsCF`: el interno opera solo sobre pedidos u órdenes propios o de su VDE pareja; fuera de pareja, `INTERNO_FUERA_DE_PAREJA` sin escribir nada. `movePedidoToWaitlistCF`: solo pedidos propios (`INTERNO_SOLO_PEDIDO_PROPIO` sobre la pareja). Admin, gerente y vendedor sin cambio.

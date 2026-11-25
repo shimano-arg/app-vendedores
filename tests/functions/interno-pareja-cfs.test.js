@@ -414,12 +414,42 @@ describe('releaseAsigCF — alcance del interno', () => {
       { auth: authOf(uid), action: 'rechazo_cpst', waitlistId: 'wl1' }
     );
 
-  it('interno pareja → OK; interno propio → OK', async () => {
-    for (const owner of [OWNERS.pareja, OWNERS.propio]) {
+  it('interno propio → OK (rechazo_cpst y remove_item); interno pareja → OK en remove_item', async () => {
+    for (const [owner, action] of [
+      [OWNERS.propio, 'rechazo_cpst'],
+      [OWNERS.propio, 'remove_item'],
+      [OWNERS.pareja, 'remove_item'],
+    ]) {
       const db = makeMockDb();
       seed(db, owner);
-      expect((await run(db, 'uid-int')).ok).toBe(true);
+      const r = await releaseAsigCore(
+        { fbDb: db, now: () => 1_700_000_000_000 },
+        { auth: authOf('uid-int'), action, waitlistId: 'wl1', itemIndex: 0 }
+      );
+      expect(r.ok).toBe(true);
     }
+  });
+
+  // N5 (re-revisión #1422 R2): rechazo_cpst borra la orden en espera; el
+  // interno solo borra órdenes propias (mismo criterio que firestore.rules).
+  it('interno pareja → rechazo_cpst denegado con WAITLIST_BORRAR_SOLO_PROPIA, sin writes y con log', async () => {
+    const db = makeMockDb();
+    seed(db, OWNERS.pareja);
+    await expect(run(db, 'uid-int')).rejects.toMatchObject({
+      _errorCode: 'permission-denied',
+      _errorDetails: { errorCode: 'WAITLIST_BORRAR_SOLO_PROPIA' },
+    });
+    expect(businessWrites(db)).toEqual([]);
+    expect(db._store.has('revision_waitlist/wl1')).toBe(true);
+    expect(db._store.get('pedidos/ped-origen').lines[0].state).toBe('ASIG');
+    const logs = db._writes.filter((/** @type {any} */ w) => w.path.startsWith('operations_log/'));
+    expect(logs).toHaveLength(1);
+    expect(logs[0].data).toMatchObject({
+      type: 'release_asig_rejected',
+      errorCode: 'WAITLIST_BORRAR_SOLO_PROPIA',
+      reason: 'orden_de_pareja',
+      aborted: true,
+    });
   });
 
   it('interno otra pareja → INTERNO_FUERA_DE_PAREJA sin writes', async () => {
@@ -447,6 +477,8 @@ describe('releaseAsigCF — alcance del interno', () => {
   it('orden propia con pedido de origen de otra pareja → denegado, cero escrituras', async () => {
     for (const owner of [OWNERS.propio, OWNERS.pareja]) {
       for (const action of ['rechazo_cpst', 'remove_item']) {
+        // rechazo_cpst sobre orden de la pareja ya corta antes (N5).
+        if (owner === OWNERS.pareja && action === 'rechazo_cpst') continue;
         const db = makeMockDb();
         seed(db, owner, OWNERS.otra);
         await expect(
@@ -497,7 +529,12 @@ describe('releaseAsigCF — alcance del interno', () => {
   it('interno de la pareja con pedido de origen sin clientCardCode → CLIENT_DATA_MISSING', async () => {
     const db = makeMockDb();
     seed(db, OWNERS.pareja, OWNERS.pareja, { clientCardCode: '' });
-    await expect(run(db, 'uid-int')).rejects.toMatchObject({
+    await expect(
+      releaseAsigCore(
+        { fbDb: db, now: () => 1_700_000_000_000 },
+        { auth: authOf('uid-int'), action: 'remove_item', waitlistId: 'wl1', itemIndex: 0 }
+      )
+    ).rejects.toMatchObject({
       _errorCode: 'failed-precondition',
       _errorDetails: { errorCode: 'CLIENT_DATA_MISSING' },
     });

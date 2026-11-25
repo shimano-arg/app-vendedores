@@ -28,6 +28,8 @@ const NUEVOS = [
   // Auditoría 2026-11-25: alcance del vendedor interno en las Cloud Functions.
   'INTERNO_FUERA_DE_PAREJA',
   'INTERNO_SOLO_PEDIDO_PROPIO',
+  // N5 (2026-11-25): releaseAsigCF rechazo_cpst sobre orden no propia del interno.
+  'WAITLIST_BORRAR_SOLO_PROPIA',
 ];
 
 describe('mensajes de los códigos nuevos', () => {
