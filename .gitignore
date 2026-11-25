@@ -210,4 +210,5 @@ ROLLBACK-RULES-*.ps1
 deploy-applyreparto-*.ps1
 deploy-cierre-*.ps1
 deploy-rules-cierre-*.ps1
+deploy-pr-*.ps1
 post-deploy-checks-*.ps1

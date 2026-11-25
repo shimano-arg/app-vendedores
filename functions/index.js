@@ -1561,6 +1561,8 @@ export const releaseAsigCF = onCall(
           action: String(data.action || ''),
           waitlistId: String(data.waitlistId || ''),
           itemIndex: typeof data.itemIndex === 'number' ? data.itemIndex : undefined,
+          // PR G v1579 §Decisión-5: flag del cliente tras confirm().
+          confirmedLastItemRemoval: !!data.confirmedLastItemRemoval,
         }
       );
       return r;

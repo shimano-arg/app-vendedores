@@ -105,7 +105,11 @@ describe('cableado en index.html', () => {
   it('releaseAsig: sin fallback de unidades estimadas por el cliente', () => {
     expect(html).not.toContain('d.unitsCancelled || unitsToFree');
     expect(html).not.toContain('d.linesCancelled || refsItem.length');
-    expect(html).toContain("showSyncTag('Producto quitado · ' + _unitsServer + 'u liberadas')");
+    // PR G v1579 §Decisión-4: el syncTag concatena `_msgExtra` cuando hay pedidos
+    // cerrados por quedar vacíos. La raíz del tag ('Producto quitado · N u liberadas')
+    // sigue sin fallbacks locales.
+    expect(html).toContain("showSyncTag('Producto quitado · ' + _unitsServer + 'u liberadas'");
+    expect(html).toContain('_pedidosCerrados');
   });
 
   it('releaseAsig: los catch no concatenan el mensaje crudo del error', () => {

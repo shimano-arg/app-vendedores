@@ -69,6 +69,14 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.',
   },
 
+  // PR G v1579 §Decisión-5 — quitar el último producto pide confirmación
+  // (server-side exige flag). El mensaje aparece como confirm(), no alert().
+  LAST_ITEM_NEEDS_CONFIRM: {
+    // LOW-2: eliminado "¿Seguro?" — el botón del confirm() ya pregunta.
+    texto: 'Si quitás este producto la orden queda vacía y se cierra.',
+    confirmLabel: 'Sí, cerrar orden',
+  },
+
   // commitPedidoCF errorCodes.
   STOCK_CHANGED: {
     texto:
