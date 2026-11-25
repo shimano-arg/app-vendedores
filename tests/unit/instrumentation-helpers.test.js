@@ -1,10 +1,10 @@
 // @ts-check
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  buildInstrumentationBatchEntry,
+  createBatchCollector,
   hashToBucket,
   shouldSampleUser,
-  createBatchCollector,
-  buildInstrumentationBatchEntry,
 } from '../../src/pure/instrumentation-helpers.js';
 
 describe('hashToBucket', () => {
@@ -123,7 +123,10 @@ describe('buildInstrumentationBatchEntry', () => {
     const many = [];
     for (let i = 0; i < 100; i++) many.push({ kind: 'cache_hit', i });
     const entry = buildInstrumentationBatchEntry({
-      events: many, userUid: 'x', userEmail: '', clientVersion: 'v1',
+      events: many,
+      userUid: 'x',
+      userEmail: '',
+      clientVersion: 'v1',
     });
     expect(entry.events).toHaveLength(50);
     expect(entry.eventCount).toBe(100);

@@ -20,10 +20,10 @@
  */
 
 import {
-  shouldSampleUser,
-  createBatchCollector,
   buildInstrumentationBatchEntry,
+  createBatchCollector,
   INSTRUMENTATION_COLLECTION,
+  shouldSampleUser,
 } from '../pure/instrumentation-helpers.js';
 
 const SAMPLING_PERCENT = 20;
@@ -69,11 +69,16 @@ export function initInstrumentation(opts) {
 
   // Opt-out via localStorage (debug/testing).
   try {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('instrumentation_off') === '1') {
+    if (
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem('instrumentation_off') === '1'
+    ) {
       _enabled = false;
       return;
     }
-  } catch (_e) { /* fail-open */ }
+  } catch (_e) {
+    /* fail-open */
+  }
 
   _enabled = shouldSampleUser(_ctx.userUid, SAMPLING_PERCENT);
   if (!_enabled) return;
@@ -118,7 +123,9 @@ export function trackEvent(event) {
     }
     _collector.push(evt);
     if (_collector.shouldFlush(Date.now())) _flushNow();
-  } catch (_e) { /* fail-open */ }
+  } catch (_e) {
+    /* fail-open */
+  }
 }
 
 /**
@@ -175,27 +182,35 @@ function _registerWebVitals() {
       }
     });
     po.observe({ type: 'largest-contentful-paint', buffered: true });
-  } catch (_e) { /* fail-open */ }
+  } catch (_e) {
+    /* fail-open */
+  }
 
   // CLS — cumulative layout shift.
   try {
     let cls = 0;
     const po = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        // @ts-ignore
+        // @ts-expect-error
         if (!entry.hadRecentInput) cls += entry.value;
       }
     });
     po.observe({ type: 'layout-shift', buffered: true });
     // Emit final CLS on page hide.
     if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') {
-          trackEvent({ kind: 'web_vitals', name: 'cls', value: Number(cls.toFixed(4)) });
-        }
-      }, { once: true });
+      document.addEventListener(
+        'visibilitychange',
+        () => {
+          if (document.visibilityState === 'hidden') {
+            trackEvent({ kind: 'web_vitals', name: 'cls', value: Number(cls.toFixed(4)) });
+          }
+        },
+        { once: true }
+      );
     }
-  } catch (_e) { /* fail-open */ }
+  } catch (_e) {
+    /* fail-open */
+  }
 
   // INP — approximate via event.duration (modern browsers only).
   try {
@@ -213,7 +228,9 @@ function _registerWebVitals() {
       }
     });
     po.observe({ type: 'event', buffered: true, durationThreshold: 40 });
-  } catch (_e) { /* fail-open */ }
+  } catch (_e) {
+    /* fail-open */
+  }
 }
 
 function _scheduleFlushTimer() {
@@ -247,10 +264,13 @@ function _flushNow() {
     // type='client_instrumentation' ni las keys events/eventCount, lo
     // que rechaza 100% de los writes. instrumentation_log tiene su
     // propia rule que permite esta shape.
-    return _ctx.fbDb.collection(INSTRUMENTATION_COLLECTION).add(entry).catch(() => {
-      // Fire-and-forget: if the write fails, log goes nowhere. We do NOT
-      // re-queue to avoid memory leaks if Firestore is persistently down.
-    });
+    return _ctx.fbDb
+      .collection(INSTRUMENTATION_COLLECTION)
+      .add(entry)
+      .catch(() => {
+        // Fire-and-forget: if the write fails, log goes nowhere. We do NOT
+        // re-queue to avoid memory leaks if Firestore is persistently down.
+      });
   } catch (_e) {
     return Promise.resolve();
   }

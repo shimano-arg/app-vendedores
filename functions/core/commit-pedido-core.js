@@ -95,11 +95,11 @@ const VENDEDOR_WAITLIST_FUERA_CLIENTE = 'VENDEDOR_WAITLIST_FUERA_CLIENTE';
 const VENDEDOR_WAITLIST_FUERA_CLIENTE_MESSAGE =
   'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.';
 
+// Stack S-2 T4 (instrumentation, no behavior change):
+import { createPhaseTimers, emitPhaseTimers, markPhase } from './commit-phase-timers.js';
 // PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
 // Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
 import { resolveLineDesc } from './resolve-line-desc-core.js';
-// Stack S-2 T4 (instrumentation, no behavior change):
-import { createPhaseTimers, markPhase, emitPhaseTimers } from './commit-phase-timers.js';
 // (incidente Federico 2026-11-20) CAPA (b) `SKU_NOT_IN_SAP_CATALOG` removida:
 // bloqueaba pedidos legítimos con SKUs todavía no dados de alta en SAP.
 // La red de seguridad real es CAPA (c) en `auto-send-sap-core.js`, que degrada
@@ -159,7 +159,9 @@ export async function commitPedidoCore(deps, payload) {
     try {
       markPhase(_timers, 'rejected_' + errorCode);
       emitPhaseTimers(deps, payload, _timers, errorCode);
-    } catch (_e) { /* fire-and-forget */ }
+    } catch (_e) {
+      /* fire-and-forget */
+    }
     return makeError(errorCode, message, data);
   }
 
