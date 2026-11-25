@@ -76,6 +76,9 @@ import { healAsigRefs } from './asig-ref-healing.js';
 // eslint-disable-next-line no-unused-vars
 // biome-ignore lint/correctness/noUnusedImports: preservación intencional — sync con el espejo cliente (ver comentario arriba)
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
+// §Decisión-1 v<N> (2026-11-25) P0-B: shape canónico VDE→interno.
+// Query inversa: dado internoUid, devuelve set de VDEs que lo tienen como pareja.
+import { getVendorsPairedWithInterno, isVendorInInternoPair } from './interno-pareja-helpers.js';
 import {
   evaluatePedidoScopeInterno,
   evaluateWaitlistScopeInterno,
@@ -441,26 +444,37 @@ export async function commitPedidoCore(deps, payload) {
     if (_clienteSinMaster && !_resolvedVendorUid) {
       // Rama permisiva: cliente sin vendor master, interno puede crear.
     } else if (_resolvedVendorUid) {
-      // Cliente CON vendor master. Validar que sea la pareja del interno.
-      let internalPartnerUid = '';
+      // Cliente CON vendor master. Validar que sea pareja del interno.
+      //
+      // §Decisión-1 v<N> P0-B FIX (2026-11-25): shape canónico VDE→interno.
+      // Antes (v1577): leía `roles/<internoUid>.internalPartnerUid` single-value,
+      // asumiendo shape INVERTIDO. En prod el shape real es
+      // `roles/<uidVDE>.internalPartnerUid = <uidInterno>`, varios VDEs pueden
+      // apuntar al mismo interno (p.ej. Mauricio→Santiago + Pachi→Santiago).
+      // Ahora: query inversa roles.where('internalPartnerUid','==',internoUid)
+      // → Set<uidVDE>; chequear _resolvedVendorUid ∈ set.
+      /** @type {Set<string>} */
+      let pairedSet;
       try {
-        const roleSnap = await deps.fbDb.collection('roles').doc(payload.ownerUid).get();
-        const roleData = (roleSnap.exists && roleSnap.data()) || {};
-        internalPartnerUid = String(roleData.internalPartnerUid || '').trim();
-      } catch (_eRole) {
-        // Fail-closed: si no puedo leer el rol del interno, rechazar.
+        pairedSet = await getVendorsPairedWithInterno(deps.fbDb, payload.ownerUid);
+      } catch (_eQuery) {
+        // Fail-closed: si la query falla (red, permission, etc.), rechazar.
         await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
-          reason: 'role_doc_unreadable',
-          errMessage: _eRole && /** @type {any} */ (_eRole).message,
+          reason: 'pareja_query_failed',
+          errMessage: _eQuery && /** @type {any} */ (_eQuery).message,
+          callerUid: payload.ownerUid,
         });
         return makeError(
           'INTERNO_CLIENTE_FUERA_DE_PAREJA',
           'No pudimos verificar tu usuario. Avisale a Mariano antes de volver a intentar.',
-          { reason: 'role_doc_unreadable' }
+          { reason: 'pareja_query_failed' }
         );
       }
-      if (!internalPartnerUid) {
-        // Interno sin pareja cargada → fail-closed.
+      if (pairedSet.size === 0) {
+        // Interno sin ningún VDE pareja → fail-closed.
+        // Preservamos el errorCode `INTERNO_CLIENTE_FUERA_DE_PAREJA` con
+        // `reason='interno_sin_pareja'` para compat con tests y UX heredada
+        // de v1577 (el errorCode es el gate; el reason distingue causa).
         await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
           reason: 'interno_sin_pareja',
           callerUid: payload.ownerUid,
@@ -471,15 +485,16 @@ export async function commitPedidoCore(deps, payload) {
           { reason: 'interno_sin_pareja' }
         );
       }
-      if (_resolvedVendorUid !== internalPartnerUid) {
+      if (!isVendorInInternoPair(_resolvedVendorUid, pairedSet)) {
         // Cliente de OTRA pareja → rechazar con nombre del vendor.
         const _vendorName =
           (_serverResolvedVendor && _serverResolvedVendor.vendorKey) || 'otro vendedor';
         await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
           reason: 'cliente_de_otra_pareja',
-          clientVendorUid: _resolvedVendorUid,
+          internoUid: payload.ownerUid,
+          vendorUid: _resolvedVendorUid,
           clientVendorKey: _vendorName,
-          internalPartnerUid,
+          pairedVendorsCount: pairedSet.size,
           cardCode: payload.cardCode,
         });
         return makeError(
@@ -493,7 +508,7 @@ export async function commitPedidoCore(deps, payload) {
           }
         );
       }
-      // _resolvedVendorUid === internalPartnerUid → es la pareja, OK.
+      // _resolvedVendorUid ∈ pairedSet → es una pareja del interno, OK.
     } else {
       // Caso restante: cliente SÍ está en master pero el UID no se pudo
       // resolver (ej. `vendor_sin_uid` cuando vendorKey existe pero el user
