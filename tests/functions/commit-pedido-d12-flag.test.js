@@ -198,11 +198,14 @@ describe('STACK S-4 T5 (D12 fix) — commitPedido flag + recompute', () => {
       flagEnabled: false,
       clientMasterData: { cliTipo: 'P' }, // aunque haya datos, flag OFF ignora
     });
-    const r = await commitPedidoCore({ fbDb, now: () => new Date('2026-11-25T12:00:00Z') }, {
-      ...basePayload,
-      discountPct: 14, // el cliente dice que calculó 14; server debe ignorar (flag OFF)
-      discountSnapshot: { cliTipo: 'P', pctTotal: 14 },
-    });
+    const r = await commitPedidoCore(
+      { fbDb, now: () => new Date('2026-11-25T12:00:00Z') },
+      {
+        ...basePayload,
+        discountPct: 14, // el cliente dice que calculó 14; server debe ignorar (flag OFF)
+        discountSnapshot: { cliTipo: 'P', pctTotal: 14 },
+      }
+    );
     expect(r.ok).toBe(true);
     const pedidoWrite = writtenOps.find((w) => w.path.startsWith('pedidos/') && w.op === 'set');
     expect(pedidoWrite).toBeTruthy();
@@ -215,10 +218,13 @@ describe('STACK S-4 T5 (D12 fix) — commitPedido flag + recompute', () => {
       flagEnabled: true,
       clientMasterData: { cliTipo: 'P' },
     });
-    const r = await commitPedidoCore({ fbDb, now: () => new Date('2026-11-25T12:00:00Z') }, {
-      ...basePayload,
-      condicionPago: 'CONTADO',
-    });
+    const r = await commitPedidoCore(
+      { fbDb, now: () => new Date('2026-11-25T12:00:00Z') },
+      {
+        ...basePayload,
+        condicionPago: 'CONTADO',
+      }
+    );
     expect(r.ok).toBe(true);
     const pedidoWrite = writtenOps.find((w) => w.path.startsWith('pedidos/') && w.op === 'set');
     expect(pedidoWrite).toBeTruthy();
@@ -239,11 +245,14 @@ describe('STACK S-4 T5 (D12 fix) — commitPedido flag + recompute', () => {
       clientMasterData: { cliTipo: '' }, // cliTipo vacío → solo volumen
       stockFisico: 300,
     });
-    const r = await commitPedidoCore({ fbDb, now: () => new Date('2026-11-25T12:00:00Z') }, {
-      ...basePayload,
-      lines: [{ sku: 'SKU-D12', cantidad: 250, precio: 100000 }], // $25M
-      condicionPago: 'CTA CTE',
-    });
+    const r = await commitPedidoCore(
+      { fbDb, now: () => new Date('2026-11-25T12:00:00Z') },
+      {
+        ...basePayload,
+        lines: [{ sku: 'SKU-D12', cantidad: 250, precio: 100000 }], // $25M
+        condicionPago: 'CTA CTE',
+      }
+    );
     expect(r.ok).toBe(true);
     const pedidoWrite = writtenOps.find((w) => w.path.startsWith('pedidos/') && w.op === 'set');
     expect(pedidoWrite).toBeTruthy();
@@ -259,10 +268,13 @@ describe('STACK S-4 T5 (D12 fix) — commitPedido flag + recompute', () => {
       flagEnabled: true,
       clientMasterData: null, // sin doc para este cardCode
     });
-    const r = await commitPedidoCore({ fbDb, now: () => new Date('2026-11-25T12:00:00Z') }, {
-      ...basePayload,
-      condicionPago: 'CONTADO',
-    });
+    const r = await commitPedidoCore(
+      { fbDb, now: () => new Date('2026-11-25T12:00:00Z') },
+      {
+        ...basePayload,
+        condicionPago: 'CONTADO',
+      }
+    );
     expect(r.ok).toBe(true);
     const pedidoWrite = writtenOps.find((w) => w.path.startsWith('pedidos/') && w.op === 'set');
     expect(pedidoWrite).toBeTruthy();
@@ -278,10 +290,13 @@ describe('STACK S-4 T5 (D12 fix) — commitPedido flag + recompute', () => {
       flagEnabled: true,
       clientMasterData: { cliTipo: 'A' },
     });
-    const r = await commitPedidoCore({ fbDb, now: () => new Date('2026-11-25T12:00:00Z') }, {
-      ...basePayload,
-      condicionPago: 'CONTADO',
-    });
+    const r = await commitPedidoCore(
+      { fbDb, now: () => new Date('2026-11-25T12:00:00Z') },
+      {
+        ...basePayload,
+        condicionPago: 'CONTADO',
+      }
+    );
     expect(r.ok).toBe(true);
     // Encuentra los índices clave en la lista completa de reads/writes mergeada.
     const allOps = [

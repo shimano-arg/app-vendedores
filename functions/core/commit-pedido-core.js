@@ -95,9 +95,6 @@ const VENDEDOR_WAITLIST_FUERA_CLIENTE = 'VENDEDOR_WAITLIST_FUERA_CLIENTE';
 const VENDEDOR_WAITLIST_FUERA_CLIENTE_MESSAGE =
   'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.';
 
-// PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
-// Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
-import { resolveLineDesc } from './resolve-line-desc-core.js';
 // STACK S-4 T5 (D12 fix 2026-11-25) — espejo §57 de src/pure/discount.js.
 // Server recomputa el descuento comercial desde client_master.cliTipo bajo
 // feature flag `app_config/feature_flags.d12_discount_recompute_enabled`
@@ -106,6 +103,9 @@ import { resolveLineDesc } from './resolve-line-desc-core.js';
 // cliente puede quedar desactualizado sin bloquear el pedido.
 import { calcClientDiscount } from './discount.js';
 import { readFlag } from './feature-flags.js';
+// PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
+// Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
+import { resolveLineDesc } from './resolve-line-desc-core.js';
 // (incidente Federico 2026-11-20) CAPA (b) `SKU_NOT_IN_SAP_CATALOG` removida:
 // bloqueaba pedidos legítimos con SKUs todavía no dados de alta en SAP.
 // La red de seguridad real es CAPA (c) en `auto-send-sap-core.js`, que degrada
@@ -2282,18 +2282,14 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
         monto: _srv.monto,
         source: _d12Ctx.source || 'server:client_master',
         resolvedAt: nowIso,
-        cliTipoFromPayload:
-          (payload.discountSnapshot && payload.discountSnapshot.cliTipo) || null,
+        cliTipoFromPayload: (payload.discountSnapshot && payload.discountSnapshot.cliTipo) || null,
         cliTipoFromMaster: _d12Ctx.cliTipo || '',
         clientPctFromPayload: _d12Ctx.clientPctFromPayload,
         clientMasterDocId: _d12Ctx.clientMasterDocId || null,
       };
       // Divergencia cliente↔server: log (no reject). El server gana.
       const _clientPct = _d12Ctx.clientPctFromPayload;
-      if (
-        typeof _clientPct === 'number' &&
-        Math.abs(_clientPct - _resolvedDiscountPct) > 0.01
-      ) {
+      if (typeof _clientPct === 'number' && Math.abs(_clientPct - _resolvedDiscountPct) > 0.01) {
         (deps.log || (() => {}))('d12 discount mismatch client vs server (server gana)', {
           cardCode: payload.cardCode,
           clientPct: _clientPct,

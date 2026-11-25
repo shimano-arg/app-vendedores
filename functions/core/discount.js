@@ -87,4 +87,4 @@ export function calcClientDiscount(clientData, subtotal, formaPago) {
   };
 }
 
-export { FIJO_PCT, ANTIC_PCT };
+export { ANTIC_PCT, FIJO_PCT };
