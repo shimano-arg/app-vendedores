@@ -457,12 +457,20 @@ service cloud.firestore {
             || !(request.resource.data.get('plannerStage', '') in ['cobrado_parcial', 'cobrado_full'])
           )
         )
+        // v1585 §108 (2026-11-25): cobranza cerrada para VDE sobre pedido ajeno.
+        // Discovery Stack midió: VDE con pedido donde `assignedVendorUid == uid`
+        // pero `ownerUid != uid` (cargado por Pablo/admin/otro VDE) podía mutar
+        // paidStatus/paidAmount/paidToDate/invoicedAmount/paidSyncedAt — campos
+        // que SAP sync + admin manejan. Riesgo: VDE malicioso marca pedido como
+        // cobrado o inventa paidAmount para engañar comisiones. Fix: 2 ramas
+        // separadas: pedido PROPIO (ownerUid == uid) permite cobranza; pedido
+        // AJENO (assignedVendorUid == uid, ownerUid != uid) excluye los 5
+        // campos. stage/lines/logistica abiertas en ambos casos (Mariano
+        // confirmó: VDE necesita editar su pedido en espera aunque lo haya
+        // cargado otro). Ver STACK_00_DISCOVERY_BASELINE §2.5.
         || (
           isVendor()
-          && (
-            resource.data.ownerUid == request.auth.uid
-            || resource.data.assignedVendorUid == request.auth.uid
-          )
+          && resource.data.ownerUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             // Delivery info (usuario cambia transportista/sucursal/retiro post-envio)
             'formaEntrega', 'deliveryDetails',
@@ -500,7 +508,33 @@ service cloud.firestore {
             // Audit del auto-split (confirmarDefinitivo preCheck)
             'autoSplitByStock'
           ])
-          // SEC-C1 Opcion A.2: guard semantico transferidoSAP (ver comentario en isInterno arriba)
+          && transferidoSapChangeIsAppOnly()
+        )
+        // v1585 §108: pedido AJENO (assignedVendor del VDE pero ownerUid de otro).
+        // Mismo whitelist menos paidStatus/paidAmount/paidToDate/invoicedAmount/
+        // paidSyncedAt — cobranza cerrada. Si el VDE necesita marcar cobranza
+        // sobre un pedido ajeno, usar CF releaseAsigCF-pattern (server-side con
+        // validación de rol + tope) o escalarlo a admin/gerente.
+        || (
+          isVendor()
+          && resource.data.assignedVendorUid == request.auth.uid
+          && resource.data.ownerUid != request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'formaEntrega', 'deliveryDetails',
+            'lines', 'netAmountArs', 'subtotalArs',
+            'condicionPago',
+            'stage', 'confirmedAt', 'finalizedAt', 'closedAt',
+            'observaciones', 'notes', 'clientNotes', 'updatedAt', 'updatedBy',
+            'month', 'monthIdx', 'year',
+            'orderNumber',
+            'plannerStage', 'plannerHistory', 'plannerEmails',
+            'plannerAttachments',
+            // NOTA v1585: paidStatus/paidAmount/paidToDate/invoicedAmount/paidSyncedAt
+            // EXCLUIDOS para pedido ajeno. Ver §108.
+            'revertedFromConfirmedAt', 'revertedBy',
+            'previousSapDocNum', 'previousSapDocEntryCancelled',
+            'autoSplitByStock'
+          ])
           && transferidoSapChangeIsAppOnly()
         );
       // H3 (2026-11-25): el interno solo borra pedidos propios; nunca de la
