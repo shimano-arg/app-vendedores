@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1578';
+const APP_VERSION = 'v1579';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27616,6 +27616,7 @@ window._SERVER_ERROR_FALLBACK_TEXTS = {
   INTERNO_FUERA_DE_PAREJA: 'Este pedido es de otro vendedor y no lo podés modificar. Si tenés que cambiarlo, pedíselo a su vendedor o a Mariano.',
   INTERNO_CLIENTE_FUERA_DE_PAREJA: 'Este cliente no está asignado a tu pareja. Avisá al vendedor que lo tiene asignado o pedile a Pablo que lo reasigne.',
   VENDEDOR_WAITLIST_FUERA_CLIENTE: 'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.',
+  LAST_ITEM_NEEDS_CONFIRM: 'Si quitás este producto la orden queda vacía y se cierra.',
   INTERNO_SOLO_PEDIDO_PROPIO: 'Solo podés pasar a espera pedidos que cargaste vos. Para este pedido, pedíselo a su vendedor.',
   CLIENT_DATA_MISSING: 'No pudimos liberar la reserva porque al pedido le falta el dato del cliente. Avisale a Mariano o a un administrador.',
   RELEASE_CROSS_CLIENT: 'No pudimos liberar la reserva porque pertenece a otro cliente. Revisá la orden y, si sigue, avisale a Mariano.',
@@ -27814,15 +27815,26 @@ window.waitlistRemoveItem = async function(docId, idx){
     }
     try {
       const callable = firebase.app().functions('southamerica-east1').httpsCallable('releaseAsigCF');
-      const resp = await callable({ action: 'remove_item', waitlistId: docId, itemIndex: idx });
+      // PR G v1579 §Decisión-5: si es el último item, pre-confirmamos server-side
+      // mandando `confirmedLastItemRemoval:true`. El confirm() del user ya se
+      // mostró antes en este flow (líneas 27787-27792 arriba). El gate del server
+      // acepta el flag y procede con cierre auto del pedido origen (§Decisión-4).
+      const isLastItem = items.length === 0;
+      /** @type {any} */
+      const payload = { action: 'remove_item', waitlistId: docId, itemIndex: idx };
+      if (isLastItem) payload.confirmedLastItemRemoval = true;
+      const resp = await callable(payload);
       const d = (resp && resp.data) || {};
       // Unidades reales que liberó el servidor (sin estimar del lado cliente).
       const _unitsServer = Number(d.unitsCancelled) || 0;
-      showSyncTag('Producto quitado · ' + _unitsServer + 'u liberadas');
+      const _pedidosCerrados = Array.isArray(d.pedidosCerradosPorVacio) ? d.pedidosCerradosPorVacio.length : 0;
+      const _msgExtra = _pedidosCerrados > 0 ? ' · ' + _pedidosCerrados + ' orden(es) cerrada(s) por quedar vacías' : '';
+      showSyncTag('Producto quitado · ' + _unitsServer + 'u liberadas' + _msgExtra);
       try {
         if (typeof logOp === 'function') logOp('cpst_item_removed_release', 'revision_waitlist/' + docId, w.clientName, {
           cliente: w.clientName, sku: it.code, unidadesLiberadas: _unitsServer,
           lineasAfectadas: Number(d.linesCancelled) || 0,
+          pedidosCerradosPorVacio: _pedidosCerrados,
           via: 'releaseAsigCF',
         });
       } catch (_e) {}
@@ -27830,6 +27842,33 @@ window.waitlistRemoveItem = async function(docId, idx){
       try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
     } catch (e) {
       console.error('waitlistRemoveItem (release via CF)', e);
+      // PR G v1579 §Decisión-5 cierre HIGH-1: si el gate rebotó LAST_ITEM_NEEDS_CONFIRM
+      // por race (cliente veía 2+ items pero el servidor releyó 1 y es el último),
+      // re-promar con confirm() y reintentar con el flag. Evita UX dead-end en prod
+      // cuando dos operadores tocan la misma waitlist en paralelo.
+      const _srvCode = (window._serverErrorCodeOf && window._serverErrorCodeOf(e)) || '';
+      if (_srvCode === 'LAST_ITEM_NEEDS_CONFIRM') {
+        const _mvObj = (window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor) || null;
+        const _entry = _mvObj && _mvObj.MENSAJES_VENDEDOR ? _mvObj.MENSAJES_VENDEDOR.LAST_ITEM_NEEDS_CONFIRM : null;
+        const _msg = (_entry && _entry.texto) || 'Si quitás este producto la orden queda vacía y se cierra.';
+        if (confirm(_msg)) {
+          try {
+            const callable2 = firebase.app().functions('southamerica-east1').httpsCallable('releaseAsigCF');
+            const resp2 = await callable2({ action: 'remove_item', waitlistId: docId, itemIndex: idx, confirmedLastItemRemoval: true });
+            const d2 = (resp2 && resp2.data) || {};
+            const _unitsServer2 = Number(d2.unitsCancelled) || 0;
+            const _pedidosCerrados2 = Array.isArray(d2.pedidosCerradosPorVacio) ? d2.pedidosCerradosPorVacio.length : 0;
+            const _msgExtra2 = _pedidosCerrados2 > 0 ? ' · ' + _pedidosCerrados2 + ' orden(es) cerrada(s) por quedar vacías' : '';
+            showSyncTag('Producto quitado · ' + _unitsServer2 + 'u liberadas' + _msgExtra2);
+            try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
+            closeWaitlistCardModal();
+          } catch (e2) {
+            console.error('waitlistRemoveItem retry last-item', e2);
+            alert(window._serverErrorAlertText(e2) || window._releaseFailedAlertText());
+          }
+        }
+        return;
+      }
       // Rollback optimistic: re-fetch del server.
       alert(window._serverErrorAlertText(e) || window._releaseFailedAlertText());
     }

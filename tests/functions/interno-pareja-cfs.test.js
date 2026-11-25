@@ -426,7 +426,14 @@ describe('releaseAsigCF — alcance del interno', () => {
       seed(db, owner);
       const r = await releaseAsigCore(
         { fbDb: db, now: () => 1_700_000_000_000 },
-        { auth: authOf('uid-int'), action, waitlistId: 'wl1', itemIndex: 0 }
+        {
+          auth: authOf('uid-int'),
+          action,
+          waitlistId: 'wl1',
+          itemIndex: 0,
+          // PR G v1579 §Decisión-5: remove_item sobre el último item requiere flag.
+          confirmedLastItemRemoval: true,
+        }
       );
       expect(r.ok).toBe(true);
     }
@@ -486,7 +493,15 @@ describe('releaseAsigCF — alcance del interno', () => {
         await expect(
           releaseAsigCore(
             { fbDb: db, now: () => 1_700_000_000_000 },
-            { auth: authOf('uid-int'), action, waitlistId: 'wl1', itemIndex: 0 }
+            {
+              auth: authOf('uid-int'),
+              action,
+              waitlistId: 'wl1',
+              itemIndex: 0,
+              // PR G v1579 §Decisión-5: flag para no rebotar en LAST_ITEM_NEEDS_CONFIRM
+              // antes de llegar al gate de pareja.
+              confirmedLastItemRemoval: true,
+            }
           )
         ).rejects.toMatchObject({
           _errorCode: 'permission-denied',
@@ -534,7 +549,14 @@ describe('releaseAsigCF — alcance del interno', () => {
     await expect(
       releaseAsigCore(
         { fbDb: db, now: () => 1_700_000_000_000 },
-        { auth: authOf('uid-int'), action: 'remove_item', waitlistId: 'wl1', itemIndex: 0 }
+        {
+          auth: authOf('uid-int'),
+          action: 'remove_item',
+          waitlistId: 'wl1',
+          itemIndex: 0,
+          // PR G v1579 §Decisión-5: flag para que no corte antes.
+          confirmedLastItemRemoval: true,
+        }
       )
     ).rejects.toMatchObject({
       _errorCode: 'failed-precondition',

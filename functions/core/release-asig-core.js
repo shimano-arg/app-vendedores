@@ -37,6 +37,19 @@ import {
 const WAITLIST_BORRAR_SOLO_PROPIA = 'WAITLIST_BORRAR_SOLO_PROPIA';
 const WAITLIST_BORRAR_SOLO_PROPIA_MESSAGE = 'Solo podés borrar órdenes en espera que cargaste vos.';
 
+// PR G v1579 §Decisión-5: confirmación requerida cuando se quita el último
+// producto (la waitlist queda vacía y se borra + pedido origen posiblemente
+// cerrado por Decisión-4). El cliente avisa al user, user acepta, retry con
+// confirmedLastItemRemoval=true.
+const LAST_ITEM_NEEDS_CONFIRM = 'LAST_ITEM_NEEDS_CONFIRM';
+// LOW-2: eliminado "¿Seguro?" del mensaje — el botón de confirm() del cliente
+// ya hace la pregunta implícita.
+const LAST_ITEM_NEEDS_CONFIRM_MESSAGE = 'Si quitás este producto la orden queda vacía y se cierra.';
+
+// PR G v1579 §Decisión-4: cuando reciclar la última reserva (remove_item)
+// deja el pedido origen sin líneas abiertas, se cierra en la misma tx.
+const CLOSED_REASON_EMPTY_AFTER_REMOVE = 'empty_after_asig_recycle_v1579';
+
 /** Error with code — compatible con HttpsError pero sin importar firebase-functions. */
 /**
  * @param {string} code
@@ -61,6 +74,12 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
   const now = deps && typeof deps.now === 'function' ? deps.now() : Date.now();
   const nowIso = new Date(now).toISOString();
   const { auth, action, waitlistId, itemIndex } = params || {};
+  // PR G v1579 §Decisión-5: flag explícito para proceder cuando se quita el
+  // último producto (la waitlist queda vacía → se borra + pedido origen
+  // potencialmente cerrado por Decisión-4). Default false: el servidor rebota
+  // con LAST_ITEM_NEEDS_CONFIRM si el flag no viene. El cliente lo setea
+  // tras mostrar confirm().
+  const confirmedLastItemRemoval = !!(params && params.confirmedLastItemRemoval);
 
   // === INPUT VALIDATION ===
   if (!auth || !auth.uid) throw mkErr('unauthenticated', 'login requerido');
@@ -220,6 +239,46 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     action === 'rechazo_cpst' ? 'cliente_rechazo_cpst' : 'quitado_por_vendedor_cpst';
   const userEmail = String((auth.token && auth.token.email) || '').toLowerCase();
 
+  // PR G v1579 §Decisión-5 (2026-11-25): si remove_item deja la waitlist vacía,
+  // exigir flag explícito de confirmación. El cliente avisa al user antes y
+  // retry con flag=true. Aplica a todos los roles (decisión A pregunta 2 PR G).
+  if (
+    action === 'remove_item' &&
+    itemsAfter &&
+    itemsAfter.length === 0 &&
+    !confirmedLastItemRemoval
+  ) {
+    // MEDIUM-1 (adversarial PR G): AWAIT del log por §64.2 — es un rechazo
+    // real del CF (el cliente recibe HttpsError failed-precondition). El log
+    // garantiza audit del rechazo antes de que la invocación termine.
+    try {
+      await deps.fbDb.collection('operations_log').add({
+        type: 'release_asig_last_item_needs_confirm',
+        errorCode: LAST_ITEM_NEEDS_CONFIRM,
+        severity: 'info',
+        waitlistId,
+        waitlistCardCode: w.clientCardCode || null,
+        waitlistOrderNumber: w.orderNumber || null,
+        itemIndex: itemIndex,
+        refsCount: (refs || []).length,
+        userId: auth.uid,
+        userEmail,
+        role,
+        via: 'releaseAsigCF',
+        timestamp: new Date(now),
+      });
+    } catch (_logErr) {
+      /* non-fatal: no bloqueamos el throw por un fallo de log */
+    }
+    throw mkErr('failed-precondition', LAST_ITEM_NEEDS_CONFIRM_MESSAGE, {
+      errorCode: LAST_ITEM_NEEDS_CONFIRM,
+      refsCount: (refs || []).length,
+      cantidadAsig: (refs || []).reduce((s, r) => s + (Number(r && r.qtyAsignada) || 0), 0),
+      orderNumber: w.orderNumber || null,
+      clientName: w.clientName || null,
+    });
+  }
+
   // === TRANSACTION (§58: ALL reads before ALL writes) ===
   /** @type {any} */
   let result;
@@ -375,8 +434,31 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
       }
 
       // --- WRITES ---
+      // PR G v1579 §Decisión-4 (2026-11-25): cuando reciclar la última reserva
+      // (action='remove_item') deja el pedido origen SIN líneas abiertas,
+      // cerrarlo en esta misma tx con closedReason + log. Scope A pregunta 1:
+      // solo aplica a remove_item (no a rechazo_cpst ni a otros flows).
+      // MEDIUM-4 (adversarial PR G): fusión de los 2 tx.update en uno solo.
+      // Cualquier línea con qtyOpen>0 en CUALQUIER estado (BO/confirmed/invoiced)
+      // evita el cierre; solo cerramos cuando TODAS las líneas quedaron en
+      // qtyOpen=0 tras remove_item.
+      const pedidosCerradosPorVacio = [];
       for (const pw of pedidoWrites) {
-        tx.update(pw.ref, { lines: pw.newLines, updatedAt: nowIso });
+        /** @type {any} */
+        const patch = { lines: pw.newLines, updatedAt: nowIso };
+        if (action === 'remove_item') {
+          const anyOpen = (pw.newLines || []).some(
+            (/** @type {any} */ l) => l && Number(l.qtyOpen) > 0
+          );
+          if (!anyOpen) {
+            patch.closedAt = nowIso;
+            patch.closedReason = CLOSED_REASON_EMPTY_AFTER_REMOVE;
+            patch.closedBy = auth.uid;
+            patch.closedByEmail = userEmail;
+            pedidosCerradosPorVacio.push(pw.ref.id);
+          }
+        }
+        tx.update(pw.ref, patch);
       }
       // Waitlist mutation.
       let waitlistDeleted = false;
@@ -396,6 +478,7 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
         linesCancelled,
         pedidosMutated: pedidoWrites.length,
         waitlistDeleted,
+        pedidosCerradosPorVacio, // v1579 §Decisión-4
       };
     });
   } catch (e) {
@@ -457,6 +540,7 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
       lineasCanceladas: result.linesCancelled,
       pedidosMutados: result.pedidosMutated,
       waitlistDeleted: result.waitlistDeleted || false,
+      pedidosCerradosPorVacio: result.pedidosCerradosPorVacio || [], // v1579 §Decisión-4
       userId: auth.uid,
       userEmail,
       role,
@@ -465,6 +549,33 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     });
   } catch (_logErr) {
     // No bloquea: la operación ya se aplicó.
+  }
+
+  // PR G v1579 §Decisión-4: log separado por cada pedido cerrado por vaciar.
+  if (
+    result &&
+    Array.isArray(result.pedidosCerradosPorVacio) &&
+    result.pedidosCerradosPorVacio.length
+  ) {
+    for (const pid of result.pedidosCerradosPorVacio) {
+      try {
+        await deps.fbDb.collection('operations_log').add({
+          type: 'pedido_closed_empty_after_release',
+          pedidoId: pid,
+          waitlistId,
+          waitlistOrderNumber: w.orderNumber || null,
+          waitlistCardCode: w.clientCardCode || null,
+          closedReason: CLOSED_REASON_EMPTY_AFTER_REMOVE,
+          triggeredBy: auth.uid,
+          triggeredByEmail: userEmail,
+          role,
+          via: 'releaseAsigCF',
+          timestamp: new Date(now),
+        });
+      } catch (_logErr) {
+        /* no bloquea */
+      }
+    }
   }
 
   return Object.assign({ ok: true }, result);

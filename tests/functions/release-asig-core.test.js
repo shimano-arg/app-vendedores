@@ -322,6 +322,8 @@ describe('§63 releaseAsigCore', () => {
         action: 'remove_item',
         waitlistId: 'wl1',
         itemIndex: 0,
+        // PR G v1579 §Decisión-5: último item requiere flag explícito.
+        confirmedLastItemRemoval: true,
       }
     );
     expect(r.ok).toBe(true);
