@@ -95,6 +95,14 @@ const VENDEDOR_WAITLIST_FUERA_CLIENTE = 'VENDEDOR_WAITLIST_FUERA_CLIENTE';
 const VENDEDOR_WAITLIST_FUERA_CLIENTE_MESSAGE =
   'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.';
 
+// STACK S-4 T5 (D12 fix 2026-11-25) — espejo §57 de src/pure/discount.js.
+// Server recomputa el descuento comercial desde client_master.cliTipo bajo
+// feature flag `app_config/feature_flags.d12_discount_recompute_enabled`
+// (default OFF). Con flag OFF comportamiento histórico 100% (discountPct=0
+// persistido, como hoy). Con flag ON el server es la autoridad (§89) y el
+// cliente puede quedar desactualizado sin bloquear el pedido.
+import { calcClientDiscount } from './discount.js';
+import { readFlag } from './feature-flags.js';
 // PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
 // Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
 import { resolveLineDesc } from './resolve-line-desc-core.js';
@@ -560,6 +568,85 @@ export async function commitPedidoCore(deps, payload) {
       ? Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10
       : null;
 
+  // ===== STACK S-4 T5 (D12 fix 2026-11-25) — pre-tx resolution =====
+  // Server-side recompute del descuento comercial detrás de feature flag.
+  //
+  // Decisión §89 + §58:
+  //   - flag + cliTipo se resuelven ANTES del runTransaction (no son writes;
+  //     no violan §58 porque suceden fuera del tx; Firestore no soporta
+  //     `.where()` queries dentro de un tx de todos modos).
+  //   - La fuente de verdad del cliTipo es `client_master/<doc>.cliTipo`,
+  //     query por `sapCardCode == payload.cardCode`. Server ignora
+  //     `payload.discountSnapshot.cliTipo` del cliente (que puede ser stale).
+  //   - El resultado se pasa a commitInTransaction via `_d12Ctx` en el
+  //     payload (clon superficial). buildPedidoDocData lo lee para
+  //     persistir `discountPct` + `discountSnapshot`.
+  //
+  // Flag OFF (default HOY): el bloque sale temprano con discountRecomputed=false.
+  // buildPedidoDocData sigue persistiendo `discountPct: 0` como siempre (sin
+  // cambio de comportamiento). Este PR mergea seguro sin prender el flag.
+  //
+  // Flag ON (cuando Santi destrabe MaxDiscountSales en SAP, ver §4 STACK_08
+  // + CLAUDE.md §108 por venir): server computa y persiste el descuento real.
+  // Si cliTipo del server difiere del que el cliente mandó, loguea diferencia
+  // pero NO rechaza el pedido (§3.3 decisión deliberada: el server gana).
+  /** @type {{enabled: boolean, cliTipo: string, source: string, clientMasterDocId: string | null, clientPctFromPayload: number | null, clientMasterReadError: string | null}} */
+  const _d12Ctx = {
+    enabled: false,
+    cliTipo: '',
+    source: 'flag_off',
+    clientMasterDocId: null,
+    clientPctFromPayload:
+      typeof payload.discountPct === 'number' && Number.isFinite(payload.discountPct)
+        ? payload.discountPct
+        : payload.discountSnapshot && typeof payload.discountSnapshot.pctTotal === 'number'
+          ? payload.discountSnapshot.pctTotal
+          : null,
+    clientMasterReadError: null,
+  };
+  try {
+    const flagsSnap = await deps.fbDb.collection('app_config').doc('feature_flags').get();
+    const flagsData = flagsSnap && flagsSnap.exists ? flagsSnap.data() || {} : {};
+    _d12Ctx.enabled = readFlag(flagsData, 'd12_discount_recompute_enabled', false);
+  } catch (_eFlag) {
+    // §77 fail-open: si no podemos leer el flag, lo tratamos como OFF
+    // (comportamiento histórico). Loguear para diagnóstico.
+    (deps.log || (() => {}))('d12 feature_flags read failed, treating as OFF', {
+      err: _eFlag && _eFlag.message,
+    });
+    _d12Ctx.enabled = false;
+  }
+  if (_d12Ctx.enabled && payload.cardCode) {
+    try {
+      const qs = await deps.fbDb
+        .collection('client_master')
+        .where('sapCardCode', '==', payload.cardCode)
+        .limit(1)
+        .get();
+      if (qs && !qs.empty) {
+        const docSnap = qs.docs[0];
+        const cmData = docSnap.data() || {};
+        _d12Ctx.cliTipo = String(cmData.cliTipo || '')
+          .trim()
+          .toUpperCase();
+        _d12Ctx.clientMasterDocId = docSnap.id || null;
+        _d12Ctx.source = 'server:client_master';
+      } else {
+        _d12Ctx.source = 'server:client_master_not_found';
+      }
+    } catch (_eCm) {
+      _d12Ctx.clientMasterReadError = (_eCm && _eCm.message) || String(_eCm);
+      _d12Ctx.source = 'server:client_master_read_failed';
+      (deps.log || (() => {}))('d12 client_master read failed, cliTipo defaults to ""', {
+        cardCode: payload.cardCode,
+        err: _d12Ctx.clientMasterReadError,
+      });
+    }
+  }
+  // Payload shallow clone + inject ctx. Clonamos para no mutar la referencia
+  // original (importante para tests y retry loop).
+  const payloadWithD12Ctx = Object.assign({}, payload, { _d12Ctx });
+
   // 5. runTransaction atómica.
   let attempts = 0;
   let lastError = null;
@@ -567,7 +654,7 @@ export async function commitPedidoCore(deps, payload) {
     attempts++;
     try {
       const result = await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
-        return commitInTransaction(deps, tx, payload, now, nowIso);
+        return commitInTransaction(deps, tx, payloadWithD12Ctx, now, nowIso);
       });
       // FRENTE C OOM fix: log memory peak al éxito, no bloqueante.
       const _memPeakMb =
@@ -618,7 +705,12 @@ export async function commitPedidoCore(deps, payload) {
       // v1565 Frente A (2026-11-24, §108): audit fire-and-forget si el healing
       // modificó refs stale. Guardamos los events para que Mariano pueda
       // auditar en Firestore qué refs se healearon por pedido.
-      const _healEvents = /** @type {any} */ (payload)._asigRefHealingEvents;
+      // STACK S-4 T5 (D12 fix 2026-11-25): la tx corre con `payloadWithD12Ctx`
+      // (clon superficial con _d12Ctx), así que el healing escribe en el clon.
+      // Preserved-ref fallback al original por si otro flow legacy escribe ahí.
+      const _healEvents =
+        /** @type {any} */ (payloadWithD12Ctx)._asigRefHealingEvents ||
+        /** @type {any} */ (payload)._asigRefHealingEvents;
       if (Array.isArray(_healEvents) && _healEvents.length > 0) {
         try {
           deps.fbDb
@@ -2153,6 +2245,74 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
   const netAmount = isManualBo
     ? Math.round(computeGrossAmountAll(docLines))
     : computeNetAmount(docLines);
+
+  // ===== STACK S-4 T5 (D12 fix 2026-11-25) — discount recompute =====
+  // Lee el contexto resuelto pre-tx (_d12Ctx). Flag OFF → discountPct=0
+  // (comportamiento histórico, sin cambio). Flag ON → server computa con
+  // cliTipo del client_master y persiste pctTotal + discountSnapshot.
+  //
+  // Subtotal base para el descuento: netAmount SOLO cuando NO es
+  // manual_backorder (netAmount de BO es gross, no refleja venta real).
+  // Para manual_backorder dejamos descuento en 0 porque no va a SAP y el
+  // cliente nunca se lo mostró como beneficio.
+  //
+  // NUNCA rechazamos el pedido por mismatch cliente↔server (§3.3 decisión
+  // deliberada STACK_08): el server es la autoridad (§89). Si el cliente
+  // tenía un valor stale, lo logueamos pero seguimos.
+  let _resolvedDiscountPct = 0;
+  /** @type {any} */
+  let _resolvedDiscountSnapshot = null;
+  const _d12Ctx = payload._d12Ctx || null;
+  if (_d12Ctx && _d12Ctx.enabled && !isManualBo) {
+    try {
+      const _srv = calcClientDiscount(
+        { cliTipo: _d12Ctx.cliTipo || '' },
+        netAmount,
+        payload.condicionPago || ''
+      );
+      _resolvedDiscountPct = Math.max(0, Math.min(100, Number(_srv.pctTotal) || 0));
+      _resolvedDiscountSnapshot = {
+        cliTipo: _srv.tipo,
+        volBracket: _srv.vol,
+        formaPago: _srv.formaPago,
+        pctFijo: _srv.pctFijo,
+        pctVol: _srv.pctVol,
+        pctAntic: _srv.pctAntic,
+        pctTotal: _srv.pctTotal,
+        monto: _srv.monto,
+        source: _d12Ctx.source || 'server:client_master',
+        resolvedAt: nowIso,
+        cliTipoFromPayload: (payload.discountSnapshot && payload.discountSnapshot.cliTipo) || null,
+        cliTipoFromMaster: _d12Ctx.cliTipo || '',
+        clientPctFromPayload: _d12Ctx.clientPctFromPayload,
+        clientMasterDocId: _d12Ctx.clientMasterDocId || null,
+      };
+      // Divergencia cliente↔server: log (no reject). El server gana.
+      const _clientPct = _d12Ctx.clientPctFromPayload;
+      if (typeof _clientPct === 'number' && Math.abs(_clientPct - _resolvedDiscountPct) > 0.01) {
+        (deps.log || (() => {}))('d12 discount mismatch client vs server (server gana)', {
+          cardCode: payload.cardCode,
+          clientPct: _clientPct,
+          serverPct: _resolvedDiscountPct,
+          delta: _clientPct - _resolvedDiscountPct,
+          cliTipoFromPayload:
+            (payload.discountSnapshot && payload.discountSnapshot.cliTipo) || null,
+          cliTipoFromMaster: _d12Ctx.cliTipo || '',
+          source: _d12Ctx.source,
+        });
+        _resolvedDiscountSnapshot.mismatchDetected = true;
+      }
+    } catch (_eDisc) {
+      // Fail-open: si el compute rompe por data corrupta, no bloqueamos el
+      // pedido — persiste 0 como históricamente.
+      (deps.log || (() => {}))('d12 discount compute failed, falling back to 0', {
+        err: _eDisc && _eDisc.message,
+      });
+      _resolvedDiscountPct = 0;
+      _resolvedDiscountSnapshot = null;
+    }
+  }
+
   const base = {
     _draftId: payload.draftId,
     _commitVersion: 'commitPedidoCore_v1',
@@ -2209,7 +2369,11 @@ function buildPedidoDocData(payload, docLines, nowIso, deps) {
     observaciones: payload.observaciones || '',
     netAmountArs: netAmount,
     subtotalArs: netAmount,
-    discountPct: 0,
+    // STACK S-4 T5 (D12 fix 2026-11-25): server recomputa cuando flag ON.
+    // Flag OFF → 0 como siempre (compat 100% con comportamiento histórico).
+    // Snapshot solo se persiste cuando flag ON (null compat con pedidos viejos).
+    discountPct: _resolvedDiscountPct,
+    discountSnapshot: _resolvedDiscountSnapshot,
     ownerUid: payload.ownerUid || null,
     ownerEmail: payload.ownerEmail || null,
     ownerVendor: payload.ownerVendor || null,

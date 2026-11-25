@@ -18988,6 +18988,12 @@ window._gbConfirmar = async function(){
       skusToReviewCount: 0,
       subtotalArs: Math.round(totalArs),
       netAmountArs: Math.round(totalArs),
+      // TODO STACK S-4 T5 (D12 fix 2026-11-25): esta ruta CPST escribe pedidos
+      // directo desde el cliente sin pasar por commitPedidoCF → el fix D12
+      // server-side (feature_flags.d12_discount_recompute_enabled) NO aplica
+      // acá. Follow-up: cuando se active el flag + Santi destrabe D1, migrar
+      // esta ruta a commitPedidoCF para que el server recalcule el descuento
+      // también. Scope creep evitado en este PR; ver STACK_08_D12_PLAN_FIX §3.3.E.
       discountPct: 0,
       discountSnapshot: null,
       schemaVersion: 2,
