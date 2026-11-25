@@ -130,7 +130,9 @@ describe('H3 — interno modifica pedidos de su pareja VDE', () => {
       lines: [{ code: 'SKU1', qty: 1 }],
     });
     await assertSucceeds(
-      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-sin-owner'), { observaciones: 'x' })
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-sin-owner'), {
+        observaciones: 'x',
+      })
     );
     await seedDoc('pedidos/p-assigned-null', {
       ownerUid: GERENTE_LIKE,
@@ -139,7 +141,9 @@ describe('H3 — interno modifica pedidos de su pareja VDE', () => {
       lines: [{ code: 'SKU1', qty: 1 }],
     });
     await assertFails(
-      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-assigned-null'), { observaciones: 'x' })
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-assigned-null'), {
+        observaciones: 'x',
+      })
     );
   });
 
@@ -159,7 +163,9 @@ describe('H3 — interno modifica pedidos de su pareja VDE', () => {
       stage: 'pending',
       lines: [],
     });
-    await assertSucceeds(deleteDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-cargado-vdi-del')));
+    await assertSucceeds(
+      deleteDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-cargado-vdi-del'))
+    );
   });
 
   it('propio: interno cambia stage de su pedido y lo borra', async () => {
