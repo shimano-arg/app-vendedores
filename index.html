@@ -37172,8 +37172,14 @@ function detachFirebaseListeners(){
   n += off('unsubMyNotifs', unsubMyNotifs, () => unsubMyNotifs = null);
   n += off('unsubMyExternalPartners', unsubMyExternalPartners, () => unsubMyExternalPartners = null);
   n += off('unsubVisitsPartner', unsubVisitsPartner, () => unsubVisitsPartner = null);
-  n += off('unsubMySentTasks', unsubMySentTasks, () => unsubMySentTasks = null);
-  n += off('unsubAltaCliMine', unsubAltaCliMine, () => unsubAltaCliMine = null);
+  // v1584 §17 §108: unsubMySentTasks + unsubAltaCliMine viven en chunk lazy
+  // `notificaciones`. Si el user hace logout sin haber abierto el panel, el
+  // chunk nunca cargó y las free refs tiran ReferenceError que CORTA el detach
+  // entero (los 15+ off() posteriores no se ejecutan → leaks masivos). Usar
+  // window.X siempre devuelve undefined cuando la propiedad no existe (no
+  // ReferenceError) y off() hace skip silencioso. Precedente: STACK_00 §2.5.
+  n += off('unsubMySentTasks', window.unsubMySentTasks, () => { window.unsubMySentTasks = null; });
+  n += off('unsubAltaCliMine', window.unsubAltaCliMine, () => { window.unsubAltaCliMine = null; });
   n += off('unsubBackorderSnapshot', unsubBackorderSnapshot, () => unsubBackorderSnapshot = null);
   n += off('unsubMisRendiciones', unsubMisRendiciones, () => unsubMisRendiciones = null);
   n += off('unsubTodasRendiciones', unsubTodasRendiciones, () => unsubTodasRendiciones = null);
