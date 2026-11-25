@@ -11,13 +11,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { applyRepartoManualCore } from '../../functions/core/reparto-core.js';
 
 /** Helper mock fbDb que soporta `.where('closedAt','==',null).get()`. */
-function makeDeps({ sku, fisicoDep11, pedidosExistentes, ingresoDoc, pedidoBO }) {
+function makeDeps({ sku, fisicoDep11, fisicoDep12 = 0, pedidosExistentes, ingresoDoc, pedidoBO }) {
   const state = {
     pedidos: { ...pedidosExistentes, [pedidoBO._fsId]: pedidoBO },
     ingresos_reparto: { [ingresoDoc._fsId]: ingresoDoc },
     app_config: {
       stock_snapshot: {
-        warehouseBreakdown: { [sku]: { 11: fisicoDep11 } },
+        warehouseBreakdown: { [sku]: { 11: fisicoDep11, 12: fisicoDep12 } },
         asigBySkuApp: { [sku]: 0 },
       },
     },
@@ -157,7 +157,8 @@ describe('v1575 §prevent-oversign — cap contra fisico libre, no bruto', () =>
       eliminations: [],
     });
     expect(r.ok).toBe(false);
-    expect(r.errors.join(' ')).toMatch(/stock fisico LIBRE/i);
+    // v1576: mensaje nuevo "físico dep 11 LIBRE".
+    expect(r.errors.join(' ')).toMatch(/f(í|i)sico dep 11.*LIBRE/i);
     expect(r.errors.join(' ')).toMatch(/ya reservado/i);
     // Importante: NO se aplico nada.
     expect(r.applied || []).toHaveLength(0);
@@ -202,7 +203,7 @@ describe('v1575 §prevent-oversign — cap contra fisico libre, no bruto', () =>
       eliminations: [],
     });
     expect(r.ok).toBe(false);
-    expect(r.errors.join(' ')).toMatch(/stock fisico LIBRE/i);
+    expect(r.errors.join(' ')).toMatch(/f(í|i)sico dep 11.*LIBRE/i);
   });
 
   it('OK: confirmed CON orderDocEntry (SAP descuenta por §40.8) → no cuenta como reserva', async () => {
@@ -243,6 +244,113 @@ describe('v1575 §prevent-oversign — cap contra fisico libre, no bruto', () =>
       eliminations: [],
     });
     expect(r.ok).toBe(true);
+  });
+
+  // v1576 (2026-11-25): dep12-aware. Pablo puede repartir desde tránsito
+  // (dep 12) 6-7 dias antes que llegue a dep 11 (patron §107). El gate v1575
+  // original solo miraba dep 11 — hubiera bloqueado repartos legítimos
+  // sobre tránsito. v1576 capea contra libreTransito cuando el ingreso es dep 12.
+
+  it('v1576 OK: ingreso dep 12 (tránsito), fisico11=0 pero fisico12=10, Pablo asigna 5 → pasa', async () => {
+    const deps = makeDeps({
+      sku: 'SKU-T1',
+      fisicoDep11: 0,
+      fisicoDep12: 10,
+      pedidosExistentes: {},
+      ingresoDoc: {
+        _fsId: 'ingT1',
+        sku: 'SKU-T1',
+        qtyIngresada: 10,
+        status: 'pending',
+        warehouse: 12, // v1576: ingreso de tránsito
+        source: 'dep12',
+        clientesBO: [{ pedidoId: 'pA', lineIndex: 0, clientCardCode: 'C1', qtyBackorder: 5 }],
+        qtyBackorderTotal: 5,
+        clientesCount: 1,
+      },
+      pedidoBO: {
+        _fsId: 'pA',
+        closedAt: null,
+        clientCardCode: 'C1',
+        lines: [{ code: 'SKU-T1', state: 'BO', qty: 5, qtyOpen: 5 }],
+      },
+    });
+    const r = await applyRepartoManualCore(deps, {
+      ingresoId: 'ingT1',
+      assignments: [{ pedidoId: 'pA', lineIndex: 0, qtyAsignada: 5 }],
+      eliminations: [],
+    });
+    // Debe pasar aunque fisico11=0: el stock esta en tránsito, es
+    // reparto legitimo (6-7 dias antes del arribo a dep 11).
+    expect(r.ok).toBe(true);
+  });
+
+  it('v1576 BLOQUEA: ingreso dep 12, fisico12=3, Pablo intenta asignar 5 → rechaza con mensaje tránsito', async () => {
+    const deps = makeDeps({
+      sku: 'SKU-T2',
+      fisicoDep11: 0,
+      fisicoDep12: 3,
+      pedidosExistentes: {},
+      ingresoDoc: {
+        _fsId: 'ingT2',
+        sku: 'SKU-T2',
+        qtyIngresada: 3,
+        status: 'pending',
+        warehouse: 12,
+        source: 'dep12',
+        clientesBO: [{ pedidoId: 'pA', lineIndex: 0, clientCardCode: 'C1', qtyBackorder: 5 }],
+        qtyBackorderTotal: 5,
+        clientesCount: 1,
+      },
+      pedidoBO: {
+        _fsId: 'pA',
+        closedAt: null,
+        clientCardCode: 'C1',
+        lines: [{ code: 'SKU-T2', state: 'BO', qty: 5, qtyOpen: 5 }],
+      },
+    });
+    const r = await applyRepartoManualCore(deps, {
+      ingresoId: 'ingT2',
+      assignments: [{ pedidoId: 'pA', lineIndex: 0, qtyAsignada: 5 }],
+      eliminations: [],
+    });
+    expect(r.ok).toBe(false);
+    // El mensaje debe hablar de "tránsito dep 12", no de "físico dep 11".
+    expect(r.errors.join(' ')).toMatch(/tr(á|a)nsito dep 12/i);
+  });
+
+  it('v1576 BLOQUEA: ingreso dep 11, fisico11=0 PERO fisico12=100, Pablo asigna 5 → rechaza (no mezcla dep 12 en dep 11)', async () => {
+    // Si el ingreso es de dep 11 (no tránsito), no sirve que haya 100 en dep 12.
+    // Cada bucket se cap por separado.
+    const deps = makeDeps({
+      sku: 'SKU-T3',
+      fisicoDep11: 0,
+      fisicoDep12: 100,
+      pedidosExistentes: {},
+      ingresoDoc: {
+        _fsId: 'ingT3',
+        sku: 'SKU-T3',
+        qtyIngresada: 5,
+        status: 'pending',
+        // Sin warehouse ni source — asume dep 11 (comportamiento default).
+        clientesBO: [{ pedidoId: 'pA', lineIndex: 0, clientCardCode: 'C1', qtyBackorder: 5 }],
+        qtyBackorderTotal: 5,
+        clientesCount: 1,
+      },
+      pedidoBO: {
+        _fsId: 'pA',
+        closedAt: null,
+        clientCardCode: 'C1',
+        lines: [{ code: 'SKU-T3', state: 'BO', qty: 5, qtyOpen: 5 }],
+      },
+    });
+    const r = await applyRepartoManualCore(deps, {
+      ingresoId: 'ingT3',
+      assignments: [{ pedidoId: 'pA', lineIndex: 0, qtyAsignada: 5 }],
+      eliminations: [],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/f(í|i)sico dep 11/i);
   });
 
   it('BLOQUEA: repro caso CLC66H2PY — fisico 4, 10u confirmed con SO + 4u sin SO, Pablo intenta repartir 2 → rechaza', async () => {
@@ -295,6 +403,6 @@ describe('v1575 §prevent-oversign — cap contra fisico libre, no bruto', () =>
       eliminations: [],
     });
     expect(r.ok).toBe(false);
-    expect(r.errors.join(' ')).toMatch(/stock fisico LIBRE/i);
+    expect(r.errors.join(' ')).toMatch(/f(í|i)sico dep 11.*LIBRE/i);
   });
 });
