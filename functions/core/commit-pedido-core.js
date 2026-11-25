@@ -98,6 +98,8 @@ const VENDEDOR_WAITLIST_FUERA_CLIENTE_MESSAGE =
 // PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
 // Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
 import { resolveLineDesc } from './resolve-line-desc-core.js';
+// Stack S-2 T4 (instrumentation, no behavior change):
+import { createPhaseTimers, markPhase, emitPhaseTimers } from './commit-phase-timers.js';
 // (incidente Federico 2026-11-20) CAPA (b) `SKU_NOT_IN_SAP_CATALOG` removida:
 // bloqueaba pedidos legítimos con SKUs todavía no dados de alta en SAP.
 // La red de seguridad real es CAPA (c) en `auto-send-sap-core.js`, que degrada
@@ -138,6 +140,8 @@ export async function commitPedidoCore(deps, payload) {
   const log = deps.log || (() => {});
   const now = (deps.now ? deps.now() : new Date()).getTime();
   const nowIso = new Date(now).toISOString();
+  // Stack S-2 T4: phase timers (fire-and-forget, 20% sampling, never throws).
+  const _timers = createPhaseTimers();
 
   // 1. Validación básica payload.
   const validation = validatePayload(payload);
@@ -149,6 +153,7 @@ export async function commitPedidoCore(deps, payload) {
     });
     return makeError('VALIDATION_ERROR', validation.message || '', validation.data);
   }
+  markPhase(_timers, 'validation');
 
   // 2. Chequeo min_app_version.
   try {
@@ -174,6 +179,8 @@ export async function commitPedidoCore(deps, payload) {
       err: (e && e.message) || String(e),
     });
   }
+
+  markPhase(_timers, 'version_check');
 
   // 3. Idempotencia por draftId.
   const existingPedido = await findExistingByDraftId(deps, payload.draftId);
@@ -208,6 +215,8 @@ export async function commitPedidoCore(deps, payload) {
       draftId: payload.draftId,
       pedidoId: existingPedido.id,
     });
+    markPhase(_timers, 'idempotent_hit');
+    emitPhaseTimers(deps, payload, _timers, 'ok_idempotent');
     return {
       ok: true,
       pedidoId: existingPedido.id,
@@ -218,6 +227,7 @@ export async function commitPedidoCore(deps, payload) {
       idempotentHit: true,
     };
   }
+  markPhase(_timers, 'idempotent_check');
 
   // 4. CLIENT_HAS_OPEN_WAITLIST check (§42) + §57 exclude self.
   //
@@ -278,6 +288,8 @@ export async function commitPedidoCore(deps, payload) {
       }
     );
   }
+
+  markPhase(_timers, 'waitlist_check');
 
   // 4.5 Tarea L (v1457 2026-10-25): gate UNRESOLVED_BO_ENTRY_ROWS.
   //
@@ -697,6 +709,9 @@ export async function commitPedidoCore(deps, payload) {
         }
       }
       const { _absorbSkipped: _omitAbsorbSkipped, ...resultForClient } = result;
+      // Stack S-2 T4: emit phase timers on happy path. Fire-and-forget.
+      markPhase(_timers, 'transaction');
+      emitPhaseTimers(deps, payload, _timers, 'ok');
       return { ...resultForClient, servidorNowMs: now, commitAtIso: nowIso };
     } catch (e) {
       const err = /** @type {any} */ (e);
