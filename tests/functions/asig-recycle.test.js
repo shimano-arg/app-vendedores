@@ -391,10 +391,18 @@ describe('updateAsigLineState — v990 role gate + ownership', () => {
     expect(fbDb._store.pedidos[0].data.lines[0].qtyCancelled).toBe(0);
   });
 
-  it('rol interno: puede operar sobre pedido ajeno (flow VDI)', async () => {
+  // Auditoría 2026-11-25: el interno opera sobre pedidos de SU pareja VDE
+  // (no sobre cualquiera). Casos de otra pareja en asig-recycle-interno-pareja.
+  it('rol interno: puede operar sobre pedido de su VDE pareja (flow VDI)', async () => {
     const p = _pedido({ ownerUid: 'u_vde_pareja' });
     const fbDb = makeFakeFbDb([p]);
-    const deps = { fbDb, log: vi.fn(), getUserRole: async () => 'interno' };
+    const deps = {
+      fbDb,
+      log: vi.fn(),
+      getUserRole: async () => 'interno',
+      getRoleDoc: async (uid) =>
+        uid === 'u_vde_pareja' ? { role: 'vendedor', internalPartnerUid: 'u_interno' } : null,
+    };
     const r = await updateAsigLineState(
       deps,
       { uid: 'u_interno', email: 'vdi@shimano.com.ar' },

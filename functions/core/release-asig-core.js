@@ -19,12 +19,18 @@
  * Idempotente: si una línea ya está cancelled con el mismo closedReason, skip.
  * Si cambió a otro estado (BO revertida §40.5, invoiced, confirmed), skip.
  *
- * @param {{ fbDb: any, log?: Function, now?: Function }} deps
+ * @param {{ fbDb: any, log?: Function, now?: Function, getRoleDoc?: (uid: string) => Promise<any> }} deps
  * @param {{ auth: any, action: 'remove_item'|'rechazo_cpst'|string, waitlistId: string, itemIndex?: number }} params
  */
 
 import { evaluateCallerRole, ROLE_CHECK_UNAVAILABLE_MESSAGE } from './caller-role-gate.js';
 import { collectAsigRefsForCancel, collectAsigRefsForItemCancel } from './cpst-cancel-refs.js';
+import {
+  evaluateWaitlistScopeInterno,
+  INTERNO_FUERA_DE_PAREJA,
+  INTERNO_FUERA_DE_PAREJA_MESSAGE,
+  makeGetRoleDoc,
+} from './interno-scope.js';
 
 /** Error with code — compatible con HttpsError pero sin importar firebase-functions. */
 /**
@@ -94,15 +100,37 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
   const w = Object.assign({ _id: waitlistId }, wSnapInitial.data() || {});
 
   // === PERMISSION CHECK ===
-  // admin/gerente/interno → OK siempre.
+  // admin/gerente → OK siempre.
+  // interno → solo órdenes propias o de su VDE pareja (auditoría 2026-11-25).
+  //   Además deja de operar entre clientes (mismo chequeo que el vendedor).
   // vendedor → ownerUid del waitlist O assignedVendorUid del waitlist (§44/§46).
-  const isPrivileged = role === 'admin' || role === 'gerente' || role === 'interno';
+  const isPrivileged = role === 'admin' || role === 'gerente';
+  if (role === 'interno') {
+    const scope = await evaluateWaitlistScopeInterno({
+      callerUid: auth.uid,
+      waitlist: w,
+      getRoleDoc: deps.getRoleDoc || makeGetRoleDoc(deps.fbDb),
+    });
+    if (!scope.ok) {
+      if (deps.log) {
+        deps.log('releaseAsigCore interno fuera de pareja', {
+          uid: auth.uid,
+          waitlistId,
+          reason: scope.reason,
+        });
+      }
+      throw mkErr('permission-denied', INTERNO_FUERA_DE_PAREJA_MESSAGE, {
+        errorCode: INTERNO_FUERA_DE_PAREJA,
+      });
+    }
+  }
+  const isInternoEnScope = role === 'interno';
   // SEC F1A-H12 (2026-11-24): ser ownerUid de la orden ya no alcanza; el
   // dueño tiene que tener además un rol aprobado (un usuario degradado a
   // unassigned/viewer que quedó como ownerUid no libera ASIG).
   const isOwner = w.ownerUid === auth.uid && evaluateCallerRole(roleData, auth.uid).ok;
   const isAssignedVendor = role === 'vendedor' && w.assignedVendorUid === auth.uid;
-  if (!isPrivileged && !isOwner && !isAssignedVendor) {
+  if (!isPrivileged && !isInternoEnScope && !isOwner && !isAssignedVendor) {
     // Sin rol aprobado → ROLE_REQUIRED (mensaje de rol); con rol aprobado pero
     // sin vínculo con la orden → RELEASE_PERMISSION_DENIED.
     const roleCheck = evaluateCallerRole(roleData, auth.uid);

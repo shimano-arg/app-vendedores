@@ -22,7 +22,9 @@
  *   - H12: filtrar por `closedAt != null` además de `stage === 'consumed'`.
  *
  * PERMISOS (D12.2 Q4):
- *   - admin/gerente/interno: siempre OK.
+ *   - admin/gerente: siempre OK.
+ *   - interno: solo si target Y todos los absorbidos son propios o de su VDE
+ *     pareja (auditoría 2026-11-25). Si no: INTERNO_FUERA_DE_PAREJA.
  *   - vendedor: solo si target Y todos los absorbidos cumplen
  *     (assignedVendorUid === auth.uid OR ownerUid === auth.uid).
  *
@@ -37,6 +39,12 @@
  * @param {{ auth: any, targetWaitlistId: string, absorbedWaitlistIds: string[] }} params
  */
 
+import {
+  evaluateWaitlistScopeInterno,
+  INTERNO_FUERA_DE_PAREJA,
+  INTERNO_FUERA_DE_PAREJA_MESSAGE,
+  makeGetRoleDoc,
+} from './interno-scope.js';
 import { mergeLinesFromOrders } from './unificar-ordenes.js';
 
 /**
@@ -188,7 +196,7 @@ async function logUnifySuccess(deps, logEntry) {
 }
 
 /**
- * @param {{ fbDb: any, now?: Function }} deps
+ * @param {{ fbDb: any, now?: Function, getRoleDoc?: (uid: string) => Promise<any> }} deps
  * @param {{ auth: any, targetWaitlistId: string, absorbedWaitlistIds: string[] }} params
  */
 export async function unifyWaitlistsCore(deps, params) {
@@ -243,7 +251,10 @@ export async function unifyWaitlistsCore(deps, params) {
     }
 
     const userEmail = String((auth.token && auth.token.email) || '').toLowerCase();
-    const isPrivileged = role === 'admin' || role === 'gerente' || role === 'interno';
+    // Auditoria 2026-11-25: el interno ya no es privilegiado (ver permisos
+    // dentro de la tx: propias o de su VDE pareja).
+    const isPrivileged = role === 'admin' || role === 'gerente';
+    const getRoleDoc = (deps && deps.getRoleDoc) || makeGetRoleDoc(deps.fbDb);
     const targetRef = deps.fbDb.collection('revision_waitlist').doc(targetWaitlistId);
 
     // G1 (adversarial fix 2026-11-18): resolver `cardCode` del target ANTES
@@ -487,7 +498,27 @@ export async function unifyWaitlistsCore(deps, params) {
       }
 
       // Permisos (D12.2 Q4).
-      if (!isPrivileged) {
+      if (role === 'interno') {
+        // Lecturas de roles antes de cualquier write (§58).
+        const docs = [{ id: targetWaitlistId, data: targetData }].concat(
+          absorbedSnaps.map((a) => ({ id: a.id, data: a.data }))
+        );
+        for (const d of docs) {
+          const scope = await evaluateWaitlistScopeInterno({
+            callerUid: auth.uid,
+            waitlist: d.data,
+            getRoleDoc,
+          });
+          if (!scope.ok) {
+            const e = mkErr('permission-denied', INTERNO_FUERA_DE_PAREJA_MESSAGE);
+            /** @type {any} */ (e)._errorData = {
+              errorCode: INTERNO_FUERA_DE_PAREJA,
+              waitlistFueraDeAlcance: d.id,
+            };
+            throw e;
+          }
+        }
+      } else if (!isPrivileged) {
         if (role !== 'vendedor') {
           throw mkErr('permission-denied', 'rol no autorizado');
         }

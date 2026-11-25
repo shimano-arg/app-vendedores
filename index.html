@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1570';
+const APP_VERSION = 'v1571';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -24942,7 +24942,10 @@ async function _e4bHandleAsigAction(w, it, action){
         }
       } catch(e) {
         console.error('[E4B] CF error', e);
-        alert('Error ejecutando ' + actionLabel + ': ' + (e.message || e));
+        // §68: si el servidor trae un código con mensaje propio (ej. pedido
+        // fuera del alcance del vendedor interno), mostrar ese texto.
+        const _srvMsgE4B = window._serverErrorAlertText ? window._serverErrorAlertText(e) : null;
+        alert(_srvMsgE4B || ('Error ejecutando ' + actionLabel + ': ' + (e.message || e)));
         break;
       }
     }
@@ -27599,13 +27602,15 @@ window._wcardDeleteChoiceClose = function(){
 // permiso + ejecuta el batch con runTransaction (§58).
 // Errores de negocio del servidor (releaseAsigCF y otros callables): si el
 // error trae en details.errorCode un código con mensaje propio (ROLE_REQUIRED,
-// ROLE_CHECK_UNAVAILABLE, CLIENT_DATA_MISSING, RELEASE_CROSS_CLIENT,
+// ROLE_CHECK_UNAVAILABLE, INTERNO_FUERA_DE_PAREJA, INTERNO_SOLO_PEDIDO_PROPIO, CLIENT_DATA_MISSING, RELEASE_CROSS_CLIENT,
 // TOO_MANY_SKUS, GEMINI_OCR_FAILED, EMAIL_SEND_FAILED), devuelve el mensaje
 // humano de mensajes-vendedor (§68); si no, null. Fallback inline por si el
 // bundle viene stale (SW sirviendo una versión previa).
 window._SERVER_ERROR_FALLBACK_TEXTS = {
   ROLE_REQUIRED: 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.',
   ROLE_CHECK_UNAVAILABLE: 'No pudimos verificar tu permiso en este momento. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
+  INTERNO_FUERA_DE_PAREJA: 'Este pedido es de otro vendedor y no lo podés modificar. Si tenés que cambiarlo, pedíselo a su vendedor o a Mariano.',
+  INTERNO_SOLO_PEDIDO_PROPIO: 'Solo podés pasar a espera pedidos que cargaste vos. Para este pedido, pedíselo a su vendedor.',
   CLIENT_DATA_MISSING: 'No pudimos liberar la reserva porque al pedido le falta el dato del cliente. Avisale a Mariano o a un administrador.',
   RELEASE_CROSS_CLIENT: 'No pudimos liberar la reserva porque pertenece a otro cliente. Revisá la orden y, si sigue, avisale a Mariano.',
   TOO_MANY_SKUS: 'El pedido tiene demasiados productos para procesarlo de una vez. Dividilo en dos o más pedidos y volvé a intentar.',

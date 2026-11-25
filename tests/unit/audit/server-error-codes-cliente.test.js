@@ -25,6 +25,9 @@ const NUEVOS = [
   'TOO_MANY_SKUS',
   'GEMINI_OCR_FAILED',
   'EMAIL_SEND_FAILED',
+  // Auditoría 2026-11-25: alcance del vendedor interno en las Cloud Functions.
+  'INTERNO_FUERA_DE_PAREJA',
+  'INTERNO_SOLO_PEDIDO_PROPIO',
 ];
 
 describe('mensajes de los códigos nuevos', () => {

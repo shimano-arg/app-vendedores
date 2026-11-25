@@ -66,7 +66,32 @@
  *   'pedido_moved_and_unified' (unify). Fire-and-forget post-tx.
  */
 
+import {
+  evaluatePedidoScopeInterno,
+  INTERNO_FUERA_DE_PAREJA,
+  INTERNO_FUERA_DE_PAREJA_MESSAGE,
+  INTERNO_SOLO_PEDIDO_PROPIO,
+  INTERNO_SOLO_PEDIDO_PROPIO_MESSAGE,
+  makeGetRoleDoc,
+} from './interno-scope.js';
 import { mergeLinesFromOrders } from './unificar-ordenes.js';
+
+/**
+ * Rechazo por alcance del interno: permission-denied con errorCode propio en
+ * `_errorData` (viaja como `details` del HttpsError y al log de rechazos).
+ */
+function mkInternoScopeErr(/** @type {{ok: boolean, via: string}} */ scope) {
+  // De la pareja pero no propio: mover a espera borra el pedido, eso queda
+  // fuera de "modificar" (solo pedido propio). Fuera de pareja: denegado.
+  if (scope && scope.ok && scope.via === 'pareja') {
+    const e = mkErr('permission-denied', INTERNO_SOLO_PEDIDO_PROPIO_MESSAGE);
+    /** @type {any} */ (e)._errorData = { errorCode: INTERNO_SOLO_PEDIDO_PROPIO };
+    return e;
+  }
+  const e = mkErr('permission-denied', INTERNO_FUERA_DE_PAREJA_MESSAGE);
+  /** @type {any} */ (e)._errorData = { errorCode: INTERNO_FUERA_DE_PAREJA };
+  return e;
+}
 
 /**
  * @param {string} code
@@ -329,7 +354,7 @@ async function logMoveSuccess(deps, logEntry) {
 }
 
 /**
- * @param {{ fbDb: any, log?: Function, now?: Function }} deps
+ * @param {{ fbDb: any, log?: Function, now?: Function, getRoleDoc?: (uid: string) => Promise<any> }} deps
  * @param {{ auth: any, pedidoId: string }} params
  */
 export async function movePedidoToWaitlistCore(deps, params) {
@@ -375,10 +400,25 @@ export async function movePedidoToWaitlistCore(deps, params) {
     // acceso cross-rol al Core.
     const READER_ROLES = new Set(['admin', 'gerente', 'interno', 'vendedor', 'viewer']);
     const isReader = READER_ROLES.has(role);
-    const isPrivileged = role === 'admin' || role === 'gerente' || role === 'interno';
+    // Auditoria 2026-11-25: el interno (VDI) ya no es privilegiado. Mover a
+    // espera borra el pedido: solo sobre pedidos PROPIOS (como en
+    // firestore.rules, donde la pareja no cambia estado ni borra). Pedido de
+    // la pareja → INTERNO_SOLO_PEDIDO_PROPIO; de otra pareja →
+    // INTERNO_FUERA_DE_PAREJA.
+    const isPrivileged = role === 'admin' || role === 'gerente';
+    const isInterno = role === 'interno';
+    const getRoleDoc = (deps && deps.getRoleDoc) || makeGetRoleDoc(deps.fbDb);
+    if (isInterno) {
+      const scope = await evaluatePedidoScopeInterno({
+        callerUid: auth.uid,
+        pedido: data,
+        getRoleDoc,
+      });
+      if (!(scope.ok && scope.via === 'propio')) throw mkInternoScopeErr(scope);
+    }
     const isOwner = isReader && data.ownerUid === auth.uid;
     const isAssignedVendor = role === 'vendedor' && data.assignedVendorUid === auth.uid;
-    if (!isPrivileged && !isOwner && !isAssignedVendor) {
+    if (!isPrivileged && !isInterno && !isOwner && !isAssignedVendor) {
       throw mkErr('permission-denied', 'solo admin/gerente/interno o VDE owner');
     }
 
@@ -559,7 +599,25 @@ export async function movePedidoToWaitlistCore(deps, params) {
       // críticos fresh vs pre-fetch. Si cambiaron, rechazar. No re-evaluamos
       // toda la lógica isOwner/isAssignedVendor porque el role del user es
       // estable (no cambia mid-tx) y los privileged no están afectados.
-      if (!isPrivileged) {
+      if (isInterno) {
+        // Re-verificar alcance contra fresh data si cambió algún campo de
+        // dueño (lecturas de roles antes de cualquier write, §58).
+        const changed =
+          fresh_data.ownerUid !== data.ownerUid ||
+          fresh_data.assignedVendorUid !== data.assignedVendorUid ||
+          fresh_data.createdByUid !== data.createdByUid ||
+          fresh_data.cargadoPorUid !== data.cargadoPorUid;
+        if (changed) {
+          const freshScope = await evaluatePedidoScopeInterno({
+            callerUid: auth.uid,
+            pedido: fresh_data,
+            getRoleDoc,
+          });
+          if (!(freshScope.ok && freshScope.via === 'propio')) {
+            throw mkInternoScopeErr(freshScope);
+          }
+        }
+      } else if (!isPrivileged) {
         const freshOwnerUid = fresh_data.ownerUid;
         const freshAssignedVendorUid = fresh_data.assignedVendorUid;
         const ownerChanged = freshOwnerUid !== data.ownerUid;

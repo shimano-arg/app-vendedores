@@ -2104,9 +2104,15 @@ export const updateAsigLineStateCF = onCall(
         'out-of-range',
       ]);
       if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
-        const err = /** @type {{code: string, message: string}} */ (e);
+        const err = /** @type {{code: string, message: string, details?: any}} */ (e);
         if (SAFE_CODES.has(String(err.code))) {
-          throw new HttpsError(/** @type {any} */ (err.code), err.message);
+          // Solo se propaga `details.errorCode` (código de negocio para el
+          // mensaje del cliente, ej. INTERNO_FUERA_DE_PAREJA).
+          const details =
+            err.details && typeof err.details.errorCode === 'string'
+              ? { errorCode: err.details.errorCode }
+              : undefined;
+          throw new HttpsError(/** @type {any} */ (err.code), err.message, details);
         }
       }
       console.error('[updateAsigLineStateCF:general]', e);

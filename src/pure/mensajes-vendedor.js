@@ -150,6 +150,18 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto:
       'No pudimos verificar tu permiso en este momento. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
   },
+  // Vendedor interno (VDI) sobre un pedido u orden fuera de su pareja
+  // (updatePedidoLinesCF, movePedidoToWaitlistCF, releaseAsigCF,
+  // updateAsigLineStateCF, unifyWaitlistsCF). Reintentar no sirve.
+  INTERNO_FUERA_DE_PAREJA: {
+    texto:
+      'Este pedido es de otro vendedor y no lo podés modificar. Si tenés que cambiarlo, pedíselo a su vendedor o a Mariano.',
+  },
+  // movePedidoToWaitlistCF: el interno solo pasa a espera pedidos propios.
+  INTERNO_SOLO_PEDIDO_PROPIO: {
+    texto:
+      'Solo podés pasar a espera pedidos que cargaste vos. Para este pedido, pedíselo a su vendedor.',
+  },
   // releaseAsigCF: al pedido de origen le falta el dato del cliente.
   CLIENT_DATA_MISSING: {
     texto:
@@ -274,6 +286,8 @@ export function isRoleRequiredError(e) {
 export const SERVER_ERROR_CODES_MAPEADOS = Object.freeze([
   'ROLE_REQUIRED',
   'ROLE_CHECK_UNAVAILABLE',
+  'INTERNO_FUERA_DE_PAREJA',
+  'INTERNO_SOLO_PEDIDO_PROPIO',
   'CLIENT_DATA_MISSING',
   'RELEASE_CROSS_CLIENT',
   'TOO_MANY_SKUS',
