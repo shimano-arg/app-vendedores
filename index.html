@@ -6351,7 +6351,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1582';
+const APP_VERSION = 'v1586';
 window.APP_VERSION = APP_VERSION;
 
 // v1581 (2026-11-25): helper debounce global para buscadores pesados.
@@ -6508,10 +6508,60 @@ window._perfDebounce = function(fn, ms){
     });
   }
 
+  // v1586 §108 (2026-11-25): fix 2-fase para evitar descargar index.html
+  // entero (~700KB) cada 3 min. Discovery Stack midió ~14 MB/h de tráfico
+  // innecesario por VDE que no se dió cuenta del hit.
+  //
+  // Fase 1: HEAD request → solo headers (~1KB). Comparamos ETag/Last-Modified
+  //   con el guardado en la última corrida. Si son iguales → skip (no hay
+  //   deploy nuevo). Si cambiaron → fase 2.
+  // Fase 2: GET completo para extraer APP_VERSION. Solo corre cuando hay deploy
+  //   real. Impacto medido: 20 ciclos sin deploy = 20 HEAD × 1KB ~ 20KB total.
+  //
+  // Fallback: si el HEAD falla (CORS, server no soporta, etc.), caemos al
+  // comportamiento histórico (GET completo). Primera corrida siempre es GET
+  // porque no hay validator previo guardado.
+  let _lastValidator = null;  // { etag, lastModified }
   async function _checkRemoteVersion(){
     try {
+      // Fase 1: HEAD con revalidación (sin cache-buster — queremos que el
+      // server pueda devolver 304 Not Modified con headers 'fresh').
+      let shouldFullFetch = (_lastValidator === null); // primer ciclo: sí
+      if (_lastValidator) {
+        try {
+          const headResp = await fetch('./index.html', {
+            method: 'HEAD',
+            cache: 'no-cache',
+          });
+          if (headResp.ok) {
+            const newEtag = headResp.headers.get('etag');
+            const newLM = headResp.headers.get('last-modified');
+            // Si al menos UNO de los validators matchea, es la misma versión.
+            const sameEtag = newEtag && _lastValidator.etag && newEtag === _lastValidator.etag;
+            const sameLM = newLM && _lastValidator.lastModified && newLM === _lastValidator.lastModified;
+            if (sameEtag || sameLM) {
+              // Sin cambios → skip. Caso común (99% post-deploy).
+              return;
+            }
+            shouldFullFetch = true;
+          } else if (headResp.status === 405) {
+            // HEAD no soportado → fallback full fetch siempre.
+            shouldFullFetch = true;
+          }
+        } catch(_eHead) {
+          // HEAD falló → fallback full fetch.
+          shouldFullFetch = true;
+        }
+      }
+      if (!shouldFullFetch) return;
+
+      // Fase 2: GET completo + extraer APP_VERSION.
       const resp = await fetch('./index.html?_v=' + Date.now(), { cache: 'no-store' });
       if (!resp.ok) return;
+      _lastValidator = {
+        etag: resp.headers.get('etag'),
+        lastModified: resp.headers.get('last-modified'),
+      };
       const html = await resp.text();
       const m = html.match(/const APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
       if (!m) return;
