@@ -132,26 +132,40 @@ service cloud.firestore {
     match /roles/{uid} {
       // Planner Task 2: agregado isMariano() para que onPlannerStageChanged CF
       // pueda leer roles/{uid}.email server-side al enviar notif VDI.
-      // v1491 §89 cap 2 (2026-10-27): agregado resource.data.role=='vendedor'
-      // para que cualquier user autenticado pueda listar los VDEs y resolver
-      // vendorKey → UID client-side (`enrichPayloadWithClientVendor` →
-      // `resolveClientVendorFromMaster`). Antes v1491 el VDE no podía leerlos
-      // → `vdeUsers=[]` → payload sin assignedVendorUid → gate server
-      // VENDOR_UID_MISSING rechazaba. Exposición: nombre + email de los VDEs
-      // (datos ya conocidos internamente). Admin SDK (CFs) bypassa rules.
+      //
+      // STACK_19 T4 §S04 (2026-11-25): restricción del leak introducido por
+      // v1491 (commit 983d808). La rama `isReader() && role == 'vendedor'`
+      // habilitaba a CUALQUIER rol lector — incluidos otros VDEs — a hacer
+      // `collection('roles').get()` y leer TODOS los docs de role=='vendedor',
+      // incluyendo `passwordHash`, `passwordSalt`, `totpSecret`, `totpEnabled`.
+      // Firestore Rules NO soportan read filtrado por campos (sólo permiten
+      // o deniegan el doc entero), así que la única forma de bloquear ese
+      // leak de credenciales es removiendo la rama.
+      //
+      // Trade-off: los consumidores client-side que hoy popu­lan `vdeUsers`
+      // (ensureVdeUsersLoaded, loadVdiPartnerUsers con role='vendedor',
+      // master-clientes.js:1746, notificaciones admin-list) van a recibir
+      // snapshots vacíos cuando los corra un usuario role='vendedor'. Eso
+      // devuelve al estado pre-v1491 donde el payload cliente llegaba con
+      // `assignedVendorUid=''`. El gate VENDOR_UID_MISSING NO rebota más
+      // gracias a §89 (v1491 commit-pedido-core.js:285-370): el servidor
+      // resuelve `cardCode → vendorUid` con Admin SDK (bypassa rules), que
+      // SÍ puede leer /roles cross-vendor. Por eso §S04 NO rompe commits
+      // de VDE. Admin/Gerente/Interno siguen leyendo /roles de cualquier
+      // vendor (necesario para Panel Usuarios + Zonas + Partnership VDI).
+      //
+      // Consumidores que PODRÍAN verse afectados (migrables a §89 en PR
+      // aparte, no acá): `resolveClientVendorFromMaster` client-side con
+      // VDE logueado devuelve `reason='vendor_sin_uid'` → el server-resolve
+      // compensa; las UI que pintan listas de VDEs (modal Zonas, etc.) ya
+      // usan paths para admin/gerente que siguen intactos.
       allow read: if request.auth != null && (
         request.auth.uid == uid
         || isAdmin()
         || isGerente()
         || isMariano()
+        || isInterno()
         || resource.data.internalPartnerUid == request.auth.uid
-        // D2 (2026-10-29): la lectura de docs de vendedores queda para roles
-        // lectores (vendedor/interno/viewer/gerente/admin). Antes alcanzaba
-        // con estar autenticado: un Gmail recién creado (role unassigned)
-        // leía totpSecret/passwordHash de todos los VDEs. El caso de uso de
-        // v1491 (VDE resuelve vendorKey→UID) lo hacen lectores. Los secretos
-        // salen de `roles` en la migración D2 (ver auth_secrets abajo).
-        || (isReader() && resource.data.role == 'vendedor')
       );
       // v917 (2026-09-14, SecAudit Sprint 0 CRIT-01): cerrar auto-escalation
       // admin. Antes: `role in ['unassigned','admin']` permitia que CUALQUIER
