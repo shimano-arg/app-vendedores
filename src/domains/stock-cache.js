@@ -44,7 +44,9 @@ export const STOCK_CACHE_TTL_MS = 30_000;
  * @returns {string}
  */
 export function normSku(sku) {
-  return String(sku || '').trim().toUpperCase();
+  return String(sku || '')
+    .trim()
+    .toUpperCase();
 }
 
 /**
@@ -103,11 +105,11 @@ export function getStockBreakdownCached(sku, stateHash, buildDeps, opts) {
       return null;
     }
   }
-  const now = (opts && typeof opts.now === 'number') ? opts.now : Date.now();
-  const ttlMs = (opts && typeof opts.ttlMs === 'number') ? opts.ttlMs : STOCK_CACHE_TTL_MS;
+  const now = opts && typeof opts.now === 'number' ? opts.now : Date.now();
+  const ttlMs = opts && typeof opts.ttlMs === 'number' ? opts.ttlMs : STOCK_CACHE_TTL_MS;
   const key = buildStockCacheKey(skuNorm, stateHash);
   const entry = _cache.get(key);
-  if (entry && (now - entry.ts) <= ttlMs) {
+  if (entry && now - entry.ts <= ttlMs) {
     _stats.hits++;
     return entry.result;
   }

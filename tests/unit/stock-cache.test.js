@@ -1,12 +1,12 @@
 // @ts-check
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  STOCK_CACHE_TTL_MS,
   buildStockCacheKey,
   clearStockCache,
   getStockBreakdownCached,
   getStockCacheStats,
   normSku,
+  STOCK_CACHE_TTL_MS,
 } from '../../src/domains/stock-cache.js';
 
 // Minimal deps builder for tests: provides a fixed snapshot of pedidos/wl.
@@ -35,8 +35,18 @@ describe('normSku', () => {
 
 describe('buildStockCacheKey', () => {
   it('mismo estado → misma clave', () => {
-    const k1 = buildStockCacheKey('trx301b', { pedidosLen: 5, waitlistLen: 2, snapshotUpdatedAt: 'A', agregadosActive: false });
-    const k2 = buildStockCacheKey('TRX301B', { pedidosLen: 5, waitlistLen: 2, snapshotUpdatedAt: 'A', agregadosActive: false });
+    const k1 = buildStockCacheKey('trx301b', {
+      pedidosLen: 5,
+      waitlistLen: 2,
+      snapshotUpdatedAt: 'A',
+      agregadosActive: false,
+    });
+    const k2 = buildStockCacheKey('TRX301B', {
+      pedidosLen: 5,
+      waitlistLen: 2,
+      snapshotUpdatedAt: 'A',
+      agregadosActive: false,
+    });
     expect(k1).toBe(k2);
   });
   it('cambio en snapshot.updatedAt → clave distinta', () => {
@@ -95,7 +105,9 @@ describe('getStockBreakdownCached — T3 TTL expiry', () => {
     const buildDepsSpy = vi.fn(() => makeDeps(10));
     const state = { pedidosLen: 0 };
     const r1 = getStockBreakdownCached('TRX301B', state, buildDepsSpy, { now: 1000 });
-    const r2 = getStockBreakdownCached('TRX301B', state, buildDepsSpy, { now: 1000 + STOCK_CACHE_TTL_MS + 1 });
+    const r2 = getStockBreakdownCached('TRX301B', state, buildDepsSpy, {
+      now: 1000 + STOCK_CACHE_TTL_MS + 1,
+    });
     expect(buildDepsSpy).toHaveBeenCalledTimes(2);
     expect(r1).not.toBe(r2);
   });
@@ -173,7 +185,7 @@ describe('getStockBreakdownCached — T8 concurrencia', () => {
       getStockBreakdownCached('A', state, buildDepsSpy),
     ];
     expect(buildDepsSpy).toHaveBeenCalledTimes(1);
-    expect(results.every(r => r === results[0])).toBe(true);
+    expect(results.every((r) => r === results[0])).toBe(true);
     expect(getStockCacheStats().size).toBe(1);
   });
 });
@@ -187,7 +199,9 @@ describe('getStockBreakdownCached — edge cases', () => {
   });
 
   it('compute que tira → propaga error, NO guarda', () => {
-    const buildDeps = () => { throw new Error('boom'); };
+    const buildDeps = () => {
+      throw new Error('boom');
+    };
     // buildDeps() se invoca en el miss path; el throw se propaga.
     // Pero `getStockBreakdown` del pure se llama con deps construido;
     // el throw de buildDeps rompe esa llamada.
@@ -214,7 +228,7 @@ describe('getStockBreakdownCached — sobre-asignación fixture', () => {
       },
     ];
     const buildDeps = () => ({
-      getStockFisico: (sku) => sku === 'OVER-SKU' ? 2 : 0,
+      getStockFisico: (sku) => (sku === 'OVER-SKU' ? 2 : 0),
       pedidos,
       waitlistEntries: [],
     });
