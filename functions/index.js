@@ -768,7 +768,13 @@ export const onPedidoWriteRecalcSnapshot = onDocumentWritten(
     region: REGION,
     document: 'pedidos/{pedidoId}',
     retry: false,
-    memory: '256MiB',
+    // v1583 §108 (2026-11-25): bump 256MiB → 512MiB. Discovery Stack midió
+    // 113 OOM/24h sobre 256MiB — misma causa que el bump de commitPedidoCF a
+    // 512MiB post-v1405 (§7 lee pedidos abiertos en memoria). Con 512MiB se
+    // absorbe el pico y las reservas que dependen del snapshot no quedan
+    // stale. Root cause (query completa de pedidos abiertos) queda para
+    // tarea aparte: ver STACK_00_DISCOVERY_BASELINE §2.5 + §3.2 #1.
+    memory: '512MiB',
     timeoutSeconds: 60,
   },
   async (event) => {
