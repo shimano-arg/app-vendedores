@@ -412,15 +412,18 @@ describe('/pedidos', () => {
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-other')));
     await assertFails(deleteDoc(doc(authedDb(UID.vendor), 'pedidos', 'p-vendor')));
   });
-  it('admin/gerente/interno pueden update sin restriccion (blanket)', async () => {
+  it('admin puede update sin restriccion; interno ya no (H3)', async () => {
     // admin puede tocar campos que el vendor no puede (transferidoSAP)
     await assertSucceeds(
       updateDoc(doc(authedDb(UID.admin), 'pedidos', 'p-vendor'), {
         transferidoSAP: { docNum: 100, via: 'service_layer' },
       })
     );
-    // interno puede update pedidos cross-VDE (v747)
-    await assertSucceeds(
+    // H3 (2026-11-25, CLAUDE.md §6): este assert documentaba el blanket
+    // cross-VDE del interno (v747). Por decision del dueño el interno solo
+    // modifica pedidos propios o de su pareja VDE: p-other es de otro VDE
+    // sin pareja con UID.interno, asi que ahora se deniega.
+    await assertFails(
       updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-other'), { stage: 'closed' })
     );
   });
@@ -1913,8 +1916,12 @@ describe('SEC-M1: revision_waitlist.update hasOnly', () => {
 describe('SEC-C1: pedidos.update isInterno() hasOnly', () => {
   beforeEach(async () => {
     // Pedido base: owned por VDE_GONZALO (UID.vendor), assigned a VDE_OTRO.
+    // H3 (2026-11-25): cargadoPorUid = UID.interno lo hace "propio" del
+    // interno, asi estos tests siguen cubriendo la lista completa del interno
+    // (antes pasaban por el blanket sobre cualquier pedido, que ya no existe).
     await seedDoc('pedidos/pedido_sec_c1', {
       ownerUid: UID.vendor,
+      cargadoPorUid: UID.interno,
       assignedVendorUid: UID.vendorOther,
       vendorAssigned: 'VDE_OTRO',
       clientCardCode: 'C30718510291',
@@ -2147,6 +2154,7 @@ describe('SEC-C1: pedidos.update isInterno() hasOnly', () => {
     // Seed pedido confirmed con transferidoSAP app_only
     await seedDoc('pedidos/pedido_sec_c1_revert', {
       ownerUid: UID.vendor,
+      cargadoPorUid: UID.interno,
       assignedVendorUid: UID.vendorOther,
       vendorAssigned: 'VDE_OTRO',
       clientCardCode: 'C30718510291',
