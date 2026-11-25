@@ -54,7 +54,9 @@ describe('v1431 fallback strict', () => {
 
     it('catch distingue isNetwork → null, resto → {ok:false, errorCode}', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 9500);
+      // Stack S-7 P1-C (v1588): bumped 9500→11000 porque el hook pre-confirm
+      // de minVersion agrega ~700 bytes al inicio de _tryCommitPedidoCF.
+      const code = INDEX_HTML.slice(start, start + 11000);
       expect(code).toMatch(/const\s+isNetwork\s*=\s*window\._FALLBACK_LEGACY_NETWORK_CODES\.has/);
       // v1432: entre `if (isNetwork)` y `return null` ahora hay query _draftId
       // + idempotency recovery. Dejar la regex más ancha para cubrir ambos.
@@ -65,25 +67,33 @@ describe('v1431 fallback strict', () => {
 
     it('mapea functions/unauthenticated → PERMISSION_DENIED', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 9500);
+      // Stack S-7 P1-C (v1588): bumped 9500→11000 porque el hook pre-confirm
+      // de minVersion agrega ~700 bytes al inicio de _tryCommitPedidoCF.
+      const code = INDEX_HTML.slice(start, start + 11000);
       expect(code).toMatch(/functions\/unauthenticated[\s\S]{0,80}PERMISSION_DENIED/);
     });
 
     it('mapea functions/permission-denied → PERMISSION_DENIED', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 9500);
+      // Stack S-7 P1-C (v1588): bumped 9500→11000 porque el hook pre-confirm
+      // de minVersion agrega ~700 bytes al inicio de _tryCommitPedidoCF.
+      const code = INDEX_HTML.slice(start, start + 11000);
       expect(code).toMatch(/functions\/permission-denied[\s\S]{0,80}PERMISSION_DENIED/);
     });
 
     it('mapea functions/invalid-argument → VALIDATION_ERROR', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 9500);
+      // Stack S-7 P1-C (v1588): bumped 9500→11000 porque el hook pre-confirm
+      // de minVersion agrega ~700 bytes al inicio de _tryCommitPedidoCF.
+      const code = INDEX_HTML.slice(start, start + 11000);
       expect(code).toMatch(/functions\/invalid-argument[\s\S]{0,80}VALIDATION_ERROR/);
     });
 
     it('firebase no inicializado → return null + log fallback', () => {
       const start = INDEX_HTML.indexOf('window._tryCommitPedidoCF');
-      const code = INDEX_HTML.slice(start, start + 9500);
+      // Stack S-7 P1-C (v1588): bumped 9500→11000 porque el hook pre-confirm
+      // de minVersion agrega ~700 bytes al inicio de _tryCommitPedidoCF.
+      const code = INDEX_HTML.slice(start, start + 11000);
       expect(code).toMatch(/firebase_not_initialized/);
       expect(code).toMatch(/if\s*\(!firebase[\s\S]*?return null/);
     });

@@ -28,8 +28,10 @@ describe('E3 — doConfirmPedido usa commitPedidoCF', () => {
     // skipSap, vendorAssigned, assignedVendorUid, routing fields key/tipo/
     // province/locName/clientProvince/clientLocality/orderNumber + mapping
     // extendido source → origen).
+    // Stack S-7 P1-C (v1588): subido a {0,6500} porque el hook pre-confirm
+    // de minVersion agrega ~700 bytes al inicio de _tryCommitPedidoCF.
     const match = INDEX_HTML.match(
-      /window\._tryCommitPedidoCF\s*=[\s\S]{0,5500}httpsCallable\(['"]commitPedidoCF['"]\)/
+      /window\._tryCommitPedidoCF\s*=[\s\S]{0,6500}httpsCallable\(['"]commitPedidoCF['"]\)/
     );
     expect(match, '_tryCommitPedidoCF debe llamar httpsCallable(commitPedidoCF)').toBeTruthy();
   });

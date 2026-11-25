@@ -6351,7 +6351,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1587';
+const APP_VERSION = 'v1588';
 window.APP_VERSION = APP_VERSION;
 
 // v1581 (2026-11-25): helper debounce global para buscadores pesados.
@@ -7450,6 +7450,172 @@ function _escapeHtmlLocal(s) {
 }
 window._checkMinVersionAndMaybeBlock = _checkMinVersionAndMaybeBlock;
 window._renderVersionMinimaBlockingModal = _renderVersionMinimaBlockingModal;
+
+// Stack S-7 P1-C (v1588 2026-11-25): enforcement pre-confirm de versión
+// mínima. Complementa el modal post-login E10 Fase 1+3 (v1434). Caso de uso:
+// un VDE abrió la app ayer, versión bumpeada hoy; el modal post-login no
+// disparó porque su sesión ya estaba viva. Cuando intenta confirmar un
+// pedido, el chequeo agrega una capa extra:
+//   1. Fetch `app_config/version_minima` 1× por sesión + cache.
+//   2. Si APP_VERSION < minVersion → modal apple-design + reload.
+//   3. Reload preserva `localStorage['shimano_zonas_pending_v1']` (§101).
+//
+// Fail-open §77: si el doc no existe o la lectura falla, NO bloquea. El CF
+// server-side sigue siendo autoridad final (VERSION_OLD gate en v1434).
+// Reporte objetivo: bajar 52% de rechazos ASIG_REF_INVALID que vienen de
+// clientes v1568-; esta pieza es la herramienta — Mariano decide `minVersion`.
+window._shimanoMinVersionCached = undefined; // undefined = sin fetch; null = fetched sin doc; string = valor.
+window._shimanoMinVersionFetchedAt = 0;
+window._shimanoMinVersionFetchInflight = null;
+
+async function _fetchMinVersionOnce() {
+  // Cache 1× por sesión. Si Mariano publica una minVersion nueva mientras
+  // hay sesiones vivas, el reload forzado por el hook pre-confirm de la
+  // primera orden post-publish limpia el cache automáticamente (reload
+  // reinicializa el módulo).
+  if (window._shimanoMinVersionCached !== undefined) {
+    return window._shimanoMinVersionCached;
+  }
+  if (window._shimanoMinVersionFetchInflight) {
+    return window._shimanoMinVersionFetchInflight;
+  }
+  const _p = (async () => {
+    if (!firebase || !firebase.app || !fbDb) return null;
+    try {
+      const snap = await fbDb.collection('app_config').doc('version_minima').get();
+      if (!snap.exists) return null;
+      const data = snap.data() || {};
+      const mv = String(data.minVersion || '').trim();
+      return mv || null;
+    } catch (_e) {
+      // Fail-open §77: permission-denied, offline, firestore caído → no bloquea.
+      console.warn('[P1-C] _fetchMinVersionOnce fallo (fail-open):', _e && _e.message);
+      return null;
+    }
+  })();
+  window._shimanoMinVersionFetchInflight = _p;
+  const _result = await _p;
+  window._shimanoMinVersionCached = _result;
+  window._shimanoMinVersionFetchedAt = Date.now();
+  window._shimanoMinVersionFetchInflight = null;
+  return _result;
+}
+window._fetchMinVersionOnce = _fetchMinVersionOnce;
+
+function _renderPreConfirmReloadModal(minVersion) {
+  // Modal apple-design §106 + §21 (feedback :active + pill button + rounded).
+  // Idempotente: si ya existe el overlay, lo re-usa. Construido con createElement
+  // + textContent (nunca innerHTML con strings) para no introducir superficie XSS.
+  const existing = document.getElementById('p1c-force-reload-modal');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'p1c-force-reload-modal';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999999;' +
+    'display:flex;align-items:center;justify-content:center;' +
+    'backdrop-filter:blur(10px) saturate(1.3);-webkit-backdrop-filter:blur(10px) saturate(1.3);';
+  document.body.style.overflow = 'hidden';
+  const box = document.createElement('div');
+  box.style.cssText =
+    'background:#fff;max-width:420px;padding:28px 24px;border-radius:16px;' +
+    'box-shadow:0 25px 50px -12px rgba(0,0,0,0.4);text-align:center;' +
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+  const icon = document.createElement('div');
+  icon.style.cssText = 'font-size:48px;margin-bottom:12px;';
+  icon.textContent = '🔄';
+  const title = document.createElement('h2');
+  title.style.cssText = 'margin:0 0 10px;font-size:20px;color:#111;font-weight:700;letter-spacing:-0.01em;';
+  title.textContent = 'Hay una versión nueva disponible';
+  const desc = document.createElement('p');
+  desc.style.cssText = 'margin:0 0 20px;color:#555;font-size:14px;line-height:1.5;';
+  // Mensaje humano §68: 1 oración qué pasó + 1 qué hacer. Sin jerga. Draft se
+  // preserva porque localStorage['shimano_zonas_pending_v1'] sobrevive reload.
+  desc.appendChild(document.createTextNode('Antes de confirmar el pedido necesitamos actualizar la app.'));
+  desc.appendChild(document.createElement('br'));
+  desc.appendChild(document.createTextNode('Tocá Aceptar para recargar. El pedido en curso no se pierde.'));
+  const btn = document.createElement('button');
+  btn.id = 'p1c-reload-btn';
+  btn.style.cssText =
+    'display:inline-block;padding:12px 32px;font-size:16px;font-weight:600;' +
+    'background:#007aff;color:#fff;border:none;border-radius:999px;cursor:pointer;' +
+    'letter-spacing:-0.01em;text-transform:none;' +
+    'transition:background 150ms ease-out, transform 100ms ease-out;' +
+    '-webkit-tap-highlight-color:transparent;';
+  btn.textContent = 'Aceptar';
+  box.appendChild(icon);
+  box.appendChild(title);
+  box.appendChild(desc);
+  box.appendChild(btn);
+  overlay.appendChild(box);
+  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.preventDefault(); });
+  overlay.addEventListener('click', (e) => {
+    if (e.target && e.target.id !== 'p1c-reload-btn') e.stopPropagation();
+  });
+  document.body.appendChild(overlay);
+  btn.addEventListener('pointerdown', () => { btn.style.transform = 'scale(0.97)'; });
+  btn.addEventListener('pointerup', () => { btn.style.transform = 'scale(1)'; });
+  btn.addEventListener('pointerleave', () => { btn.style.transform = 'scale(1)'; });
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    btn.textContent = 'Recargando...';
+    // NO usar location.replace para preservar history + que el back del
+    // VDE después del reload siga funcionando. El draft vive en
+    // localStorage['shimano_zonas_pending_v1'] (§101) — sobrevive reload.
+    try { location.reload(); } catch (_e) { /* noop */ }
+  });
+  // Log diagnostic: siempre que disparemos el modal, dejar rastro para que
+  // Mariano pueda auditar cuántos vendedores lo vieron.
+  try {
+    console.warn('[P1-C] pre-confirm reload: APP_VERSION=' + APP_VERSION + ' < minVersion=' + minVersion);
+    if (typeof currentUser !== 'undefined' && currentUser && fbDb && firebase && firebase.firestore) {
+      fbDb.collection('operations_log').add({
+        type: 'client_pre_confirm_reload',
+        userUid: currentUser.uid,
+        userEmail: currentUser.email || null,
+        clientVersion: APP_VERSION,
+        minVersion: String(minVersion || ''),
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+      }).catch((_e) => { /* fire-and-forget */ });
+    }
+  } catch (_e) { /* noop */ }
+}
+window._renderPreConfirmReloadModal = _renderPreConfirmReloadModal;
+
+// Hook que decide si bloquear el commit + mostrar modal + reload. Retorna
+// true si bloqueó (caller debe abortar el commit). Retorna false si deja
+// pasar. Fail-open por default.
+async function _preConfirmForceReloadIfStale() {
+  try {
+    const minVersion = await _fetchMinVersionOnce();
+    const _pure = window.__phase0 && window.__phase0.pure && window.__phase0.pure.minVersionCheck;
+    let _mustReload = false;
+    if (_pure && typeof _pure.shouldForceReload === 'function') {
+      _mustReload = _pure.shouldForceReload(APP_VERSION, minVersion);
+    } else {
+      // Fallback inline (SW stale sirviendo bundle viejo). Mismo contrato que
+      // el pure fn: parsear "v1234" → 1234, null si inválido, fail-open.
+      const _parse = (v) => {
+        if (v === null || v === undefined) return null;
+        const s = String(v).trim().replace(/^v/i, '');
+        if (!s) return null;
+        const n = Number(s);
+        return Number.isFinite(n) ? n : null;
+      };
+      const _min = _parse(minVersion);
+      const _local = _parse(APP_VERSION);
+      _mustReload = _min !== null && _local !== null && _local < _min;
+    }
+    if (_mustReload) {
+      _renderPreConfirmReloadModal(minVersion);
+      return true;
+    }
+  } catch (_e) {
+    // Fail-open §77: cualquier error → no bloquear.
+    console.warn('[P1-C] _preConfirmForceReloadIfStale fallo (fail-open):', _e && _e.message);
+  }
+  return false;
+}
+window._preConfirmForceReloadIfStale = _preConfirmForceReloadIfStale;
 
 // v1499 §98 (2026-10-27): claves localStorage que preservan borradores
 // no-enviados del vendedor. Nunca se borran en "Recargar limpio".
@@ -17580,6 +17746,18 @@ window._renderConfirmModalBoAbsorbed = function(absorptions, totalCubierto){
 window._tryCommitPedidoCF = async function(docData){
   const _email = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) || '';
   const _appVersion = (typeof APP_VERSION === 'string') ? APP_VERSION : 'unknown';
+  // Stack S-7 P1-C (v1588): enforcement pre-confirm. Si APP_VERSION < minVersion
+  // del Firestore, mostrar modal + recargar. El retorno `{ok:false, errorCode:'VERSION_OLD_CLIENT'}`
+  // avisa al caller (doConfirmPedido) que abortó por este motivo — sin inflar
+  // el server. El draft queda vivo en localStorage['shimano_zonas_pending_v1'].
+  try {
+    if (typeof window._preConfirmForceReloadIfStale === 'function') {
+      const _blocked = await window._preConfirmForceReloadIfStale();
+      if (_blocked) {
+        return { ok: false, errorCode: 'VERSION_OLD_CLIENT', data: { blockedByClient: true, clientVersion: _appVersion } };
+      }
+    }
+  } catch (_eP1c) { /* fail-open §77: no bloquear por errores del hook */ }
   if (!firebase || !firebase.app) {
     // Sin firebase inicializado (dev local, SW stale) → idempotency check
     // no es posible (no hay firestore). Fallback legacy directo + log.
@@ -38243,6 +38421,13 @@ window._doConfirmPedidoImpl = async function(){
       const _getMsg = _mv && _mv.getMensajeParaErrorCode ? _mv.getMensajeParaErrorCode : (c) => ({ texto: 'No pudimos completar la acción. Avisale a Mariano.' });
       const _fmt = _mv && _mv.formatMensajeConCodigo ? _mv.formatMensajeConCodigo : (c, o) => _getMsg(c).texto + '\n\nCódigo técnico: ' + c;
 
+      if (code === 'VERSION_OLD_CLIENT') {
+        // Stack S-7 P1-C (v1588): el modal pre-confirm ya está en pantalla.
+        // No mostrar otro alert encima — solo cerrar el Confirmar modal para
+        // que el VDE no vea botones duplicados mientras espera el reload.
+        try { closeConfirmDialog(); } catch (_e) {}
+        return;
+      }
       if (code === 'VERSION_OLD') {
         if (confirm(_fmt(code))) location.reload();
       } else if (code === 'UNRESOLVED_BO_ENTRY_ROWS') {
