@@ -73,6 +73,7 @@ import {
  * @property {number} [dueDateDays]            default 30
  * @property {(args: {to: string, subject: string, text: string}) => Promise<void>} [sendAlertEmail] PR2 v1475 §72: email alerta cuando se degrada línea por sap_item_not_found (CAPA c). Fire-and-forget. Si no se pasa, no se envía email (solo log).
  * @property {boolean} [dep12Enabled] E3 reparto-dep12 §1: si true, `buildQuotationPayload` skippea líneas con `enTransito=true`. Default false (comportamiento histórico).
+ * @property {boolean} [maxDiscountSalesRaised] STACK S-4 T5 (D1 gate 2026-11-25): si true, el payload SL envía `DiscountPercent=<pedido.discountPct>` (SAP acepta descuentos); si false, hardcode a 0 + agrega "DESCUENTO SOLICITADO: N%" a Comments (Escenario A hasta que Santi destrabe D1). Default false. El wrapper `onPedidoConfirmedSendToSap` lee el flag de `app_config/feature_flags.maxDiscountSalesRaised` con fail-open a false (§77).
  */
 
 /**
@@ -265,7 +266,7 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
   const slpCode = resolveSlpCode(vendorForSlp, deps);
   const batchId = 'CF-AUTO-' + now;
   const entregaSuffix = _buildEntregaSuffix(pedido.formaEntrega);
-  const comments = [
+  const baseComments = [
     'AppShimano',
     pedido.clientName || '',
     pedido.month || '',
@@ -274,8 +275,7 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     entregaSuffix,
   ]
     .filter(Boolean)
-    .join(' | ')
-    .slice(0, 254); // SAP Comments field max 254 chars.
+    .join(' | ');
 
   // v1004 (2026-09-22): setear DocSeries "APP" si viene en deps. Alineado con
   // client-side sap-service-layer.js:441. Sin esto SAP aplica default del user
@@ -302,6 +302,31 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     (_pedidoAny.discountSnapshot && Number(_pedidoAny.discountSnapshot.pctTotal)) ||
     0;
   const _discountPct = Math.max(0, Math.min(100, _rawPct));
+
+  // ===== STACK S-4 T5 (D1 gate 2026-11-25) — condicional por flag =====
+  // D1: SAP user APP_VENDEDORES tiene MaxDiscountSales=0 (documentado desde
+  // v389 en sap-service-layer.js:583-588). SAP rechaza cualquier
+  // DiscountPercent>0 con error 10000724. Mientras D1 no esté resuelto,
+  // seguimos mandando DiscountPercent:0 y el descuento va en Comments para
+  // que Santi lo aplique manualmente.
+  //
+  // El flag `maxDiscountSalesRaised` lo setea Mariano en Firestore manual
+  // (idealmente en `app_config/feature_flags` con lectura abierta via rule
+  // §107). Default `false` (Escenario A, seguro). Cuando Santi confirme
+  // `MaxDiscountSales > 0` en SAP B1, Mariano toggles `true` + verifica con
+  // un pedido real + confirmo paridad del SlpCode.
+  //
+  // Decisión: el flag viaja por `deps.maxDiscountSalesRaised`. El wrapper
+  // `functions/index.js:onPedidoConfirmedSendToSap` lee
+  // `app_config/feature_flags.maxDiscountSalesRaised` ANTES de llamar al
+  // core y lo pasa como bool (fail-open a `false` si lectura falla — §77).
+  const _sendRealDiscount = deps && deps.maxDiscountSalesRaised === true;
+  const _commentsWithDiscount =
+    !_sendRealDiscount && _discountPct > 0
+      ? baseComments + ' | DESCUENTO SOLICITADO: ' + _discountPct + '%'
+      : baseComments;
+  const comments = _commentsWithDiscount.slice(0, 254); // SAP Comments field max 254 chars.
+
   const payload = {
     CardCode: cardCode,
     DocDate: docDate,
@@ -310,7 +335,7 @@ export function buildQuotationPayload(pedido, pedidoId, deps, trueVendor) {
     SalesPersonCode: slpCode,
     Comments: comments,
     NumAtCard: pedidoId,
-    DiscountPercent: _discountPct,
+    DiscountPercent: _sendRealDiscount ? _discountPct : 0,
     U_AppOrigen: 'SHIMANO_APP_VENDEDORES',
     U_AppOrderId: pedidoId,
     U_AppBatchId: batchId,

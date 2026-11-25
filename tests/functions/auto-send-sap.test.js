@@ -1088,6 +1088,12 @@ describe('handleAutoSendSap — 4xx persiste transferError (sin bucle ni cambio 
     // El % solo viaja a SAP con modo 'header' explicito (F02); sin F02 la base
     // ignora este campo y manda discountPct igual. Asi el test vale con y sin F02.
     deps.sapDiscountMode = 'header';
+    // STACK S-4 T5 (D1 gate 2026-11-25): forzamos maxDiscountSalesRaised=true
+    // (Escenario B) para preservar la intención original del test (verificar el
+    // flow de rechazo por descuento en SAP). Con default false (Escenario A), el
+    // payload siempre envía DiscountPercent=0 y SAP no rechazaría — el test
+    // perdería sentido. Ver CLAUDE.md §108 (próxima entrada).
+    deps.maxDiscountSalesRaised = true;
     const r = await handleAutoSendSap('p1', null, { ...ped }, deps);
     expect(r.result).toBe(AUTO_SEND_RESULT.ERROR_SL);
     const after = deps.fbDb._dump()['pedidos/p1'];
