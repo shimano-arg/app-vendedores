@@ -9,6 +9,18 @@
  *   llamado a cualquier de sus window.foo (que en el shell son stubs proxy).
  */
 
+// Stack S-6 T2 (2026-11-25): capacidades de cache estable + pre-warming
+// expuestas al inline para wire en modales Pedido en Espera + Reparto.
+// Fuentes: PR #1440 (schedulePrewarm + friends) + PR #1441 (getStockBreakdownCached).
+// stock-cache.js importa `getStockBreakdown` del pure, por lo tanto el cache
+// delega al mismo breakdown que el resto de la app (equivalencia garantizada).
+import {
+  buildStockCacheKey,
+  clearStockCache,
+  getStockBreakdownCached,
+  getStockCacheStats,
+  STOCK_CACHE_TTL_MS,
+} from './domains/stock-cache.js';
 // E3 (e2b-perf 2026-07-28): loader para chunks lazy.
 import { installChunkStubs } from './loader.js';
 // §J (v1455 2026-10-25) — Absorción de BO al confirmar. Pure + espejo en functions/core.
@@ -168,6 +180,14 @@ import {
   renderPopupStockSkuPlainText,
   renderPopupStockSkuPlainTextMultiBlock,
 } from './pure/popup-stock-sku-lineas.js';
+import {
+  buildDepsHash,
+  clearPrewarmCache,
+  getPrewarmedBreakdown,
+  getPrewarmStats,
+  cacheKeyFor as prewarmCacheKeyFor,
+  schedulePrewarm,
+} from './pure/prewarm-stock.js';
 import {
   formatProductCatLineParts,
   formatProductDesc,
@@ -721,6 +741,30 @@ const phase0 = {
     getStockBreakdown,
     invalidateStockBreakdownCache,
     STOCK_LABELS,
+    // Stack S-6 T2 (2026-11-25) — cache + prewarm wrappers del breakdown.
+    // Grupo `stockCache` (PR #1441): getStockBreakdownCached envuelve
+    // getStockBreakdown con cache por contenido (clave = SKU + estado
+    // observable) y TTL 30s. Drop-in: devuelve el MISMO shape que el pure
+    // en cold miss y la misma ref en hit.
+    stockCache: {
+      getStockBreakdownCached,
+      buildStockCacheKey,
+      clearStockCache,
+      getStockCacheStats,
+      STOCK_CACHE_TTL_MS,
+    },
+    // Grupo `prewarmStock` (PR #1440): schedulePrewarm pre-carga breakdown
+    // de un lote de SKUs en background (via requestAnimationFrame o similar
+    // en el caller). buildDepsHash arma la clave para identificar el estado
+    // actual de pedidos+snapshot. clearPrewarmCache se llama en logout.
+    prewarmStock: {
+      schedulePrewarm,
+      getPrewarmedBreakdown,
+      buildDepsHash,
+      cacheKeyFor: prewarmCacheKeyFor,
+      clearPrewarmCache,
+      getPrewarmStats,
+    },
     buildPopupStockSkuLineas,
     renderPopupStockSkuPlainText,
     renderPopupStockSkuPlainTextMultiBlock,
