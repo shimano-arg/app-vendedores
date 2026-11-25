@@ -23,6 +23,7 @@ import {
   shouldSampleUser,
   createBatchCollector,
   buildInstrumentationBatchEntry,
+  INSTRUMENTATION_COLLECTION,
 } from '../pure/instrumentation-helpers.js';
 
 const SAMPLING_PERCENT = 20;
@@ -35,10 +36,22 @@ let _collector = null;
 let _ctx = null;
 let _enabled = false;
 let _flushTimer = null;
+// S-3 adversarial fix F6 (2026-11-25): guard contra re-init duplicado.
+// `initInstrumentation` se llama en cada login exitoso
+// (attachFirebaseListeners). Sin guard, cada re-login registra listeners
+// nuevos (visibilitychange) + crea PerformanceObservers nuevos sin
+// disconnect. En una sesión con 5 re-logins → 5 observers LCP + 5 observers
+// INP + 5 observers CLS + 5 visibility listeners → cada LCP dispara
+// trackEvent 5 veces + cada hide dispara flush 5 veces.
+let _observersRegistered = false;
+let _unloadListenerRegistered = false;
 
 /**
- * Initialize instrumentation. Idempotent — calling twice re-uses the
- * existing collector but updates ctx.
+ * Initialize instrumentation. Idempotent — re-usa el collector existente
+ * y actualiza el ctx; además, S-3 adversarial fix F6: NO re-registra
+ * PerformanceObservers ni visibilitychange listeners. Si el usuario
+ * ya fue inicializado antes (mismo o distinto uid), la segunda llamada
+ * solo refresca el ctx.
  *
  * @param {object} opts
  * @param {object} opts.fbDb Firestore instance (compat v8).
@@ -72,9 +85,19 @@ export function initInstrumentation(opts) {
     });
   }
 
-  _registerWebVitals();
+  // S-3 adversarial fix F6 (2026-11-25): guards para no leak-ear
+  // observers ni listeners al re-loginear. Los observers+listener son
+  // singleton por lifetime de la pagina; el ctx (quién es el user,
+  // qué fbDb) se refresca arriba.
+  if (!_observersRegistered) {
+    _registerWebVitals();
+    _observersRegistered = true;
+  }
   _scheduleFlushTimer();
-  _registerUnloadFlush();
+  if (!_unloadListenerRegistered) {
+    _registerUnloadFlush();
+    _unloadListenerRegistered = true;
+  }
 }
 
 /**
@@ -219,7 +242,12 @@ function _flushNow() {
     clientVersion: _ctx.clientVersion,
   });
   try {
-    return _ctx.fbDb.collection('operations_log').add(entry).catch(() => {
+    // S-3 adversarial fix F1 (2026-11-25): escribir a instrumentation_log
+    // (NO operations_log). Rules operations_log §A2.3 NO permite
+    // type='client_instrumentation' ni las keys events/eventCount, lo
+    // que rechaza 100% de los writes. instrumentation_log tiene su
+    // propia rule que permite esta shape.
+    return _ctx.fbDb.collection(INSTRUMENTATION_COLLECTION).add(entry).catch(() => {
       // Fire-and-forget: if the write fails, log goes nowhere. We do NOT
       // re-queue to avoid memory leaks if Firestore is persistently down.
     });
@@ -237,6 +265,8 @@ export function _resetInstrumentationForTests() {
   _collector = null;
   _ctx = null;
   _enabled = false;
+  _observersRegistered = false;
+  _unloadListenerRegistered = false;
 }
 
 // Side-effect wiring: expose on window.__phase0.domains.instrumentation so

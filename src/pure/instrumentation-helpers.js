@@ -91,7 +91,17 @@ export function createBatchCollector(opts) {
 }
 
 /**
- * Build the operations_log entry shape for an instrumentation batch.
+ * Build the entry shape for an instrumentation batch.
+ *
+ * S-3 adversarial fix F1 (2026-11-25): write to `instrumentation_log`
+ * instead of `operations_log` because the operations_log rules whitelist
+ * (firestore.rules §operations_log, v1381) does NOT include
+ * `type='client_instrumentation'` nor the `events`/`eventCount` keys,
+ * so writes from the client are rejected by rules. Separate collection
+ * keeps the whitelist narrow (preserves SEC-M3 hardening) while still
+ * allowing client telemetry. The new collection requires its own rule
+ * addition — tracked as pending human change in STACK_06_REVISION.
+ *
  * Keeps all metadata flat so BQ queries are simple.
  *
  * @param {object} args
@@ -112,3 +122,10 @@ export function buildInstrumentationBatchEntry(args) {
     timestamp: new Date(),
   };
 }
+
+/**
+ * S-3 adversarial fix F1 (2026-11-25): collection used for client
+ * instrumentation batches. Separated from `operations_log` because the
+ * operations_log whitelist rejects `client_instrumentation` shape.
+ */
+export const INSTRUMENTATION_COLLECTION = 'instrumentation_log';

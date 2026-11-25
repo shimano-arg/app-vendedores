@@ -143,6 +143,26 @@ export async function commitPedidoCore(deps, payload) {
   // Stack S-2 T4: phase timers (fire-and-forget, 20% sampling, never throws).
   const _timers = createPhaseTimers();
 
+  // S-3 adversarial fix F3 (2026-11-25): wrap return makeError para
+  // emitir phase timers también en rechazos. Antes solo el happy path
+  // (y el idempotent hit) emitían a operations_log — rechazos quedaban
+  // sin medición de latencia. Fire-and-forget; nunca bloquea el return.
+  //
+  // Usage: `return rejectWithTimer(errorCode, msg, data)` en vez de
+  // `return makeError(errorCode, msg, data)`.
+  /**
+   * @param {string} errorCode
+   * @param {string} message
+   * @param {any} [data]
+   */
+  function rejectWithTimer(errorCode, message, data) {
+    try {
+      markPhase(_timers, 'rejected_' + errorCode);
+      emitPhaseTimers(deps, payload, _timers, errorCode);
+    } catch (_e) { /* fire-and-forget */ }
+    return makeError(errorCode, message, data);
+  }
+
   // 1. Validación básica payload.
   const validation = validatePayload(payload);
   if (!validation.ok) {
@@ -151,7 +171,7 @@ export async function commitPedidoCore(deps, payload) {
       validationReason: validation.message || '',
       validationData: validation.data || null,
     });
-    return makeError('VALIDATION_ERROR', validation.message || '', validation.data);
+    return rejectWithTimer('VALIDATION_ERROR', validation.message || '', validation.data);
   }
   markPhase(_timers, 'validation');
 
@@ -167,7 +187,7 @@ export async function commitPedidoCore(deps, payload) {
           minVersion,
           currentVersion: payload.clientVersion,
         });
-        return makeError('VERSION_OLD', 'Actualizá la app para continuar', {
+        return rejectWithTimer('VERSION_OLD', 'Actualizá la app para continuar', {
           minVersion,
           currentVersion: payload.clientVersion,
         });
@@ -198,7 +218,7 @@ export async function commitPedidoCore(deps, payload) {
         sapDocEntry: transferido.docEntry,
         via: transferido.via || null,
       });
-      return makeError(
+      return rejectWithTimer(
         'PERMISSION_DENIED',
         'Pedido ya enviado a SAP (SQ #' +
           (transferido.docNum || transferido.docEntry) +
@@ -252,7 +272,7 @@ export async function commitPedidoCore(deps, payload) {
       validationReason: 'cpst requiere waitlistOrigenId',
       validationData: { field: 'waitlistOrigenId' },
     });
-    return makeError(
+    return rejectWithTimer(
       'VALIDATION_ERROR',
       'cpst requiere waitlistOrigenId (la waitlist que originó el pedido)',
       { field: 'waitlistOrigenId' }
@@ -278,7 +298,7 @@ export async function commitPedidoCore(deps, payload) {
       conflictingOrderNumber: first.orderNumber || null,
       conflictingItemsCount: Array.isArray(first.items) ? first.items.length : 0,
     });
-    return makeError(
+    return rejectWithTimer(
       'CLIENT_HAS_OPEN_WAITLIST',
       'El cliente ya tiene una orden abierta en lista de espera',
       {
@@ -322,7 +342,7 @@ export async function commitPedidoCore(deps, payload) {
       unresolvedCount: unresolvedBoRows.length,
       skus: unresolvedBoRows.map((/** @type {any} */ r) => r.sku),
     });
-    return makeError(
+    return rejectWithTimer(
       'UNRESOLVED_BO_ENTRY_ROWS',
       'Tenés productos marcados en rojo sin revisar. Elegí para cada uno si son las mismas unidades o son más.',
       { rows: unresolvedBoRows }
@@ -428,7 +448,7 @@ export async function commitPedidoCore(deps, payload) {
         reason: 'master_unreadable',
         cardCode: payload.cardCode,
       });
-      return makeError(
+      return rejectWithTimer(
         'INTERNO_CLIENTE_FUERA_DE_PAREJA',
         'No pudimos verificar al cliente contra el master. Esperá un minuto y volvé a intentar; si sigue pasando, avisale a Mariano.',
         { reason: 'master_unreadable' }
@@ -465,7 +485,7 @@ export async function commitPedidoCore(deps, payload) {
           reason: 'role_doc_unreadable',
           errMessage: _eRole && /** @type {any} */ (_eRole).message,
         });
-        return makeError(
+        return rejectWithTimer(
           'INTERNO_CLIENTE_FUERA_DE_PAREJA',
           'No pudimos verificar tu usuario. Avisale a Mariano antes de volver a intentar.',
           { reason: 'role_doc_unreadable' }
@@ -477,7 +497,7 @@ export async function commitPedidoCore(deps, payload) {
           reason: 'interno_sin_pareja',
           callerUid: payload.ownerUid,
         });
-        return makeError(
+        return rejectWithTimer(
           'INTERNO_CLIENTE_FUERA_DE_PAREJA',
           'Tu usuario no tiene un vendedor pareja asignado. Pedile a Pablo que lo configure.',
           { reason: 'interno_sin_pareja' }
@@ -494,7 +514,7 @@ export async function commitPedidoCore(deps, payload) {
           internalPartnerUid,
           cardCode: payload.cardCode,
         });
-        return makeError(
+        return rejectWithTimer(
           'INTERNO_CLIENTE_FUERA_DE_PAREJA',
           'Este cliente está asignado a ' +
             _vendorName +
@@ -518,7 +538,7 @@ export async function commitPedidoCore(deps, payload) {
         vendorKey: (_serverResolvedVendor && _serverResolvedVendor.vendorKey) || '',
         cardCode: payload.cardCode,
       });
-      return makeError(
+      return rejectWithTimer(
         'INTERNO_CLIENTE_FUERA_DE_PAREJA',
         'No pudimos verificar al cliente contra el master. Esperá un minuto y volvé a intentar; si sigue pasando, avisale a Mariano.',
         { reason: 'master_incompleto', resolveReason: _resolvedReason }
@@ -534,7 +554,7 @@ export async function commitPedidoCore(deps, payload) {
       cardCode: payload.cardCode,
       serverResolveAttempted: true,
     });
-    return makeError(
+    return rejectWithTimer(
       'VENDOR_UID_MISSING',
       'Este cliente tiene vendedor asignado pero no pudimos encontrar su usuario. Avisale a Mariano con el nombre del cliente antes de volver a intentar.',
       {
@@ -709,9 +729,17 @@ export async function commitPedidoCore(deps, payload) {
         }
       }
       const { _absorbSkipped: _omitAbsorbSkipped, ...resultForClient } = result;
-      // Stack S-2 T4: emit phase timers on happy path. Fire-and-forget.
+      // Stack S-2 T4: emit phase timers. Fire-and-forget.
+      // S-3 adversarial fix F3 (2026-11-25): commitInTransaction puede
+      // retornar `{ok:false, errorCode}` directamente (sin throw) para
+      // flows como manual_backorder con linesPrebuilt vacío. Emitir el
+      // outcome correcto (errorCode) en vez de 'ok' hardcodeado.
       markPhase(_timers, 'transaction');
-      emitPhaseTimers(deps, payload, _timers, 'ok');
+      const _outcome =
+        resultForClient && resultForClient.ok === false
+          ? 'rejected_' + (resultForClient.errorCode || 'UNKNOWN')
+          : 'ok';
+      emitPhaseTimers(deps, payload, _timers, _outcome);
       return { ...resultForClient, servidorNowMs: now, commitAtIso: nowIso };
     } catch (e) {
       const err = /** @type {any} */ (e);
@@ -745,7 +773,7 @@ export async function commitPedidoCore(deps, payload) {
         // (metadata server-side, el cliente no la necesita).
         const dataForClient = Object.assign({}, err._data || {});
         delete dataForClient._logExtra;
-        return makeError(err._errorCode, err.message, dataForClient);
+        return rejectWithTimer(err._errorCode, err.message, dataForClient);
       }
       // Otros errores: podría ser retry de Firestore (ya reintenta ~5×
       // automático). Si llegó acá es raro.
@@ -762,7 +790,7 @@ export async function commitPedidoCore(deps, payload) {
     attempts,
     lastError: lastError && lastError.message,
   });
-  return makeError('CONTENTION_RETRY_EXHAUSTED', 'Reintenta en 10 segundos', {
+  return rejectWithTimer('CONTENTION_RETRY_EXHAUSTED', 'Reintenta en 10 segundos', {
     attempts,
     lastError: lastError && lastError.message,
   });
