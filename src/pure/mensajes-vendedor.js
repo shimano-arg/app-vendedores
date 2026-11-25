@@ -63,6 +63,12 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'Este cliente no está asignado a tu pareja. Avisá al vendedor que lo tiene asignado o pedile a Pablo que lo reasigne.',
   },
 
+  // PR F v1578 §Decisión-2A — VDE intenta consumir waitlist de cliente ajeno.
+  VENDEDOR_WAITLIST_FUERA_CLIENTE: {
+    texto:
+      'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.',
+  },
+
   // commitPedidoCF errorCodes.
   STOCK_CHANGED: {
     texto:

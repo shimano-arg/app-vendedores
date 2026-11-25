@@ -312,9 +312,18 @@ describe('commitPedidoCF — alcance del interno (A2)', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('vendedor, gerente y admin sobre otra pareja → sin cambio (OK)', async () => {
+  it('vendedor, gerente y admin sobre otra pareja — PR F v1578 §Decisión-2A', async () => {
+    // PR F v1578 §Decisión-2A: el VDE que consume una waitlist cuyo cliente
+    // NO es él (assignedVendorUid != él Y ownerUid != él) REBOTA con
+    // VENDEDOR_WAITLIST_FUERA_CLIENTE. Antes pasaba sin chequeo (gap sec).
+    // Para gerente/admin sigue pasando sin restricción (no son VDE).
+    const stateVde = fixture({ wlOwner: OTRA, pedOwner: OTRA });
+    const rVde = await run(stateVde, 'vendedor', cpstPayload('uid-vde-pareja', 'd-a2-7-vendedor'));
+    expect(rVde.ok).toBe(false);
+    expect(rVde.errorCode).toBe('VENDEDOR_WAITLIST_FUERA_CLIENTE');
+
+    // Gerente y admin: pasan (no son VDE, no entra el gate).
     for (const [role, uid] of [
-      ['vendedor', 'uid-vde-pareja'],
       ['gerente', 'uid-ger'],
       ['admin', 'uid-admin'],
     ]) {

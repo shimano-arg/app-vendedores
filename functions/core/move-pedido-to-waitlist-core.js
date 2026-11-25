@@ -414,7 +414,10 @@ export async function movePedidoToWaitlistCore(deps, params) {
         pedido: data,
         getRoleDoc,
       });
-      if (!(scope.ok && scope.via === 'propio')) throw mkInternoScopeErr(scope);
+      // PR F v1578 §Decisión-3 (2026-11-25): interno puede mover a espera
+      // tanto pedidos propios como de su VDE pareja. Antes bloqueaba
+      // via='pareja' con INTERNO_SOLO_PEDIDO_PROPIO; ahora se acepta.
+      if (!scope.ok) throw mkInternoScopeErr(scope);
     }
     const isOwner = isReader && data.ownerUid === auth.uid;
     const isAssignedVendor = role === 'vendedor' && data.assignedVendorUid === auth.uid;
@@ -613,7 +616,8 @@ export async function movePedidoToWaitlistCore(deps, params) {
             pedido: fresh_data,
             getRoleDoc,
           });
-          if (!(freshScope.ok && freshScope.via === 'propio')) {
+          // PR F v1578 §Decisión-3 (2026-11-25): acepta propio o pareja.
+          if (!freshScope.ok) {
             throw mkInternoScopeErr(freshScope);
           }
         }
