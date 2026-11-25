@@ -51,6 +51,11 @@
  * @property {(err: Error, context?: any) => void} [reportError]
  * @property {any} [FieldValue] admin.firestore.FieldValue
  * @property {(params: any) => Promise<any>} [fetchStockLive] Fase 3 Capa 2 v1445: callable al SL para live fisicoDep11
+ * @property {string} [callerRole] Rol del llamador leído en el servidor (lo
+ *   inyecta el wrapper, nunca el payload). 'interno' activa el chequeo de
+ *   alcance sobre la orden en espera de origen y los pedidos de asigRefs.
+ * @property {(uid: string) => Promise<any>} [getRoleDoc] Lector de roles/{uid}
+ *   para el alcance del interno (ver interno-scope.js).
  */
 
 import {
@@ -71,6 +76,13 @@ import { healAsigRefs } from './asig-ref-healing.js';
 // eslint-disable-next-line no-unused-vars
 // biome-ignore lint/correctness/noUnusedImports: preservación intencional — sync con el espejo cliente (ver comentario arriba)
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
+import {
+  evaluatePedidoScopeInterno,
+  evaluateWaitlistScopeInterno,
+  INTERNO_FUERA_DE_PAREJA,
+  INTERNO_FUERA_DE_PAREJA_MESSAGE,
+  makeGetRoleDoc,
+} from './interno-scope.js';
 import { findOpenWaitlistsForClient as findOpenWaitlistsPure } from './open-waitlists.js';
 import { getStockBreakdown } from './pedido-snapshot-core.js';
 // v1491 §89 HOTFIX (2026-10-27): resolver UID server-side cuando el cliente
@@ -1271,12 +1283,57 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   }
 
   // 5.7b Pre-fetch waitlist origen (si waitlistOrigenId).
-  /** @type {{ref: any, exists: boolean} | null} */
+  /** @type {{ref: any, exists: boolean, data: any} | null} */
   let waitlistOrigenSnap = null;
   if (payload.waitlistOrigenId) {
     const wlRef = deps.fbDb.collection('revision_waitlist').doc(payload.waitlistOrigenId);
     const wlSnap = await tx.get(wlRef);
-    waitlistOrigenSnap = { ref: wlRef, exists: wlSnap.exists };
+    waitlistOrigenSnap = {
+      ref: wlRef,
+      exists: wlSnap.exists,
+      data: wlSnap.exists ? wlSnap.data() || {} : null,
+    };
+  }
+
+  // 5.7b' Alcance del vendedor interno (auditoría 2026-11-25). Si el pedido
+  // consume una orden en espera (waitlistOrigenId) o cancela reservas de
+  // otros pedidos (asigRefs, origen='cpst'), cada uno de esos documentos
+  // tiene que ser propio del interno o de su VDE pareja. Se evalúa con los
+  // datos leídos en esta transacción, antes de cualquier escritura (§58);
+  // las lecturas de roles no son tx.get. Rechazo → throwError, que el retry
+  // loop registra con await vía logCommitRejection (§64.2).
+  if (deps.callerRole === 'interno') {
+    const getRoleDoc = deps.getRoleDoc || makeGetRoleDoc(deps.fbDb);
+    /** @type {Array<{docType: string, docId: string, reason: string}>} */
+    const fueraDeAlcance = [];
+    if (waitlistOrigenSnap && waitlistOrigenSnap.exists) {
+      const sc = await evaluateWaitlistScopeInterno({
+        callerUid: payload.ownerUid,
+        waitlist: waitlistOrigenSnap.data || {},
+        getRoleDoc,
+      });
+      if (!sc.ok) {
+        fueraDeAlcance.push({
+          docType: 'revision_waitlist',
+          docId: String(payload.waitlistOrigenId),
+          reason: sc.reason,
+        });
+      }
+    }
+    for (const [pid, snap] of asigOrigenSnapshots) {
+      if (!snap || !snap.exists) continue; // ASIG_REF_INVALID lo maneja abajo
+      const sc = await evaluatePedidoScopeInterno({
+        callerUid: payload.ownerUid,
+        pedido: snap.data || {},
+        getRoleDoc,
+      });
+      if (!sc.ok) fueraDeAlcance.push({ docType: 'pedidos', docId: pid, reason: sc.reason });
+    }
+    if (fueraDeAlcance.length > 0) {
+      throwError(INTERNO_FUERA_DE_PAREJA, INTERNO_FUERA_DE_PAREJA_MESSAGE, {
+        _logExtra: { fueraDeAlcance, role: 'interno' },
+      });
+    }
   }
 
   // 5.7c §J (v1455 2026-10-25) — Compute absorciones de BO + pre-fetch pedidos origen.

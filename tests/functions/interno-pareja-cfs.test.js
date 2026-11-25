@@ -222,6 +222,44 @@ describe('updateAsigLineStateCF — alcance del interno', () => {
     }
   });
 
+  // B1 (revisión 2026-11-25): cancelar la última ASIG de un pedido de la
+  // pareja no lo cierra (closedAt queda fuera, igual que en las rules); si
+  // el pedido es propio, sí.
+  const runAll = (/** @type {any} */ db, /** @type {string} */ uid) =>
+    updateAsigLineState(
+      {
+        fbDb: db,
+        log: () => {},
+        getUserRole: async (u) => (db._store.get(`roles/${u}`) || {}).role || null,
+      },
+      { uid, email: `${uid}@shimano.com.ar` },
+      { sourcePedidoId: 'P1', sourceLineIndex: 0, qty: 2, action: 'cancelled' }
+    );
+
+  it('interno pareja cancela la última ASIG → línea cancelada, pedido sin closedAt', async () => {
+    const db = makeMockDb();
+    seed(db, OWNERS.pareja);
+    const r = await runAll(db, 'uid-int');
+    expect(r).toMatchObject({ success: true, pedidoClosed: false });
+    const p = db._store.get('pedidos/P1');
+    expect(p.lines[0]).toMatchObject({ state: 'cancelled', qtyOpen: 0 });
+    expect(p.closedAt).toBeNull();
+    expect(p.closedReason).toBeUndefined();
+  });
+
+  it('interno propio / admin cancela la última ASIG → pedido cerrado (sin cambio)', async () => {
+    for (const [owner, uid] of [
+      [OWNERS.propio, 'uid-int'],
+      [OWNERS.otra, 'uid-admin'],
+    ]) {
+      const db = makeMockDb();
+      seed(db, owner);
+      const r = await runAll(db, /** @type {string} */ (uid));
+      expect(r.pedidoClosed).toBe(true);
+      expect(db._store.get('pedidos/P1').closedAt).toBeTruthy();
+    }
+  });
+
   it('interno otra pareja → permission-denied con errorCode y sin writes', async () => {
     const db = makeMockDb();
     seed(db, OWNERS.otra);
@@ -301,13 +339,35 @@ describe('movePedidoToWaitlistCF — alcance del interno (solo pedido propio)', 
     });
   });
 
-  it('rol del VDE ilegible → denegado sin writes', async () => {
+  // B6 (revisión 2026-11-25): con el rol legible, un pedido de la pareja da
+  // INTERNO_SOLO_PEDIDO_PROPIO (la pareja se reconoce, pero no alcanza para
+  // mover). Con el rol ilegible la pareja NO se reconoce: se evalúa el rol
+  // del VDE (lectura que falla) y se cae a INTERNO_FUERA_DE_PAREJA. Ese
+  // cambio de código es la prueba de que el camino falla cerrado.
+  it('rol del VDE ilegible → la pareja no se reconoce (falla cerrada), sin writes', async () => {
     const db = makeMockDb();
     seed(db, OWNERS.pareja);
-    await expect(run(db, 'uid-int', { getRoleDoc: rolIlegible })).rejects.toMatchObject({
+    let lecturas = 0;
+    const getRoleDoc = async () => {
+      lecturas += 1;
+      throw new Error('lectura de rol fallida');
+    };
+    await expect(run(db, 'uid-int', { getRoleDoc })).rejects.toMatchObject({
       _errorData: { errorCode: 'INTERNO_FUERA_DE_PAREJA' },
     });
+    expect(lecturas).toBeGreaterThan(0);
     expect(businessWrites(db)).toEqual([]);
+    expect(db._store.has('pedidos/ped1')).toBe(true);
+    const logs = db._writes.filter((/** @type {any} */ w) => w.path.startsWith('operations_log/'));
+    expect(logs.map((/** @type {any} */ l) => l.data.errorCode)).toEqual([
+      'INTERNO_FUERA_DE_PAREJA',
+    ]);
+  });
+
+  it('pedido propio con rol de VDE ilegible → OK (no depende de leer roles)', async () => {
+    const db = makeMockDb();
+    seed(db, OWNERS.propio);
+    expect((await run(db, 'uid-int', { getRoleDoc: rolIlegible })).ok).toBe(true);
   });
 
   it('admin y gerente sobre otra pareja → OK', async () => {
@@ -321,7 +381,14 @@ describe('movePedidoToWaitlistCF — alcance del interno (solo pedido propio)', 
 
 // ---------------------------------------------------------------------------
 describe('releaseAsigCF — alcance del interno', () => {
-  const seed = (/** @type {any} */ db, /** @type {any} */ owner) => {
+  // `pedidoOwner`: dueño del pedido de origen (por defecto, de la pareja:
+  // cargado por el gerente para un cliente del VDE pareja).
+  const seed = (
+    /** @type {any} */ db,
+    /** @type {any} */ owner,
+    /** @type {any} */ pedidoOwner = OWNERS.pareja,
+    /** @type {any} */ pedidoExtra = {}
+  ) => {
     db._store.set('revision_waitlist/wl1', {
       clientCardCode: 'C001',
       orderNumber: 500,
@@ -336,8 +403,9 @@ describe('releaseAsigCF — alcance del interno', () => {
     });
     db._store.set('pedidos/ped-origen', {
       clientCardCode: 'C001',
-      ownerUid: 'uid-ger',
       lines: [{ sku: 'SKU1', state: 'ASIG', qty: 2, qtyOpen: 2 }],
+      ...pedidoOwner,
+      ...pedidoExtra,
     });
   };
   const run = (/** @type {any} */ db, /** @type {string} */ uid, extra = {}) =>
@@ -374,12 +442,80 @@ describe('releaseAsigCF — alcance del interno', () => {
     expect(businessWrites(db)).toEqual([]);
   });
 
+  // A1 (revisión 2026-11-25): la orden es propia (o de la pareja), pero el
+  // pedido de origen al que apunta es de otra pareja.
+  it('orden propia con pedido de origen de otra pareja → denegado, cero escrituras', async () => {
+    for (const owner of [OWNERS.propio, OWNERS.pareja]) {
+      for (const action of ['rechazo_cpst', 'remove_item']) {
+        const db = makeMockDb();
+        seed(db, owner, OWNERS.otra);
+        await expect(
+          releaseAsigCore(
+            { fbDb: db, now: () => 1_700_000_000_000 },
+            { auth: authOf('uid-int'), action, waitlistId: 'wl1', itemIndex: 0 }
+          )
+        ).rejects.toMatchObject({
+          _errorCode: 'permission-denied',
+          _errorDetails: { errorCode: 'INTERNO_FUERA_DE_PAREJA' },
+        });
+        expect(businessWrites(db)).toEqual([]);
+        expect(db._store.has('revision_waitlist/wl1')).toBe(true);
+        expect(db._store.get('pedidos/ped-origen').lines[0].state).toBe('ASIG');
+        // El rechazo queda registrado (§64.2) y el detalle no viaja al cliente.
+        const logs = db._writes.filter((/** @type {any} */ w) =>
+          w.path.startsWith('operations_log/')
+        );
+        expect(logs.length).toBe(1);
+        expect(logs[0].data).toMatchObject({
+          type: 'release_asig_rejected',
+          errorCode: 'INTERNO_FUERA_DE_PAREJA',
+          aborted: true,
+        });
+      }
+    }
+  });
+
+  it('pedido de origen con rol del VDE ilegible → denegado (falla cerrada)', async () => {
+    const db = makeMockDb();
+    // Orden propia (pasa sin leer roles); el pedido solo entra por pareja.
+    seed(db, OWNERS.propio, OWNERS.pareja);
+    await expect(run(db, 'uid-int', { getRoleDoc: rolIlegible })).rejects.toMatchObject({
+      _errorDetails: { errorCode: 'INTERNO_FUERA_DE_PAREJA' },
+    });
+    expect(businessWrites(db)).toEqual([]);
+  });
+
+  it('pedido de origen propio del interno → OK', async () => {
+    const db = makeMockDb();
+    seed(db, OWNERS.propio, { ownerUid: 'uid-int' });
+    expect((await run(db, 'uid-int')).ok).toBe(true);
+  });
+
+  // M3 (revisión 2026-11-25): el interno ya no es privilegiado en este CF,
+  // así que pasa por el chequeo entre clientes. Pedidos viejos sin
+  // clientCardCode → CLIENT_DATA_MISSING (antes operaba). Intencional.
+  it('interno de la pareja con pedido de origen sin clientCardCode → CLIENT_DATA_MISSING', async () => {
+    const db = makeMockDb();
+    seed(db, OWNERS.pareja, OWNERS.pareja, { clientCardCode: '' });
+    await expect(run(db, 'uid-int')).rejects.toMatchObject({
+      _errorCode: 'failed-precondition',
+      _errorDetails: { errorCode: 'CLIENT_DATA_MISSING' },
+    });
+    expect(businessWrites(db)).toEqual([]);
+  });
+
   it('admin y gerente sobre otra pareja → OK', async () => {
     for (const uid of ['uid-admin', 'uid-ger']) {
       const db = makeMockDb();
-      seed(db, OWNERS.otra);
+      seed(db, OWNERS.otra, OWNERS.otra);
       expect((await run(db, uid)).ok).toBe(true);
     }
+  });
+
+  it('admin con pedido de origen sin clientCardCode → OK (sin cambio)', async () => {
+    const db = makeMockDb();
+    seed(db, OWNERS.otra, OWNERS.otra, { clientCardCode: '' });
+    expect((await run(db, 'uid-admin')).ok).toBe(true);
   });
 });
 

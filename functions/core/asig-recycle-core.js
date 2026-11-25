@@ -136,6 +136,10 @@ export async function updateAsigLineState(deps, auth, input) {
     // Auditoria 2026-11-25: el interno solo pedidos propios o de su VDE
     // pareja (fuera de pareja = denegado). Lectura de roles antes de
     // cualquier write de la transaccion (§58).
+    // B1 (revisión 2026-11-25): sobre un pedido de la pareja (no propio) el
+    // interno no cierra el pedido, igual que en firestore.rules (closedAt y
+    // stage fuera de la lista de la pareja).
+    let _internoPuedeCerrar = true;
     if (_isInterno) {
       const scope = await evaluatePedidoScopeInterno({
         callerUid: auth.uid,
@@ -149,6 +153,7 @@ export async function updateAsigLineState(deps, auth, input) {
           details: { errorCode: INTERNO_FUERA_DE_PAREJA },
         };
       }
+      _internoPuedeCerrar = scope.via === 'propio';
     }
     if (_isVendor && data.ownerUid !== auth.uid) {
       throw {
@@ -201,7 +206,7 @@ export async function updateAsigLineState(deps, auth, input) {
       updatedAt: nowIso,
     };
     let closed = false;
-    if (!anyOpen && !data.closedAt) {
+    if (!anyOpen && !data.closedAt && _internoPuedeCerrar) {
       update.closedAt = nowIso;
       update.closedReason = 'all_recycled_or_cancelled_or_invoiced';
       closed = true;

@@ -392,7 +392,8 @@ describe('updateAsigLineState — v990 role gate + ownership', () => {
   });
 
   // Auditoría 2026-11-25: el interno opera sobre pedidos de SU pareja VDE
-  // (no sobre cualquiera). Casos de otra pareja en asig-recycle-interno-pareja.
+  // (no sobre cualquiera). Casos de otra pareja en
+  // tests/functions/interno-pareja-cfs.test.js.
   it('rol interno: puede operar sobre pedido de su VDE pareja (flow VDI)', async () => {
     const p = _pedido({ ownerUid: 'u_vde_pareja' });
     const fbDb = makeFakeFbDb([p]);

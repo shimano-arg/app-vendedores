@@ -26,6 +26,7 @@
 import { evaluateCallerRole, ROLE_CHECK_UNAVAILABLE_MESSAGE } from './caller-role-gate.js';
 import { collectAsigRefsForCancel, collectAsigRefsForItemCancel } from './cpst-cancel-refs.js';
 import {
+  evaluatePedidoScopeInterno,
   evaluateWaitlistScopeInterno,
   INTERNO_FUERA_DE_PAREJA,
   INTERNO_FUERA_DE_PAREJA_MESSAGE,
@@ -105,11 +106,14 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
   //   Además deja de operar entre clientes (mismo chequeo que el vendedor).
   // vendedor → ownerUid del waitlist O assignedVendorUid del waitlist (§44/§46).
   const isPrivileged = role === 'admin' || role === 'gerente';
+  // Un solo getRoleDoc por invocación (cache compartido entre el chequeo de
+  // la orden y el de cada pedido de origen).
+  const getRoleDoc = deps.getRoleDoc || makeGetRoleDoc(deps.fbDb);
   if (role === 'interno') {
     const scope = await evaluateWaitlistScopeInterno({
       callerUid: auth.uid,
       waitlist: w,
-      getRoleDoc: deps.getRoleDoc || makeGetRoleDoc(deps.fbDb),
+      getRoleDoc,
     });
     if (!scope.ok) {
       if (deps.log) {
@@ -196,6 +200,32 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
           exists: pSnap.exists,
           data: pSnap.data() || null,
         });
+      }
+
+      // Alcance del interno sobre CADA pedido de origen que se va a modificar
+      // (revisión 2026-11-25): que la orden sea propia o de la pareja no
+      // alcanza, los pedidos de origen también tienen que serlo. Se evalúa
+      // con los datos leídos en esta transacción y antes de cualquier
+      // escritura (§58). Si alguno queda fuera, se aborta todo sin escribir.
+      // Las lecturas de roles son fuera de la transacción (no son tx.get).
+      if (role === 'interno') {
+        /** @type {Array<{pedidoId: string, reason: string}>} */
+        const fueraDeAlcance = [];
+        for (const [pedidoId, snap] of snapshots) {
+          if (!snap.exists) continue; // no se modifica
+          const sc = await evaluatePedidoScopeInterno({
+            callerUid: auth.uid,
+            pedido: snap.data || {},
+            getRoleDoc,
+          });
+          if (!sc.ok) fueraDeAlcance.push({ pedidoId, reason: sc.reason });
+        }
+        if (fueraDeAlcance.length > 0) {
+          throw mkErr('permission-denied', INTERNO_FUERA_DE_PAREJA_MESSAGE, {
+            errorCode: INTERNO_FUERA_DE_PAREJA,
+            _problems: fueraDeAlcance,
+          });
+        }
       }
 
       // --- COMPUTE (no tx writes yet) ---
@@ -324,7 +354,9 @@ export async function releaseAsigCore(/** @type {any} */ deps, /** @type {any} *
     const det = ex && ex._errorDetails;
     if (
       det &&
-      (det.errorCode === 'CLIENT_DATA_MISSING' || det.errorCode === 'RELEASE_CROSS_CLIENT')
+      (det.errorCode === 'CLIENT_DATA_MISSING' ||
+        det.errorCode === 'RELEASE_CROSS_CLIENT' ||
+        det.errorCode === INTERNO_FUERA_DE_PAREJA)
     ) {
       const problems = Array.isArray(det._problems) ? det._problems : [];
       // Registro del rechazo con await (§64.2): existe antes de responder.

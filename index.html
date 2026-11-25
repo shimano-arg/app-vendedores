@@ -27549,7 +27549,7 @@ window.waitlistDeleteCurrent = async function(){
       closeWaitlistCardModal();
     } catch(e) {
       console.error('waitlistDelete', e);
-      alert('Error borrando: ' + (e.message || e));
+      alert(window._waitlistDeleteErrorText(e) || ('Error borrando: ' + (e.message || e)));
     }
     return;
   }
@@ -27635,6 +27635,17 @@ window._serverErrorAlertText = function(e){
 window._roleRequiredAlertText = function(e){
   return window._serverErrorCodeOf(e) === 'ROLE_REQUIRED' ? window._serverErrorAlertText(e) : null;
 };
+// Auditoría 2026-11-25: el borrado directo de una orden en espera vuelve sin
+// permiso cuando el vendedor interno no la cargó (firestore.rules). Mensaje
+// §68; null para cualquier otro error (se mantiene el texto previo).
+window._waitlistDeleteErrorText = function(e){
+  const c = String((e && e.code) || '');
+  if (c !== 'permission-denied' && c !== 'firestore/permission-denied') return null;
+  const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+  return (_mv && _mv.formatMensajeConCodigo)
+    ? _mv.formatMensajeConCodigo('WAITLIST_BORRAR_SOLO_PROPIA')
+    : 'Solo podés borrar órdenes en espera que cargaste vos. Para esta orden, pedíselo a su vendedor o a Mariano.\n\nCódigo técnico: WAITLIST_BORRAR_SOLO_PROPIA';
+};
 // Mensaje genérico §68 para un fallo de releaseAsigCF sin código propio.
 window._releaseFailedAlertText = function(){
   const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
@@ -27696,7 +27707,10 @@ window._wcardDeleteChoicePick = async function(choice){
     try { if (typeof renderBackordersTab === 'function') renderBackordersTab(); } catch (_e) {}
   } catch (e) {
     console.error('_wcardDeleteChoicePick commit', e);
-    alert(window._serverErrorAlertText(e) || window._releaseFailedAlertText());
+    // 'solo_borrador' es un borrado directo: sin permiso → mensaje propio.
+    const _delTxt = choice === 'solo_borrador' ? window._waitlistDeleteErrorText(e) : null;
+    if (_delTxt) alert(_delTxt);
+    else alert(window._serverErrorAlertText(e) || window._releaseFailedAlertText());
     if (modal) modal.classList.remove('open');
     window._wcardDeleteChoicePending = null;
   }
@@ -27814,7 +27828,7 @@ window.waitlistRemoveItem = async function(docId, idx){
       closeWaitlistCardModal();
     } catch(e) {
       console.error('waitlistRemoveItem delete', e);
-      alert('Error borrando: ' + (e.message || e));
+      alert(window._waitlistDeleteErrorText(e) || ('Error borrando: ' + (e.message || e)));
     }
     return;
   }

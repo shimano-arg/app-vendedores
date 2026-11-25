@@ -162,6 +162,13 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto:
       'Solo podés pasar a espera pedidos que cargaste vos. Para este pedido, pedíselo a su vendedor.',
   },
+  // firestore.rules (auditoría 2026-11-25): el vendedor interno solo borra
+  // órdenes en espera que cargó él. Lo muestra el cliente cuando el borrado
+  // directo de una orden en espera vuelve sin permiso.
+  WAITLIST_BORRAR_SOLO_PROPIA: {
+    texto:
+      'Solo podés borrar órdenes en espera que cargaste vos. Para esta orden, pedíselo a su vendedor o a Mariano.',
+  },
   // releaseAsigCF: al pedido de origen le falta el dato del cliente.
   CLIENT_DATA_MISSING: {
     texto:

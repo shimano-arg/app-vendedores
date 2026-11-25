@@ -36,3 +36,20 @@ describe('rechazos por alcance del interno — cliente', () => {
     expect(src).toContain('{ errorCode: err.details.errorCode }');
   });
 });
+
+describe('borrado directo de orden en espera sin permiso (rules 2026-11-25)', () => {
+  it('index.html usa el mensaje propio en los 3 borrados directos', () => {
+    const html = read('index.html');
+    expect(html).toContain('window._waitlistDeleteErrorText = function(e)');
+    const n = (html.match(/window\._waitlistDeleteErrorText\(e\)/g) || []).length;
+    expect(n).toBe(3);
+    expect(html).toContain('Código técnico: WAITLIST_BORRAR_SOLO_PROPIA');
+  });
+
+  it('el mensaje existe y no tiene jerga', async () => {
+    const mv = await import('../../../src/pure/mensajes-vendedor.js');
+    const t = mv.MENSAJES_VENDEDOR.WAITLIST_BORRAR_SOLO_PROPIA.texto;
+    expect(t).toContain('Solo podés borrar órdenes en espera que cargaste vos.');
+    for (const p of mv.PALABRAS_PROHIBIDAS) expect(t).not.toContain(p);
+  });
+});

@@ -287,6 +287,21 @@ service cloud.firestore {
           && isMyPartnerVDE(resource.data.assignedVendorUid));
     }
 
+    // Auditoria seguridad 2026-11-25 (revision adversarial #1422, M1/M2):
+    // mismo alcance del interno sobre ordenes en espera.
+    // - Orden propia: ownerUid o cargadoPorUid es el interno (ninguno de los
+    //   dos esta en la lista hasOnly del update, no se pueden "apropiar").
+    // - Orden de su pareja: ownerUid o assignedVendorUid es su VDE pareja
+    //   (evaluado sobre el documento ANTES del cambio: el interno no puede
+    //   adjudicarse una orden ajena seteandole assignedVendorUid).
+    function waitlistPropiaDelInterno() {
+      return resource.data.get('ownerUid', null) == request.auth.uid
+        || resource.data.get('cargadoPorUid', null) == request.auth.uid;
+    }
+    function waitlistDeMiParejaVDE() {
+      return pedidoDeMiParejaVDE();
+    }
+
     match /pedidos/{pedidoId} {
       allow get: if isReader();
       // v1406 §44 (2026-10-22): VDE list permite OR ownerUid=self (compat
@@ -1443,8 +1458,15 @@ service cloud.firestore {
             || 'ownerVendor' in request.resource.data.diff(resource.data).affectedKeys()
           )
           || resource.data.get('assignedVendorUid', '') == ''
-        );
-      allow delete: if isAdminOrGerente() || isInterno()
+        )
+        // Auditoria 2026-11-25 (M1/M2): el interno edita o consume solo
+        // ordenes propias o de su pareja. Vendedor/admin/gerente sin cambio.
+        && (!isInterno() || waitlistPropiaDelInterno() || waitlistDeMiParejaVDE());
+      // Auditoria 2026-11-25 (M2): el interno borra solo ordenes propias
+      // (antes borraba cualquiera). Admin/gerente sin restriccion; el resto,
+      // solo las propias (sin cambio).
+      allow delete: if isAdminOrGerente()
+                    || (isInterno() && waitlistPropiaDelInterno())
                     || (isReader() && resource.data.ownerUid == request.auth.uid);
     }
 

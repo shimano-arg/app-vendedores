@@ -75,6 +75,7 @@ import { fetchStockLiveCore } from './core/fetch-stock-live-core.js';
 // manual (reparto-core.js + reparto-migration-core.js). Historia:
 // v1277 dual mode → v1278 FIFO disabled → v1279 FIFO deleted.
 import { runGeminiOcr, toClientOcrError } from './core/gemini-ocr-core.js';
+import { makeGetRoleDoc } from './core/interno-scope.js';
 import { syncSapInvoices } from './core/invoice-sync-core.js';
 // v1564+ (HARDENING6 line-inflation observer): shadow mode 4 semanas
 // para detectar mutaciones post-commit a pedidos.lines/qty/code/netAmountArs.
@@ -4227,7 +4228,9 @@ export const commitPedidoCF = onCall(
     // SEC F1A-H1 (2026-11-24): la autorizacion es el rol leido en el
     // servidor, no el dominio del email (antes pasaba cualquier @gmail.com
     // sin rol). Usuarios gmail.com con rol aprobado (PACHI) entran por rol.
-    await _requireApprovedRole(db, auth, 'commit_pedido');
+    // Auditoría 2026-11-25: el rol leído en el servidor viaja en deps (nunca
+    // en el payload) para el alcance del vendedor interno dentro del core.
+    const callerRole = await _requireApprovedRole(db, auth, 'commit_pedido');
     const data = req.data || {};
     // Payload shape validado dentro del core. Inyectamos owner info del request.
     const payload = {
@@ -4292,6 +4295,8 @@ export const commitPedidoCF = onCall(
           reportError: (err, ctx) => console.error('commitPedidoCore error', err, ctx || {}),
           FieldValue,
           fetchStockLive: fetchStockLiveFn,
+          callerRole: String(callerRole || '').toLowerCase(),
+          getRoleDoc: makeGetRoleDoc(db),
         },
         payload
       );
