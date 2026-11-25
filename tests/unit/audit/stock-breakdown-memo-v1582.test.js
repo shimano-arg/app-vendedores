@@ -141,11 +141,21 @@ describe('v1582 §PERF2 — memo getStockBreakdown', () => {
 
 describe('v1582 — bump APP_VERSION + CACHE_VERSION', () => {
   const INDEX_HTML = readFileSync('index.html', 'utf8');
-  it('APP_VERSION v1582 en index.html', () => {
-    expect(INDEX_HTML).toContain("const APP_VERSION = 'v1582'");
+  // v1582+ (Stack S-5 T3 2026-11-25): parsear versión real en vez de hardcode.
+  // Garantiza APP_VERSION >= v1582 + sync con CACHE_VERSION — sin romper al
+  // bump siguiente. Patrón estándar documentado en CLAUDE.md §70-80.
+  it('APP_VERSION >= v1582 en index.html', () => {
+    const m = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
+    expect(m).not.toBeNull();
+    expect(Number(m[1])).toBeGreaterThanOrEqual(1582);
   });
-  it('CACHE_VERSION v1582 en sw.js', () => {
+  it('CACHE_VERSION >= v1582 en sw.js + sync con APP_VERSION', () => {
     const sw = readFileSync('sw.js', 'utf8');
-    expect(sw).toContain("const CACHE_VERSION = 'v1582'");
+    const swMatch = sw.match(/const CACHE_VERSION = 'v(\d+)'/);
+    const appMatch = INDEX_HTML.match(/const APP_VERSION = 'v(\d+)'/);
+    expect(swMatch).not.toBeNull();
+    expect(appMatch).not.toBeNull();
+    expect(Number(swMatch[1])).toBeGreaterThanOrEqual(1582);
+    expect(swMatch[1]).toBe(appMatch[1]);
   });
 });
