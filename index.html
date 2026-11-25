@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1572';
+const APP_VERSION = 'v1573';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -21498,7 +21498,11 @@ function ensureRevisionWaitlistListener(){
           if (!_wlFilter(data)) return;
         } else {
           // Fallback inline si el bundle no expuso el filter.
+          // v1573 (2026-11-25): mismo criterio que shouldIncludeWaitlistDoc —
+          // tambien chequea closedAt para cubrir waitlists huerfanas cerradas
+          // por scripts externos (precedente ORDEN 927/939, §v1573).
           if (data.stage === 'consumed') return;
+          if (data.closedAt) return;
         }
         arr.push(Object.assign({_id: d.id}, data));
       });
