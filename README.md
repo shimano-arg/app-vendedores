@@ -2888,46 +2888,9 @@ Los 2 admins iniciales (`bot.shimano.pesca@gmail.com` y `erbinomariano@gmail.com
 - **Google Maps API key**: en `app_config/google_maps.apiKey` (leible por cualquier `isReader()` — TODOS los users autenticados, no solo admin). Restricciones aplicadas 2026-08-29: (1) HTTP referrer a `https://shimano-arg.github.io/*`, (2) API restriction a solo **Geocoding API** (blast radius minimo si se filtra: Geocoding ~USD 5/1000 requests vs Places USD 17-32/1000 o Route Optimization mucho mas). Key vive en GCP project "My First Project" (personal de Mariano); TODO futuro: migrar a project `app-vendedores-shimano` para desacoplar billing/ownership de cuenta personal. **Decision consciente 2026-08-30 (Mariano):** NO cerrar la rule a admin/gerente-only (como Gemini). Motivo: `getGmapsApiKey()` es llamada por vendedores desde `src/domains/notificaciones.js:294` (Alta Rapida en el campo) y `index.html:7083` (editar direccion alta SAP); cerrar la rule los degradaria a OSM Nominatim fallback (peor precision en localidades chicas del interior). Path arquitectonico correcto para el futuro si se quiere cerrar exposicion: Cloud Function `geocodeProxy` (matcheando pattern de Gemini v551 `geminiOcrProxy`) con secret `GOOGLE_MAPS_API_KEY` en Secret Manager. Estimado 3-5 hs de trabajo. Trade-off actual: exposicion vs latencia/CF cost/precision degradation en VDE.
 - **Service Layer password**: en `app_config/sap_integration.serviceLayer.password`. Solo admin lee/escribe vía Firestore rules. Mejor a futuro: variable de entorno de Cloud Function.
 
-### Sistema de Dark Mode (v738-v756, PLAN_DARK_MODE.md ejecutado + hotfixes contraste titulos)
+### Sistema de Dark Mode (ELIMINADO v1580 — 2026-11-25)
 
-**Arquitectura:**
-- **25 CSS variables semánticas** definidas en `:root` (light) y `[data-theme="dark"] { ... }` (dark). Naming semantic-first (`--text-primary`, `--bg-elevated`, `--color-success`), no color-first.
-- **Toggle real** en el header top-right (SVG luna/sol dinámico, `.logout-btn` styling).
-- **Storage precedence:** localStorage `shimano_theme` > Firestore `userData/{uid}.themePreference` > OS `prefers-color-scheme`.
-- **FOUC prevention:** init inline `<script>` en `<head>` ANTES de `<link>`/`<style>` — setea `data-theme` en `<html>` antes de renderear body.
-- **Cross-device sync:** el toggle sincroniza a Firestore fire-and-forget; el listener `userDataRef.onSnapshot` aplica preferencia remota vía `applyThemeFromUserData()` solo si localStorage local está vacío.
-
-**Implementación (14 versiones):**
-- **v736:** placeholder solo (botón + modal "En construcción")
-- **v738:** infra (CSS vars + toggle real + FOUC prevention). Coverage ~60%.
-- **v740-v742:** iterations de contraste con class-based overrides `[data-theme="dark"] .class`. Coverage → 95%.
-- **v743:** PLAN E2 codemod — `scripts/dark_mode_codemod.py` reemplazó 1964 hex hardcoded del top-40 semantic por `var(--token)` en 22 files (index.html: 2799 → 1424 hex remaining, **-49%**). Coverage → 99%.
-- **v744:** PLAN E3 assets: Leaflet dark tiles (CartoDB Dark Matter swap), scrollbars custom, focus outline, text selection, Shimano logos preservados como badges blancos.
-- **v745:** PLAN E4 WCAG AA audit programático (`scripts/dark_mode_contrast_audit.py`). Post-fixes: **dark 24/26 pass** (2 fails son borders sutiles intencionales), **light 16/26 pass** (10 fails son borders + text-disabled + brand-shimano-blue, todos intencionales).
-- **v749-v752:** iterations sobre h3 titulos de tab-panes reportados por Mariano como sin contraste. Blanket rules `[data-theme="dark"] h1,h2,h3 { color: #f1f5f9 !important }` en el `<style>` inline. Aparentemente insuficientes segun reportes visuales del user.
-- **v754:** blanket rules ampliadas a h1-h6 + capa high-specificity `html[data-theme="dark"] .sidebar/.tab-pane`. "Localidades (vista nacional)" empezo a funcionar; el resto (Alta clientes, Notificaciones, Pedidos, Rendiciones, Rutas, Clientes) siguio sin contraste.
-- **v756:** **ROOT CAUSE encontrado.** `styles/apple-design.css` tiene 7 rules con `color: #1d1d1f !important` en h3 de tab-panes especificos (`.sidebar h3`, `#pane-notif h3`, `#pane-clients h3#clients-title`, `#pane-pedidos h3`, `#pane-rendiciones h3`, `#pane-altacli h3`, `#pane-rutas h3`). Specificity de ID (0,1,0,1) GANABA sobre los nuclear rules inline (0,0,1,1) — por eso `#pane-locs h3` (sin override de ID) funcionaba pero el resto no. Fix: agregado bloque `html[data-theme="dark"] #pane-XXX h3 { color: #ffffff !important }` al final de `apple-design.css` con matching specificity (0,1,1,1 beats 0,1,0,1) + cargado despues del bloque original. Root cause aplicable a cualquier futuro override dark: **si un archivo CSS externo tiene rules con !important + ID selectors, los blanket rules del `<style>` inline NO ganan.**
-
-**Assets no automatizables:**
-- Shimano logo: preservado como pill blanca en dark (invertir colores rompe brand — Shimano blue en white es identity).
-- Leaflet map: swap dinámico entre OSM (light) y CartoDB Dark Matter (dark).
-- Charts del Dashboard: colores hardcoded (bar chart azul cyan `#0284a0`) sin adaptar a tema — trade-off, priority baja.
-
-**Tooling reusable:**
-- `scripts/dark_mode_codemod.py` — property-aware hex → var() migration. Modes `dry-run` y `--apply`.
-- `scripts/dark_mode_contrast_audit.py` — WCAG 2.1 AA audit programático. Output text o `--json`.
-
-**Trade-offs aceptados (WCAG fails intencionales):**
-- `brand-shimano-blue` (`#00A9E0`) sobre blanco = 2.71 (fail). Brand color de Shimano, inmutable.
-- `--border-default` sobre `--bg-base` = 1.48 (light) / 1.72 (dark). Los borders son intencionalmente sutiles (dividers informativos, no controles críticos).
-- `--text-disabled` sobre `--bg-base` = 2.56. Los disabled DEBEN verse muted por design.
-
-**Cómo agregar theme-awareness a código nuevo:**
-1. Preferir CSS vars sobre hex hardcoded. Consultar tabla en `PLAN_DARK_MODE.md` §2.
-2. Si necesitás un color no cubierto, agregar como nuevo var (light + dark values) en el bloque `:root` / `[data-theme="dark"]` del `<style>` de `index.html`.
-3. Correr `python scripts/dark_mode_contrast_audit.py` post-cambio para verificar WCAG AA.
-4. Testear ambos temas con toggle antes de mergear.
-5. **CRITICO (learned v756):** si agregás una regla en `styles/apple-design.css` con `!important` + selector con ID (`#pane-X ...`), agregá SIEMPRE el override dark mode en el bloque al final del mismo archivo. Los blanket rules `[data-theme="dark"] h3` del `<style>` inline NO ganan contra IDs con `!important` — necesitan matching specificity via `html[data-theme="dark"] #pane-X h3`.
+Shippeado v738-v756 (2026-08-30 a 2026-09-03). Removido completo en v1580: CSS variables dark, overrides, toggle UI, Firestore sync, scripts de codemod/audit, docs y tests. Light mode es el único theme. Las CSS variables del `:root` (semantic naming) se preservan. Decisión de Mariano 2026-11-25: dark era usado por <10 usuarios desktop; mobile ya estaba hardcoded light desde v779.
 
 ---
 

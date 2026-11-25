@@ -266,7 +266,7 @@ Registro del chunk (regla #18 CLAUDE.md):
 </div>
 ```
 
-CSS scoped bajo `#meli-modal`. Paleta MELI: amarillo `#FFE600` para sub-tab activa y acentos, azul `#2d3277` opcional. Resto usa variables CSS del theme existente (`var(--bg-elevated)`, etc.) para respetar dark mode.
+CSS scoped bajo `#meli-modal`. Paleta MELI: amarillo `#FFE600` para sub-tab activa y acentos, azul `#2d3277` opcional. Resto usa variables CSS del theme existente (`var(--bg-elevated)`, etc.).
 
 ### 6.4 · Sub-tab MAP (default al abrir)
 

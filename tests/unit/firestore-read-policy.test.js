@@ -225,7 +225,7 @@ describe('v1499 §98 — contrato index.html + bundle', () => {
     const html = readFileSync('index.html', 'utf8');
     expect(html).toMatch(/CLEAN_RELOAD_PRESERVE_KEYS/);
     expect(html).toMatch(/shimano_zonas_pending_v1/);
-    expect(html).toMatch(/shimano_theme/);
+    // v1580 (2026-11-25): shimano_theme removida (dark mode eliminado).
   });
 
   it('T42 forceUpdateApp hace terminate + clearPersistence + overlay', async () => {

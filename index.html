@@ -13,35 +13,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Shimano">
-<!-- v738 (2026-08-30): init inline de theme ANTES de cualquier <link> o <style>
-     para prevenir FOUC (Flash Of Unstyled Content). Lee localStorage
-     shimano_theme; fallback a OS preference (prefers-color-scheme). El
-     Firestore sync corre luego on onAuthStateChanged si detecta discrepancia.
-     v779 (2026-09-03): dark mode DESHABILITADO en mobile — se detecta UA +
-     viewport <= 768px y se fuerza 'light' regardless de localStorage/OS/
-     Firestore. Ver applyThemeFromUserData + toggleDarkMode (mismo gate). -->
-<script>
-(function(){
-  try {
-    // Mobile detector self-contained (isMobileBrowser esta definido mas
-    // abajo, no lo podemos llamar aca). Mismo criterio: UA de telefono OR
-    // viewport chico.
-    var ua = (navigator && navigator.userAgent) || '';
-    var isPhoneUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-    var isSmallVp = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
-    var isMobile = isPhoneUA || isSmallVp;
-    if (isMobile) {
-      document.documentElement.setAttribute('data-theme', 'light');
-      return;
-    }
-    var stored = localStorage.getItem('shimano_theme');
-    var theme = (stored === 'dark' || stored === 'light')
-      ? stored
-      : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    document.documentElement.setAttribute('data-theme', theme);
-  } catch(e) {}
-})();
-</script>
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180-v3.png">
 <link rel="apple-touch-icon" sizes="192x192" href="icon-192-v3.png">
 <link rel="apple-touch-icon" sizes="512x512" href="icon-512-v3.png">
@@ -170,15 +141,6 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 
-/* ========================================================================
-   v738 (2026-08-30) DARK MODE — CSS variables + strategic overrides
-   ========================================================================
-   Approach: hybrid — CSS vars para elementos estructurales (body, modales,
-   inputs, cards) + attribute selectors [style*="background:#XXX"] para
-   pisar los inline styles hardcoded top-15 sin refactorizarlos todos.
-   Es pragmatico: coverage ~80% del app sin tener que tocar los 4147
-   colores. Ver PLAN_DARK_MODE.md para plan de refactor completo (E2 shifts).
-*/
 :root {
   --bg-base: #ffffff;
   --bg-secondary: #f8fafc;
@@ -203,901 +165,6 @@
   --focus-ring: #00A9E0;
   --shadow-md: 0 4px 8px rgba(0,0,0,.1);
 }
-[data-theme="dark"] {
-  --bg-base: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-elevated: #334155;
-  --bg-input: #1e293b;
-  --bg-muted: #334155;
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-muted: #cbd5e1; /* v745 E4 WCAG: era #94a3b8 (4.04 fail vs bg-elevated). Ahora 6.97 pass. */
-  --text-disabled: #64748b;
-  --text-inverse: #0f172a;
-  --border-default: #849ab0; /* v1357 E6 WCAG: era #475569 (2.36/1.37 fail), despues #7a8b9f (2.97 vs bg-elevated apenas por debajo de 3.0). Ahora 3.47 vs bg-elevated + 5.17 vs bg-base, ambos pass AA UI. */
-  --border-subtle: #1e293b;
-  --border-strong: #64748b; /* v745 E4: era #475569, ahora mas visible sobre bg-elevated. */
-  --color-success: #4ade80; /* v745 E4 WCAG: era #22c55e (4.0 sub-AA vs success-bg). Ahora 5.99 pass. */
-  --color-success-bg: #14532d; /* v745 E4: re-agregado post-codemod que lo removio accidentalmente. */
-  --color-warning: #fbbf24;
-  --color-warning-bg: #78350f;
-  --color-danger: #fca5a5; /* v745 E4 WCAG: era #f87171 (3.62 sub-AA vs danger-bg). Ahora 5.99 pass. */
-  --color-danger-bg: #7f1d1d; /* v745 E4: re-agregado post-codemod. */
-  --color-danger-strong: #fca5a5; /* v745 E4 WCAG: era #dc2626 (2.07 fail vs danger-bg). Ahora igual a color-danger. */
-  --color-accent-violet: #a78bfa;
-  --focus-ring: #38bdf8;
-  --shadow-md: 0 4px 8px rgba(0,0,0,.5);
-}
-/* Transitions suaves al togglear tema. Respeta prefers-reduced-motion. */
-body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, button {
-  transition: background-color .2s ease-out, color .2s ease-out, border-color .2s ease-out;
-}
-@media (prefers-reduced-motion: reduce) {
-  body, .modal-box, .modal-overlay, .header, .controls, input, select, textarea, button {
-    transition: none;
-  }
-}
-
-/* ===== DARK MODE — overrides estructurales de background/color =====
-   Estos selectors pisan los inline styles hardcoded via attribute matching.
-   Cubren los patrones mas frecuentes del app (background:var(--bg-elevated)/#f8fafc/#f1f5f9,
-   color:var(--text-primary)/#475569, border:#cbd5e1/#e5e7eb). Los que no matchean
-   quedan hardcoded (edge cases para iterar en E2 del plan). */
-[data-theme="dark"] body { background: var(--bg-base); color: var(--text-primary); }
-[data-theme="dark"] .header { background: linear-gradient(135deg, #1e293b, #334155) !important; }
-[data-theme="dark"] .controls { background: var(--bg-secondary) !important; }
-[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,.72) !important; }
-[data-theme="dark"] .modal-box { background: var(--bg-elevated) !important; color: var(--text-primary); }
-[data-theme="dark"] .users-wrap, [data-theme="dark"] .users-card { background: var(--bg-secondary) !important; color: var(--text-primary); }
-[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
-[data-theme="dark"] select,
-[data-theme="dark"] textarea {
-  background: var(--bg-input) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] input::placeholder, [data-theme="dark"] textarea::placeholder { color: var(--text-muted) !important; }
-
-/* Overrides de inline styles frecuentes — attribute selector pisa specificity de inline. */
-[data-theme="dark"] [style*="background:var(--bg-elevated)"]:not([style*="background:#ffff"]),
-[data-theme="dark"] [style*="background:var(--bg-elevated)"],
-[data-theme="dark"] [style*="background:white"] { background: var(--bg-elevated) !important; }
-[data-theme="dark"] [style*="background:var(--bg-secondary)"] { background: var(--bg-secondary) !important; }
-[data-theme="dark"] [style*="background:var(--bg-muted)"] { background: var(--bg-muted) !important; }
-[data-theme="dark"] [style*="background:var(--border-subtle)"] { background: #334155 !important; }
-
-[data-theme="dark"] [style*="color:var(--text-primary)"] { color: var(--text-primary) !important; }
-[data-theme="dark"] [style*="color:var(--text-primary)"] { color: var(--text-primary) !important; }
-[data-theme="dark"] [style*="color:var(--text-secondary)"] { color: var(--text-secondary) !important; }
-[data-theme="dark"] [style*="color:var(--text-secondary)"] { color: var(--text-secondary) !important; }
-[data-theme="dark"] [style*="color:var(--text-muted)"] { color: var(--text-muted) !important; }
-[data-theme="dark"] [style*="color:var(--text-muted)"] { color: var(--text-muted) !important; }
-
-[data-theme="dark"] [style*="border:1px solid var(--border-subtle)"],
-[data-theme="dark"] [style*="border:1px solid var(--border-default)"],
-[data-theme="dark"] [style*="border:1.5px solid var(--border-default)"] { border-color: var(--border-default) !important; }
-
-/* Toggle button icon rotation en dark. */
-[data-theme="dark"] #dark-mode-btn svg#theme-icon-light { display: none !important; }
-[data-theme="dark"] #dark-mode-btn svg#theme-icon-dark { display: inline-flex !important; }
-[data-theme="light"] #dark-mode-btn svg#theme-icon-light,
-:root:not([data-theme]) #dark-mode-btn svg#theme-icon-light { display: inline-flex !important; }
-[data-theme="light"] #dark-mode-btn svg#theme-icon-dark,
-:root:not([data-theme]) #dark-mode-btn svg#theme-icon-dark { display: none !important; }
-
-/* v745 E4: toggle button icon rotate anim on toggle. */
-#dark-mode-btn svg { transition: transform .3s cubic-bezier(.4, 0, .2, 1); }
-#dark-mode-btn:hover svg { transform: rotate(20deg); }
-#dark-mode-btn:active svg { transform: rotate(-15deg) scale(.9); }
-@media (prefers-reduced-motion: reduce) {
-  #dark-mode-btn svg { transition: none; }
-  #dark-mode-btn:hover svg { transform: none; }
-  #dark-mode-btn:active svg { transform: none; }
-}
-
-/* v739+: overrides adicionales por class-name (los attribute selectors solo
-   pisan inline styles; las clases CSS definidas mas arriba en el <style>
-   necesitan overrides explicitos por class). */
-
-/* Header top-right buttons (Salir, Usuarios, Productos, SAP, etc.) */
-[data-theme="dark"] .logout-btn {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .logout-btn:hover {
-  background: var(--bg-muted) !important;
-  border-color: var(--border-strong) !important;
-}
-
-/* Stats bar header (461 LOCALIDADES, 226 CLIENTES EN SAP, etc.) */
-[data-theme="dark"] .stat-box {
-  background: var(--bg-elevated) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .stat-box .num { color: var(--text-primary) !important; }
-[data-theme="dark"] .stat-box .lbl { color: var(--text-secondary) !important; }
-
-/* Info badges del header (v738, SAP OK/warn/err) - default state */
-[data-theme="dark"] .hdr-info-badge {
-  background: var(--bg-muted) !important;
-  color: var(--text-secondary) !important;
-  border-color: var(--border-default) !important;
-}
-/* Semantic states (sap-ok/warn/err) mantienen colores pero suavizados en dark */
-[data-theme="dark"] .hdr-info-badge.sap-ok { background: #14532d !important; color: #4ade80 !important; border-color: #22c55e !important; }
-[data-theme="dark"] .hdr-info-badge.sap-warn { background: #78350f !important; color: #fbbf24 !important; border-color: #f59e0b !important; }
-[data-theme="dark"] .hdr-info-badge.sap-err { background: #7f1d1d !important; color: #f87171 !important; border-color: var(--color-danger) !important; }
-[data-theme="dark"] .hdr-info-badge.sap-unknown { background: var(--bg-muted) !important; color: var(--text-muted) !important; }
-
-/* Users cards (Panel Usuarios) */
-[data-theme="dark"] .users-card {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .users-table th {
-  background: var(--bg-secondary) !important;
-  color: var(--text-secondary) !important;
-}
-[data-theme="dark"] .users-table td {
-  border-color: var(--border-subtle) !important;
-  color: var(--text-primary) !important;
-}
-
-/* Export dialog cards (exp-opt) */
-[data-theme="dark"] .exp-opt {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .exp-opt:hover { background: var(--bg-muted) !important; }
-[data-theme="dark"] .exp-opt h3 { color: var(--text-primary) !important; }
-[data-theme="dark"] .exp-opt p { color: var(--text-secondary) !important; }
-
-/* Tab buttons (top nav) */
-[data-theme="dark"] .tab-btn {
-  color: var(--text-secondary) !important;
-}
-[data-theme="dark"] .tab-btn.active {
-  color: var(--brand-shimano-blue) !important;
-}
-
-/* Waitlist cards (PEDIDOS EN ESPERA en sidebar-left) */
-[data-theme="dark"] [class*="waitlist"] > *,
-[data-theme="dark"] .revision-item {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Sidebar left panels genericos - override background blanco/gray */
-[data-theme="dark"] aside, [data-theme="dark"] .sidebar, [data-theme="dark"] #sidebar-left {
-  background: var(--bg-secondary) !important;
-  color: var(--text-primary) !important;
-}
-
-/* v1357: Overrides de inline pastels con PRESERVACION DEL COLOR SEMANTICO.
-   Antes: todos los pastels iban a bg-secondary gris (perdia la señal
-   warning/success/danger). Ahora: rojos → danger-bg oscuro + danger text claro,
-   verdes → success-bg + success text, amber → warning-bg + warning text, etc.
-   Mariano 2026-10-19: "colores acorde entre fondos y textos". */
-
-/* Verdes/success: green-50, emerald-50, green-100 */
-[data-theme="dark"] [style*="background:#f0fdf4"],
-[data-theme="dark"] [style*="background:#ecfdf5"],
-[data-theme="dark"] [style*="background:#dcfce7"],
-[data-theme="dark"] [style*="background:#d1fae5"] {
-  background: var(--color-success-bg) !important;
-  color: var(--color-success) !important;
-}
-
-/* Rojos/danger: red-50, red-100, rose-50, rose-100 */
-[data-theme="dark"] [style*="background:#fef2f2"],
-[data-theme="dark"] [style*="background:#fee2e2"],
-[data-theme="dark"] [style*="background:#fff1f2"],
-[data-theme="dark"] [style*="background:#ffe4e6"] {
-  background: var(--color-danger-bg) !important;
-  color: var(--color-danger) !important;
-}
-
-/* Amber/warning: amber-50, amber-100, yellow-50, yellow-100 */
-[data-theme="dark"] [style*="background:#fffbeb"],
-[data-theme="dark"] [style*="background:#fef3c7"],
-[data-theme="dark"] [style*="background:#fefce8"],
-[data-theme="dark"] [style*="background:#fef9c3"] {
-  background: var(--color-warning-bg) !important;
-  color: var(--color-warning) !important;
-}
-
-/* Orange: orange-50, orange-100 (similar a warning pero mas calido) */
-[data-theme="dark"] [style*="background:#fff7ed"],
-[data-theme="dark"] [style*="background:#ffedd5"] {
-  background: #7c2d12 !important; /* orange-900 */
-  color: #fdba74 !important;      /* orange-300 */
-}
-
-/* Blue/info: blue-50, blue-100, sky-50, sky-100 */
-[data-theme="dark"] [style*="background:#eff6ff"],
-[data-theme="dark"] [style*="background:#dbeafe"],
-[data-theme="dark"] [style*="background:#f0f9ff"],
-[data-theme="dark"] [style*="background:#e0f2fe"],
-[data-theme="dark"] [style*="background:#bae6fd"] {
-  background: #1e3a8a !important; /* blue-900 */
-  color: #93c5fd !important;      /* blue-300 */
-}
-
-/* Violet/indigo/purple/fuchsia pastels */
-[data-theme="dark"] [style*="background:#ede9fe"],
-[data-theme="dark"] [style*="background:#e0e7ff"],
-[data-theme="dark"] [style*="background:#f3e8ff"],
-[data-theme="dark"] [style*="background:#faf5ff"] {
-  background: #4c1d95 !important; /* violet-900 */
-  color: #c4b5fd !important;      /* violet-300 */
-}
-
-/* Slate/gray/neutral pastels (slate-50, gray-100, zinc-50) */
-[data-theme="dark"] [style*="background:#f8fafc"],
-[data-theme="dark"] [style*="background:#f1f5f9"],
-[data-theme="dark"] [style*="background:#f9fafb"],
-[data-theme="dark"] [style*="background:#f3f4f6"],
-[data-theme="dark"] [style*="background:#fafafa"] {
-  background: var(--bg-secondary) !important;
-  color: var(--text-primary) !important;
-}
-
-/* Textos oscuros hardcodeados sobre backgrounds que acabamos de overridear.
-   Si el elemento tiene inline color:#<dark-color> y queda sobre bg oscuro, va
-   el color claro semantico equivalente. */
-[data-theme="dark"] [style*="color:#78350f"], /* amber-800 */
-[data-theme="dark"] [style*="color:#92400e"], /* amber-700 */
-[data-theme="dark"] [style*="color:#b45309"], /* amber-600 */
-[data-theme="dark"] [style*="color:#9a3412"]  /* orange-700 */ {
-  color: var(--color-warning) !important;
-}
-[data-theme="dark"] [style*="color:#14532d"], /* green-900 */
-[data-theme="dark"] [style*="color:#166534"], /* green-800 */
-[data-theme="dark"] [style*="color:#15803d"]  /* green-700 */ {
-  color: var(--color-success) !important;
-}
-[data-theme="dark"] [style*="color:#7f1d1d"], /* red-900 */
-[data-theme="dark"] [style*="color:#991b1b"], /* red-800 */
-[data-theme="dark"] [style*="color:#b91c1c"]  /* red-700 */ {
-  color: var(--color-danger) !important;
-}
-[data-theme="dark"] [style*="color:#1e3a8a"], /* blue-900 */
-[data-theme="dark"] [style*="color:#1e40af"], /* blue-800 */
-[data-theme="dark"] [style*="color:#075985"], /* sky-800 */
-[data-theme="dark"] [style*="color:#0c4a6e"]  /* sky-900 */ {
-  color: #93c5fd !important; /* blue-300 */
-}
-[data-theme="dark"] [style*="color:#6b21a8"], /* purple-800 */
-[data-theme="dark"] [style*="color:#581c87"]  /* purple-900 */ {
-  color: #c4b5fd !important; /* violet-300 */
-}
-[data-theme="dark"] [style*="color:#1d1d1f"], /* apple black */
-[data-theme="dark"] [style*="color:#1e293b"], /* slate-800 */
-[data-theme="dark"] [style*="color:#0f172a"], /* slate-900 */
-[data-theme="dark"] [style*="color:#334155"], /* slate-700 */
-[data-theme="dark"] [style*="color:#000"]     /* black */ {
-  color: var(--text-primary) !important;
-}
-[data-theme="dark"] [style*="color:#475569"], /* slate-600 */
-[data-theme="dark"] [style*="color:#64748b"], /* slate-500 */
-[data-theme="dark"] [style*="color:#86868b"]  /* apple gray */ {
-  color: var(--text-secondary) !important;
-}
-
-/* Sidebar-left pill buttons - los proxy buttons creados por el bootstrap */
-[data-theme="dark"] #sidebar-left-buttons button,
-[data-theme="dark"] .side-btn-proxy {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* v1358 (2026-10-19) HOTFIX dark mode: overrides por CSS CLASS para componentes
-   con bg hardcoded que no reaccionaban al theme (los selectores [style*="..."]
-   del bloque anterior solo capturan inline styles, no CSS rules).
-   Reporte Mariano screenshot: stat-boxes blancas, filter pills claros,
-   buscador claro, client-cards habilitado/cancelado con bg pastel claro,
-   notif-tabs-bar roja clara, sap-info/ruta-summary/qmodal pastel claros,
-   ac/rd approved/rejected cards pastel claras. */
-
-/* Client cards con estado semantico (sidebar-right pane-clients) */
-[data-theme="dark"] .client-card { background: var(--bg-elevated) !important; color: var(--text-primary) !important; border-color: var(--border-default) !important; }
-[data-theme="dark"] .client-card:hover { background: var(--bg-muted) !important; }
-[data-theme="dark"] .client-card.contacted,
-[data-theme="dark"] .client-card.estado-habilitado { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; border-left-color: var(--color-success) !important; color: var(--color-success) !important; }
-[data-theme="dark"] .client-card.estado-habilitado .client-name,
-[data-theme="dark"] .client-card.contacted .client-name { color: var(--color-success) !important; }
-[data-theme="dark"] .client-card.estado-cancelado { background: var(--color-danger-bg) !important; border-color: var(--color-danger) !important; border-left-color: var(--color-danger) !important; color: var(--color-danger) !important; }
-[data-theme="dark"] .client-card.estado-cancelado .client-name { color: var(--color-danger) !important; text-decoration: line-through; }
-
-/* Ruta cards (Rutas pane) con estado completo/reagendado */
-[data-theme="dark"] .ruta-card.completa { background: var(--color-success-bg) !important; border-left-color: var(--color-success) !important; }
-[data-theme="dark"] .ruta-tienda.visited { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; border-left-color: var(--color-success) !important; color: var(--color-success) !important; }
-[data-theme="dark"] .ruta-tienda-btn.outline:hover { background: var(--color-success-bg) !important; }
-[data-theme="dark"] .ruta-card.reagendados { background: var(--color-warning-bg) !important; border-left-color: var(--color-warning) !important; }
-[data-theme="dark"] .ruta-tienda.reagendada { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; border-left-color: var(--color-warning) !important; color: var(--color-warning) !important; }
-[data-theme="dark"] .ruta-summary { background: #1e3a8a !important; color: #93c5fd !important; border-left-color: #60a5fa !important; }
-
-/* Qmodal / Quick-pick modal options */
-[data-theme="dark"] .qmodal-opt:hover { background: #1e3a8a !important; border-color: #93c5fd !important; color: #93c5fd !important; }
-[data-theme="dark"] .qmodal-date-picker .dpd-day:hover { background: #1e3a8a !important; border-color: #93c5fd !important; }
-
-/* AC (Alta Clientes) + RD (Rendiciones) cards con estado approved/rejected */
-[data-theme="dark"] .ac-app-card.approved,
-[data-theme="dark"] .rd-mias-card.approved { background: var(--color-success-bg) !important; border-left-color: var(--color-success) !important; color: var(--color-success) !important; }
-[data-theme="dark"] .ac-app-card.rejected,
-[data-theme="dark"] .rd-mias-card.rejected { background: var(--color-danger-bg) !important; border-left-color: var(--color-danger) !important; color: var(--color-danger) !important; }
-
-/* Notif tabs bar — era rojo claro, migrar a danger-bg oscuro */
-[data-theme="dark"] .notif-tabs-bar { background: var(--color-danger-bg) !important; border-bottom-color: var(--color-danger) !important; }
-
-/* CCM-opt (Create client modal option cards) */
-[data-theme="dark"] .ccm-opt:hover { background: #1e3a8a !important; border-color: #93c5fd !important; }
-
-/* SAP info/input/btn con estados pastel */
-[data-theme="dark"] .sap-info { background: #1e3a8a !important; color: #93c5fd !important; border-left-color: #60a5fa !important; }
-[data-theme="dark"] .sap-btn.secondary:hover { background: #1e3a8a !important; }
-[data-theme="dark"] .sap-input.has-value { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; color: var(--color-success) !important; }
-
-/* Master Clientes stats + addr-input (header rojo + bg warning) */
-[data-theme="dark"] .mc-stats { background: var(--color-danger-bg) !important; color: var(--color-danger) !important; border-bottom-color: var(--color-danger) !important; }
-[data-theme="dark"] .mc-stats span.ok { background: var(--color-success-bg) !important; color: var(--color-success) !important; border-color: var(--color-success) !important; }
-[data-theme="dark"] .mc-addr-input.has-value { background: var(--color-danger-bg) !important; border-color: var(--color-danger) !important; color: var(--color-danger) !important; }
-
-/* SAP tags + bloqueado groups + assign rows */
-[data-theme="dark"] .sap-tag.transferido { background: var(--color-success-bg) !important; color: var(--color-success) !important; }
-[data-theme="dark"] .sap-bloqueado-group { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; border-left-color: var(--color-warning) !important; }
-[data-theme="dark"] .sap-assign-row input { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; color: var(--color-warning) !important; }
-
-/* Targets input semantic states (changed/saving/saved) */
-[data-theme="dark"] .targets-table input.tgt-input.changed { background: var(--color-warning-bg) !important; border-color: var(--color-warning) !important; color: var(--color-warning) !important; }
-[data-theme="dark"] .targets-table input.tgt-input.saving { background: #1e3a8a !important; border-color: #60a5fa !important; color: #93c5fd !important; }
-[data-theme="dark"] .targets-table input.tgt-input.saved { background: var(--color-success-bg) !important; border-color: var(--color-success) !important; color: var(--color-success) !important; }
-[data-theme="dark"] .targets-table tr.month-current td { background: var(--color-warning-bg) !important; color: var(--color-warning) !important; }
-
-/* Danger zone (modales admin) */
-[data-theme="dark"] .danger-zone { background: var(--color-danger-bg) !important; border-color: var(--color-danger) !important; color: var(--color-danger) !important; }
-[data-theme="dark"] .danger-zone h3, [data-theme="dark"] .danger-zone h4, [data-theme="dark"] .danger-zone p { color: var(--color-danger) !important; }
-
-/* v1358 REINFORCE stat-boxes + filter-btn + search inputs: redundante con
-   bloques anteriores pero defensivo contra specificity surprises. Mariano
-   reporto estos componentes como claros en v1357 (foto 09:56 ART). */
-html[data-theme="dark"] .stat-box {
-  background: var(--bg-elevated) !important;
-  border: 1px solid var(--border-default) !important;
-  color: var(--text-primary) !important;
-}
-html[data-theme="dark"] .stat-box .num { color: var(--text-primary) !important; }
-html[data-theme="dark"] .stat-box .num[style*="color:#10b981"] { color: var(--color-success) !important; }
-html[data-theme="dark"] .stat-box .num[style*="color:var(--color-warning)"] { color: var(--color-warning) !important; }
-html[data-theme="dark"] .stat-box .lbl { color: var(--text-secondary) !important; }
-
-html[data-theme="dark"] .cli-filter-btn {
-  background: var(--bg-elevated) !important;
-  color: var(--text-secondary) !important;
-  border-color: var(--border-default) !important;
-}
-html[data-theme="dark"] .cli-filter-btn.active { background: var(--brand-shimano-blue) !important; color: #fff !important; border-color: var(--brand-shimano-blue) !important; }
-html[data-theme="dark"] .cli-filter-btn[data-cli-filter="confirmados"].active { background: var(--color-success) !important; border-color: var(--color-success) !important; color: var(--text-inverse) !important; }
-html[data-theme="dark"] .cli-filter-btn[data-cli-filter="pendientes"].active { background: var(--color-warning) !important; border-color: var(--color-warning) !important; color: var(--text-inverse) !important; }
-
-html[data-theme="dark"] .ped-search {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-html[data-theme="dark"] .ped-search::placeholder { color: var(--text-muted) !important; }
-
-html[data-theme="dark"] .contact-controls { background: var(--bg-secondary) !important; color: var(--text-secondary) !important; }
-html[data-theme="dark"] .contact-summary { color: var(--text-secondary) !important; }
-html[data-theme="dark"] .contact-reset { background: var(--bg-elevated) !important; color: var(--text-secondary) !important; border-color: var(--border-default) !important; }
-html[data-theme="dark"] .contact-reset:hover { background: var(--bg-muted) !important; color: var(--text-primary) !important; }
-
-/* Toggle pedidos (Crear/Pendientes/Confirmados) */
-html[data-theme="dark"] .toggle-pedidos button { background: var(--bg-elevated) !important; color: var(--text-secondary) !important; border-color: var(--border-default) !important; }
-html[data-theme="dark"] .toggle-pedidos button.active { background: var(--brand-shimano-blue) !important; color: #fff !important; border-color: var(--brand-shimano-blue) !important; }
-
-/* Reinforce .sidebar (right) background con specificity html[data-theme] */
-html[data-theme="dark"] .sidebar {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-}
-html[data-theme="dark"] .sidebar h3 { color: var(--text-primary) !important; }
-
-/* Text color overrides adicionales (bg-slate-900 texts que quedan invisibles en dark) */
-[data-theme="dark"] [style*="color:var(--color-success)"] { color: var(--color-success) !important; }
-[data-theme="dark"] [style*="color:var(--color-danger)"] { color: var(--color-danger) !important; }
-[data-theme="dark"] [style*="color:var(--color-accent-violet)"] { color: var(--color-accent-violet) !important; }
-[data-theme="dark"] [style*="color:var(--color-warning)"] { color: var(--color-warning) !important; }
-[data-theme="dark"] [style*="color:var(--color-danger-strong)"] { color: var(--color-danger) !important; }
-
-/* Right sidebar (Alertas y tareas, buttons de acceso rapido) */
-[data-theme="dark"] #sidebar-right, [data-theme="dark"] .right-panel {
-  background: var(--bg-secondary) !important;
-  color: var(--text-primary) !important;
-}
-[data-theme="dark"] #sidebar-right button, [data-theme="dark"] .right-panel button {
-  color: var(--text-primary) !important;
-}
-
-/* Modales - inputs dentro del modal ya cubiertos, pero labels/divs sueltos: */
-[data-theme="dark"] .modal-box h1,
-[data-theme="dark"] .modal-box h2,
-[data-theme="dark"] .modal-box h3,
-[data-theme="dark"] .modal-box label,
-[data-theme="dark"] .modal-box p:not(.subt) { color: var(--text-primary) !important; }
-[data-theme="dark"] .modal-box .subt { color: var(--text-secondary) !important; }
-[data-theme="dark"] .modal-head { background: linear-gradient(135deg, #1e293b, #0f172a) !important; }
-
-/* Buttons genericos dentro de modales - preservar colores semanticos pero mejorar contraste */
-[data-theme="dark"] .btn-cancel { background: var(--color-danger) !important; color: #fff !important; }
-[data-theme="dark"] .btn-confirm { background: var(--color-success) !important; color: #fff !important; }
-[data-theme="dark"] .danger-btn { background: var(--color-danger) !important; color: #fff !important; }
-
-/* v741: pass masivo - CSS classes con hardcoded light bg no cubiertas antes.
-   Grep de audit encontro 100+ clases. Estas son las mas visibles/usadas
-   agrupadas por prefijo semantico. Todas mapean a bg-elevated + text-primary
-   + border-default con !important para pisar la definicion base. */
-
-/* Header base (bg:#fff hardcoded a nivel de class, no inline) */
-[data-theme="dark"] .header {
-  background: linear-gradient(135deg, #1e293b, #334155) !important;
-  color: var(--text-primary) !important;
-  border-bottom-color: var(--border-default) !important;
-}
-
-/* Auth/login screens (auth-overlay + password gate) */
-[data-theme="dark"] .auth-box,
-[data-theme="dark"] .auth-btn,
-[data-theme="dark"] .auth-logo,
-[data-theme="dark"] .password-gate-box,
-[data-theme="dark"] .password-gate-logo {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Rutas panel cards */
-[data-theme="dark"] .ruta-card,
-[data-theme="dark"] .ruta-tienda,
-[data-theme="dark"] .ruta-status,
-[data-theme="dark"] .ruta-progress-bar {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Custom confirm modals (qmodal) */
-[data-theme="dark"] .qmodal-box,
-[data-theme="dark"] .qmodal-opt {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .qmodal-foot {
-  background: var(--bg-secondary) !important;
-  border-top-color: var(--border-default) !important;
-}
-
-/* Alta clientes (.ac-* prefix) */
-[data-theme="dark"] .ac-subtab-btn,
-[data-theme="dark"] .ac-app-card,
-[data-theme="dark"] .ac-section-title,
-[data-theme="dark"] .ac-row input,
-[data-theme="dark"] .ac-row select,
-[data-theme="dark"] .ac-row textarea {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .ac-subtab-btn.active {
-  background: var(--bg-secondary) !important;
-  color: var(--brand-shimano-blue) !important;
-}
-
-/* Rendiciones (.rd-* prefix) */
-[data-theme="dark"] .rd-subtab-btn,
-[data-theme="dark"] .rd-mias-card {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Notificaciones panel */
-[data-theme="dark"] .notif-item {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Client contact modal (.ccm-* prefix) */
-[data-theme="dark"] .ccm-opt,
-[data-theme="dark"] .ccm-opt-icon {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Client detail sections (cv-, cu-, cr-) */
-[data-theme="dark"] .cv-section,
-[data-theme="dark"] .cu-pedido,
-[data-theme="dark"] .cr-product {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* SAP + Master Clientes inputs */
-[data-theme="dark"] .sap-input,
-[data-theme="dark"] .sap-int-col,
-[data-theme="dark"] .sap-int-file-info,
-[data-theme="dark"] .mc-addr-input,
-[data-theme="dark"] .mc-prov-count {
-  background: var(--bg-input) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Sync tag (toast bottom-right que muestra "Conectado a la nube") */
-[data-theme="dark"] .sync-tag {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Splash screen bg (starts white, transitions out). Dejamos que quede light
-   porque el splash es 3.2s y despues se hace fade-out - forzar dark hace
-   flash weird. Mantiene el logo Shimano visible. */
-[data-theme="dark"] #splash {
-  background: var(--bg-elevated) !important;
-}
-
-/* Auth overlay backdrop (behind login) */
-[data-theme="dark"] #auth-overlay {
-  background: var(--bg-base) !important;
-}
-
-/* Waitlist cards (los cards visibles del sidebar-left "PEDIDOS EN ESPERA")
-   por si el selector generico [class*="waitlist"] no matchee (el .revision-item
-   es la clase real de esos cards, verificar). */
-[data-theme="dark"] .revision-item,
-[data-theme="dark"] .wl-card,
-[data-theme="dark"] [class*="wl-"] {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Product picker modal (buscador de SKUs) */
-[data-theme="dark"] .pp-item,
-[data-theme="dark"] .pp-list,
-[data-theme="dark"] .pp-search,
-[data-theme="dark"] [class*="pp-"] {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Panel de Control (Mariano-only, importante que se vea OK) */
-[data-theme="dark"] .pc-card,
-[data-theme="dark"] .pc-widget,
-[data-theme="dark"] [class*="pc-"] {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Any label element (formularios) */
-[data-theme="dark"] label {
-  color: var(--text-secondary) !important;
-}
-
-/* Tables genericas fuera de .users-table */
-[data-theme="dark"] table th {
-  background: var(--bg-secondary) !important;
-  color: var(--text-secondary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] table td {
-  color: var(--text-primary) !important;
-  border-color: var(--border-subtle) !important;
-}
-
-/* Hover states genericos para elementos que ahora son dark */
-[data-theme="dark"] .exp-opt:hover,
-[data-theme="dark"] .ccm-opt:hover,
-[data-theme="dark"] .ruta-card:hover,
-[data-theme="dark"] .notif-item:hover {
-  background: var(--bg-muted) !important;
-  border-color: var(--border-strong) !important;
-}
-
-/* v742: fixes de contraste especificos reportados por Mariano en screenshot v741.
-   Los overrides anteriores no lograban contraste suficiente en:
-   1. Header buttons blending con el gradient del header (mismo tono)
-   2. .tab-btn del sidebar-right (solo color override, faltaba bg)
-   3. .slft-wl-cli/loc/meta (hijos de PEDIDOS EN ESPERA cards con color hardcoded)
-   4. .stat-box (los numeros y labels no se veian)
-   Estrategia v742: (a) bg mas oscuro para elementos ON header (contraste bg-input
-   vs header gradient), (b) child text colors explicitos con selectores directos
-   (mas especificos que [class*="wl-"] wildcard).
-*/
-
-/* Header buttons - forzar bg-secondary (mas oscuro que bg-elevated) para
-   contrastar contra el gradient del header (que va de bg-secondary a bg-elevated).
-   Selectores altamente especificos para pisar TODAS las base rules. */
-[data-theme="dark"] .header .logout-btn,
-[data-theme="dark"] .user-info .logout-btn,
-[data-theme="dark"] body .logout-btn {
-  background: var(--bg-input) !important; /* #1e293b - mas oscuro que header */
-  color: var(--text-primary) !important; /* #f1f5f9 - blanco slate */
-  border: 1px solid var(--border-strong) !important; /* borde mas fuerte */
-}
-[data-theme="dark"] .header .logout-btn:hover,
-[data-theme="dark"] .user-info .logout-btn:hover,
-[data-theme="dark"] body .logout-btn:hover {
-  background: var(--bg-muted) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--brand-shimano-blue) !important;
-}
-
-/* Header title y ADMIN/version/SAP badges - forzar contraste */
-[data-theme="dark"] .header h1 {
-  color: var(--text-primary) !important;
-}
-[data-theme="dark"] .role-badge {
-  filter: brightness(1.2);
-}
-
-/* Right sidebar tab-btn - v740 solo tocaba color, faltaba bg y border */
-[data-theme="dark"] .tab-btn {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .tab-btn:hover {
-  background: var(--bg-muted) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--brand-shimano-blue) !important;
-}
-[data-theme="dark"] .tab-btn.active {
-  background: var(--bg-secondary) !important;
-  color: var(--brand-shimano-blue) !important;
-  border-bottom-color: var(--brand-shimano-blue) !important;
-}
-
-/* PEDIDOS EN ESPERA cards - fix explicito de child texts (hardcoded en base) */
-[data-theme="dark"] .slft-wl-item {
-  background: var(--bg-elevated) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .slft-wl-item.has-exceed {
-  background: var(--bg-elevated) !important;
-  border-left-color: var(--color-danger) !important;
-}
-[data-theme="dark"] .slft-wl-item:hover {
-  background: var(--bg-muted) !important;
-}
-[data-theme="dark"] .slft-wl-cli,
-[data-theme="dark"] .slft-wl-cli-name {
-  color: var(--text-primary) !important; /* nombre cliente - primario */
-}
-[data-theme="dark"] .slft-wl-loc {
-  color: var(--text-secondary) !important; /* localidad - secundario */
-}
-[data-theme="dark"] .slft-wl-meta {
-  color: var(--text-muted) !important; /* fecha/SKU count - muted */
-}
-[data-theme="dark"] .slft-wl-hdr {
-  color: var(--text-primary) !important;
-}
-[data-theme="dark"] .slft-wl-count {
-  background: var(--color-warning) !important;
-  color: var(--text-inverse) !important;
-}
-[data-theme="dark"] #slft-wl-empty {
-  color: var(--text-muted) !important;
-}
-[data-theme="dark"] .slft-wl-orden {
-  background: var(--bg-muted) !important;
-  color: var(--text-primary) !important;
-}
-[data-theme="dark"] .slft-wl-search-row input {
-  background: var(--bg-input) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-
-/* Stats bar - fix explicito (v740 debia funcionar pero por si acaso reforzamos) */
-[data-theme="dark"] .stat-box {
-  background: var(--bg-elevated) !important;
-  border: 1px solid var(--border-default) !important;
-  color: var(--text-primary) !important;
-}
-[data-theme="dark"] .stat-box .num {
-  color: var(--text-primary) !important;
-}
-[data-theme="dark"] .stat-box .lbl {
-  color: var(--text-secondary) !important;
-}
-/* Los stat-box con num de color especifico (verde/naranja) preservar color */
-[data-theme="dark"] .stat-box .num[style*="color"] {
-  /* dejar color inline - es semantico verde/naranja/rojo */
-}
-
-/* Right sidebar container background */
-[data-theme="dark"] #stats-bar-sidebar {
-  background: var(--bg-secondary) !important;
-}
-[data-theme="dark"] .stats-bar-left {
-  background: var(--bg-secondary) !important;
-}
-
-/* v744 PLAN_DARK_MODE E3: assets + edge cases finales.
-   1. Custom scrollbars para dark mode (webkit + firefox).
-   2. Overlays semantic-first.
-   3. Focus outline visible en dark.
-   4. Selection color legible en dark. */
-
-/* Scrollbars custom - Webkit (Chrome/Edge/Safari) */
-[data-theme="dark"] ::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
-  background: var(--bg-secondary);
-}
-[data-theme="dark"] ::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-}
-[data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 6px;
-  border: 2px solid var(--bg-secondary);
-}
-[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
-[data-theme="dark"] ::-webkit-scrollbar-corner {
-  background: var(--bg-secondary);
-}
-/* Firefox */
-[data-theme="dark"] * {
-  scrollbar-color: var(--border-strong) var(--bg-secondary);
-  scrollbar-width: thin;
-}
-
-/* Focus outline visible en dark (para keyboard nav accessibility) */
-[data-theme="dark"] *:focus-visible {
-  outline: 2px solid var(--focus-ring) !important;
-  outline-offset: 2px;
-}
-
-/* Text selection color legible en dark */
-[data-theme="dark"] ::selection {
-  background: var(--brand-shimano-blue);
-  color: var(--text-inverse);
-}
-
-/* Leaflet controls (zoom +/- + attribution) adaptados a dark */
-[data-theme="dark"] .leaflet-control-zoom a,
-[data-theme="dark"] .leaflet-bar a {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border-default) !important;
-}
-[data-theme="dark"] .leaflet-control-zoom a:hover,
-[data-theme="dark"] .leaflet-bar a:hover {
-  background: var(--bg-muted) !important;
-}
-[data-theme="dark"] .leaflet-control-attribution {
-  background: rgba(30, 41, 59, 0.85) !important;
-  color: var(--text-secondary) !important;
-}
-[data-theme="dark"] .leaflet-control-attribution a {
-  color: var(--brand-shimano-blue) !important;
-}
-
-/* v752 (2026-08-31): NUCLEAR - fuerza color LITERAL en TODOS los h1/h2/h3
-   del app en dark mode. Mariano reporto que h3 en tab-panes seguian sin
-   contraste incluso con overrides previos. Root cause probable: alguna
-   inheritance chain o cache raro. Solucion: color:#f1f5f9 literal en TODOS
-   los h1/h2/h3 con specificity alta y !important. Zero riesgo — h3 con
-   colores semanticos (danger/success) tienen su propio color, este es
-   default para h3 sin color explicito. */
-[data-theme="dark"] h1,
-[data-theme="dark"] h2,
-[data-theme="dark"] h3,
-[data-theme="dark"] h4,
-[data-theme="dark"] h5,
-[data-theme="dark"] h6 {
-  color: #ffffff !important;
-}
-/* v754 (2026-08-31): FIX PERSISTENTE contraste titulos dark mode. Mariano
-   reporto 4x que titulos aparecen "oscuros" pese al blanket rule anterior.
-   Root cause probable: inline style="color:var(--text-primary)" en h3 puntuales
-   (ej. #128276; Alertas y tareas) mas cascade de .sidebar h3 con
-   --text-primary. Aunque !important deberia ganar, agregamos capa
-   ultra-defensiva con selector high-specificity que ataca los contenedores
-   especificos + fuerza white en TODOS los headers dentro de tab-panes y
-   sidebar. NO usa var() para evitar cualquier cadena de overrides. */
-html[data-theme="dark"] .sidebar h1,
-html[data-theme="dark"] .sidebar h2,
-html[data-theme="dark"] .sidebar h3,
-html[data-theme="dark"] .sidebar h4,
-html[data-theme="dark"] .tab-pane h1,
-html[data-theme="dark"] .tab-pane h2,
-html[data-theme="dark"] .tab-pane h3,
-html[data-theme="dark"] .tab-pane h4,
-html[data-theme="dark"] .tab-pane [style*="color:var(--text-primary)"],
-html[data-theme="dark"] .tab-pane [style*="color:#1e3a8a"],
-html[data-theme="dark"] .tab-pane [style*="color:#1e40af"],
-html[data-theme="dark"] .tab-pane [style*="color:#0f172a"] {
-  color: #ffffff !important;
-}
-/* Excepciones: h3 dentro de containers con background colored (green/red
-   solid) deben mantener text-inverse para readability. */
-[data-theme="dark"] [style*="background:var(--color-danger)"] h3,
-[data-theme="dark"] [style*="background:var(--color-success)"] h3,
-[data-theme="dark"] .modal-head h3 {
-  color: #ffffff !important;
-}
-
-/* v749 (2026-08-31): CSS filter para tile OSM en dark mode. Reemplaza el
-   tile swap CartoDB Dark Matter (v744) que ahora exige API key
-   ("API KEY REQUIRED" watermark). El filter invierte colores + rota
-   hue 180deg + suaviza saturacion = tile oscuro visualmente consistente
-   sin depender de otro tileserver. Preserva colores de las provincias
-   (poligonos SVG overlay, no afectados por filter sobre .leaflet-tile). */
-[data-theme="dark"] .leaflet-tile {
-  filter: invert(1) hue-rotate(180deg) brightness(0.95) saturate(0.85);
-  /* v860 (2026-09-09): promover cada tile a GPU layer para que el compositor
-     pre-renderice el filter una vez y el zoom solo mueva la textura sin
-     recomputar. Baja mucho el CPU en dark mode al zoomear. */
-  will-change: transform;
-  transform: translateZ(0);
-}
-/* v860 (2026-09-09): mientras Leaflet corre la animacion de zoom, suspender
-   el filter dark. Sin esto el compositor recomputa filter en cada frame de
-   la anim (~250ms) → framerate malo en mobile. Tradeoff: durante el zoom se
-   ven los tiles con colores originales (flash a light ~250ms) y despues el
-   filter vuelve. Autorizado por Mariano (2026-09-09): "flujo mas natural". */
-[data-theme="dark"] .leaflet-map-pane.leaflet-zoom-anim .leaflet-tile {
-  filter: none;
-}
-/* Restaurar zoom controls que serian doble-invertidos si no los excluyo */
-[data-theme="dark"] .leaflet-control-zoom {
-  filter: none;
-}
-
-/* Shimano logos - forzar bg blanco/pill en dark para mantener brand
-   recognition. Los usuarios asocian el logo con fondo claro; invertir
-   colores rompe la identidad. Mejor mantenerlo como badge blanco. */
-[data-theme="dark"] .auth-logo,
-[data-theme="dark"] .password-gate-logo,
-[data-theme="dark"] .header-logo-wrap {
-  background: #ffffff !important;
-  padding: 6px 10px !important;
-  border-radius: 6px !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,.4) !important;
-}
-/* header-logo-wrap no tiene padding por default - agregarlo solo en dark */
-[data-theme="dark"] .header-logo-wrap {
-  padding: 4px 8px !important;
-}
-
-/* Alertas y tareas panel (right sidebar bottom) - typography */
-[data-theme="dark"] [id*="notif"] > *:not(button),
-[data-theme="dark"] .notif-list,
-[data-theme="dark"] .notif-empty {
-  color: var(--text-primary) !important;
-}
-
-/* ========================================================================
-   FIN DARK MODE block
-   ======================================================================== */
 
 /* ===== Splash screen al iniciar ===== */
 #splash{position:fixed;inset:0;background:var(--bg-elevated);z-index:100000;display:flex;align-items:center;justify-content:center;animation:splashFade 3.2s ease forwards;padding:24px;overflow:hidden}
@@ -3080,11 +2147,8 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   /* Botones admin del header: mas compactos para que entren mas en cada fila. */
   .user-info .logout-btn{padding:6px 4px !important;font-size:10px !important;font-weight:700 !important;letter-spacing:.15px !important;min-height:30px !important}
   /* v736 (2026-08-30): FAB WhatsApp oculto en mobile (queda tapado por la
-     barra inferior del browser). v738: el boton Dark Mode SIGUE oculto en
-     mobile por ahora — el header mobile es apretado y el user puede togglear
-     desde desktop; la preferencia se sincroniza cross-device via Firestore. */
+     barra inferior del browser). */
   #wa-fab{display:none !important}
-  #dark-mode-btn{display:none !important}
   .controls{padding:6px 10px;gap:5px;flex-wrap:wrap;overflow-x:visible}
   .controls label{font-size:9px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:-2px;display:none}
   select.zone-select{min-width:0;max-width:none;width:100%;font-size:12px}
@@ -3583,7 +2647,6 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
   border-radius: 16px; padding: 12px;
   display: flex; flex-direction: column;
 }
-body.dark .planner-col { background: rgba(28,28,30,0.72); border-color: rgba(255,255,255,0.08); }
 .planner-col-header {
   display: flex; align-items: baseline; justify-content: space-between;
   padding: 8px 12px 12px;
@@ -3629,7 +2692,6 @@ body.dark .planner-col { background: rgba(28,28,30,0.72); border-color: rgba(255
   cursor: grab; user-select: none;
   transition: transform 0.32s cubic-bezier(0.32,0.72,0,1), box-shadow 0.2s ease;
 }
-body.dark .planner-card { background: #2c2c2e; box-shadow: 0 1px 3px rgba(0,0,0,0.4); color: #f5f5f7; }
 .planner-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 .planner-card.dragging { opacity: 0.7; cursor: grabbing; transform: scale(1.02) rotate(1deg); }
 .planner-card-cliente { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
@@ -3637,7 +2699,6 @@ body.dark .planner-card { background: #2c2c2e; box-shadow: 0 1px 3px rgba(0,0,0,
 .planner-card-total { font-size: 13px; font-weight: 600; margin-top: 6px; }
 .planner-card-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:8px; }
 .planner-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.06); font-weight: 500; }
-body.dark .planner-badge { background: rgba(255,255,255,0.12); }
 /* v1025 (2026-09-22): ORDEN N destacado en rojo Ferrari (#D40000) para que
    se identifique de un vistazo como ID del negocio (vs SAP:X/SO:Y que son
    IDs del sistema contable, chips grises). */
@@ -3647,7 +2708,6 @@ body.dark .planner-badge { background: rgba(255,255,255,0.12); }
   font-weight: 700;
   letter-spacing: 0.02em;
 }
-body.dark .planner-badge.planner-badge-orden { background: #D40000; color: #fff; }
 /* v1084 (2026-09-29): badge de pedidos cerrados (closedAt !== null). Solo se
    muestra cuando el toggle "Mostrar cerrados" del Config esta activo. Naranja
    apagado para distinguir de estados normales sin robar atencion. */
@@ -3657,7 +2717,6 @@ body.dark .planner-badge.planner-badge-orden { background: #D40000; color: #fff;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
-body.dark .planner-badge.planner-badge-closed { background: #C77A00; color: #fff; }
 /* v1019 (2026-09-22): pintar toda la card del color de estado (no solo borde)
    para que el estado sea visualmente claro de un vistazo. Tinted fondo
    suave (paleta Apple systemColor at ~15% opacity) preserva legibilidad
@@ -3668,14 +2727,6 @@ body.dark .planner-badge.planner-badge-closed { background: #C77A00; color: #fff
 .planner-card.state-fact-pendiente { background: #FFF4C2; border-left: 3px solid #FFCC00; }
 .planner-card.state-cobrado-parcial { background: #FFE0B8; border-left: 3px solid #FF9500; }
 .planner-card.state-cobrado-full { background: #C8F0D4; border-left: 3px solid #34C759; }
-/* Dark mode: mismo tinted pero con opacity/rgba sobre el fondo #2c2c2e.
-   Specificity 0,3,1 vence a body.dark .planner-card (0,2,1). */
-body.dark .planner-card.state-cargado { background: rgba(255, 204, 0, 0.18); }
-body.dark .planner-card.state-confirmado-vendedor { background: rgba(52, 199, 89, 0.22); }
-body.dark .planner-card.state-facturado { background: rgba(52, 199, 89, 0.22); }
-body.dark .planner-card.state-fact-pendiente { background: rgba(255, 204, 0, 0.18); }
-body.dark .planner-card.state-cobrado-parcial { background: rgba(255, 149, 0, 0.22); }
-body.dark .planner-card.state-cobrado-full { background: rgba(52, 199, 89, 0.22); }
 .planner-kanban-empty { padding: 48px; text-align: center; opacity: 0.55; font-size: 13px; }
 .planner-card-toggles {
   display: flex; gap: 6px; margin-top: 8px;
@@ -3692,8 +2743,6 @@ body.dark .planner-card.state-cobrado-full { background: rgba(52, 199, 89, 0.22)
   font-family: inherit;
 }
 .planner-toggle-btn:hover { background: rgba(0,0,0,0.04); }
-body.dark .planner-toggle-btn { border-color: rgba(255,255,255,0.16); }
-body.dark .planner-toggle-btn:hover { background: rgba(255,255,255,0.06); }
 .planner-toggle-btn.active-yellow {
   background: #FFCC00; color: #000; border-color: transparent; font-weight: 600;
 }
@@ -3743,24 +2792,20 @@ body.dark .planner-toggle-btn:hover { background: rgba(255,255,255,0.06); }
   overflow: hidden;
   animation: plannerScaleIn 0.24s cubic-bezier(0.32,0.72,0,1);
 }
-body.dark .planner-modal { background: #1c1c1e; color: #f5f5f7; }
 .planner-modal-header {
   padding: 20px 24px; display: flex; align-items: center; justify-content: space-between;
   border-bottom: 1px solid rgba(0,0,0,0.08);
 }
-body.dark .planner-modal-header { border-color: rgba(255,255,255,0.08); }
 .planner-modal-close {
   background: none; border: none; font-size: 18px; cursor: pointer;
   opacity: 0.55; padding: 6px 10px; border-radius: 8px;
   color: inherit;
 }
 .planner-modal-close:hover { opacity: 1; background: rgba(0,0,0,0.05); }
-body.dark .planner-modal-close:hover { background: rgba(255,255,255,0.08); }
 .planner-modal-tabs {
   display: flex; padding: 0 16px; gap: 4px;
   border-bottom: 1px solid rgba(0,0,0,0.06);
 }
-body.dark .planner-modal-tabs { border-color: rgba(255,255,255,0.06); }
 .planner-modal-tab {
   background: none; border: none;
   padding: 12px 16px; cursor: pointer;
@@ -3781,11 +2826,9 @@ body.dark .planner-modal-tabs { border-color: rgba(255,255,255,0.06); }
   border-bottom: 1px solid rgba(0,0,0,0.08);
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
 }
-body.dark .planner-modal-lineas-table thead th { border-color: rgba(255,255,255,0.08); }
 .planner-modal-lineas-table tbody td {
   padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,0.04);
 }
-body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,0.04); }
 .planner-modal-lineas-table tbody tr:last-child td { border-bottom: none; }
 .planner-modal-lineas-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 
@@ -3930,10 +2973,6 @@ body.dark .planner-modal-lineas-table tbody td { border-color: rgba(255,255,255,
 @media (prefers-reduced-motion: reduce) {
   .planner-modal-backdrop, .planner-modal { animation: none; }
 }
-/* v1007 Planner Config sub-tab dark mode */
-body.dark #planner-config-root > div > div { background: rgba(255,255,255,0.04) !important; }
-body.dark #planner-config-root input[type="email"] { background: #2c2c2e; color: #f5f5f7; border-color: rgba(255,255,255,0.16); }
-body.dark #planner-config-root input[type="email"][readonly] { background: rgba(255,255,255,0.02); }
 </style>
 <!-- v678 (2026-08-26) PERF Fase 2: apple-design CSS extraido a archivo aparte.
      Antes ~217 KB de CSS apple-design (v650-v676) estaban inline en el <style>
@@ -4109,11 +3148,6 @@ body.dark #planner-config-root input[type="email"][readonly] { background: rgba(
     <button class="logout-btn" id="master-cli-btn" onclick="openMasterClientesPanel()" title="Cargar direcciones exactas de cada tienda" style="display:none">Master Clientes</button>
     <button class="logout-btn" id="admin-btn" onclick="openAdminPanel()" title="Gestion de usuarios" style="display:none">Usuarios</button>
     <button class="logout-btn" id="stock-btn" onclick="openProductMasterModal()" title="Buscador de productos: precio, stock y datos maestros de cualquier SKU" style="display:none">Productos</button>
-    <!-- v738 (2026-08-30): Dark Mode toggle REAL. Reemplaza el placeholder v736.
-         Click togglea data-theme=light|dark en <html>, persiste en localStorage
-         + Firestore (per decision Mariano en PLAN_DARK_MODE.md seccion 10).
-         Icon dinamico via CSS (theme-icon-light / theme-icon-dark). -->
-    <button class="logout-btn" id="dark-mode-btn" onclick="toggleDarkMode()" title="Cambiar modo claro/oscuro" style="padding:6px 10px;gap:4px" aria-label="Cambiar tema"><svg xmlns="http://www.w3.org/2000/svg" id="theme-icon-light" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg xmlns="http://www.w3.org/2000/svg" id="theme-icon-dark" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none"><path d="M12 3v2m0 14v2m9-9h-2M5 12H3m14.66-5.66l-1.41 1.41M6.34 17.66l-1.41 1.41m0-13.32l1.41 1.41m11.32 11.32l1.41-1.41M15 12a3 3 0 11-6 0 3 3 0 016 0z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span id="theme-label">Dark</span></button>
     <button class="logout-btn" onclick="signOut()" title="Cerrar sesion">Salir</button>
   </div>
 </div>
@@ -7292,7 +6326,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1579';
+const APP_VERSION = 'v1580';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -8198,16 +7232,9 @@ const map = L.map('map', {preferCanvas: true, zoomControl: true, minZoom: 4, max
 // watermark "API KEY REQUIRED" sobre todo el mapa. OSM es gratis y sin
 // restricciones para uso razonable (tenemos <500 usuarios activos/mes,
 // muy debajo del limite fair-use OSM).
-// v749 (2026-08-31): dark mode tiles con CSS filter sobre OSM en vez de
-// tile swap. Antes (v744) usaba CartoDB Dark Matter pero ahora exige API key
-// (watermark "API KEY REQUIRED" reportado por Mariano). Approach nuevo:
-// siempre servimos OSM standard + CSS filter en dark mode que invierte
-// colores + hue-rotate 180 + saturate para simular tile oscuro. Ventajas:
-// zero dependencia externa nueva, zero API key, funciona offline via SW,
-// consistente con el policy CartoDB post-cambio.
+// Tile layer OSM standard. Una sola instancia.
 window._mapTileLayer = null;
-window.applyThemeTilesSwap = function() {
-  // Solo instanciar el layer una vez. El "swap" ahora es puramente CSS.
+window.initMapTileLayer = function() {
   if (!window._mapTileLayer) {
     window._mapTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -8227,7 +7254,7 @@ window.applyThemeTilesSwap = function() {
     }).addTo(map);
   }
 };
-window.applyThemeTilesSwap();
+window.initMapTileLayer();
 
 // Boton "Forzar actualizacion" debajo del zoom. Limpia caches del SW +
 // unregister + reload con cache-bust. Asi los vendedores se aseguran de
@@ -8336,10 +7363,8 @@ window._renderVersionMinimaBlockingModal = _renderVersionMinimaBlockingModal;
 // v1499 §98 (2026-10-27): claves localStorage que preservan borradores
 // no-enviados del vendedor. Nunca se borran en "Recargar limpio".
 // `shimano_zonas_pending_v1` tiene pedidos pending en memoria pre-confirm.
-// `shimano_theme` es preferencia UI; se preserva para no romper dark mode.
 const CLEAN_RELOAD_PRESERVE_KEYS = Object.freeze([
   'shimano_zonas_pending_v1',  // borradores pedidos no enviados
-  'shimano_theme',              // preferencia dark/light
   // v1527: lista de precios local (v1523). Sin esto "Recargar limpio" dejaba
   // el Master sin precios hasta que llegaba el listener (segundos largos).
   // El listener la reemplaza igual al llegar: no queda dato viejo.
@@ -23943,144 +22968,6 @@ function _renderDeposito(){
   html += '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);text-align:center">Fuente: SETUP WMS (nur-integra.setuponline.com.ar) · Depósito 1 · Nür Cono Sur SRL</div>';
   container.innerHTML = html;
 }
-// v738 (2026-08-30): Dark Mode toggle REAL. Reemplaza openDarkModeModal
-// placeholder de v736. Decisiones (PLAN_DARK_MODE.md seccion 10):
-// - Firestore sync SI: userData/{uid}.themePreference para cross-device.
-// - Default users nuevos: respetar OS preference (prefers-color-scheme).
-// - Storage precedence: localStorage > Firestore > OS. Toggle manual siempre gana.
-// El init inline en <head> lee localStorage y setea data-theme antes de que
-// renderee el body (previene FOUC). Este bloque agrega el toggle handler +
-// el sync a Firestore cuando el user se loguea.
-const THEME_STORAGE_KEY = 'shimano_theme';
-// v779: dark mode desktop-only. Helper para gatear todas las funciones de
-// theme; en mobile, siempre light. isMobileBrowser esta definido mas abajo
-// pero al momento en que se llama toggleDarkMode/applyThemeFromUserData
-// ya esta disponible (post-load).
-window.isDarkModeAllowed = function(){
-  try {
-    if (typeof isMobileBrowser === 'function') return !isMobileBrowser();
-  } catch(e) {}
-  // Fallback si isMobileBrowser no esta cargado aun.
-  var ua = (navigator && navigator.userAgent) || '';
-  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return false;
-  if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) return false;
-  return true;
-};
-window.toggleDarkMode = function(){
-  // v779: en mobile el boton esta oculto por CSS pero por defensa dura
-  // tambien bloqueamos el handler. Si alguien llama toggleDarkMode()
-  // manualmente desde la consola en un phone, no pasa nada.
-  if (!window.isDarkModeAllowed()) return;
-  const current = document.documentElement.getAttribute('data-theme') || 'light';
-  const next = current === 'light' ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', next);
-  try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch(e) {}
-  const label = document.getElementById('theme-label');
-  if (label) label.textContent = next === 'dark' ? 'Light' : 'Dark';
-  // v744 E3: swap tile layer del mapa segun tema (OSM light vs CartoDB dark).
-  if (typeof window.applyThemeTilesSwap === 'function') {
-    try { window.applyThemeTilesSwap(); } catch(e) { console.warn('tile swap failed', e); }
-  }
-  // Sync a Firestore para cross-device (fire-and-forget, no bloquea UI).
-  if (typeof currentUser !== 'undefined' && currentUser && typeof fbDb !== 'undefined' && fbDb) {
-    fbDb.collection('userData').doc(currentUser.uid)
-      .set({ themePreference: next, themeUpdatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
-      .catch(e => window.reportCriticalError(e, {
-        op: 'theme-sync',
-        extra: { uid: currentUser.uid, themeNext: next },
-        // Baja severidad UX (solo cross-device sync), toast confunde.
-        silent: true,
-      }));
-  }
-};
-// Aplicar theme del user al login si Firestore tiene una preferencia distinta
-// del localStorage local. localStorage gana pero si es la primera vez en este
-// device y Firestore ya tiene preferencia (seteada desde otro device), usarla.
-window.applyThemeFromUserData = function(userDataDoc){
-  try {
-    // v779: en mobile NO aplicamos preferencia de Firestore. El user pudo
-    // haber elegido 'dark' desde desktop, pero en mobile siempre light.
-    if (!window.isDarkModeAllowed()) return;
-    const fsPref = userDataDoc && userDataDoc.themePreference;
-    if (fsPref !== 'dark' && fsPref !== 'light') return;
-    const lsPref = localStorage.getItem(THEME_STORAGE_KEY);
-    if (lsPref === 'dark' || lsPref === 'light') return; // localStorage gana
-    // Sin preferencia local -> aplicar la de Firestore.
-    document.documentElement.setAttribute('data-theme', fsPref);
-    localStorage.setItem(THEME_STORAGE_KEY, fsPref);
-    const label = document.getElementById('theme-label');
-    if (label) label.textContent = fsPref === 'dark' ? 'Light' : 'Dark';
-    // v744 E3: swap tile del mapa tambien en cross-device sync.
-    if (typeof window.applyThemeTilesSwap === 'function') {
-      try { window.applyThemeTilesSwap(); } catch(e) {}
-    }
-  } catch(e) {}
-};
-// Init label sync (el init inline seteo data-theme pero no el label).
-(function initThemeLabel(){
-  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-  const label = document.getElementById('theme-label');
-  if (label) label.textContent = currentTheme === 'dark' ? 'Light' : 'Dark';
-})();
-
-// v746 (2026-08-31) PLAN_DARK_MODE E5: rollout announcement one-time modal.
-// Storage: localStorage 'shimano_darkmode_announced'=1 + Firestore
-// userData/{uid}.hasSeenDarkModeAnnouncement=true. Ambos deben estar
-// vacios para mostrar (defensa contra spam: si ANY dice "visto", skip).
-// Ademas skip si el user ya toggeo dark mode manualmente (localStorage
-// shimano_theme setted) - claramente descubrio el toggle por su cuenta.
-const DARK_ANNOUNCEMENT_KEY = 'shimano_darkmode_announced';
-
-window.showDarkModeAnnouncementIfEligible = function(userDataDoc) {
-  try {
-    // v779: en mobile no anunciamos dark mode (no lo pueden usar).
-    if (!window.isDarkModeAllowed()) return;
-    // Check 1: ya se anuncio localmente
-    if (localStorage.getItem(DARK_ANNOUNCEMENT_KEY) === '1') return;
-    // Check 2: Firestore dice que ya lo vio en algun device
-    if (userDataDoc && userDataDoc.hasSeenDarkModeAnnouncement === true) {
-      // Sync back to local para no re-checkear en cada login
-      try { localStorage.setItem(DARK_ANNOUNCEMENT_KEY, '1'); } catch(_) {}
-      return;
-    }
-    // Check 3: user ya descubrio el toggle solo (setted a light o dark manual)
-    if (localStorage.getItem(THEME_STORAGE_KEY)) return;
-    // OK, mostrar modal despues de que la UI renderee. 600ms delay para no
-    // atropellar splash + sync inicial.
-    setTimeout(() => {
-      const m = document.getElementById('dark-mode-announcement-modal');
-      if (m) m.classList.add('open');
-    }, 600);
-  } catch(e) { console.warn('darkmode announcement check', e); }
-};
-
-window.dismissDarkModeAnnouncement = function() {
-  const m = document.getElementById('dark-mode-announcement-modal');
-  if (m) m.classList.remove('open');
-  try { localStorage.setItem(DARK_ANNOUNCEMENT_KEY, '1'); } catch(_) {}
-  // Persist a Firestore para cross-device (mismo pattern que theme sync)
-  if (typeof currentUser !== 'undefined' && currentUser && typeof fbDb !== 'undefined' && fbDb) {
-    fbDb.collection('userData').doc(currentUser.uid)
-      .set({ hasSeenDarkModeAnnouncement: true, darkModeAnnouncementSeenAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
-      .catch(e => window.reportCriticalError(e, {
-        op: 'dm-announcement-persist',
-        extra: { uid: currentUser.uid },
-        // Este error es de baja severidad UX (solo marca visto), toast puede confundir.
-        silent: true,
-      }));
-  }
-};
-
-window.tryDarkModeFromAnnouncement = function() {
-  // Toggleare a dark, marcar como visto, y cerrar modal.
-  try {
-    if (typeof toggleDarkMode === 'function' &&
-        document.documentElement.getAttribute('data-theme') !== 'dark') {
-      toggleDarkMode();
-    }
-  } catch(e) { console.warn('toggle from announcement', e); }
-  dismissDarkModeAnnouncement();
-};
 function _renderWaitlistRows(){
   const container = document.getElementById('waitlist-rows');
   const emptyEl = document.getElementById('waitlist-empty');
@@ -38327,14 +37214,6 @@ function attachFirebaseListeners(){
           });
         }
         if (doc.id === currentUser.uid && data.orders) myOrders = data.orders;
-        // v738/v746: theme sync + rollout announcement cuando encontramos
-        // el doc del user logueado (admin/viewer branch tambien).
-        if (doc.id === currentUser.uid) {
-          if (typeof window.applyThemeFromUserData === 'function') window.applyThemeFromUserData(data);
-          if (typeof window.showDarkModeAnnouncementIfEligible === 'function') {
-            window.showDarkModeAnnouncementIfEligible(data);
-          }
-        }
       });
       suppressCloudSave = true;
       try {
@@ -38362,15 +37241,6 @@ function attachFirebaseListeners(){
       } finally { suppressCloudSave = false; }
       if (typeof drawMarkers === 'function') drawMarkers();
       if (typeof restyleZoneLayers === 'function') restyleZoneLayers();
-      // v738: cross-device theme sync. Solo aplica si el user local no tiene
-      // preferencia en localStorage (localStorage precedence).
-      if (typeof window.applyThemeFromUserData === 'function') window.applyThemeFromUserData(data);
-      // v746 E5: dark mode rollout announcement one-time. Trigger dentro del
-      // listener para que se dispare post-login con userData ya cargado. La
-      // funcion es idempotente (checkea localStorage + Firestore antes de mostrar).
-      if (typeof window.showDarkModeAnnouncementIfEligible === 'function') {
-        window.showDarkModeAnnouncementIfEligible(data);
-      }
     }, err => console.error('userData listener', err));
   }
 
@@ -40723,62 +39593,6 @@ if ('serviceWorker' in navigator) {
 
 <!-- v1086 (2026-09-29): modal Pedido Preliminar (v868) eliminado junto con
      el boton home + funciones JS + src/pure/preliminar-discount.js + tests. -->
-
-<!-- v736 (2026-08-30): modal "Dark Mode" placeholder. Full implementacion pendiente
-     - requiere refactor de cientos de colores hardcoded en inline styles y CSS
-     a CSS variables + paleta oscura disenada. Estimado 4-8 hs. Por ahora solo
-     avisa "En construccion". Boton oculto en mobile via @media. -->
-<div class="modal-overlay" id="dark-mode-modal" onclick="if(event.target===this)closeDarkModeModal()">
-  <div class="modal-box" style="width:min(480px,94vw)">
-    <div class="modal-head" style="background:linear-gradient(135deg,#1e293b,#0f172a)">
-      <div>
-        <h2>Modo oscuro</h2>
-        <div class="subt">Cambiar la paleta de la app a tema oscuro</div>
-      </div>
-      <button class="modal-close" onclick="closeDarkModeModal()" aria-label="Cerrar">&times;</button>
-    </div>
-    <div style="padding:28px 24px;text-align:center">
-      <div style="font-size:56px;line-height:1;margin-bottom:14px" aria-hidden="true"></div>
-      <h3 style="margin:0 0 10px;font-size:16px;font-weight:800;color:var(--text-primary);letter-spacing:.4px;text-transform:uppercase">En construcción</h3>
-      <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary);line-height:1.5">
-        Acá vas a poder <b>cambiar la app a tema oscuro</b> con un click. La preferencia queda guardada por usuario/dispositivo.
-      </p>
-      <div style="background:var(--bg-muted);border:1px dashed var(--border-default);border-radius:8px;padding:12px 14px;font-size:11.5px;color:var(--text-muted);line-height:1.5;text-align:left">
-        <b style="color:var(--text-secondary)">Estado del feature:</b> requiere refactor de cientos de colores hardcoded a CSS variables + diseño de paleta oscura completa. Estimado <b>4-8 horas de dev</b>. Se planifica como feature dedicada cuando sea prioridad.
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- v746 (2026-08-31) PLAN_DARK_MODE E5: rollout announcement modal.
-     One-time notification a users que no vieron el anuncio de dark mode.
-     Se muestra 1 sola vez por user (userData.hasSeenDarkModeAnnouncement=true
-     en Firestore + localStorage). Trigger: onAuthStateChanged post-login,
-     600ms delay (para que la UI ya este renderizada). -->
-<div class="modal-overlay" id="dark-mode-announcement-modal" onclick="if(event.target===this)dismissDarkModeAnnouncement()">
-  <div class="modal-box" style="width:min(480px,94vw)">
-    <div class="modal-head" style="background:linear-gradient(135deg,#1e293b,#0f172a)">
-      <div>
-        <h2>Nuevo: Modo oscuro</h2>
-        <div class="subt">Cambio de tema disponible en el header</div>
-      </div>
-      <button class="modal-close" onclick="dismissDarkModeAnnouncement()" aria-label="Cerrar">&times;</button>
-    </div>
-    <div style="padding:28px 24px;text-align:center">
-      <div style="font-size:56px;line-height:1;margin-bottom:14px" aria-hidden="true"></div>
-      <p style="margin:0 0 12px;font-size:14px;color:var(--text-primary);line-height:1.5;font-weight:600">
-        La app ahora tiene modo oscuro.
-      </p>
-      <p style="margin:0 0 18px;font-size:13px;color:var(--text-secondary);line-height:1.5">
-        Cambiá entre claro y oscuro con el botón <b>Dark</b> arriba a la derecha, junto a Salir. Tu preferencia se guarda por dispositivo y se sincroniza automáticamente con tus otros dispositivos.
-      </p>
-      <div style="display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap">
-        <button onclick="tryDarkModeFromAnnouncement()" style="padding:10px 20px;border:none;border-radius:8px;background:#1e293b;color:#f1f5f9;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.3px">Probar ahora</button>
-        <button onclick="dismissDarkModeAnnouncement()" style="padding:10px 20px;border:1.5px solid var(--border-default);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer">Más tarde</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- v728 (2026-08-29): FAB WhatsApp fijo en toda la app.
      v1232 (2026-10-09): deriva al agente Shimano (+54 9 11 5893-2710) con

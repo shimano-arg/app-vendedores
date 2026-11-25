@@ -47,9 +47,10 @@ describe('Dashboard de Ventas estilo Apple', () => {
     expect(css).not.toMatch(/\boverflow(-y)?\s*:/);
   });
   it('Chart.js: grilla suave, sin borde de ejes, fuente system', () => {
+    // v1580 (2026-11-25): dark mode removido; charts hardcode light.
     expect(JS).toContain('rgba(0,0,0,.06)');
-    expect(JS).toContain('rgba(255,255,255,.08)');
-    expect(JS).toMatch(/data-theme'\) === 'dark'/);
+    expect(JS).not.toContain('rgba(255,255,255,.08)');
+    expect(JS).not.toMatch(/data-theme'\) === 'dark'/);
     expect(JS).toContain('border: { display: false }');
     expect(JS).toContain('-apple-system');
   });

@@ -186,42 +186,7 @@ test.describe('v1514 §T4 — Import Reparto Pablo (5 puntos)', () => {
     await screen(page, 'p2_consistency_error');
   });
 
-  test('P5 — Dark mode preserva colores del modal', async ({ page }) => {
-    await doLogin(page);
-
-    const hasHelpers = await page.evaluate(() => {
-      return typeof (window as any).openRepartoImportDialog === 'function';
-    });
-    if (!hasHelpers) {
-      test.skip(true, 'Reparto chunk no cargado');
-      return;
-    }
-
-    // Toggle a dark (asume helper global o botón). Si no hay toggle fácil, setea data-theme.
-    await page.evaluate(() => {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      document.body.classList.add('dark');
-    });
-
-    try {
-      await abrirModalImport(page);
-    } catch (e) {
-      test.skip(true, 'No hay repartos activos: ' + (e as Error).message);
-      return;
-    }
-
-    // Verifica que la modal-box tiene background que respeta la var dark.
-    const bg = await page.evaluate(() => {
-      const box = document.querySelector('#reparto-import-modal .modal-box') as HTMLElement;
-      if (!box) return null;
-      return getComputedStyle(box).backgroundColor;
-    });
-    expect(bg).toBeTruthy();
-    // En dark, el background NO debe ser blanco puro (255,255,255).
-    expect(bg).not.toBe('rgb(255, 255, 255)');
-
-    await screen(page, 'p5_dark_mode');
-  });
+  // P5 "Dark mode preserva colores" ELIMINADO en v1580 (dark mode removido).
 
   test('P1 — Preview numbers coinciden con suma del Excel (requiere repartos activos)', async ({
     page,

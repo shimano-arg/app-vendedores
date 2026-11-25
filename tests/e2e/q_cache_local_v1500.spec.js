@@ -12,12 +12,12 @@
  *
  * 2. **Botón "Recargar limpio" purga cache + localStorage + SW + reload**:
  *    - Seed `localStorage.shimano_test_key = 'test-value'` + `shimano_zonas_pending_v1`
- *      (borrador) + `shimano_theme = 'dark'`.
+ *      (borrador).
  *    - Agregar un cache HTTP mock al Service Worker.
  *    - Tocar botón ↻ "Recargar limpio".
  *    - Confirmar el prompt.
  *    - Verificar post-reload: `shimano_test_key` borrado, `shimano_zonas_pending_v1`
- *      preservado (borrador), `shimano_theme` preservado.
+ *      preservado (borrador).
  *    - Verificar HTML sirve versión actual (no cache stale).
  *
  * Credenciales del secret:
@@ -105,25 +105,22 @@ test.describe('v1500 §102 — política lectura server + recarga limpia (Q)', (
     }
     await page.waitForSelector('#app-content, #map, #appcontent', { timeout: 30_000 });
 
-    // 2. Seed localStorage con 3 keys: 2 que deben BORRARSE + 2 preservadas.
+    // 2. Seed localStorage con 3 keys: 2 que deben BORRARSE + 1 preservada.
     await page.evaluate(() => {
       localStorage.setItem('shimano_test_key_v1500', 'should-be-deleted');
       localStorage.setItem('shimano_random_cache', 'should-be-deleted');
       localStorage.setItem('shimano_zonas_pending_v1', '[{"draft":"preservado"}]');
-      localStorage.setItem('shimano_theme', 'dark');
     });
 
-    // 3. Verificar que los 4 valores existen pre-reload.
+    // 3. Verificar que los 3 valores existen pre-reload.
     const preValues = await page.evaluate(() => ({
       test: localStorage.getItem('shimano_test_key_v1500'),
       random: localStorage.getItem('shimano_random_cache'),
       draft: localStorage.getItem('shimano_zonas_pending_v1'),
-      theme: localStorage.getItem('shimano_theme'),
     }));
     expect(preValues.test).toBe('should-be-deleted');
     expect(preValues.random).toBe('should-be-deleted');
     expect(preValues.draft).toContain('preservado');
-    expect(preValues.theme).toBe('dark');
 
     // 4. Capturar confirm → aceptar.
     page.on('dialog', async (dialog) => {
@@ -144,17 +141,15 @@ test.describe('v1500 §102 — política lectura server + recarga limpia (Q)', (
       test.skip(true, 'Botón "Recargar limpio" no visible; smoke manual requerido.');
     }
 
-    // 6. Post-reload: verificar que las keys de prueba fueron borradas, borrador + theme preservados.
+    // 6. Post-reload: verificar que las keys de prueba fueron borradas, borrador preservado.
     const postValues = await page.evaluate(() => ({
       test: localStorage.getItem('shimano_test_key_v1500'),
       random: localStorage.getItem('shimano_random_cache'),
       draft: localStorage.getItem('shimano_zonas_pending_v1'),
-      theme: localStorage.getItem('shimano_theme'),
     }));
     expect(postValues.test).toBeNull();
     expect(postValues.random).toBeNull();
     expect(postValues.draft).toContain('preservado'); // Preservado.
-    expect(postValues.theme).toBe('dark'); // Preservado.
 
     // 7. Screenshot evidencia.
     await page.screenshot({

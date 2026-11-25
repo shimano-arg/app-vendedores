@@ -394,7 +394,7 @@ Each snapshot handler calls `renderPlannerKanban()`.
 4. `await ref.update({items: nextItems, updatedAt: FieldValue.serverTimestamp()})`.
 
 - [ ] **Step 1** — extend `renderPlannerCard` conditional block.
-- [ ] **Step 2** — add CSS `.planner-card-toggles` + `.planner-toggle-btn` + active state colors + dark mode.
+- [ ] **Step 2** — add CSS `.planner-card-toggles` + `.planner-toggle-btn` + active state colors.
 - [ ] **Step 3** — implement handler.
 - [ ] **Step 4** — manual test: click Confirmado → verde + Firestore update visible. Click Cargado → yellow.
 - [ ] **Step 5** — commit: `feat(planner): Lista de espera toggle Cargado / Confirmado por vendedor`.
