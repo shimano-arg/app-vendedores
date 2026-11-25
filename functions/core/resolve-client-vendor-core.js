@@ -408,6 +408,161 @@ export async function resolveClientVendorServerSide(args) {
     /* non-fatal */
   }
 
+  // 2.5 §<nuevo> HOTFIX (2026-11-25) — client_master + vendor_overrides.
+  //
+  // CLAUDE.md §102 define la cadena autoritativa:
+  //   OCRD base → vendor_overrides (SHOP > LOC > PROV) → client_applications.
+  //
+  // El server NO tiene POINTS inline (vive en index.html). Entonces:
+  //   - `client_master/<doc>` provee provincia + localidad + clientName del
+  //     cliente + un `vendor` cacheado (espejo del POINT original escrito por
+  //     `_mcSapApply` en master-clientes.js:879).
+  //   - `vendor_overrides` provee las reasignaciones hechas via "Reasignar
+  //     Zonas" (modal Zonas, index.html:4813). Scopes: shop > loc > prov.
+  //
+  // Precedente: VDI reportó `INTERNO_CLIENTE_FUERA_DE_PAREJA` sobre pedidos
+  // propios donde el cliente SÍ estaba asignado a su VDE pareja en el Master
+  // de Clientes de la UI. El server leía solo `approvedAltas` + `roles` → si
+  // la asignación venía de `vendor_overrides` o del POINT cacheado en
+  // `client_master`, el server no la veía → vendorUid != internalPartnerUid →
+  // falso rechazo.
+  //
+  // Precedencia dentro del PASO 2.5:
+  //   1. override scope=shop con clientName match.
+  //   2. override scope=loc con province + locName match.
+  //   3. override scope=prov con province match.
+  //   4. `client_master.vendor` (cache del POINT; lo más cercano a OCRD base
+  //      que el server puede leer sin POINTS inline).
+  //
+  // Si ninguna de las 4 fuentes resuelve → fallthrough al PASO 3 (pure con
+  // approvedAltas) que preserva el comportamiento histórico para altas SAP.
+
+  /** @type {any} */
+  let clientMasterData = null;
+  try {
+    if (cardCode) {
+      const qs = await fbDb
+        .collection('client_master')
+        .where('sapCardCode', '==', cardCode)
+        .limit(1)
+        .get();
+      if (!qs.empty) {
+        clientMasterData = qs.docs[0].data() || {};
+      }
+    }
+    if (!clientMasterData && clientName) {
+      const qs2 = await fbDb
+        .collection('client_master')
+        .where('clientName', '==', clientName)
+        .limit(1)
+        .get();
+      if (!qs2.empty) {
+        clientMasterData = qs2.docs[0].data() || {};
+      }
+    }
+  } catch (_eCm) {
+    /* non-fatal */
+  }
+
+  /** @type {Array<any>} */
+  const overrides = [];
+  try {
+    const osSnap = await fbDb.collection('vendor_overrides').get();
+    osSnap.forEach((/** @type {any} */ d) => overrides.push(d.data() || {}));
+  } catch (_eOvr) {
+    /* non-fatal */
+  }
+
+  let finalVendorKey = '';
+  let finalSource = '';
+  if (clientMasterData && overrides.length > 0) {
+    const prov = String(clientMasterData.provincia || '').trim();
+    const loc = String(clientMasterData.localidad || clientMasterData.localidadFinal || '').trim();
+    const name = String(clientMasterData.clientName || clientName || '').trim();
+
+    // 2.5a — shop scope.
+    if (name) {
+      const sh = overrides.find(
+        (/** @type {any} */ o) =>
+          o &&
+          (o.scope === 'shop' || o.scope === 'tienda') &&
+          String(o.clientName || '').trim() === name &&
+          String(o.newVendor || '').trim()
+      );
+      if (sh) {
+        finalVendorKey = String(sh.newVendor).trim();
+        finalSource = 'override_shop';
+      }
+    }
+    // 2.5b — loc scope.
+    if (!finalVendorKey && prov && loc) {
+      const lo = overrides.find(
+        (/** @type {any} */ o) =>
+          o &&
+          o.scope === 'loc' &&
+          String(o.province || '').trim() === prov &&
+          String(o.locName || o.localityName || '').trim() === loc &&
+          String(o.newVendor || '').trim()
+      );
+      if (lo) {
+        finalVendorKey = String(lo.newVendor).trim();
+        finalSource = 'override_loc';
+      }
+    }
+    // 2.5c — prov scope.
+    if (!finalVendorKey && prov) {
+      const pr = overrides.find(
+        (/** @type {any} */ o) =>
+          o &&
+          o.scope === 'prov' &&
+          String(o.province || '').trim() === prov &&
+          String(o.newVendor || '').trim()
+      );
+      if (pr) {
+        finalVendorKey = String(pr.newVendor).trim();
+        finalSource = 'override_prov';
+      }
+    }
+  }
+  // 2.5d — client_master.vendor como aproximación del POINT cacheado.
+  if (!finalVendorKey && clientMasterData) {
+    const cmVendor = String(clientMasterData.vendor || '').trim();
+    if (cmVendor) {
+      finalVendorKey = cmVendor;
+      finalSource = 'client_master';
+    }
+  }
+
+  if (finalVendorKey && users.length > 0) {
+    // Normalizar label "Z<N> - Nombre" → "NOMBRE" (idempotente para canónicas).
+    const labelMatch = finalVendorKey.match(/^Z\d+\s*[-–—]\s*(.+)$/i);
+    const vkNorm = labelMatch ? labelMatch[1].trim().toUpperCase() : finalVendorKey.toUpperCase();
+    // Distribuidor: venta indirecta, no hay VDE → zona_sin_vendedor.
+    if (vkNorm === '__DISTRIBUTOR__') {
+      return { ...EMPTY, reason: 'zona_sin_vendedor' };
+    }
+    let match = users.find((u) => u.vendorKey.toUpperCase() === vkNorm);
+    if (!match) {
+      const vkFirst = vkNorm.split(/\s+/)[0];
+      if (vkFirst && vkFirst.length >= 3) {
+        match = users.find((u) => {
+          const key = u.vendorKey.toUpperCase();
+          return key === vkFirst || key.startsWith(vkFirst + ' ');
+        });
+      }
+    }
+    if (match) {
+      return /** @type {any} */ ({
+        vendorKey: match.vendorKey,
+        vendorUid: match.uid,
+        vendorEmail: match.email,
+        resolved: true,
+        reason: 'ok',
+        source: finalSource,
+      });
+    }
+  }
+
   // 3. Pure: resolver via cadena cliente → zona → vendedor.
   // Note: POINTS NO está en Firestore (vive inline en index.html + cfg).
   // En server, approvedAltas cubre el 90%+ de los clientes nuevos. Si el
