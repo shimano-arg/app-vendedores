@@ -37412,6 +37412,20 @@ function attachFirebaseListeners(){
   // de abrir el modal Zonas (loadVdiPartnerUsers), que no se ejecuta en el
   // flow del VDE comun -> vendorUid='' en todos sus pedidos.
   try { if (typeof ensureVdeUsersLoaded === 'function') ensureVdeUsersLoaded(); } catch(_e){}
+  // Stack S-2 T4: init instrumentation (Web Vitals + cache hit + fases commit).
+  // Fire-and-forget, 20% sampling. NO behavior change. Opt-out:
+  //   localStorage.setItem('instrumentation_off', '1');
+  try {
+    const _instr = window.__phase0 && window.__phase0.domains && window.__phase0.domains.instrumentation;
+    if (_instr && typeof _instr.initInstrumentation === 'function') {
+      _instr.initInstrumentation({
+        fbDb,
+        userUid: currentUser.uid,
+        userEmail: currentUser.email || '',
+        clientVersion: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''),
+      });
+    }
+  } catch(_e){ /* fire-and-forget */ }
   // Iniciar listener de sap_config + auto-send Service Layer al login para
   // admin/gerente. Antes solo se iniciaba al abrir el panel SAP, lo que
   // significaba que el auto-envio no funcionaba a menos que el admin

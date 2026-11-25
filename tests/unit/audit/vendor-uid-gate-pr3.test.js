@@ -24,14 +24,21 @@ describe('v1476 §74 — gate VENDOR_UID_MISSING pre-tx', () => {
     expect(CORE_SRC).toMatch(/if \(_hasVendorName && !_hasVendorUid\)/);
   });
 
-  it('T3 gate rechaza con makeError + preserva waitlist (NO entra al tx)', () => {
+  it('T3 gate rechaza pre-tx + preserva waitlist (NO entra al tx)', () => {
     const gateIdx = CORE_SRC.indexOf('_hasVendorName = !!(payload.vendorAssigned');
     const txIdx = CORE_SRC.indexOf('// 5. runTransaction atómica.');
     expect(gateIdx).toBeGreaterThan(0);
     expect(txIdx).toBeGreaterThan(gateIdx); // gate ANTES del tx
-    // Entre el gate y el tx NO hay set/update a waitlist origen.
     const slice = CORE_SRC.slice(gateIdx, txIdx);
-    expect(slice).toMatch(/return makeError\(\s*'VENDOR_UID_MISSING'/);
+    // Rechazo via makeError O via rejectWithTimer (Stack S-4 T1, 2026-11-25):
+    // rejectWithTimer envuelve makeError para emitir phase timers también en
+    // rechazos (fire-and-forget). Ambas formas preservan la invariante del
+    // gate: return pre-tx, sin mutar waitlist. Ver §57 commit-pedido-core.js.
+    expect(slice).toMatch(/return (makeError|rejectWithTimer)\(\s*'VENDOR_UID_MISSING'/);
+    // Entre el gate y el tx NO hay set/update/delete a waitlist origen.
+    // (defensa adicional: documentar que el gate no toca Firestore).
+    expect(slice).not.toMatch(/tx\.(set|update|delete)/);
+    expect(slice).not.toMatch(/revision_waitlist/);
   });
 
   it('T4 cliente NO en master (ambos campos vacíos) → gate NO dispara', () => {
