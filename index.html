@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1571';
+const APP_VERSION = 'v1572';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -25008,7 +25008,7 @@ window.waitlistAddProductWithQty = async function(docId, sku, qty){
     showSyncTag('Agregado: ' + sku + ' (' + qty + ' u desde SAP Asignado)');
   } catch(e) {
     console.error('waitlistAddProductWithQty', e);
-    alert('Error agregando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error agregando: ' + (e.message || e)));
   }
 };
 // v475 (2026-08-12): suma pendiente de un SKU para ESTE cliente en Ofertas
@@ -25927,7 +25927,7 @@ async function _sugDoAgregar(origSku, newSku, qty, rowEl) {
     }
     console.error('_sugDoAgregar', e);
     try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'sugerencias', action: 'agregar' } }); } catch(_){}
-    alert('Error agregando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error agregando: ' + (e.message || e)));
   }
 }
 
@@ -25971,7 +25971,7 @@ async function _sugDoReemplazar(origSku, newSku, qty, rowEl) {
     }
     console.error('_sugDoReemplazar', e);
     try { if (typeof Sentry !== 'undefined') Sentry.captureException(e, { tags: { feature: 'sugerencias', action: 'reemplazar' } }); } catch(_){}
-    alert('Error reemplazando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error reemplazando: ' + (e.message || e)));
   }
 }
 
@@ -27487,7 +27487,7 @@ window.waitlistUnificarOrden = async function(){
     _renderWaitlistCard();
   } catch (e) {
     console.error('waitlistUnificarOrden', e);
-    alert('Error unificando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error unificando: ' + (e.message || e)));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🔗 Unificar orden'; }
   }
@@ -27527,7 +27527,7 @@ window.waitlistEditOrden = async function(){
     // (via _wcardCurrent = updated en ensureRevisionWaitlistListener).
   } catch(e) {
     console.error('waitlistEditOrden', e);
-    alert('Error guardando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error guardando: ' + (e.message || e)));
   }
 };
 
@@ -27616,6 +27616,7 @@ window._SERVER_ERROR_FALLBACK_TEXTS = {
   TOO_MANY_SKUS: 'El pedido tiene demasiados productos para procesarlo de una vez. Dividilo en dos o más pedidos y volvé a intentar.',
   GEMINI_OCR_FAILED: 'No pudimos leer el comprobante. Completá los datos a mano o volvé a intentar en un minuto.',
   EMAIL_SEND_FAILED: 'No pudimos enviar el mail. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
+  WAITLIST_BORRAR_SOLO_PROPIA: 'Solo podés borrar órdenes en espera que cargaste vos. Para esta orden, pedíselo a su vendedor o a Mariano.',
 };
 window._serverErrorCodeOf = function(e){
   const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
@@ -27645,6 +27646,18 @@ window._waitlistDeleteErrorText = function(e){
   return (_mv && _mv.formatMensajeConCodigo)
     ? _mv.formatMensajeConCodigo('WAITLIST_BORRAR_SOLO_PROPIA')
     : 'Solo podés borrar órdenes en espera que cargaste vos. Para esta orden, pedíselo a su vendedor o a Mariano.\n\nCódigo técnico: WAITLIST_BORRAR_SOLO_PROPIA';
+};
+// Auditoría 2026-11-25 (N4): editar una orden en espera (agregar/quitar
+// producto, cantidad, número de orden, unificar, estado en Planner) vuelve sin
+// permiso cuando la orden es de otro vendedor (firestore.rules). Mensaje §68;
+// null para cualquier otro error (se mantiene el texto previo).
+window._waitlistEditErrorText = function(e){
+  const c = String((e && e.code) || '');
+  if (c !== 'permission-denied' && c !== 'firestore/permission-denied') return null;
+  const _mv = window.__phase0 && window.__phase0.pure && window.__phase0.pure.mensajesVendedor;
+  return (_mv && _mv.formatMensajeConCodigo)
+    ? _mv.formatMensajeConCodigo('WAITLIST_FUERA_DE_PAREJA')
+    : 'Esta orden en espera es de otro vendedor y no la podés modificar. Si hay que cambiarla, pedíselo a su vendedor o a Mariano.\n\nCódigo técnico: WAITLIST_FUERA_DE_PAREJA';
 };
 // Mensaje genérico §68 para un fallo de releaseAsigCF sin código propio.
 window._releaseFailedAlertText = function(){
@@ -27742,7 +27755,7 @@ window.waitlistUpdateItemQty = async function(docId, idx, newQty){
     showSyncTag('Cantidad actualizada');
   } catch(e) {
     console.error('waitlistUpdateItemQty', e);
-    alert('Error guardando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error guardando: ' + (e.message || e)));
     _renderWaitlistCard();
   }
 };
@@ -27849,7 +27862,7 @@ window.waitlistRemoveItem = async function(docId, idx){
     showSyncTag('Producto quitado');
   } catch(e) {
     console.error('waitlistRemoveItem update', e);
-    alert('Error guardando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error guardando: ' + (e.message || e)));
   }
 };
 
@@ -28060,7 +28073,7 @@ window.waitlistAddProduct = async function(sku){
     showSyncTag('Producto agregado: ' + prod.code);
   } catch(e) {
     console.error('waitlistAddProduct', e);
-    alert('Error agregando: ' + (e.message || e));
+    alert(window._waitlistEditErrorText(e) || ('Error agregando: ' + (e.message || e)));
   }
 };
 
@@ -37287,7 +37300,7 @@ async function togglePlannerWaitlistState(waitlistId, confirmed) {
     });
   } catch (err) {
     console.error('[planner] toggle waitlist failed:', err);
-    alert('Error al cambiar estado: ' + (err?.message || err));
+    alert(window._waitlistEditErrorText(err) || ('Error al cambiar estado: ' + (err?.message || err)));
   }
 }
 

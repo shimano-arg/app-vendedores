@@ -522,7 +522,39 @@ export async function commitPedidoCore(deps, payload) {
           // No propagar.
         }
       }
-      return { ...result, servidorNowMs: now, commitAtIso: nowIso };
+      // N1 (auditoría 2026-11-25): absorciones salteadas por alcance del
+      // interno. El detalle (ids de pedidos ajenos) queda solo en el log
+      // del servidor; al cliente va el conteo. Fire-and-forget como bo_absorbed.
+      const _absorbSkipped = Array.isArray(result._absorbSkipped) ? result._absorbSkipped : [];
+      if (_absorbSkipped.length > 0) {
+        log('bo_absorb_skipped_interno', {
+          draftId: payload.draftId,
+          cardCode: payload.cardCode,
+          skipped: _absorbSkipped,
+        });
+        try {
+          deps.fbDb
+            .collection('operations_log')
+            .add({
+              type: 'bo_absorb_skipped_fuera_de_pareja',
+              newPedidoId: result.pedidoId,
+              cardCode: payload.cardCode,
+              userId: payload.ownerUid || null,
+              userEmail: payload.ownerEmail || null,
+              role: 'interno',
+              skipped: _absorbSkipped,
+              skippedCount: _absorbSkipped.length,
+              timestamp: new Date(now),
+            })
+            .catch((/** @type {any} */ _e) => {
+              log('operations_log bo_absorb_skipped write failed', { err: _e && _e.message });
+            });
+        } catch (_e) {
+          // No propagar.
+        }
+      }
+      const { _absorbSkipped: _omitAbsorbSkipped, ...resultForClient } = result;
+      return { ...resultForClient, servidorNowMs: now, commitAtIso: nowIso };
     } catch (e) {
       const err = /** @type {any} */ (e);
       lastError = err;
@@ -1347,22 +1379,43 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
   const absorptionInputLines = Object.keys(qtyConfirmedPorSku)
     .filter((sku) => qtyConfirmedPorSku[sku] > 0)
     .map((sku) => ({ sku, cantidad: qtyConfirmedPorSku[sku] }));
-  const absorbResult =
-    absorptionInputLines.length > 0
-      ? computeBoAbsorption({
-          cardCode: payload.cardCode,
-          lines: absorptionInputLines,
-          allPedidos: pedidos,
-          now,
-        })
-      : { absorptions: [], totalCubierto: 0 };
+  // N1 (auditoría 2026-11-25): si el que llama es interno, la absorción solo
+  // toca pedidos propios o de su VDE pareja. Los pedidos de otras parejas se
+  // excluyen del cálculo (su back order queda como está) y se registran; el
+  // pedido nuevo NO se rechaza. Todo dentro de la fase de lecturas (§58): se
+  // recalcula la absorción sin los excluidos y se leen los pedidos nuevos que
+  // entren; las lecturas de roles no son tx.get. Termina porque cada vuelta
+  // excluye al menos un pedido más o corta.
   /** @type {Map<string, {ref: any, exists: boolean, data: any}>} */
   const absorbOrigenSnapshots = new Map();
-  if (absorbResult.absorptions.length > 0) {
+  /** @type {Set<string>} */
+  const absorbExcluidos = new Set();
+  /** @type {Array<{pedidoId: string, reason: string}>} */
+  const absorbSkipped = [];
+  /** @type {Set<string>} */
+  const absorbEvaluados = new Set();
+  const absorbGetRoleDoc =
+    deps.callerRole === 'interno' ? deps.getRoleDoc || makeGetRoleDoc(deps.fbDb) : null;
+  /** @type {{absorptions: Array<any>, totalCubierto: number}} */
+  let absorbResult = { absorptions: [], totalCubierto: 0 };
+  for (;;) {
+    absorbResult =
+      absorptionInputLines.length > 0
+        ? computeBoAbsorption({
+            cardCode: payload.cardCode,
+            lines: absorptionInputLines,
+            allPedidos:
+              absorbExcluidos.size > 0
+                ? pedidos.filter((p) => !absorbExcluidos.has(String(p._fsId)))
+                : pedidos,
+            now,
+          })
+        : { absorptions: [], totalCubierto: 0 };
     const uniquePedidoIds = new Set(
       absorbResult.absorptions.map((/** @type {any} */ a) => String(a.pedidoIdOrigen))
     );
     for (const pid of uniquePedidoIds) {
+      if (absorbOrigenSnapshots.has(pid)) continue;
       if (asigOrigenSnapshots.has(pid)) {
         const existingSnap = asigOrigenSnapshots.get(pid);
         if (existingSnap) absorbOrigenSnapshots.set(pid, existingSnap);
@@ -1376,6 +1429,25 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
         data: snap.exists ? snap.data() || {} : null,
       });
     }
+    if (!absorbGetRoleDoc) break;
+    let nuevosExcluidos = 0;
+    for (const pid of uniquePedidoIds) {
+      if (absorbEvaluados.has(pid)) continue;
+      absorbEvaluados.add(pid);
+      const snap = absorbOrigenSnapshots.get(pid);
+      if (!snap || !snap.exists) continue; // accumulateAbsorbBoMutations lo saltea
+      const sc = await evaluatePedidoScopeInterno({
+        callerUid: payload.ownerUid,
+        pedido: snap.data || {},
+        getRoleDoc: absorbGetRoleDoc,
+      });
+      if (!sc.ok) {
+        absorbExcluidos.add(pid);
+        absorbSkipped.push({ pedidoId: pid, reason: sc.reason });
+        nuevosExcluidos += 1;
+      }
+    }
+    if (nuevosExcluidos === 0) break;
   }
 
   // ===== A partir de acá, solo WRITES (ningún tx.get). =====
@@ -1514,6 +1586,9 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     // + extensión del oneliner _origenesACancelar en index.html.
     absorptions: absorbResult.absorptions,
     boAbsorbedTotal: absorbResult.totalCubierto,
+    // N1: cuántos pedidos de otras parejas se dejaron sin absorber (interno).
+    boAbsorbSkippedCount: absorbSkipped.length,
+    _absorbSkipped: absorbSkipped,
     attempts: 1,
   };
 }

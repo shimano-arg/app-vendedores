@@ -169,6 +169,14 @@ export const MENSAJES_VENDEDOR = Object.freeze({
     texto:
       'Solo podés borrar órdenes en espera que cargaste vos. Para esta orden, pedíselo a su vendedor o a Mariano.',
   },
+  // firestore.rules (auditoría 2026-11-25, N4): editar una orden en espera de
+  // otro vendedor (fuera de la pareja del interno) vuelve sin permiso. Lo
+  // muestra el cliente en las ediciones de la orden (agregar, quitar,
+  // cantidad, número de orden, unificar, estado en Planner).
+  WAITLIST_FUERA_DE_PAREJA: {
+    texto:
+      'Esta orden en espera es de otro vendedor y no la podés modificar. Si hay que cambiarla, pedíselo a su vendedor o a Mariano.',
+  },
   // releaseAsigCF: al pedido de origen le falta el dato del cliente.
   CLIENT_DATA_MISSING: {
     texto:
@@ -300,6 +308,8 @@ export const SERVER_ERROR_CODES_MAPEADOS = Object.freeze([
   'TOO_MANY_SKUS',
   'GEMINI_OCR_FAILED',
   'EMAIL_SEND_FAILED',
+  // N5 (2026-11-25): releaseAsigCF rechazo_cpst sobre orden no propia (interno).
+  'WAITLIST_BORRAR_SOLO_PROPIA',
 ]);
 
 /**

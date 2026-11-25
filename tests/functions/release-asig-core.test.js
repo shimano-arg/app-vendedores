@@ -5,7 +5,7 @@
  * Cubre:
  *   T1 — admin puede 'rechazo_cpst' (cancela ASIG + delete waitlist).
  *   T2 — gerente puede 'rechazo_cpst'.
- *   T3 — interno de la pareja del vendedor del cliente puede 'rechazo_cpst'.
+ *   T3 — interno puede 'rechazo_cpst' sobre una orden propia (N5: no sobre la de la pareja).
  *   T4 — vendedor con assignedVendorUid == auth.uid puede 'rechazo_cpst'.
  *   T5 — vendedor con ownerUid == auth.uid (cargo el waitlist él mismo) puede.
  *   T6 — vendedor ajeno NO puede → permission-denied.
@@ -205,9 +205,13 @@ describe('§63 releaseAsigCore', () => {
   // es el vendedor del cliente, de la orden y del pedido de origen, y su
   // pareja es interno-uid). Los casos de otra pareja están en
   // tests/functions/interno-pareja-cfs.test.js.
-  it('T3 — interno pareja del vendedor del cliente puede rechazo_cpst', async () => {
+  // N5 (2026-11-25): rechazo_cpst borra la orden; el interno lo puede hacer
+  // solo sobre órdenes propias. Sobre la de la pareja → WAITLIST_BORRAR_SOLO_PROPIA
+  // (caso cubierto en interno-pareja-cfs.test.js).
+  it('T3 — interno con orden propia (pedido de origen de su pareja) puede rechazo_cpst', async () => {
     const state = makeBaseState({ pedidoAssignedVendor: 'vde-X-uid' });
     state.roles['vde-X-uid'] = { role: 'vendedor', internalPartnerUid: 'interno-uid' };
+    state.revision_waitlist.wl1.ownerUid = 'interno-uid';
     const { fbDb } = makeMockDb(state);
     const r = await releaseAsigCore(
       { fbDb },
