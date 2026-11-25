@@ -934,6 +934,8 @@ export async function applyRepartoManualCore(deps, opts) {
   // (delta del ingreso). Pedido Mariano: UI muestra stock real (ej. 64u) en vez
   // del delta (ej. 13u), por lo que el cap tambien debe reflejar stock fisico.
   let stockFisicoDep11 = 0;
+  // v1576 (2026-11-25): lee también dep 12 para el cap tránsito.
+  let stockTransitoDep12 = 0;
   try {
     const stockSnap = await deps.fbDb.collection('app_config').doc('stock_snapshot').get();
     const stockData = stockSnap.exists ? stockSnap.data() : null;
@@ -943,6 +945,7 @@ export async function applyRepartoManualCore(deps, opts) {
       .trim();
     const whs = (wbs && wbs[skuKey]) || null;
     stockFisicoDep11 = whs ? Number(whs['11'] || 0) : 0;
+    stockTransitoDep12 = whs ? Number(whs['12'] || 0) : 0;
   } catch (stockErr) {
     log('stock_snapshot read fail', { err: stockErr && stockErr.message });
     return {
@@ -955,8 +958,14 @@ export async function applyRepartoManualCore(deps, opts) {
     };
   }
   // v1312: cap global de ASIG (eliminations NO cuentan — no reservan stock).
+  // v1576 (2026-11-25): si el ingreso es de tránsito (warehouse=12 o source='dep12'),
+  // skip este cap — es sobre dep 11 bruto y no aplica. El cap v1576 abajo cubre
+  // tránsito contra breakdown.libreTransito.
   const sumAsigValid = Number(validation.sumAsignada) || 0;
-  if (sumAsigValid > stockFisicoDep11) {
+  const _isTransitoIngresoCap =
+    Number(/** @type {any} */ (ingresoDoc).warehouse) === 12 ||
+    /** @type {any} */ (ingresoDoc).source === 'dep12';
+  if (!_isTransitoIngresoCap && sumAsigValid > stockFisicoDep11) {
     return {
       ok: false,
       errors: [
@@ -977,14 +986,18 @@ export async function applyRepartoManualCore(deps, opts) {
   // intenta repartir 4u nuevas -> cap viejo pasaba (4 <= 4) pero resultado
   // era 7u comprometidas sobre 4u fisicas. Mariano pidio bloqueo preventivo.
   //
-  // Metodologia (CLAUDE.md §39 + §40.8):
-  //   - getStockBreakdown computa 'libre' = fisico - min(asig+conf, fisico)
-  //     (confirmed con SO SAP ya descontado por §40.8; no entra al calculo).
-  //   - sum(new assignments) <= breakdown.libre.
-  //   - Si breakdown.libre === 0, no se puede asignar nada sobre ese SKU
-  //     hasta que llegue mas fisico o se facturen las existentes. Pedido
-  //     va directo a BO (patron §40.5/§40.11 revertSobreAsignadas, pero
-  //     preventivo en vez de correctivo).
+  // v1576 (2026-11-25): dep12-aware. Si el ingreso viene de tránsito
+  // (warehouse=12 o source='dep12'), capear contra libreTransito (dep 12)
+  // en vez de libre (dep 11). Patron §107: Pablo reparte desde dep 12
+  // 6-7 dias antes de que la mercaderia llegue a dep 11. Sin este fix v1576,
+  // el gate v1575 bloquearia repartos legitimos sobre tránsito.
+  //
+  // Metodologia (CLAUDE.md §39 + §40.8 + §107):
+  //   - getStockBreakdown computa 'libre' (dep 11) y 'libreTransito' (dep 12).
+  //   - Si ingreso es dep 12: sum(new assignments) <= breakdown.libreTransito.
+  //   - Si ingreso es dep 11: sum(new assignments) <= breakdown.libre.
+  //   - Si breakdown.libre === 0 (en el bucket que corresponda), no se puede
+  //     asignar nada sobre ese SKU hasta que llegue mas stock.
   try {
     const pedidosOpenSnap = await deps.fbDb
       .collection('pedidos')
@@ -995,23 +1008,43 @@ export async function applyRepartoManualCore(deps, opts) {
     pedidosOpenSnap.forEach((/** @type {any} */ d) => {
       pedidosOpen.push(Object.assign({ _id: d.id }, d.data() || {}));
     });
+    // v1576: resolver tipo de ingreso (dep 11 vs dep 12 tránsito).
+    const _isTransitoIngreso =
+      Number(/** @type {any} */ (ingresoDoc).warehouse) === 12 ||
+      /** @type {any} */ (ingresoDoc).source === 'dep12';
     const breakdown = getStockBreakdown(ingresoDoc.sku, {
       getStockFisico: () => stockFisicoDep11,
+      getStockTransito: () => stockTransitoDep12, // v1576: dep 12 para cap tránsito
       pedidos: pedidosOpen,
     });
-    const libreParaReparto = Number(breakdown && breakdown.libre) || 0;
+    // v1576: elegir bucket segun tipo del ingreso.
+    const libreParaReparto = _isTransitoIngreso
+      ? Number(breakdown && breakdown.libreTransito) || 0
+      : Number(breakdown && breakdown.libre) || 0;
+    const bucketLabel = _isTransitoIngreso ? 'tránsito dep 12' : 'físico dep 11';
     if (sumAsigValid > libreParaReparto) {
+      // v1576: mostrar los valores del bucket correcto en el mensaje.
+      const bucketTotal = _isTransitoIngreso
+        ? Number(breakdown && breakdown.transitoDep12) || 0
+        : stockFisicoDep11;
+      const bucketReservado = _isTransitoIngreso
+        ? Math.max(0, bucketTotal - libreParaReparto)
+        : Number(breakdown && breakdown.reservadasTotal) || 0;
       return {
         ok: false,
         errors: [
           'sum assignments=' +
             sumAsigValid +
-            ' > stock fisico LIBRE=' +
+            ' > stock ' +
+            bucketLabel +
+            ' LIBRE=' +
             libreParaReparto +
-            ' (fisico dep 11=' +
-            stockFisicoDep11 +
+            ' (' +
+            bucketLabel +
+            '=' +
+            bucketTotal +
             ', ya reservado=' +
-            (breakdown.reservadasTotal || 0) +
+            bucketReservado +
             '). Reduci las unidades o espera a que llegue mas stock.',
         ],
         applied: [],
@@ -1201,7 +1234,17 @@ export async function applyRepartoManualCore(deps, opts) {
           continue;
         }
         // E5: ASIG actual + nueva no puede exceder el fisico actual.
-        if (currentAsig !== null && currentAsig + asig > fisicoInTx) {
+        // v1576 (2026-11-25): skip para ingresos tránsito — este check mira
+        // SOLO dep 11, pero los repartos tránsito se validan contra dep 12
+        // via breakdown.libreTransito en el cap v1576 externo. Re-validar
+        // tránsito dentro de la tx requeriría leer whsInTx['12'] y un
+        // contador asigBySkuAppTransito que hoy no existe. Para mantener
+        // seguridad en tránsito, el cap v1576 externo + §107 (scanner
+        // scanCancelledTransito que revierte si dep12 baja) ya cubren.
+        const _isTransitoE5 =
+          Number(/** @type {any} */ (ingresoDoc).warehouse) === 12 ||
+          /** @type {any} */ (ingresoDoc).source === 'dep12';
+        if (!_isTransitoE5 && currentAsig !== null && currentAsig + asig > fisicoInTx) {
           errors.push(
             'E5 reparto excedería físico actual: asigActual=' +
               currentAsig +
