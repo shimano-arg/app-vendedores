@@ -24,8 +24,9 @@ describe('G5.15 — vendor_outlines cleanup cobertura completa (v1499 §101)', (
     expect(INDEX_HTML).toContain("'shimano_zonas_pending_v1'");
   });
 
-  it('preserva preferencia theme', () => {
-    expect(INDEX_HTML).toContain("'shimano_theme'");
+  // v1580 (2026-11-25): preferencia theme eliminada junto con dark mode.
+  it('NO preserva shimano_theme (dark mode removido en v1580)', () => {
+    expect(INDEX_HTML).not.toContain("'shimano_theme'");
   });
 
   it('NO lista claves vendor_outlines por nombre (ya no necesario post-v1499)', () => {

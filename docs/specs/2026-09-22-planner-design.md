@@ -257,7 +257,7 @@ Dos sub-tabs siguiendo el pattern `rd-subtabs`:
 | **Facturar** | Pendiente / Facturado | Amarillo / Verde |
 | **Cobrado** | Parcial / Full | Naranja / Verde |
 
-Colores usan la escala del design system existente (dark mode compliant, WCAG AA — precedente v746 dark mode).
+Colores usan la escala del design system existente (WCAG AA).
 
 ### 5.5 · Lista de espera — 2 botones toggle
 
@@ -528,7 +528,7 @@ Etapas ejecutables como plan Loop:
 
 **E6 — UI Kanban**:
 - 6 columnas, cards compactas, drag-drop.
-- Estilo Apple (glass, spring animations, dark mode compliant).
+- Estilo Apple (glass, spring animations, WCAG AA).
 - Botones toggle Lista de espera.
 - Botón "Avanzar →" fallback touch.
 
@@ -602,7 +602,6 @@ Los datos están en `plannerHistory`. UI de reporte no está en MVP.
 - **Regla listeners cleanup**: CLAUDE.md §12.
 - **Regla rules hasOnly whitelist**: `feedback_rules_whitelist_ui_drift.md` (memoria).
 - **Regla dev branch + PR squash**: `feedback_app_vendedores_dev_branch.md` (memoria).
-- **Dark mode WCAG AA**: `project_dark_mode_plan.md` (memoria), README §36.
 - **Apple design**: skill `apple-design`.
 
 ---

@@ -596,11 +596,8 @@ test.describe('Checklist producción app-vendedores', () => {
     });
     await page.waitForTimeout(1500);
 
-    const measure = async (mode) => {
-      await page.evaluate((m) => {
-        document.documentElement.setAttribute('data-theme', m);
-        document.body.classList.toggle('dark', m === 'dark');
-      }, mode);
+    // v1580 (2026-11-25): dark mode removido. El test solo mide light.
+    const measure = async () => {
       await page.waitForTimeout(300);
       const colors = await page.evaluate(() => {
         const h2 = /** @type {any} */ (document.getElementById('cm-name'));
@@ -638,28 +635,26 @@ test.describe('Checklist producción app-vendedores', () => {
     const evidenciaDir = `tests/e2e/evidencia/${new Date().toISOString().slice(0, 10)}/ficha`;
     fs.mkdirSync(evidenciaDir, { recursive: true });
 
-    for (const mode of ['light', 'dark']) {
-      const colors = await measure(mode);
-      expect(colors, `colors medidos en modo ${mode}`).toBeTruthy();
-      const fg = parse(colors.color);
-      let bg = parse(colors.bg);
-      if (
-        !bg ||
-        (bg[0] === 0 &&
-          bg[1] === 0 &&
-          bg[2] === 0 &&
-          (colors.bg.includes('rgba(0, 0, 0, 0)') || colors.bg.includes('transparent')))
-      ) {
-        bg = fallbackBg;
-      }
-      expect(fg, `fg modo ${mode}: ${colors.color}`).toBeTruthy();
-      const ratio = contrast(fg, bg);
-      console.log(
-        `[punto 7b] contraste modo=${mode}: ${ratio.toFixed(2)}:1 (fg=${colors.color} bg=${colors.bg}, bgUsed=${JSON.stringify(bg)})`
-      );
-      await page.screenshot({ path: `${evidenciaDir}/07b_${mode}.png`, fullPage: true });
-      expect(ratio, `contraste modo ${mode}`).toBeGreaterThanOrEqual(4.5);
+    const colors = await measure();
+    expect(colors, 'colors medidos').toBeTruthy();
+    const fg = parse(colors.color);
+    let bg = parse(colors.bg);
+    if (
+      !bg ||
+      (bg[0] === 0 &&
+        bg[1] === 0 &&
+        bg[2] === 0 &&
+        (colors.bg.includes('rgba(0, 0, 0, 0)') || colors.bg.includes('transparent')))
+    ) {
+      bg = fallbackBg;
     }
+    expect(fg, `fg: ${colors.color}`).toBeTruthy();
+    const ratio = contrast(fg, bg);
+    console.log(
+      `[punto 7b] contraste: ${ratio.toFixed(2)}:1 (fg=${colors.color} bg=${colors.bg}, bgUsed=${JSON.stringify(bg)})`
+    );
+    await page.screenshot({ path: `${evidenciaDir}/07b_light.png`, fullPage: true });
+    expect(ratio, 'contraste').toBeGreaterThanOrEqual(4.5);
 
     // Cleanup: cerrar modal.
     await page.evaluate(() => {

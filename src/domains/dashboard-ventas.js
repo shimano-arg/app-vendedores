@@ -191,11 +191,10 @@ const dvDataLabels = {
     if (chart.config.type !== 'bar') return;
     const opts = (chart.options.plugins && chart.options.plugins.dvDataLabels) || {};
     if (typeof opts.fmt !== 'function') return;
-    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
     const ctx = chart.ctx;
     ctx.save();
     ctx.font = '11px ' + CHART_FONT;
-    ctx.fillStyle = dark ? '#e5e7eb' : '#1f2937';
+    ctx.fillStyle = '#1f2937';
     ctx.textBaseline = 'middle';
     chart.data.datasets.forEach((ds, di) => {
       const meta = chart.getDatasetMeta(di);
@@ -958,12 +957,9 @@ function _cssVar(name, fallback) {
 const CHART_FONT =
   "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif";
 const CHART_GRID_LIGHT = 'rgba(0,0,0,.06)';
-const CHART_GRID_DARK = 'rgba(255,255,255,.08)';
 
-/** Grilla suave; en tema oscuro usa blanco translúcido para que se vea. */
 function _chartGrid() {
-  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-  return { color: dark ? CHART_GRID_DARK : CHART_GRID_LIGHT };
+  return { color: CHART_GRID_LIGHT };
 }
 
 function _barChart(canvasId, rows, field, fmt, color) {
