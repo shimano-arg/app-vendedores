@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1577';
+const APP_VERSION = 'v1578';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27615,6 +27615,7 @@ window._SERVER_ERROR_FALLBACK_TEXTS = {
   ROLE_CHECK_UNAVAILABLE: 'No pudimos verificar tu permiso en este momento. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
   INTERNO_FUERA_DE_PAREJA: 'Este pedido es de otro vendedor y no lo podés modificar. Si tenés que cambiarlo, pedíselo a su vendedor o a Mariano.',
   INTERNO_CLIENTE_FUERA_DE_PAREJA: 'Este cliente no está asignado a tu pareja. Avisá al vendedor que lo tiene asignado o pedile a Pablo que lo reasigne.',
+  VENDEDOR_WAITLIST_FUERA_CLIENTE: 'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.',
   INTERNO_SOLO_PEDIDO_PROPIO: 'Solo podés pasar a espera pedidos que cargaste vos. Para este pedido, pedíselo a su vendedor.',
   CLIENT_DATA_MISSING: 'No pudimos liberar la reserva porque al pedido le falta el dato del cliente. Avisale a Mariano o a un administrador.',
   RELEASE_CROSS_CLIENT: 'No pudimos liberar la reserva porque pertenece a otro cliente. Revisá la orden y, si sigue, avisale a Mariano.',

@@ -88,6 +88,13 @@ import { getStockBreakdown } from './pedido-snapshot-core.js';
 // v1491 §89 HOTFIX (2026-10-27): resolver UID server-side cuando el cliente
 // (típicamente VDE) no lo pudo resolver client-side por rules de `roles`.
 import { resolveClientVendorServerSide } from './resolve-client-vendor-core.js';
+
+// PR F v1578 §Decisión-2A: errorCode para VDE que intenta consumir waitlist
+// de cliente que no es suyo (ownerUid != él ∧ assignedVendorUid != él).
+const VENDEDOR_WAITLIST_FUERA_CLIENTE = 'VENDEDOR_WAITLIST_FUERA_CLIENTE';
+const VENDEDOR_WAITLIST_FUERA_CLIENTE_MESSAGE =
+  'Esta orden en espera no es de tus clientes. Avisá al vendedor que la carga o pedile a Pablo que te la reasigne.';
+
 // PR 4 §75 (v1477 2026-10-26) — resolución ÚNICA de descripción de línea.
 // Fix "undefined" en Pedidos > Confirmados (ORDEN 502 OSVALDO MASERA et al).
 import { resolveLineDesc } from './resolve-line-desc-core.js';
@@ -1500,6 +1507,34 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     if (fueraDeAlcance.length > 0) {
       throwError(INTERNO_FUERA_DE_PAREJA, INTERNO_FUERA_DE_PAREJA_MESSAGE, {
         _logExtra: { fueraDeAlcance, role: 'interno' },
+      });
+    }
+  }
+
+  // PR F v1578 §Decisión-2A (2026-11-25): gate VDE sobre waitlist origen.
+  // Antes el VDE podía consumir CUALQUIER waitlist (incluso de otro VDE)
+  // porque no había check — solo el commitPedidoCF setea ownerUid=auth.uid
+  // en el pedido nuevo. Ahora: VDE solo puede consumir waitlist si:
+  //   - La waitlist tiene assignedVendorUid === él (cliente del VDE, aunque
+  //     la cargó otro — típico caso "cargado por Pablo"), O
+  //   - La waitlist tiene ownerUid === él (la cargó él).
+  // Para waitlist legacy sin assignedVendorUid populated (pre-§44), caemos
+  // al chequeo ownerUid solo. criterio simple B elegido por Mariano.
+  if (deps.callerRole === 'vendedor' && waitlistOrigenSnap && waitlistOrigenSnap.exists) {
+    const wlData = waitlistOrigenSnap.data || {};
+    const wlAssignedVendorUid = String(wlData.assignedVendorUid || '').trim();
+    const wlOwnerUid = String(wlData.ownerUid || '').trim();
+    const vendedorUid = String(payload.ownerUid || '').trim();
+    const matchAssigned = wlAssignedVendorUid && wlAssignedVendorUid === vendedorUid;
+    const matchOwner = wlOwnerUid && wlOwnerUid === vendedorUid;
+    if (!matchAssigned && !matchOwner) {
+      throwError(VENDEDOR_WAITLIST_FUERA_CLIENTE, VENDEDOR_WAITLIST_FUERA_CLIENTE_MESSAGE, {
+        _logExtra: {
+          role: 'vendedor',
+          waitlistId: payload.waitlistOrigenId,
+          wlAssignedVendorUid,
+          wlOwnerUid,
+        },
       });
     }
   }

@@ -313,15 +313,17 @@ describe('movePedidoToWaitlistCF — alcance del interno (solo pedido propio)', 
     expect(db._store.has('pedidos/ped1')).toBe(false);
   });
 
-  it('interno sobre pedido de su pareja → INTERNO_SOLO_PEDIDO_PROPIO sin writes', async () => {
+  it('interno sobre pedido de su pareja — PR F v1578 §Decisión-3 ahora PASA (antes INTERNO_SOLO_PEDIDO_PROPIO)', async () => {
+    // Pre-PR F: rebotaba con INTERNO_SOLO_PEDIDO_PROPIO.
+    // Post-PR F: el interno puede mover a espera pedidos de su VDE pareja.
+    // El waitlist resultante preserva ownerUid del pedido original
+    // (fresh_data.ownerUid || auth.uid, línea 961 del core).
     const db = makeMockDb();
     seed(db, OWNERS.pareja);
-    await expect(run(db, 'uid-int')).rejects.toMatchObject({
-      _errorCode: 'permission-denied',
-      _errorData: { errorCode: 'INTERNO_SOLO_PEDIDO_PROPIO' },
-    });
-    expect(businessWrites(db)).toEqual([]);
-    expect(db._store.has('pedidos/ped1')).toBe(true);
+    const r = await run(db, 'uid-int');
+    expect(r.ok).toBe(true);
+    // El pedido origen se borra tras moverlo a espera.
+    expect(db._store.has('pedidos/ped1')).toBe(false);
   });
 
   it('interno sobre otra pareja → INTERNO_FUERA_DE_PAREJA, sin writes, rechazo logueado', async () => {
