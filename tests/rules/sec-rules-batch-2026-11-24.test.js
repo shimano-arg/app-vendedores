@@ -58,9 +58,14 @@ describe('precondición', () => {
 // pedidos.update — ajuste #1375
 // ------------------------------------------------------------------
 describe('pedidos.update — transferidoSAP solo app_only (ajuste #1375)', () => {
+  // H3 (2026-11-25): cargadoPorUid = interno hace que estos pedidos sean
+  // "propios" del interno (ej. lo cargo para su VDE). Asi los tests del
+  // guard transferidoSAP siguen probando la lista completa del interno; antes
+  // dependian del blanket "cualquier pedido", que ya no existe.
   const base = (extra = {}) => ({
     ownerUid: UID.vendor,
     assignedVendorUid: UID.vendor,
+    cargadoPorUid: UID.interno,
     stage: 'confirmed',
     lines: [{ code: 'SKU1', qty: 1, state: 'confirmed' }],
     ...extra,
@@ -191,15 +196,35 @@ describe('pedidos.update — transferidoSAP solo app_only (ajuste #1375)', () =>
     );
   });
 
-  it('interno mueve el planner de un pedido ajeno (plannerStage + plannerHistory)', async () => {
-    await seedDoc(
-      'pedidos/p-planner',
-      base({ ownerUid: UID.vendorOther, assignedVendorUid: UID.vendorOther })
-    );
+  // H3 (2026-11-25, CLAUDE.md §6): antes "interno mueve el planner de un
+  // pedido ajeno" pasaba por el blanket del interno. La regla nueva solo deja
+  // tocar pedidos propios o de la pareja VDE, asi que el caso se divide.
+  it('interno de la pareja mueve el planner (plannerStage + plannerHistory)', async () => {
+    await seedDoc('pedidos/p-planner', {
+      ownerUid: UID.vendorOther,
+      assignedVendorUid: UID.vendor,
+      stage: 'confirmed',
+      lines: [{ code: 'SKU1', qty: 1, state: 'confirmed' }],
+    });
     await assertSucceeds(
-      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-planner'), {
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-planner'), {
         plannerStage: 'facturar',
         plannerHistory: [{ stage: 'facturar', at: '2026-11-24T00:00:00Z' }],
+        updatedAt: '2026-11-24T00:00:00Z',
+      })
+    );
+  });
+
+  it('interno sin pareja NO mueve el planner de un pedido ajeno', async () => {
+    await seedDoc('pedidos/p-planner-ajeno', {
+      ownerUid: UID.vendorOther,
+      assignedVendorUid: UID.vendorOther,
+      stage: 'confirmed',
+      lines: [{ code: 'SKU1', qty: 1, state: 'confirmed' }],
+    });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-planner-ajeno'), {
+        plannerStage: 'facturar',
         updatedAt: '2026-11-24T00:00:00Z',
       })
     );
@@ -954,22 +979,34 @@ describe('pedidos.update — ajuste +/- de Stock Asignado (B3)', () => {
     lastRepartoAt: '2026-11-24T00:00:00Z',
     lastRepartoBy: 'interno@shimano.com.ar',
   });
-  const seed = (id) =>
+  // H3 (2026-11-25, CLAUDE.md §6): el ajuste +/- lo hace el interno sobre
+  // pedidos de SU pareja VDE (lista reducida incluye lines + repartoHistory).
+  // Sobre pedidos de otra pareja queda denegado.
+  const seed = (id, assigned = UID.vendor) =>
     seedDoc(`pedidos/${id}`, {
       ownerUid: UID.vendorOther,
-      assignedVendorUid: UID.vendorOther,
+      assignedVendorUid: assigned,
       stage: 'confirmed',
       lines: [{ code: 'SKU1', qty: 2, qtyOpen: 2, state: 'ASIG' }],
     });
 
-  it('interno ajusta ASIG de un pedido ajeno con el payload real', async () => {
+  it('interno de la pareja ajusta ASIG con el payload real', async () => {
     await seed('p-b3-vdi');
-    await assertSucceeds(updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-b3-vdi'), ajuste()));
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-b3-vdi'), ajuste())
+    );
   });
 
-  it('interno ajusta ASIG con un pedido que ya tenia historial', async () => {
+  it('interno NO ajusta ASIG de un pedido de otra pareja', async () => {
+    await seed('p-b3-vdi-ajeno', UID.vendorOther);
+    await assertFails(
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-b3-vdi-ajeno'), ajuste())
+    );
+  });
+
+  it('interno de la pareja ajusta ASIG con un pedido que ya tenia historial', async () => {
     await seedDoc('pedidos/p-b3-vdi-hist', {
-      ownerUid: UID.vendorOther,
+      ownerUid: UID.vendor,
       stage: 'confirmed',
       lines: [{ code: 'SKU1', qty: 2, qtyOpen: 2, state: 'ASIG' }],
       repartoHistory: [{ sku: 'SKU1', delta: 2 }],
@@ -977,7 +1014,7 @@ describe('pedidos.update — ajuste +/- de Stock Asignado (B3)', () => {
       lastRepartoBy: 'x',
     });
     await assertSucceeds(
-      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-b3-vdi-hist'), ajuste())
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-b3-vdi-hist'), ajuste())
     );
   });
 
