@@ -329,7 +329,16 @@ export async function commitPedidoCore(deps, payload) {
   // porque su navegador sí lee `roles` + arma `vdeUsers` + resuelve UID.
   // Regla §89: dato que un gate del servidor exija lo resuelve el servidor;
   // el cliente solo lo precarga como optimización.
-  if (_hasVendorName && !_hasVendorUid) {
+  //
+  // PR E v1577 §Decisión-1 (2026-11-25): recompute SIEMPRE (no solo si falta
+  // UID). El servidor es autoridad única sobre quién es el vendedor del
+  // cliente — el cliente no puede influir. Guarda la resolución en
+  // `_serverResolvedVendor` para usarla en el gate interno abajo.
+  /** @type {any} */
+  let _serverResolvedVendor = null;
+  /** @type {boolean} */
+  let _resolveThrewException = false;
+  if (_hasVendorName || payload.cardCode || payload.clientName) {
     try {
       const resolved = await resolveClientVendorServerSide({
         fbDb: deps.fbDb,
@@ -337,16 +346,18 @@ export async function commitPedidoCore(deps, payload) {
         clientName: payload.clientName,
         vendorKeyHint: payload.vendorAssigned,
       });
+      _serverResolvedVendor = resolved || null;
       if (resolved && resolved.vendorUid) {
+        // Sobrescribir payload con la verdad del servidor (decisión A v1577).
         payload.assignedVendorUid = resolved.vendorUid;
-        payload.assignedVendorEmail = resolved.vendorEmail || payload.assignedVendorEmail || '';
-        payload.vendorAssigned = payload.vendorAssigned || resolved.vendorKey;
+        payload.assignedVendorEmail = resolved.vendorEmail || '';
+        payload.vendorAssigned = resolved.vendorKey || payload.vendorAssigned;
         payload.assignedVendorReason = 'ok';
         /** @type {any} */ (payload)._assignedVendorResolvedServerSide = true;
         _hasVendorUid = true;
         try {
           if (deps.log) {
-            deps.log('[v1491 §89] vendor UID resuelto server-side', {
+            deps.log('[v1577 §Dec1] vendor resuelto server-side', {
               cardCode: payload.cardCode,
               vendorKey: resolved.vendorKey,
               vendorUid: resolved.vendorUid,
@@ -358,16 +369,141 @@ export async function commitPedidoCore(deps, payload) {
         }
       }
     } catch (_eResolve) {
-      // fail-open: si el fetch Firestore falla, caemos al gate original.
+      // F1 (adversarial v1577): marcamos la excepción para fail-close
+      // en el gate interno. Para admin/gerente/VDE fail-open sigue vigente
+      // (el gate VENDOR_UID_MISSING más abajo captura si hace falta).
+      _resolveThrewException = true;
       try {
         if (deps.log) {
-          deps.log('[v1491 §89] resolve server-side falló', {
+          deps.log('[v1577 §Dec1] resolve server-side falló', {
             err: _eResolve && /** @type {any} */ (_eResolve).message,
           });
         }
       } catch (_eLog) {
         /* ignore */
       }
+    }
+  }
+
+  // PR E v1577 §Decisión-1 (2026-11-25): interno solo crea pedidos para
+  // clientes de SU pareja. Decisión B pregunta 1 (permisivo cliente sin
+  // vendor master): si el cliente no resuelve a NINGÚN vendedor, permitir
+  // (es un alta huérfana, no viola la regla de pareja). Decisión B pregunta 2
+  // (mensaje con nombre): mencionar el vendor propietario en el error.
+  //
+  // Punto 3 adversarial (v1577): "cliente sin master" se discrimina por el
+  // `reason` del helper, NO por `vendorUid===''`. Razones que permiten:
+  //   - `cliente_no_en_master`: no está en POINTS ni approvedAltas.
+  //   - `input_vacio`: el payload no tiene cardCode ni clientName.
+  // Razones que BLOQUEAN para interno (cliente SÍ está asignado pero el UID
+  // no se pudo resolver — podría ser otra pareja):
+  //   - `zona_sin_vendedor`: POINT existe pero vendor vacío.
+  //   - `vendor_sin_uid`: vendorKey OK pero user no en roles.
+  //   - cualquier otro.
+  if (deps.callerRole === 'interno') {
+    // F1 adversarial: fail-close si el recompute lanzó excepción. Para interno
+    // la caída de Firestore NO puede dejar pasar al gate — podría ser cliente
+    // de otra pareja.
+    if (_resolveThrewException) {
+      await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
+        reason: 'master_unreadable',
+        cardCode: payload.cardCode,
+      });
+      return makeError(
+        'INTERNO_CLIENTE_FUERA_DE_PAREJA',
+        'No pudimos verificar al cliente contra el master. Esperá un minuto y volvé a intentar; si sigue pasando, avisale a Mariano.',
+        { reason: 'master_unreadable' }
+      );
+    }
+    const _resolvedReason =
+      (_serverResolvedVendor && _serverResolvedVendor.reason) || 'input_vacio';
+    const _resolvedVendorUid =
+      (_serverResolvedVendor &&
+        _serverResolvedVendor.vendorUid &&
+        String(_serverResolvedVendor.vendorUid).trim()) ||
+      '';
+    // Cliente SIN master real: permitimos (decisión B pregunta 1).
+    const _clienteSinMaster =
+      _resolvedReason === 'cliente_no_en_master' ||
+      _resolvedReason === 'cliente_sin_zona' ||
+      _resolvedReason === 'input_vacio';
+    // Si el cliente no tiene vendor master resuelto por "cliente_no_en_master"
+    // o "input_vacio" → permitir. Si tiene reason como `vendor_sin_uid` o
+    // `zona_sin_vendedor` SÍ aplica el gate (posible cliente ajeno con UID
+    // irresolvible — no es fail-open para interno).
+    if (_clienteSinMaster && !_resolvedVendorUid) {
+      // Rama permisiva: cliente sin vendor master, interno puede crear.
+    } else if (_resolvedVendorUid) {
+      // Cliente CON vendor master. Validar que sea la pareja del interno.
+      let internalPartnerUid = '';
+      try {
+        const roleSnap = await deps.fbDb.collection('roles').doc(payload.ownerUid).get();
+        const roleData = (roleSnap.exists && roleSnap.data()) || {};
+        internalPartnerUid = String(roleData.internalPartnerUid || '').trim();
+      } catch (_eRole) {
+        // Fail-closed: si no puedo leer el rol del interno, rechazar.
+        await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
+          reason: 'role_doc_unreadable',
+          errMessage: _eRole && /** @type {any} */ (_eRole).message,
+        });
+        return makeError(
+          'INTERNO_CLIENTE_FUERA_DE_PAREJA',
+          'No pudimos verificar tu usuario. Avisale a Mariano antes de volver a intentar.',
+          { reason: 'role_doc_unreadable' }
+        );
+      }
+      if (!internalPartnerUid) {
+        // Interno sin pareja cargada → fail-closed.
+        await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
+          reason: 'interno_sin_pareja',
+          callerUid: payload.ownerUid,
+        });
+        return makeError(
+          'INTERNO_CLIENTE_FUERA_DE_PAREJA',
+          'Tu usuario no tiene un vendedor pareja asignado. Pedile a Pablo que lo configure.',
+          { reason: 'interno_sin_pareja' }
+        );
+      }
+      if (_resolvedVendorUid !== internalPartnerUid) {
+        // Cliente de OTRA pareja → rechazar con nombre del vendor.
+        const _vendorName =
+          (_serverResolvedVendor && _serverResolvedVendor.vendorKey) || 'otro vendedor';
+        await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
+          reason: 'cliente_de_otra_pareja',
+          clientVendorUid: _resolvedVendorUid,
+          clientVendorKey: _vendorName,
+          internalPartnerUid,
+          cardCode: payload.cardCode,
+        });
+        return makeError(
+          'INTERNO_CLIENTE_FUERA_DE_PAREJA',
+          'Este cliente está asignado a ' +
+            _vendorName +
+            '. Avisale a él o pedile a Pablo que lo reasigne.',
+          {
+            reason: 'cliente_de_otra_pareja',
+            vendorName: _vendorName,
+          }
+        );
+      }
+      // _resolvedVendorUid === internalPartnerUid → es la pareja, OK.
+    } else {
+      // Caso restante: cliente SÍ está en master pero el UID no se pudo
+      // resolver (ej. `vendor_sin_uid` cuando vendorKey existe pero el user
+      // no está en roles, o `zona_sin_vendedor` cuando POINT existe sin
+      // vendor). Para interno esto es fail-close: podría ser cliente de
+      // otra pareja cuyo user no está cargado. Point 3 adversarial v1577.
+      await logCommitRejection(deps, 'INTERNO_CLIENTE_FUERA_DE_PAREJA', payload, {
+        reason: 'master_incompleto',
+        resolveReason: _resolvedReason,
+        vendorKey: (_serverResolvedVendor && _serverResolvedVendor.vendorKey) || '',
+        cardCode: payload.cardCode,
+      });
+      return makeError(
+        'INTERNO_CLIENTE_FUERA_DE_PAREJA',
+        'No pudimos verificar al cliente contra el master. Esperá un minuto y volvé a intentar; si sigue pasando, avisale a Mariano.',
+        { reason: 'master_incompleto', resolveReason: _resolvedReason }
+      );
     }
   }
 

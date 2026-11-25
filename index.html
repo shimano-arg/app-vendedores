@@ -7292,7 +7292,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1573';
+const APP_VERSION = 'v1577';
 window.APP_VERSION = APP_VERSION;
 
 // v648 (2026-08-26): alerta popup "version desactualizada". Pedido Mariano:
@@ -27614,6 +27614,7 @@ window._SERVER_ERROR_FALLBACK_TEXTS = {
   ROLE_REQUIRED: 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.',
   ROLE_CHECK_UNAVAILABLE: 'No pudimos verificar tu permiso en este momento. Volvé a intentar en un minuto; si sigue, avisale a Mariano.',
   INTERNO_FUERA_DE_PAREJA: 'Este pedido es de otro vendedor y no lo podés modificar. Si tenés que cambiarlo, pedíselo a su vendedor o a Mariano.',
+  INTERNO_CLIENTE_FUERA_DE_PAREJA: 'Este cliente no está asignado a tu pareja. Avisá al vendedor que lo tiene asignado o pedile a Pablo que lo reasigne.',
   INTERNO_SOLO_PEDIDO_PROPIO: 'Solo podés pasar a espera pedidos que cargaste vos. Para este pedido, pedíselo a su vendedor.',
   CLIENT_DATA_MISSING: 'No pudimos liberar la reserva porque al pedido le falta el dato del cliente. Avisale a Mariano o a un administrador.',
   RELEASE_CROSS_CLIENT: 'No pudimos liberar la reserva porque pertenece a otro cliente. Revisá la orden y, si sigue, avisale a Mariano.',
@@ -39115,6 +39116,18 @@ window._doConfirmPedidoImpl = async function(){
         alert(_mv && _mv.formatMensajeConCodigo
           ? _fmt(code)
           : 'Tu usuario todavía no tiene permiso para esta acción. Pedile a Mariano que te asigne un rol.\n\nCódigo técnico: ROLE_REQUIRED');
+      } else if (code === 'INTERNO_CLIENTE_FUERA_DE_PAREJA') {
+        // PR E v1577 §Decisión-1: interno intentó crear pedido para cliente
+        // de otra pareja. El servidor manda el mensaje con el nombre del
+        // vendedor propietario en `_commitCfResult.message` (decisión B
+        // pregunta 2). Preferir ese mensaje server-side si viene; fallback
+        // al texto genérico de MENSAJES_VENDEDOR.
+        const _serverMsg = _commitCfResult && _commitCfResult.message;
+        if (_serverMsg && typeof _serverMsg === 'string' && _serverMsg.length > 0) {
+          alert(_serverMsg + '\n\nCódigo técnico: ' + code);
+        } else {
+          alert(_fmt(code));
+        }
       } else if (code === 'VALIDATION_ERROR' || code === 'PERMISSION_DENIED' || code === 'SAP_UNAVAILABLE' || code === 'INTERNAL') {
         alert(_fmt(code));
       } else {
