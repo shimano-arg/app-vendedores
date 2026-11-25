@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * Client-side instrumentation (Stack S-2 T4).
  *

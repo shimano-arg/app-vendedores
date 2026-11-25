@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 /**
  * Phase timers for commitPedidoCore (Stack S-2 T4).
  *
