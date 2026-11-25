@@ -1,0 +1,86 @@
+name: Audit sobre-asignación diaria (CLAUDE.md §56/§40.8)
+
+# v1574 (2026-11-25): watchdog diario para detectar SKUs sobre-asignados.
+# Precedente: CLC66H2PY 2026-11-25 reportado por Mariano — 12u confirmed sobre
+# 4u fisicas. ANGLER + ROMERO solo con Cotizacion (sin SO) → riesgo real.
+#
+# El script lee pedidos abiertos + stock snapshot y computa riesgo por SKU
+# segun la metodologia de §40.8:
+#   confirmed CON orderDocEntry != null → SAP descuenta (no reserva en app)
+#   confirmed SIN orderDocEntry        → riesgo si fisico se consume antes
+#   ASIG > fisico                       → riesgo (deberia revertir §40.11)
+#
+# Salida: tabla ASCII en stdout + RAW_SOBREASIG_WATCHDOG.md como artifact.
+# Si hay 1+ unidades en riesgo, el job falla (exit 1) → GHA marca workflow
+# failure → opcional envio de email al activar GMAIL_APP_PASSWORD.
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT   JSON del service account (roles/datastore.user).
+#   GMAIL_APP_PASSWORD         (opcional) para enviar email a Mariano.
+
+on:
+  schedule:
+    - cron: '0 11 * * *'          # 08:00 ART (11:00 UTC) diario, post sync 5min
+  workflow_dispatch:                # Run manual para testear
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-sobreasig-daily
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install functions deps (firebase-admin)
+        working-directory: functions
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: Setup ADC from service account secret
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          mkdir -p "$HOME/.config/gcloud"
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$HOME/.config/gcloud/application_default_credentials.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/.config/gcloud/application_default_credentials.json" >> "$GITHUB_ENV"
+
+      - name: Run BE_detect_sobreasig_daily
+        # exit 1 si hay riesgo >= 1u → workflow failure → alerta visible.
+        # continue-on-error:true permite que los steps posteriores (upload artifact)
+        # se ejecuten igual, y el job queda failed.
+        continue-on-error: true
+        id: audit_step
+        run: node scripts/audit/BE_detect_sobreasig_daily.cjs
+
+      - name: Upload informe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sobreasig-watchdog-report
+          path: RAW_SOBREASIG_WATCHDOG.md
+          if-no-files-found: ignore
+
+      # Para activar email: Mariano agrega el secret GMAIL_APP_PASSWORD y
+      # descomenta el step. Pattern igual a notify-waitlist / send-rendiciones.
+      #
+      # - name: Alert email a Mariano
+      #   if: steps.audit_step.outcome == 'failure'
+      #   env:
+      #     GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      #   run: python scripts/notify_sobreasig.py
+
+      - name: Mark job failed if audit found risk
+        if: steps.audit_step.outcome == 'failure'
+        run: |
+          echo "::error::Watchdog detectó sobre-asignación. Ver artifact sobreasig-watchdog-report."
+          exit 1
