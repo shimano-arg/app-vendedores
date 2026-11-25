@@ -211,7 +211,13 @@ describe('v1491 §89 — commit-pedido-core gate llama resolver server-side', ()
     // del bloque que invoca resolveClientVendorServerSide. v1491 §89 original
     // disparaba solo si !_hasVendorUid; v1577 §Decisión-1 lo amplió a correr
     // SIEMPRE (recompute as autoritativo).
-    const idxReject = src.indexOf("makeError(\n      'VENDOR_UID_MISSING'");
+    // S-3 T4 adversarial (stack/s2-instrumentation): el reject fue envuelto
+    // en `rejectWithTimer(...)` para que emita commit_phase_timers también
+    // en paths de rechazo. Aceptamos ambos patrones para compat.
+    let idxReject = src.indexOf("makeError(\n      'VENDOR_UID_MISSING'");
+    if (idxReject < 0) {
+      idxReject = src.indexOf("rejectWithTimer(\n      'VENDOR_UID_MISSING'");
+    }
     expect(idxReject).toBeGreaterThan(0);
     // Debe existir la invocación resolveClientVendorServerSide ANTES del
     // reject (en cualquier lugar del archivo si tiene el tag v1577).
