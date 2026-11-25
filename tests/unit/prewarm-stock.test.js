@@ -4,8 +4,8 @@ import {
   buildDepsHash,
   cacheKeyFor,
   clearPrewarmCache,
-  getPrewarmStats,
   getPrewarmedBreakdown,
+  getPrewarmStats,
   normSku,
   schedulePrewarm,
 } from '../../src/pure/prewarm-stock.js';
@@ -78,7 +78,9 @@ describe('getPrewarmedBreakdown — equivalencia', () => {
   });
 
   it('propaga error de compute (no swallow)', () => {
-    const compute = () => { throw new Error('boom'); };
+    const compute = () => {
+      throw new Error('boom');
+    };
     expect(() => getPrewarmedBreakdown('SKU-A', 'h1', compute)).toThrow('boom');
     expect(getPrewarmStats().misses).toBe(1);
     expect(getPrewarmStats().hits).toBe(0);

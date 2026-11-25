@@ -44,7 +44,9 @@ const _stats = { hits: 0, misses: 0, prewarms: 0 };
  * @returns {string}
  */
 export function normSku(sku) {
-  return String(sku || '').trim().toUpperCase();
+  return String(sku || '')
+    .trim()
+    .toUpperCase();
 }
 
 /**
@@ -73,11 +75,11 @@ export function cacheKeyFor(sku, depsHash) {
  * @returns {T}
  */
 export function getPrewarmedBreakdown(sku, depsHash, compute, opts) {
-  const nowMs = (opts && typeof opts.nowMs === 'number') ? opts.nowMs : Date.now();
-  const ttlMs = (opts && typeof opts.ttlMs === 'number') ? opts.ttlMs : DEFAULT_TTL_MS;
+  const nowMs = opts && typeof opts.nowMs === 'number' ? opts.nowMs : Date.now();
+  const ttlMs = opts && typeof opts.ttlMs === 'number' ? opts.ttlMs : DEFAULT_TTL_MS;
   const key = cacheKeyFor(sku, depsHash);
   const entry = _cache.get(key);
-  if (entry && (nowMs - entry.ts) <= ttlMs) {
+  if (entry && nowMs - entry.ts <= ttlMs) {
     _stats.hits++;
     return /** @type {T} */ (entry.result);
   }
@@ -102,15 +104,15 @@ export function getPrewarmedBreakdown(sku, depsHash, compute, opts) {
  * @returns {{ computed: number, cached: number, total: number }}
  */
 export function schedulePrewarm(skus, depsHash, compute, opts) {
-  const nowMs = (opts && typeof opts.nowMs === 'number') ? opts.nowMs : Date.now();
-  const ttlMs = (opts && typeof opts.ttlMs === 'number') ? opts.ttlMs : DEFAULT_TTL_MS;
+  const nowMs = opts && typeof opts.nowMs === 'number' ? opts.nowMs : Date.now();
+  const ttlMs = opts && typeof opts.ttlMs === 'number' ? opts.ttlMs : DEFAULT_TTL_MS;
   const uniqueSkus = Array.from(new Set((skus || []).map(normSku).filter(Boolean)));
   let computed = 0;
   let cached = 0;
   for (const sku of uniqueSkus) {
     const key = cacheKeyFor(sku, depsHash);
     const entry = _cache.get(key);
-    if (entry && (nowMs - entry.ts) <= ttlMs) {
+    if (entry && nowMs - entry.ts <= ttlMs) {
       cached++;
       continue;
     }
@@ -167,9 +169,8 @@ export function getPrewarmStats() {
  * @returns {string}
  */
 export function buildDepsHash(snapshot, openPedidosCount) {
-  const updatedAtMs = (snapshot && typeof snapshot.updatedAtMs === 'number')
-    ? snapshot.updatedAtMs
-    : 0;
+  const updatedAtMs =
+    snapshot && typeof snapshot.updatedAtMs === 'number' ? snapshot.updatedAtMs : 0;
   const count = Math.max(0, Number(openPedidosCount) || 0);
   return String(updatedAtMs) + ':' + String(count);
 }
