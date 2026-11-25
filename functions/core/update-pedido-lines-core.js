@@ -20,7 +20,15 @@
  * @property {any} fbDb
  * @property {() => Date} [now]
  * @property {(msg: string, data?: any) => void} [log]
+ * @property {(uid: string) => Promise<any>} [getRoleDoc] roles/{uid} (alcance del interno)
  */
+
+import {
+  evaluatePedidoScopeInterno,
+  INTERNO_FUERA_DE_PAREJA,
+  INTERNO_FUERA_DE_PAREJA_MESSAGE,
+  makeGetRoleDoc,
+} from './interno-scope.js';
 
 const WHITELISTED_LINE_FIELDS = new Set(['precio', 'qty', 'qtyOpen', 'notas']);
 
@@ -102,6 +110,7 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
   }
 
   const pedidoRef = deps.fbDb.collection('pedidos').doc(payload.pedidoId);
+  const getRoleDoc = deps.getRoleDoc || makeGetRoleDoc(deps.fbDb);
   try {
     const result = await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
       const snap = await tx.get(pedidoRef);
@@ -114,9 +123,33 @@ export async function updatePedidoLinesCore(deps, payload, auth) {
       // master. Caso canónico: Gonzalo-BROBRO — orden cargada por Pablo pero
       // Gonzalo es el VDE del master del cliente. Antes solo chequeaba
       // ownerUid → VDEs cross-vendor quedaban bloqueados.
-      const isPrivileged =
-        auth.role === 'admin' || auth.role === 'gerente' || auth.role === 'interno';
-      if (!isPrivileged && data.ownerUid !== auth.uid && data.assignedVendorUid !== auth.uid) {
+      // Auditoria 2026-11-25: el interno (VDI) ya no es privilegiado: solo
+      // edita pedidos propios o de su VDE pareja (misma regla que
+      // firestore.rules). Lectura de roles antes de cualquier write (§58).
+      const isPrivileged = auth.role === 'admin' || auth.role === 'gerente';
+      if (auth.role === 'interno') {
+        const scope = await evaluatePedidoScopeInterno({
+          callerUid: auth.uid,
+          pedido: data,
+          getRoleDoc: getRoleDoc,
+        });
+        if (!scope.ok) {
+          log('updatePedidoLinesCore interno fuera de pareja', {
+            pedidoId: payload.pedidoId,
+            uid: auth.uid,
+            reason: scope.reason,
+          });
+          return {
+            ok: false,
+            errorCode: INTERNO_FUERA_DE_PAREJA,
+            message: INTERNO_FUERA_DE_PAREJA_MESSAGE,
+          };
+        }
+      } else if (
+        !isPrivileged &&
+        data.ownerUid !== auth.uid &&
+        data.assignedVendorUid !== auth.uid
+      ) {
         return {
           ok: false,
           errorCode: 'PERMISSION_DENIED',

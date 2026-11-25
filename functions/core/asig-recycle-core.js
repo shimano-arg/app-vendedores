@@ -25,6 +25,7 @@
  * @property {any} fbDb Firestore Admin instance.
  * @property {(uid: string) => Promise<string|null>} [getUserRole] v990: lookup rol en roles/{uid}. Si no se pasa, se comporta como pre-v990 (asume admin) para retrocompat de tests core que no montan roles.
  * @property {(msg: string, extra?: Record<string, unknown>) => void} [log]
+ * @property {(uid: string) => Promise<any>} [getRoleDoc] roles/{uid} completo (alcance del interno sobre su VDE pareja). Default: lectura de fbDb.
  *
  * @typedef {Object} RecycleAuth
  * @property {string} uid
@@ -44,6 +45,13 @@
  * @property {number} qtyApplied
  * @property {boolean} pedidoClosed True si esta accion cerro el pedido source.
  */
+
+import {
+  evaluatePedidoScopeInterno,
+  INTERNO_FUERA_DE_PAREJA,
+  INTERNO_FUERA_DE_PAREJA_MESSAGE,
+  makeGetRoleDoc,
+} from './interno-scope.js';
 
 const SHIMANO_DOMAINS = ['shimano.com.ar', 'shimano.uy'];
 
@@ -124,8 +132,29 @@ export async function updateAsigLineState(deps, auth, input) {
       throw { code: 'failed-precondition', message: 'pedido ya cerrado' };
     }
     // v990 (SecAudit run-1 CRITICAL #1): ownership check para vendor. Admin/
-    // gerente/interno pueden mutar cualquier pedido (Rules v747 blanket para
-    // interno tambien); vendor solo el propio.
+    // gerente pueden mutar cualquier pedido; vendor solo el propio.
+    // Auditoria 2026-11-25: el interno solo pedidos propios o de su VDE
+    // pareja (fuera de pareja = denegado). Lectura de roles antes de
+    // cualquier write de la transaccion (§58).
+    // B1 (revisión 2026-11-25): sobre un pedido de la pareja (no propio) el
+    // interno no cierra el pedido, igual que en firestore.rules (closedAt y
+    // stage fuera de la lista de la pareja).
+    let _internoPuedeCerrar = true;
+    if (_isInterno) {
+      const scope = await evaluatePedidoScopeInterno({
+        callerUid: auth.uid,
+        pedido: data,
+        getRoleDoc: deps.getRoleDoc || makeGetRoleDoc(deps.fbDb),
+      });
+      if (!scope.ok) {
+        throw {
+          code: 'permission-denied',
+          message: INTERNO_FUERA_DE_PAREJA_MESSAGE,
+          details: { errorCode: INTERNO_FUERA_DE_PAREJA },
+        };
+      }
+      _internoPuedeCerrar = scope.via === 'propio';
+    }
     if (_isVendor && data.ownerUid !== auth.uid) {
       throw {
         code: 'permission-denied',
@@ -177,7 +206,7 @@ export async function updateAsigLineState(deps, auth, input) {
       updatedAt: nowIso,
     };
     let closed = false;
-    if (!anyOpen && !data.closedAt) {
+    if (!anyOpen && !data.closedAt && _internoPuedeCerrar) {
       update.closedAt = nowIso;
       update.closedReason = 'all_recycled_or_cancelled_or_invoiced';
       closed = true;

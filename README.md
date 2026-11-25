@@ -4717,6 +4717,14 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1571 (2026-11-25) — Cloud Functions: el vendedor interno solo opera sobre su pareja (auditoría de seguridad)
+
+- `updatePedidoLinesCF`, `updateAsigLineStateCF`, `releaseAsigCF` y `unifyWaitlistsCF`: el interno opera solo sobre pedidos u órdenes propios o de su VDE pareja; fuera de pareja, `INTERNO_FUERA_DE_PAREJA` sin escribir nada. `movePedidoToWaitlistCF`: solo pedidos propios (`INTERNO_SOLO_PEDIDO_PROPIO` sobre la pareja). Admin, gerente y vendedor sin cambio.
+- Helper puro `functions/core/interno-scope.js`; falla cerrada si no se puede leer el rol del VDE.
+- Mensajes §68 para los dos códigos nuevos, con fallback inline. Rebuild de bundle y chunks; v1571.
+- Post-revisión: `releaseAsigCF` valida cada pedido de origen; `commitPedidoCF` valida orden de origen y pedidos de reservas para el interno; rules de `revision_waitlist`: el interno edita/consume solo órdenes propias o de su pareja y borra solo las propias.
+- Detalle: [`docs/CHANGELOG-sec-cf-interno-pareja-2026-11-25.md`](docs/CHANGELOG-sec-cf-interno-pareja-2026-11-25.md).
+
 ### 2026-11-25 (solo reglas) — El interno solo modifica pedidos propios o de su pareja VDE
 
 - `firestore.rules` `/pedidos`: el interno edita sus pedidos con la lista completa; los de su VDE pareja (por `ownerUid` o `assignedVendorUid`) con una lista reducida (contenido, entrega, notas, Planner); el resto queda denegado. Solo borra pedidos propios.

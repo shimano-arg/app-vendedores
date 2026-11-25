@@ -1330,13 +1330,21 @@ describe('/revision_waitlist (v926 E1.4 HIGH-06)', () => {
   it('viewer NO puede delete waitlist (no es owner ni admin/gerente/interno)', async () => {
     await assertFails(deleteDoc(doc(authedDb(UID.viewer), 'revision_waitlist', 'w-vendor')));
   });
-  it('admin/gerente/interno SI pueden delete', async () => {
+  it('admin/gerente SI pueden delete', async () => {
     await seedDoc('revision_waitlist/w-a', { ownerUid: UID.vendor });
     await seedDoc('revision_waitlist/w-b', { ownerUid: UID.vendor });
-    await seedDoc('revision_waitlist/w-c', { ownerUid: UID.vendor });
     await assertSucceeds(deleteDoc(doc(authedDb(UID.admin), 'revision_waitlist', 'w-a')));
     await assertSucceeds(deleteDoc(doc(authedDb(UID.gerente), 'revision_waitlist', 'w-b')));
-    await assertSucceeds(deleteDoc(doc(authedDb(UID.interno), 'revision_waitlist', 'w-c')));
+  });
+  // Auditoría 2026-11-25 (revisión #1422, M2): el interno ya no borra
+  // cualquier orden en espera, solo las propias. Antes este test esperaba
+  // éxito sobre una orden de un VDE. Casos completos en
+  // tests/rules/sec-rules-vdi-waitlist-2026-11-25.test.js.
+  it('interno solo borra órdenes propias', async () => {
+    await seedDoc('revision_waitlist/w-c', { ownerUid: UID.vendor });
+    await seedDoc('revision_waitlist/w-d', { ownerUid: UID.interno });
+    await assertFails(deleteDoc(doc(authedDb(UID.interno), 'revision_waitlist', 'w-c')));
+    await assertSucceeds(deleteDoc(doc(authedDb(UID.interno), 'revision_waitlist', 'w-d')));
   });
 });
 
