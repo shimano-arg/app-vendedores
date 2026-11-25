@@ -970,6 +970,67 @@ export async function applyRepartoManualCore(deps, opts) {
     };
   }
 
+  // v1575 (2026-11-25): PREVENIR sobre-asignacion — cap contra stock fisico
+  // LIBRE (no bruto). El cap v1312 arriba solo consideraba el fisico total;
+  // si ya habia ASIG + confirmed-sin-SO + CPST vivos para ese SKU, Pablo podia
+  // repartir mas y sobre-asignar. Ejemplo: fisico=4, ASIG existente=3, Pablo
+  // intenta repartir 4u nuevas -> cap viejo pasaba (4 <= 4) pero resultado
+  // era 7u comprometidas sobre 4u fisicas. Mariano pidio bloqueo preventivo.
+  //
+  // Metodologia (CLAUDE.md §39 + §40.8):
+  //   - getStockBreakdown computa 'libre' = fisico - min(asig+conf, fisico)
+  //     (confirmed con SO SAP ya descontado por §40.8; no entra al calculo).
+  //   - sum(new assignments) <= breakdown.libre.
+  //   - Si breakdown.libre === 0, no se puede asignar nada sobre ese SKU
+  //     hasta que llegue mas fisico o se facturen las existentes. Pedido
+  //     va directo a BO (patron §40.5/§40.11 revertSobreAsignadas, pero
+  //     preventivo en vez de correctivo).
+  try {
+    const pedidosOpenSnap = await deps.fbDb
+      .collection('pedidos')
+      .where('closedAt', '==', null)
+      .get();
+    /** @type {any[]} */
+    const pedidosOpen = [];
+    pedidosOpenSnap.forEach((/** @type {any} */ d) => {
+      pedidosOpen.push(Object.assign({ _id: d.id }, d.data() || {}));
+    });
+    const breakdown = getStockBreakdown(ingresoDoc.sku, {
+      getStockFisico: () => stockFisicoDep11,
+      pedidos: pedidosOpen,
+    });
+    const libreParaReparto = Number(breakdown && breakdown.libre) || 0;
+    if (sumAsigValid > libreParaReparto) {
+      return {
+        ok: false,
+        errors: [
+          'sum assignments=' +
+            sumAsigValid +
+            ' > stock fisico LIBRE=' +
+            libreParaReparto +
+            ' (fisico dep 11=' +
+            stockFisicoDep11 +
+            ', ya reservado=' +
+            (breakdown.reservadasTotal || 0) +
+            '). Reduci las unidades o espera a que llegue mas stock.',
+        ],
+        applied: [],
+      };
+    }
+  } catch (bdErr) {
+    log('v1575 breakdown fail', { err: bdErr && bdErr.message });
+    // Fail-close: si no pude calcular el breakdown, prefiero rechazar que
+    // permitir reparto ciego. El cap v1312 arriba ya aplico como minimo.
+    return {
+      ok: false,
+      errors: [
+        'no se pudo calcular stock libre para validar cap (fail-close): ' +
+          (bdErr && bdErr.message ? bdErr.message : String(bdErr)),
+      ],
+      applied: [],
+    };
+  }
+
   // v1312: combinar assignments + eliminations por (pedidoId, lineIndex).
   /** @type {Map<string, {pedidoId: string, lineIndex: number, asig: number, elim: number}>} */
   const actionsByLine = new Map();
