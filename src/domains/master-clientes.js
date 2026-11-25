@@ -1741,14 +1741,28 @@ window.saveMcProvisorioVendor = async function (fsId, selEl) {
     };
     // Buscar el uid del vendedor para tambien setear ownerUid (permite que el
     // vendedor asignado vea el provisorio en su lista personal, no solo el admin).
+    //
+    // S-7 P0-A Fase 2 (2026-11-25): callable getUsersDirectoryCF en vez de leer
+    // /roles directo. Esta función es admin-only (check al inicio) pero se
+    // alinea al patrón §89 — rules #1445 cierran cross-vendor; aunque admin
+    // podría leer vía rule, el callable es la única fuente que no expone
+    // secretos. Fail-closed: si falla, ownerUid queda null → best-effort.
     let newOwnerUid = null;
     try {
-      const rolesSnap = await fbDb.collection('roles').get();
-      rolesSnap.forEach((d) => {
-        const v = d.data() || {};
-        const dn = String(v.displayName || v.email || '').toUpperCase();
-        if (dn && newVendor && dn === newVendor) newOwnerUid = d.id;
-      });
+      const _callable = firebase
+        .app()
+        .functions('southamerica-east1')
+        .httpsCallable('getUsersDirectoryCF');
+      const _result = await _callable({});
+      const _users =
+        _result && _result.data && Array.isArray(_result.data.users) ? _result.data.users : [];
+      for (const u of _users) {
+        const dn = String(u.displayName || u.email || '').toUpperCase();
+        if (dn && newVendor && dn === newVendor) {
+          newOwnerUid = u.uid;
+          break;
+        }
+      }
     } catch (_e) {
       /* best-effort */
     }

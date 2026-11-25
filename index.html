@@ -6351,7 +6351,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1586';
+const APP_VERSION = 'v1587';
 window.APP_VERSION = APP_VERSION;
 
 // v1581 (2026-11-25): helper debounce global para buscadores pesados.
@@ -34121,18 +34121,30 @@ async function loadVdiPartnerUsers(){
     // v1408 §46: VDEs (role='vendedor'). vendorKey viene del campo roles.vendor
     // (populado al asignar role via admin panel). Sin ese campo no entra en el
     // lookup del helper -> reason='vendor_sin_uid'.
-    const qsv = await fbDb.collection('roles').where('role', '==', 'vendedor').get();
-    qsv.forEach(d => {
-      const v = d.data() || {};
-      const vendorKey = String(v.vendor || '').trim();
-      if (!vendorKey) return; // user vendedor sin vendor assignado (edge raro).
-      vdeUsers.push({
-        uid: d.id,
-        email: v.email || '',
-        displayName: v.displayName || v.email || d.id,
-        vendorKey: vendorKey,
-      });
-    });
+    //
+    // S-7 P0-A Fase 2 (2026-11-25): callable getUsersDirectoryCF en vez de
+    // leer /roles directo (rule #1445 cierra cross-vendor; lectura directa
+    // desde VDE devuelve snapshot vacío). Fail-closed: si la callable falla
+    // (red, permission, sin bundle), vdeUsers queda vacío → el helper
+    // `_resolveClientVendorFromMaster` devuelve reason='vendor_sin_uid' y
+    // el servidor resuelve en `resolveClientVendorServerSide` (§89 v1491).
+    try {
+      const _callable = firebase.app().functions('southamerica-east1').httpsCallable('getUsersDirectoryCF');
+      const _result = await _callable({ filterRole: 'vendedor' });
+      const _users = (_result && _result.data && Array.isArray(_result.data.users)) ? _result.data.users : [];
+      for (const u of _users) {
+        const vendorKey = String(u.vendor || '').trim();
+        if (!vendorKey) continue;
+        vdeUsers.push({
+          uid: u.uid,
+          email: u.email || '',
+          displayName: u.displayName || u.email || u.uid,
+          vendorKey: vendorKey,
+        });
+      }
+    } catch (_eVde) {
+      console.warn('[loadVdiPartnerUsers] getUsersDirectoryCF vendedor falló; vdeUsers queda vacío:', _eVde && _eVde.message);
+    }
     console.log('[Zonas] VDIs:', vdiPartnerUsers.length, 'Otros (admin+gerente):', otherUsers.length, 'VDEs:', vdeUsers.length);
   } catch(e) { console.warn('loadVdiPartnerUsers', e); }
 }
@@ -34144,20 +34156,24 @@ async function loadVdiPartnerUsers(){
 async function ensureVdeUsersLoaded(){
   if (vdeUsers.length > 0) return;
   if (!fbDb || !currentUser) return;
+  // S-7 P0-A Fase 2 (2026-11-25): callable getUsersDirectoryCF en vez de
+  // leer /roles directo. Fail-closed: si la callable falla, vdeUsers queda
+  // vacío y el servidor resuelve con resolveClientVendorServerSide (§89 v1491).
   try {
-    const qsv = await fbDb.collection('roles').where('role', '==', 'vendedor').get();
+    const _callable = firebase.app().functions('southamerica-east1').httpsCallable('getUsersDirectoryCF');
+    const _result = await _callable({ filterRole: 'vendedor' });
+    const _users = (_result && _result.data && Array.isArray(_result.data.users)) ? _result.data.users : [];
     vdeUsers = [];
-    qsv.forEach(d => {
-      const v = d.data() || {};
-      const vendorKey = String(v.vendor || '').trim();
-      if (!vendorKey) return;
+    for (const u of _users) {
+      const vendorKey = String(u.vendor || '').trim();
+      if (!vendorKey) continue;
       vdeUsers.push({
-        uid: d.id,
-        email: v.email || '',
-        displayName: v.displayName || v.email || d.id,
+        uid: u.uid,
+        email: u.email || '',
+        displayName: u.displayName || u.email || u.uid,
         vendorKey: vendorKey,
       });
-    });
+    }
     console.log('[v1408] VDEs cargados:', vdeUsers.length);
   } catch(e) { console.warn('ensureVdeUsersLoaded', e); }
 }
