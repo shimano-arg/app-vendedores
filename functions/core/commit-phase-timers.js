@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Phase timers for commitPedidoCore (Stack S-2 T4).
  *
@@ -20,6 +19,10 @@
 // Inlined from src/pure/instrumentation-helpers.js to avoid cross-package
 // import (Firebase Functions deploys `functions/` isolated). If this PR
 // merges, migrate to a shared pure helper per §57 (sync test required).
+/**
+ * @param {string} s
+ * @returns {number}
+ */
 function _hashToBucket(s) {
   const str = String(s || '');
   if (!str) return 0;
@@ -29,6 +32,11 @@ function _hashToBucket(s) {
   }
   return Math.abs(h) % 100;
 }
+/**
+ * @param {string} uid
+ * @param {number} pct
+ * @returns {boolean}
+ */
 function shouldSampleUser(uid, pct) {
   const p = Math.max(0, Math.min(100, Number(pct) || 0));
   if (p === 0) return false;

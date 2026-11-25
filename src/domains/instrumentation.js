@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Client-side instrumentation (Stack S-2 T4).
  *
@@ -32,9 +31,17 @@ const MAX_BATCH_AGE_MS = 60_000;
 
 /** @type {ReturnType<typeof createBatchCollector> | null} */
 let _collector = null;
-/** @type {object | null} */
+/**
+ * @type {{
+ *   fbDb: any,
+ *   userUid: string,
+ *   userEmail: string,
+ *   clientVersion: string,
+ * } | null}
+ */
 let _ctx = null;
 let _enabled = false;
+/** @type {ReturnType<typeof setInterval> | null} */
 let _flushTimer = null;
 // S-3 adversarial fix F6 (2026-11-25): guard contra re-init duplicado.
 // `initInstrumentation` se llama en cada login exitoso
@@ -108,18 +115,20 @@ export function initInstrumentation(opts) {
 /**
  * Track a single instrumentation event. Fire-and-forget — never throws.
  *
- * @param {object} event
+ * @param {Record<string, any>} event
  */
 export function trackEvent(event) {
   if (!_enabled || !_collector) return;
   try {
+    /** @type {Record<string, any>} */
     const evt = {
-      kind: String(event && event.kind) || 'unknown',
+      kind: String((event && event.kind) || 'unknown'),
       ts: Date.now(),
     };
-    for (const k of Object.keys(event || {})) {
+    const src = /** @type {Record<string, any>} */ (event || {});
+    for (const k of Object.keys(src)) {
       if (k === 'kind' || k === 'ts') continue;
-      evt[k] = event[k];
+      evt[k] = src[k];
     }
     _collector.push(evt);
     if (_collector.shouldFlush(Date.now())) _flushNow();
@@ -143,9 +152,10 @@ export function trackCacheEvent(name, hit) {
  *
  * @param {string} name
  * @param {number} durationMs
- * @param {object} [extra]
+ * @param {Record<string, any>} [extra]
  */
 export function trackTiming(name, durationMs, extra) {
+  /** @type {Record<string, any>} */
   const evt = { kind: 'timing', name, durationMs: Math.round(Number(durationMs) || 0) };
   if (extra && typeof extra === 'object') {
     for (const k of Object.keys(extra)) evt[k] = extra[k];
@@ -227,7 +237,14 @@ function _registerWebVitals() {
         });
       }
     });
-    po.observe({ type: 'event', buffered: true, durationThreshold: 40 });
+    // `durationThreshold` is valid spec for 'event' observers but is not
+    // declared in TypeScript's built-in `PerformanceObserverInit`. Cast to
+    // the broader shape so the typecheck passes without losing the hint.
+    po.observe(
+      /** @type {PerformanceObserverInit} */ (
+        /** @type {unknown} */ ({ type: 'event', buffered: true, durationThreshold: 40 })
+      )
+    );
   } catch (_e) {
     /* fail-open */
   }
@@ -291,10 +308,13 @@ export function _resetInstrumentationForTests() {
 
 // Side-effect wiring: expose on window.__phase0.domains.instrumentation so
 // the inline script (index.html attachFirebaseListeners) can call init.
+// `window.__phase0` is a project-defined global (no ambient type available
+// at this layer). Cast to `any` so `checkJs` + strict null checks pass.
 if (typeof window !== 'undefined') {
-  if (!window.__phase0) window.__phase0 = {};
-  if (!window.__phase0.domains) window.__phase0.domains = {};
-  window.__phase0.domains.instrumentation = {
+  const _w = /** @type {any} */ (window);
+  if (!_w.__phase0) _w.__phase0 = {};
+  if (!_w.__phase0.domains) _w.__phase0.domains = {};
+  _w.__phase0.domains.instrumentation = {
     initInstrumentation,
     trackEvent,
     trackCacheEvent,
