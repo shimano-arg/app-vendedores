@@ -21124,6 +21124,33 @@ function _repartoRender(){
       });
     }
   } catch (_logErr) {}
+  // Stack S-6 T2 (2026-11-25): pre-warming de los SKUs visibles en la lista
+  // del modal Reparto. Cada card llama `window.getStockBreakdown(ing.sku)` al
+  // construirse; con schedulePrewarm el breakdown de los top-50 se calcula en
+  // background via requestAnimationFrame y las primeras calls sincrónicas
+  // ya pescan hit del cache del pure.
+  (function _schedulePrewarmTopSkusReparto(){
+    try {
+      const _psFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.prewarmStock
+        && window.__phase0.pure.prewarmStock.schedulePrewarm;
+      if (!_psFn || typeof window.getStockBreakdown !== 'function') return;
+      const _topSkus = Array.from(new Set(matches
+        .map((i) => i && i.sku ? String(i.sku).trim().toUpperCase() : '')
+        .filter(Boolean)))
+        .slice(0, 50);
+      if (_topSkus.length === 0) return;
+      const _snapTs = (window._stockSnapshotMeta && window._stockSnapshotMeta.updatedAt) || '';
+      const _pedLen = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos.length : 0;
+      const _wlLen = (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) ? revisionWaitlist.length : 0;
+      const _agr = window._stockAgregadosActive === true ? '1' : '0';
+      const _depsHash = String(_snapTs) + ':' + _pedLen + ':' + _wlLen + ':' + _agr;
+      const _compute = (sku) => window.getStockBreakdown(sku);
+      const _raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 0));
+      _raf(function(){
+        try { _psFn(_topSkus, _depsHash, _compute); } catch (_eInner) {}
+      });
+    } catch (_e) { /* best-effort */ }
+  })();
   // Un card por ingreso.
   matches.forEach((ing) => {
     try {
@@ -21401,7 +21428,33 @@ function _repartoBuildCard(ing){
   foot.style.cssText = 'padding:14px 18px;background:#fafafa;border-top:0.5px solid rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
   // v1392 §40: "Libre ahora" lee breakdown.libre del momento. Si Pablo no
   // asigna nada y cierra, esas N unidades quedan libres.
-  const _bkNow = (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(ing.sku) : null;
+  // Stack S-6 T2 (2026-11-25): pasa por el cache estable (hit si el
+  // pre-warming de _repartoRender ya lo computó). Fallback inline al
+  // wrapper window.getStockBreakdown si el bundle no cargó.
+  const _bkNow = (function(){
+    try {
+      const _scFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockCache
+        && window.__phase0.pure.stockCache.getStockBreakdownCached;
+      if (_scFn) {
+        const _stateHash = {
+          pedidosLen: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos.length : 0,
+          waitlistLen: (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) ? revisionWaitlist.length : 0,
+          snapshotUpdatedAt: (window._stockSnapshotMeta && window._stockSnapshotMeta.updatedAt) || '',
+          agregadosActive: window._stockAgregadosActive === true,
+        };
+        const _buildDeps = () => ({
+          getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+          pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+          waitlistEntries: (typeof _getWaitlistCpstEntries === 'function') ? _getWaitlistCpstEntries() : [],
+          snapshotAgregados: window._stockAgregadosActive === true,
+          getAsignadaBySku: (sku) => Number((window._stockAgregadosAsignadasBySku || {})[String(sku || '').toUpperCase()] || 0),
+          getConfirmadaBySku: (sku) => Number((window._stockAgregadosConfirmadasBySku || {})[String(sku || '').toUpperCase()] || 0),
+        });
+        return _scFn(ing.sku, _stateHash, _buildDeps);
+      }
+    } catch (_e) {}
+    return (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(ing.sku) : null;
+  })();
   const libreAhora = _bkNow ? _bkNow.libre : stockFisico;
   const totals = document.createElement('div');
   totals.style.cssText = 'font-size:12.5px;color:#6e6e73;letter-spacing:-0.1px';
@@ -25372,6 +25425,62 @@ function _renderWaitlistCard(){
   // con el array. No-op si ya estaban en orden (defensa explícita + documenta la
   // intención). Pedido Mariano 2026-11-05: "que al cambiar la qty la fila no salte".
   rows.sort((a, b) => (Number(a.idx) || 0) - (Number(b.idx) || 0));
+  // Stack S-6 T2 (2026-11-25): pre-warming de top-N SKUs de la orden via
+  // requestAnimationFrame (no bloquea el main thread). getPrewarmedBreakdown
+  // deja el breakdown caliente en memoria para que la primera llamada
+  // sincrónica dentro del render loop acá abajo sea cache hit.
+  // Clave estable = SKU + estado observable (pedidosLen + waitlistLen +
+  // snapshot.updatedAt + agregadosActive). Si cambia cualquiera, miss natural.
+  const _wcardStateHash = {
+    pedidosLen: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos.length : 0,
+    waitlistLen: (typeof revisionWaitlist !== 'undefined' && Array.isArray(revisionWaitlist)) ? revisionWaitlist.length : 0,
+    snapshotUpdatedAt: (window._stockSnapshotMeta && window._stockSnapshotMeta.updatedAt) || '',
+    agregadosActive: window._stockAgregadosActive === true,
+  };
+  (function _schedulePrewarmTopSkusWcard(){
+    try {
+      const _psFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.prewarmStock
+        && window.__phase0.pure.prewarmStock.schedulePrewarm;
+      if (!_psFn || typeof window.getStockBreakdown !== 'function') return;
+      const _topSkus = Array.from(new Set((w.items || [])
+        .map((i) => i && i.code ? String(i.code).trim().toUpperCase() : '')
+        .filter(Boolean)))
+        .slice(0, 50);
+      if (_topSkus.length === 0) return;
+      // depsHash estable para esta tanda — si cambia entre llamadas, el pure
+      // invalida automáticamente (misma key input).
+      const _depsHash = _wcardStateHash.snapshotUpdatedAt + ':' + _wcardStateHash.pedidosLen
+        + ':' + _wcardStateHash.waitlistLen + ':' + (_wcardStateHash.agregadosActive ? '1' : '0');
+      const _compute = (sku) => window.getStockBreakdown(sku);
+      const _raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 0));
+      _raf(function(){
+        try { _psFn(_topSkus, _depsHash, _compute); } catch (_eInner) {}
+      });
+    } catch (_e) { /* best-effort: nunca bloquear el render */ }
+  })();
+  // Helper local: envuelve getStockBreakdown con el cache estable del wrapper
+  // domain (stock-cache.js). Fallback a window.getStockBreakdown si el bundle
+  // no cargó. Idempotente — misma key + mismo estado → mismo shape (misma ref
+  // en hit, JSON equivalente en cold miss).
+  // buildDeps thunk construye los MISMOS deps que el wrapper window.getStockBreakdown
+  // consumiría del pure (ver index.html:6658). Esto preserva paridad total.
+  const _wcardBuildDeps = () => ({
+    getStockFisico: (typeof getStockDisponibleVenta === 'function') ? getStockDisponibleVenta : () => 0,
+    pedidos: (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [],
+    waitlistEntries: (typeof _getWaitlistCpstEntries === 'function') ? _getWaitlistCpstEntries() : [],
+    snapshotAgregados: window._stockAgregadosActive === true,
+    getAsignadaBySku: (sku) => Number((window._stockAgregadosAsignadasBySku || {})[String(sku || '').toUpperCase()] || 0),
+    getConfirmadaBySku: (sku) => Number((window._stockAgregadosConfirmadasBySku || {})[String(sku || '').toUpperCase()] || 0),
+  });
+  const _wcardGetStockCached = function(sku){
+    try {
+      const _scFn = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockCache
+        && window.__phase0.pure.stockCache.getStockBreakdownCached;
+      if (_scFn) return _scFn(sku, _wcardStateHash, _wcardBuildDeps);
+    } catch (_e) {}
+    // Fallback: delega al wrapper legacy (sin cache).
+    return (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(sku) : null;
+  };
   rows.slice(0, 500).forEach(r => {
     const tr = document.createElement('tr');
     // v479: prioridad de clases (mas urgente arriba):
@@ -25491,9 +25600,10 @@ function _renderWaitlistCard(){
     // v1391 (§39): una sola llamada a getStockBreakdown + mapeo al shape viejo
     // (preserva compat con el resto del renderer). Reemplaza 2 calls previos
     // (getStockDesglose + getStockPorCliente) por 1.
-    const _bk = r.hasData && typeof window.getStockBreakdown === 'function'
-      ? window.getStockBreakdown(r.code)
-      : null;
+    // Stack S-6 T2: cache estable. _wcardGetStockCached delega al pure con
+    // clave estable (SKU + _wcardStateHash). Hit rate target ≈ 100% dentro de
+    // un render ya que las N llamadas por SKU repetido devuelven la misma ref.
+    const _bk = r.hasData ? _wcardGetStockCached(r.code) : null;
     const desg = _bk
       ? {
           fisico: _bk.fisicoDep11,
@@ -25607,7 +25717,9 @@ function _renderWaitlistCard(){
         tdReserv.style.background = '#e0e7ff';
         tdReserv.style.color = '#3730a3';
       }
-      const _bk = (typeof window.getStockBreakdown === 'function') ? window.getStockBreakdown(r.code) : null;
+      // Stack S-6 T2: reusa el cache. Idéntica referencia al _bk de arriba
+      // dentro del mismo render iteration (hit garantizado).
+      const _bk = _wcardGetStockCached(r.code);
       const _repartoQty = _bk && _bk.repartoAbierto ? _bk.repartoAbierto.qty : 0;
       const _repartoLine = _repartoQty > 0
         ? ('Reparto abierto: ' + _repartoQty + ' u (no reserva)\n')
@@ -37275,6 +37387,18 @@ function detachFirebaseListeners(){
   // v1342 (2026-10-15): cleanup del listener de Reparto para que no quede vivo
   // despues de logout si admin cerro sesion con modal abierto. CLAUDE.md regla 12.
   n += off('_unsubReparto', _unsubReparto, () => _unsubReparto = null);
+  // Stack S-6 T2 (2026-11-25): limpiar caches de stock al logout para
+  // garantizar aislamiento cross-user (otro user que loguea en el mismo
+  // navegador no hereda ni breakdown ni pre-warming). Idempotente — safe
+  // si el bundle no cargó (typeof guards).
+  try {
+    const _sc = window.__phase0 && window.__phase0.pure && window.__phase0.pure.stockCache;
+    if (_sc && typeof _sc.clearStockCache === 'function') _sc.clearStockCache();
+  } catch (_) {}
+  try {
+    const _ps = window.__phase0 && window.__phase0.pure && window.__phase0.pure.prewarmStock;
+    if (_ps && typeof _ps.clearPrewarmCache === 'function') _ps.clearPrewarmCache();
+  } catch (_) {}
   if (typeof _logT === 'function') _logT('detach: ' + n + ' listeners cerrados');
   return n;
 }
