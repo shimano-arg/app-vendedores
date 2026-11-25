@@ -208,21 +208,30 @@ describe('v1491 §89 — commit-pedido-core gate llama resolver server-side', ()
   it('T21 el gate VENDOR_UID_MISSING ahora intenta resolver server-side antes de rechazar', async () => {
     const src = await readCoreSrc();
     // La llamada makeError('VENDOR_UID_MISSING', ...) debe venir precedida
-    // del bloque v1491 §89 que invoca resolveClientVendorServerSide.
-    const idx = src.indexOf("makeError(\n      'VENDOR_UID_MISSING'");
-    expect(idx).toBeGreaterThan(0);
-    const slicePre = src.slice(Math.max(0, idx - 3500), idx);
-    expect(slicePre).toContain('v1491 §89');
-    expect(slicePre).toMatch(/resolveClientVendorServerSide\s*\(/);
-    expect(slicePre).toMatch(/vendorKeyHint:\s*payload\.vendorAssigned/);
+    // del bloque que invoca resolveClientVendorServerSide. v1491 §89 original
+    // disparaba solo si !_hasVendorUid; v1577 §Decisión-1 lo amplió a correr
+    // SIEMPRE (recompute as autoritativo).
+    const idxReject = src.indexOf("makeError(\n      'VENDOR_UID_MISSING'");
+    expect(idxReject).toBeGreaterThan(0);
+    // Debe existir la invocación resolveClientVendorServerSide ANTES del
+    // reject (en cualquier lugar del archivo si tiene el tag v1577).
+    const idxResolve = src.indexOf('resolveClientVendorServerSide(');
+    expect(idxResolve).toBeGreaterThan(0);
+    expect(idxResolve).toBeLessThan(idxReject);
+    // Tags válidos: v1491 §89 (original) o v1577 §Dec (recompute siempre).
+    expect(src).toMatch(/v1491 §89|v1577 §Dec/);
+    expect(src).toMatch(/vendorKeyHint:\s*payload\.vendorAssigned/);
     // Debe pisar _hasVendorUid tras resolver.
-    expect(slicePre).toMatch(/_hasVendorUid = true/);
+    expect(src).toMatch(/_hasVendorUid = true/);
   });
 
   it('T22 el gate preserva el fallo si tampoco se resuelve server-side', async () => {
     const src = await readCoreSrc();
-    // Debe haber un segundo if (_hasVendorName && !_hasVendorUid) para el reject final.
-    expect(src.match(/if \(_hasVendorName && !_hasVendorUid\)/g)?.length).toBeGreaterThanOrEqual(2);
+    // El reject final por VENDOR_UID_MISSING debe seguir existiendo.
+    // v1577 §Decisión-1 cambió el primer guard (`if (_hasVendorName && ...)`)
+    // por `if (_hasVendorName || cardCode || clientName)` (recompute siempre).
+    // El segundo guard antes del reject SÍ sigue siendo el patrón original.
+    expect(src.match(/if \(_hasVendorName && !_hasVendorUid\)/g)?.length).toBeGreaterThanOrEqual(1);
     expect(src).toMatch(/serverResolveAttempted:\s*true/);
   });
 });

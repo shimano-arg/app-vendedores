@@ -54,6 +54,15 @@ export const MENSAJES_VENDEDOR = Object.freeze({
       'Este cliente tiene vendedor asignado pero no pudimos encontrar su usuario. Avisale a Mariano con el nombre del cliente antes de volver a intentar.',
   },
 
+  // PR E v1577 §Decisión-1 — interno intenta crear pedido para cliente
+  // de otra pareja. El texto final lo arma el cliente agregando el nombre
+  // del vendedor propietario (data.vendorName) si está. Texto por defecto
+  // (fallback cuando no vino nombre).
+  INTERNO_CLIENTE_FUERA_DE_PAREJA: {
+    texto:
+      'Este cliente no está asignado a tu pareja. Avisá al vendedor que lo tiene asignado o pedile a Pablo que lo reasigne.',
+  },
+
   // commitPedidoCF errorCodes.
   STOCK_CHANGED: {
     texto:
