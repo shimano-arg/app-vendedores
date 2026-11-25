@@ -646,6 +646,66 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Stack S-5 T2 (2026-11-25): telemetría cliente (Core Web Vitals + cache
+    // hits + commit phase timers). Separada de `operations_log` porque la
+    // whitelist A2.3 de operations_log rechaza el shape
+    // `client_instrumentation` (ver src/pure/instrumentation-helpers.js:
+    // "S-3 adversarial fix F1"). Mantener acá preserva la hardening SEC-M3
+    // del operations_log sin bloquear la telemetría.
+    //
+    // Shape escrito por src/domains/instrumentation.js (PR #1439):
+    //   {type:'client_instrumentation', userUid, userEmail, clientVersion,
+    //    events:[{kind,name,value,...}], eventCount, timestamp}
+    //
+    // Gate principal: userUid == auth.uid (identidad real; no falsificar actor).
+    // Caps defensivos contra DOS / log flooding:
+    //   - type: ≤64 chars, is string, == 'client_instrumentation'
+    //   - events: list, ≤50 items (igual que el slice del pure helper)
+    //   - eventCount: number ≥0 (si está presente)
+    //   - timestamp: timestamp (server.timestamp o Date del cliente)
+    //
+    // userEmail + clientVersion son metadata opcional. No forzamos su presencia
+    // en la rule (§70 pattern): si falta, no rechazamos.
+    //
+    // Read restringido a admin+gerente (admin dashboards). Instrumentación
+    // puede exponer patrones de uso del VDE → no abrimos a isReader.
+    // Update/delete bloqueados: append-only como operations_log.
+    //
+    // La CF (admin SDK) NO escribe acá — los phase timers del server van a
+    // operations_log (functions/core/commit-phase-timers.js). Esta rule cubre
+    // solo escrituras del cliente.
+    match /instrumentation_log/{docId} {
+      allow read: if isAdminOrGerente();
+      allow create: if request.auth != null
+        && request.resource.data.userUid == request.auth.uid
+        && request.resource.data.keys().hasAll(['type', 'userUid', 'timestamp'])
+        && request.resource.data.type is string
+        && request.resource.data.type.size() <= 64
+        && request.resource.data.type == 'client_instrumentation'
+        && request.resource.data.timestamp is timestamp
+        && (
+          !('events' in request.resource.data)
+          || (request.resource.data.events is list
+              && request.resource.data.events.size() <= 50)
+        )
+        && (
+          !('eventCount' in request.resource.data)
+          || (request.resource.data.eventCount is number
+              && request.resource.data.eventCount >= 0)
+        )
+        && (
+          !('clientVersion' in request.resource.data)
+          || (request.resource.data.clientVersion is string
+              && request.resource.data.clientVersion.size() <= 64)
+        )
+        && (
+          !('userEmail' in request.resource.data)
+          || (request.resource.data.userEmail is string
+              && request.resource.data.userEmail.size() <= 256)
+        );
+      allow update, delete: if false;
+    }
+
     // v1171 (2026-10-07): snapshot historico diario de stock escrito por
     // send_stock_snapshot_email.py (cron L-V 16:00 ART). Read admin+gerente+
     // viewer para dashboards futuros; write solo via Service Account (bypass).
