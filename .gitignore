@@ -202,3 +202,4 @@ tests/e2e/evidencia/**/_output/
 # sobreviven solo durante el job. Pattern defensive por si alguien hace
 # `git add -A` localmente.
 *-report.json
+RAW_SOBREASIG_WATCHDOG.md
