@@ -40,7 +40,8 @@ Peor caso de una evaluación (interno sobre pedido de la pareja): `roles/{auth.u
 
 ## Por qué
 
-- Cierra edición y borrado cross-pareja sin romper el trabajo diario del VDI con su VDE.
+- Cierra la escritura y el borrado directos (desde el navegador) sobre pedidos de otras parejas, sin romper el trabajo diario del VDI con su VDE. Las Cloud Functions que modifican pedidos aplican su propio control de permisos; el criterio de pareja en el servidor va en un cambio aparte.
+- En pedidos de la pareja, el VDI puede mover la tarjeta del Planner pero no a las columnas de cobro (`cobrado_parcial`, `cobrado_full`).
 - "Pedido de la pareja" se resuelve por `ownerUid` o `assignedVendorUid`; no hace falta identificar al gerente por UID (los pedidos que él carga para un cliente llevan `assignedVendorUid` = VDE del cliente).
 - Falla cerrada: si un VDE no tiene `internalPartnerUid` cargado, su VDI pierde edición sobre esos pedidos (no gana permisos de más).
 

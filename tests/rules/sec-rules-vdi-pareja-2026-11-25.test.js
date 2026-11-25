@@ -105,6 +105,63 @@ describe('H3 — interno modifica pedidos de su pareja VDE', () => {
     );
   });
 
+  it('pareja: NO mueve la tarjeta a columnas de cobro (cobrado_parcial / cobrado_full)', async () => {
+    for (const stage of ['cobrado_parcial', 'cobrado_full']) {
+      await assertFails(
+        updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-pareja'), {
+          plannerStage: stage,
+        })
+      );
+    }
+  });
+
+  it('propio: el interno sí puede mover su propio pedido a cobrado (lista completa)', async () => {
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-propio-interno'), {
+        plannerStage: 'cobrado_parcial',
+      })
+    );
+  });
+
+  it('pareja: pedido sin ownerUid entra por assignedVendorUid; con assignedVendorUid null no', async () => {
+    await seedDoc('pedidos/p-sin-owner', {
+      assignedVendorUid: UID.vendor,
+      stage: 'pending',
+      lines: [{ code: 'SKU1', qty: 1 }],
+    });
+    await assertSucceeds(
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-sin-owner'), { observaciones: 'x' })
+    );
+    await seedDoc('pedidos/p-assigned-null', {
+      ownerUid: GERENTE_LIKE,
+      assignedVendorUid: null,
+      stage: 'pending',
+      lines: [{ code: 'SKU1', qty: 1 }],
+    });
+    await assertFails(
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-assigned-null'), { observaciones: 'x' })
+    );
+  });
+
+  it('pareja: NO puede escribir createdByUid para volverse dueño', async () => {
+    await assertFails(
+      updateDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-pareja'), {
+        createdByUid: UID.internoPartnered,
+      })
+    );
+  });
+
+  it('propio por cargadoPorUid: lo puede borrar', async () => {
+    await seedDoc('pedidos/p-cargado-vdi-del', {
+      ownerUid: UID.vendor,
+      cargadoPorUid: UID.internoPartnered,
+      assignedVendorUid: UID.vendor,
+      stage: 'pending',
+      lines: [],
+    });
+    await assertSucceeds(deleteDoc(doc(authedDb(UID.internoPartnered), 'pedidos', 'p-cargado-vdi-del')));
+  });
+
   it('propio: interno cambia stage de su pedido y lo borra', async () => {
     await assertSucceeds(
       updateDoc(doc(authedDb(UID.interno), 'pedidos', 'p-propio-interno'), {

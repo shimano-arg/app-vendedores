@@ -435,6 +435,12 @@ service cloud.firestore {
             'repartoHistory', 'lastRepartoAt', 'lastRepartoBy',
             'plannerStage', 'plannerHistory', 'plannerEmails', 'plannerAttachments'
           ])
+          // H3 revision: mover la tarjeta a una columna de cobro equivale a
+          // marcar cobro; eso no entra en "modificar" para la pareja.
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plannerStage'])
+            || !(request.resource.data.get('plannerStage', '') in ['cobrado_parcial', 'cobrado_full'])
+          )
         )
         || (
           isVendor()
