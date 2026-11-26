@@ -393,7 +393,7 @@ export function compareReservations(fsReservations, pgReservations) {
 /**
  * Compara un documento Firestore `pedidos/{id}` contra el shape PG equivalente.
  *
- * @param {Object} firestoreDoc - documento Firestore crudo.
+ * @param {Record<string, any>} firestoreDoc - documento Firestore crudo.
  * @param {PgPedidoShape | null} pgShape - rows PG (si null, PG no tiene el doc).
  * @returns {{ok: boolean, diff: ParityDiffEntry[]}}
  */

@@ -5,6 +5,17 @@
  * `tests/unit/audit/dual-write-sync.test.js` falla si divergen.
  *
  * @module functions/core/dual-write/compare-pedido-parity
+ *   - Debug ad-hoc cuando aparezca un reporte de divergencia.
+ *
+ * Reusa `transformPedidoToPg` como base: transforma Firestore → PG-shape y
+ * compara contra el PG real. Si ambos lados son equivalentes, devuelve
+ * `{ok: true, diff: []}`. Si no, devuelve diff con path + valor FS + valor PG
+ * + severity.
+ *
+ * ESTE HELPER ES PURO — no lee ni escribe Firestore, PG, red, tiempo.
+ * El audit nocturno hace los reads y pasa ambos lados ya resueltos.
+ *
+ * @module src/pure/dual-write/compare-pedido-parity
  */
 
 import { transformPedidoToPg } from './transform-pedido-to-pg.js';
@@ -382,7 +393,7 @@ export function compareReservations(fsReservations, pgReservations) {
 /**
  * Compara un documento Firestore `pedidos/{id}` contra el shape PG equivalente.
  *
- * @param {Object} firestoreDoc - documento Firestore crudo.
+ * @param {Record<string, any>} firestoreDoc - documento Firestore crudo.
  * @param {PgPedidoShape | null} pgShape - rows PG (si null, PG no tiene el doc).
  * @returns {{ok: boolean, diff: ParityDiffEntry[]}}
  */

@@ -138,8 +138,8 @@ export function warehouseForLine(enTransito) {
  *   - confirmed con transferidoSAP.orderDocEntry presente: NO reserva (§40.8).
  *   - confirmed sin orderDocEntry: reserva.
  *
- * @param {Object} line
- * @param {Object | null} transferidoSap - pedido.transferidoSAP
+ * @param {Record<string, any>} line
+ * @param {Record<string, any> | null} transferidoSap - pedido.transferidoSAP
  * @returns {boolean}
  */
 export function lineReservesStockForPg(line, transferidoSap) {
@@ -171,7 +171,7 @@ export function lineReservesStockForPg(line, transferidoSap) {
  * Valida campos obligatorios del cabecera del pedido. Devuelve array de
  * razones; vacio = valido.
  *
- * @param {Object} doc
+ * @param {Record<string, any>} doc
  * @returns {string[]}
  */
 export function validatePedidoHeader(doc) {
@@ -218,7 +218,7 @@ export function validatePedidoHeader(doc) {
  * Si la cabecera es invalida (validatePedidoHeader devuelve errores),
  * tira `Error` con mensaje 'invalid_pedido_doc: <razones joined>'.
  *
- * @param {Object} doc - documento Firestore `pedidos/{id}` con `.lines` array.
+ * @param {Record<string, any>} doc - documento Firestore `pedidos/{id}` con `.lines` array.
  * @returns {{
  *   pedido: Record<string, any>,
  *   lines: Array<Record<string, any>>,

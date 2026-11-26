@@ -5,6 +5,18 @@
  * `tests/unit/audit/dual-write-sync.test.js` falla si divergen.
  *
  * @module functions/core/dual-write/transform-pedido-to-pg
+ *
+ * Ver ADR-001 `docs/adr/0001-modelo-datos-pedidos-pg.md` + schema
+ * `backend-new/db/schema/0001_initial.sql`.
+ *
+ * Diseno S-10 doble escritura: este helper vive una sola vez aqui con espejo
+ * en `functions/core/dual-write/transform-pedido-to-pg.js` (§57). El wrapper
+ * CF `functions/dual-write/on-pedido-write-to-pg.js` aplica el I/O.
+ *
+ * ESTE HELPER ES PURO — no lee ni escribe Firestore, PG, red, tiempo (todos
+ * los timestamps vienen del input o se derivan del snapshot).
+ *
+ * @module src/pure/dual-write/transform-pedido-to-pg
  */
 
 /**
@@ -126,8 +138,8 @@ export function warehouseForLine(enTransito) {
  *   - confirmed con transferidoSAP.orderDocEntry presente: NO reserva (§40.8).
  *   - confirmed sin orderDocEntry: reserva.
  *
- * @param {Object} line
- * @param {Object | null} transferidoSap - pedido.transferidoSAP
+ * @param {Record<string, any>} line
+ * @param {Record<string, any> | null} transferidoSap - pedido.transferidoSAP
  * @returns {boolean}
  */
 export function lineReservesStockForPg(line, transferidoSap) {
@@ -159,7 +171,7 @@ export function lineReservesStockForPg(line, transferidoSap) {
  * Valida campos obligatorios del cabecera del pedido. Devuelve array de
  * razones; vacio = valido.
  *
- * @param {Object} doc
+ * @param {Record<string, any>} doc
  * @returns {string[]}
  */
 export function validatePedidoHeader(doc) {
@@ -206,7 +218,7 @@ export function validatePedidoHeader(doc) {
  * Si la cabecera es invalida (validatePedidoHeader devuelve errores),
  * tira `Error` con mensaje 'invalid_pedido_doc: <razones joined>'.
  *
- * @param {Object} doc - documento Firestore `pedidos/{id}` con `.lines` array.
+ * @param {Record<string, any>} doc - documento Firestore `pedidos/{id}` con `.lines` array.
  * @returns {{
  *   pedido: Record<string, any>,
  *   lines: Array<Record<string, any>>,
