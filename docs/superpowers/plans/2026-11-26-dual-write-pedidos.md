@@ -222,7 +222,7 @@ Total mínimo si todo sale OK: **29 días**. Realista con buffer: **6-8 semanas*
 ### Rollback por reporte (manual — Mariano toggle)
 
 - Cualquier VDE reporta un pedido "que no existe" en una vista que ya migró a PG.
-- Divergencia aritmética en reportes que usan PG vs reportes que usan Firestore > $1M ARS.
+- **Cualquier divergencia de importe** entre Firestore y PostgreSQL en reportes/vistas que ya migraron (netAmountArs, subtotalArs, sapDocTotal, discountPct o cualquier otro campo monetario). No hay umbral mínimo; si el total que ve el VDE / Mariano / Santi es distinto, rollback. Precedente: una divergencia de $1.000 reportada por un VDE indica un bug de transform o parity, no un redondeo aceptable.
 - Cualquier confirmación de pedido falla por error aguas abajo relacionado con PG (ej. constraint `stock_reservations` viola invariante pero el pedido Firestore sí persistió).
 
 ### Rollback de catástrofe (Fase 3+ sólo)
