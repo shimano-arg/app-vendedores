@@ -1,0 +1,61 @@
+# Cloud Monitoring alert policy — commitPedidoCF error rate > 5% (5 min window)
+# Project: app-vendedores-shimano
+# Habilitacion: dry-run abajo; requiere notification channel real + OK Mariano.
+# Ref: STACK_40_D5_ALERTAS.md
+
+displayName: "[CRIT] commitPedidoCF error rate > 5% (5m)"
+documentation:
+  content: |
+    commitPedidoCF esta rechazando >5% de llamadas en los ultimos 5 min.
+    Este CF es la escritura core del pedido (reserva ASIG + commit). Un error
+    rate alto bloquea la operacion comercial.
+
+    Runbook:
+    1. Revisar Sentry (`app-vendedores`) por nuevos issues en commitPedidoCF.
+    2. `gcloud logging read 'resource.type="cloud_function" resource.labels.function_name="commitPedidoCF" severity>=ERROR' --limit 50 --project=app-vendedores-shimano`
+    3. Si fue por deploy reciente: considerar rollback a revision previa.
+    4. Si fue por Firestore quota: ver sync-firestore-quota job.
+  mimeType: text/markdown
+
+combiner: OR
+enabled: true
+
+conditions:
+  - displayName: "commitPedidoCF 5xx error ratio > 5%"
+    conditionThreshold:
+      # Ratio de ejecuciones con status != "ok" sobre el total, por function_name
+      filter: |
+        resource.type="cloud_function"
+        resource.labels.function_name="commitPedidoCF"
+        metric.type="cloudfunctions.googleapis.com/function/execution_count"
+        metric.labels.status!="ok"
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+            - resource.label.function_name
+      denominatorFilter: |
+        resource.type="cloud_function"
+        resource.labels.function_name="commitPedidoCF"
+        metric.type="cloudfunctions.googleapis.com/function/execution_count"
+      denominatorAggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+            - resource.label.function_name
+      comparison: COMPARISON_GT
+      thresholdValue: 0.05        # 5%
+      duration: 300s              # sostenido 5 min antes de disparar
+      trigger:
+        count: 1
+
+alertStrategy:
+  autoClose: 1800s                # auto-close al cabo de 30 min sin data
+
+# Reemplazar antes de aplicar:
+notificationChannels:
+  - "projects/app-vendedores-shimano/notificationChannels/NOTIFICATION_CHANNEL_ID_PLACEHOLDER"
+
+severity: CRITICAL
