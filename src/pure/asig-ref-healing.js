@@ -27,8 +27,7 @@
  *     qtyOpen=0): la línea fue consumida por otro pedido → DROP ref.
  *   - Caso E `qty_insufficient` (state='ASIG' pero qtyAsignada > qtyOpen):
  *     hay menos unidades disponibles que las reservadas originalmente →
- *     **CLAMP** qtyAsignada a qtyOpen. El excedente se pierde (va a BO en el
- *     pedido nuevo via el flow normal de disponibilidad).
+ *     **CLAMP** solo con prueba del reconcile §40.11 (gemela BO). Ver v1589.
  *
  * NO toca:
  *   - CHECK A/B (lineIndex fuera de rango / línea inexistente) → son
@@ -61,6 +60,9 @@ export function healAsigRefs(payload, origenSnapshots) {
     return { healedCount: 0, droppedRefs, repointedRefs, clampedRefs, events };
   }
 
+  /** @type {Map<string, number>} */
+  const budget = new Map();
+
   for (let liIdx = 0; liIdx < payload.lines.length; liIdx++) {
     const line = payload.lines[liIdx];
     if (!line || !Array.isArray(line.asigRefs) || line.asigRefs.length === 0) continue;
@@ -68,7 +70,13 @@ export function healAsigRefs(payload, origenSnapshots) {
     /** @type {AsigRef[]} */
     const keptRefs = [];
     for (const ref of line.asigRefs) {
-      const action = decideHealingAction(ref, origenSnapshots, liIdx, /** @type {any} */ (line));
+      const action = decideHealingAction(
+        ref,
+        origenSnapshots,
+        liIdx,
+        /** @type {any} */ (line),
+        budget
+      );
       if (action.action === 'KEEP') {
         keptRefs.push(ref);
       } else if (action.action === 'DROP') {
@@ -137,9 +145,10 @@ export function healAsigRefs(payload, origenSnapshots) {
  * @param {Map<string, OrigenSnapshot>} origenSnapshots
  * @param {number} _payloadLineIdx
  * @param {{code?: string}} _payloadLine
+ * @param {Map<string, number>} [budget] saldo de qtyOpen por `pedidoId#lineIndex`
  * @returns {{action: 'KEEP'|'DROP'|'REPOINT'|'CLAMP', reason?: string, newLineIndex?: number, clampedQty?: number, details?: any}}
  */
-function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine) {
+function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine, budget) {
   if (!ref || !ref.pedidoId) {
     return { action: 'KEEP' };
   }
@@ -265,13 +274,42 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     };
   }
 
-  // --- CASO E NO HEALEADO: qtyAsignada > qtyOpen (CHECK F QTY_INSUFFICIENT) ---
-  // No se healea: indica sobre-asignación detectada post-waitlist que puede
-  // ser síntoma de bug real. Sigue abortando con QTY_INSUFFICIENT para que
-  // Mariano investigue. Si en el futuro se decide auto-clampear, agregar
-  // un flag explícito + operations_log entry.
+  // --- CASO E': qtyAsignada > qtyOpen (CHECK F QTY_INSUFFICIENT) ---
+  // v1589 (2026-11-26, incidente PESCAR.INFO ORDEN 890): se recorta SOLO si
+  // hay prueba de que la reducción la hizo el reconcile automático (§40.11):
+  // una línea del mismo pedido con splitFromLineIndex === li, mismo SKU y
+  // asigRevertidaReason='asig_sin_stock_revertida_a_bo'. En ese caso las
+  // unidades faltantes ya volvieron a la cola BO del pedido origen, así que
+  // recortar la ref no pierde nada. Sin esa prueba se mantiene el abort
+  // (sobre-asignación inexplicada = posible bug real, no se enmascara).
+  // `budget` reparte qtyOpen entre varias refs a la misma línea (el dedup de
+  // accumulateCancelAsigMutations SUMA refs duplicadas antes del CHECK F).
+  // Cada recorte queda en operations_log type='asig_ref_healed'.
   if (state === 'ASIG' && qtyOpen > 0) {
-    return { action: 'KEEP' };
+    const qtyRef = Number(ref.qtyAsignada) || 0;
+    const budgetKey = String(ref.pedidoId) + '#' + li;
+    const budgetVal = budget ? budget.get(budgetKey) : undefined;
+    const disponible = typeof budgetVal === 'number' ? budgetVal : qtyOpen;
+    if (qtyRef <= disponible) {
+      if (budget) budget.set(budgetKey, disponible - qtyRef);
+      return { action: 'KEEP' };
+    }
+    if (!hasReconcileReduction(lines, li, actualSku)) {
+      return { action: 'KEEP' };
+    }
+    if (budget) budget.set(budgetKey, 0);
+    if (disponible <= 0) {
+      return {
+        action: 'DROP',
+        reason: 'reducida_por_reconcile_sin_saldo',
+        details: { qtyOpen, qtyAsignada: qtyRef },
+      };
+    }
+    return {
+      action: 'CLAMP',
+      reason: 'reducida_por_reconcile',
+      clampedQty: disponible,
+    };
   }
 
   // --- Línea cancelled por razón NO conocida ---
@@ -309,4 +347,31 @@ function findSplitTwin(lines, originalLineIndex, skuNormalized) {
     return i;
   }
   return -1;
+}
+
+/**
+ * v1589: ¿la línea `lineIndex` fue reducida por el reconcile automático §40.11?
+ * Prueba: existe otra línea del mismo pedido con splitFromLineIndex === lineIndex,
+ * mismo SKU, asigRevertidaReason='asig_sin_stock_revertida_a_bo' y state='BO'
+ * (si Pablo ya la repartió como ASIG, recortar duplicaría la reserva: no se toca).
+ *
+ * @param {any[]} lines
+ * @param {number} lineIndex
+ * @param {string} skuNormalized
+ * @returns {boolean}
+ */
+function hasReconcileReduction(lines, lineIndex, skuNormalized) {
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l || i === lineIndex) continue;
+    if (l.splitFromLineIndex !== lineIndex) continue;
+    if (l.state !== 'BO') continue;
+    if (l.asigRevertidaReason !== 'asig_sin_stock_revertida_a_bo') continue;
+    const code = String(l.code || '')
+      .toUpperCase()
+      .trim();
+    if (code !== skuNormalized) continue;
+    return true;
+  }
+  return false;
 }

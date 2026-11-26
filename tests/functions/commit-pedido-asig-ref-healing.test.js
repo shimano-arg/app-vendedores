@@ -386,4 +386,111 @@ describe('commitPedidoCore + healing — SNAKE SRL integration (§108)', () => {
     expect(r.errorCode).toBe('ASIG_REF_INVALID');
     expect(r.data?.reason).toBe('SKU_MISMATCH');
   });
+
+  // v1589 (2026-11-26) — repro PESCAR.INFO ORDEN 890: reparto de 3u, waitlist
+  // con ref qtyAsignada=3, luego el reconcile §40.11 dejó 1 ASIG + 2 BO (split).
+  function seedPedidoReducidoPorReconcile(db, pedidoId, conGemela) {
+    const lines = [
+      { code: 'CLC70H2PY', state: 'cancelled', qty: 3, qtyOpen: 0, qtyCancelled: 3 },
+      {
+        code: 'CLC70H2PY',
+        state: 'ASIG',
+        qty: 1,
+        qtyOpen: 1,
+        asigAt: '2026-11-20T09:00:00Z',
+        asigFromReparto: 'ING1',
+        splitFromLineIndex: 0,
+      },
+    ];
+    if (conGemela) {
+      lines.push({
+        code: 'CLC70H2PY',
+        state: 'BO',
+        qty: 2,
+        qtyOpen: 2,
+        asigReserva: false,
+        asigRevertidaBy: 'system:reconcile',
+        asigRevertidaReason: 'asig_sin_stock_revertida_a_bo',
+        splitFromLineIndex: 1,
+      });
+    }
+    db.__addDoc('pedidos/' + pedidoId, {
+      clientCardCode: 'C30719034914',
+      clientName: 'SNAKE SRL',
+      lines,
+      stage: 'confirmed',
+      closedAt: null,
+      createdAt: '2026-11-20T10:00:00Z',
+    });
+  }
+  function makeReducidoPayload() {
+    return {
+      draftId: 'C|CABA|CABA|SNAKE SRL|890',
+      cardCode: 'C30719034914',
+      clientName: 'SNAKE SRL',
+      tipo: 'C',
+      key: 'C|CABA|CABA|SNAKE SRL',
+      origen: 'cpst',
+      clientVersion: 'v1589',
+      waitlistOrigenId: 'WL-890',
+      ownerUid: 'uid-gonzalo',
+      ownerEmail: 'gonzalo@shimano.com.ar',
+      lines: [
+        {
+          sku: 'CLC70H2PY',
+          cantidad: 3,
+          precio: 100,
+          descripcion: 'Clarus',
+          asigRefs: [{ pedidoId: 'ORIG890', lineIndex: 1, sku: 'CLC70H2PY', qtyAsignada: 3 }],
+        },
+      ],
+    };
+  }
+
+  it('T6: ref 3 contra ASIG reducida a 1 por reconcile → recorta a 1 y PASA', async () => {
+    const db = makeStrictMockDb();
+    seedFreshSnapshot(db);
+    seedPedidoReducidoPorReconcile(db, 'ORIG890', true);
+    const r = await commitPedidoCore(
+      { fbDb: db, now: () => new Date('2026-11-26T10:00:00Z') },
+      makeReducidoPayload()
+    );
+    expect(r.ok).toBe(true);
+    const auditEntry = db.__operationsLog.find((e) => e.type === 'asig_ref_healed');
+    expect(auditEntry).toBeTruthy();
+    expect(auditEntry.events[0].action).toBe('clamped');
+    expect(auditEntry.events[0].reason).toBe('reducida_por_reconcile');
+    expect(auditEntry.events[0].clampedQty).toBe(1);
+    // La línea ASIG origen se canceló (consumida por el pedido nuevo) solo por 1u.
+    const origen = db.__docs.get('pedidos/ORIG890').data;
+    expect(origen.lines[1].state).toBe('cancelled');
+    expect(origen.lines[1].qtyCancelled).toBe(1);
+  });
+
+  it('T8: gemela ya repartida de nuevo como ASIG → NO recorta, sigue abortando', async () => {
+    const db = makeStrictMockDb();
+    seedFreshSnapshot(db);
+    seedPedidoReducidoPorReconcile(db, 'ORIG890', true);
+    const d = db.__docs.get('pedidos/ORIG890').data;
+    d.lines[2] = { ...d.lines[2], state: 'ASIG', asigReserva: true, asigFromReparto: 'ING2' };
+    const r = await commitPedidoCore(
+      { fbDb: db, now: () => new Date('2026-11-26T10:00:00Z') },
+      makeReducidoPayload()
+    );
+    expect(r.ok).toBe(false);
+    expect(r.data?.reason).toBe('QTY_INSUFFICIENT');
+  });
+
+  it('T7: misma sobre-referencia SIN gemela del reconcile → sigue abortando QTY_INSUFFICIENT', async () => {
+    const db = makeStrictMockDb();
+    seedFreshSnapshot(db);
+    seedPedidoReducidoPorReconcile(db, 'ORIG890', false);
+    const r = await commitPedidoCore(
+      { fbDb: db, now: () => new Date('2026-11-26T10:00:00Z') },
+      makeReducidoPayload()
+    );
+    expect(r.ok).toBe(false);
+    expect(r.errorCode).toBe('ASIG_REF_INVALID');
+    expect(r.data?.reason).toBe('QTY_INSUFFICIENT');
+  });
 });

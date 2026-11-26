@@ -4098,3 +4098,13 @@ Cada capa se puede revertir independientemente:
 
 **Prohibido mix de rollbacks**: si se revierte S-7 #1447 sin revertir también v1577, el interno queda bloqueado. Si se revierte v1577 sin revertir §108.5 operaciones, quedan gates inconsistentes. Decidir rollback como bloque.
 
+
+## 109. Reserva reducida por el reconcile se recorta al confirmar, solo con prueba (2026-11-26)
+
+**Regla fuerte**: al confirmar un pedido desde Stock Asignado, una ref de asignación que pide más unidades de las que le quedan a la línea `ASIG` del pedido origen se recorta al saldo **solo si** el reconcile automático (§40.11) dejó prueba: otra línea del mismo pedido con `splitFromLineIndex` apuntando a esa, mismo SKU y `asigRevertidaReason='asig_sin_stock_revertida_a_bo'`. Sin prueba, el rechazo `ASIG_REF_INVALID / QTY_INSUFFICIENT` se mantiene (sobre-asignación sin explicar = posible bug).
+
+Vive en `healAsigRefs` (`src/pure/asig-ref-healing.js` + espejo `functions/core/`, §57). El saldo se reparte entre varias refs a la misma línea. Cada recorte va a `operations_log type='asig_ref_healed'`.
+
+**Precedente**: PESCAR.INFO ORDEN 890 y QUESADA ORDEN 902 (26/11), trabadas por reconcile del 24/11. Ver `docs/CHANGELOG-asig-ref-clamp-reconcile-2026-11-26.md`.
+
+**Prohibido**: recortar sin la prueba del reconcile, o hacerlo en el cliente.

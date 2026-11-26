@@ -35,7 +35,12 @@ describe('asig-ref-healing sync pure <-> server mirror (§57)', () => {
       const m = txt.match(re);
       return m ? m[0].trim() : null;
     };
-    for (const fn of ['healAsigRefs', 'decideHealingAction', 'findSplitTwin']) {
+    for (const fn of [
+      'healAsigRefs',
+      'decideHealingAction',
+      'findSplitTwin',
+      'hasReconcileReduction',
+    ]) {
       const a = extract(pureSrc, fn);
       const b = extract(serverSrc, fn);
       expect(a, `${fn}: no se encontró en pure`).not.toBeNull();
