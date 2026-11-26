@@ -1568,6 +1568,15 @@ body.role-vendedor .vfilt-vendor-only,body.role-unassigned .vfilt-vendor-only{di
 .slft-wl-search-row input:focus{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.15)}
 .slft-wl-search-row #slft-wl-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--text-muted);font-size:18px;font-weight:800;cursor:pointer;line-height:1;padding:0 6px}
 .slft-wl-search-row #slft-wl-clear:hover{color:var(--color-danger)}
+/* Card "Disponible (Con Stock)": total que se podria facturar si se confirman todas las ordenes visibles. */
+.slft-wl-disp-card{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;border:1px solid var(--border-default);border-left:4px solid #059669;border-radius:8px;background:var(--bg-elevated);flex-shrink:0}
+.slft-wl-disp-label{color:#059669;font-size:11px;font-weight:800;line-height:1.2}
+.slft-wl-disp-sub{color:var(--text-muted);font-size:9.5px;font-weight:600;margin-top:2px}
+.slft-wl-disp-val{color:#059669;font-size:14px;font-weight:800;white-space:nowrap}
+/* Selector de vendedor arriba del buscador. */
+.slft-wl-vendor-row{margin-bottom:6px;flex-shrink:0}
+.slft-wl-vendor-row select{width:100%;padding:6px 8px;border:1px solid var(--border-default);border-radius:6px;font-size:11.5px;font-family:inherit;background:var(--bg-elevated);color:var(--text-primary);outline:none;cursor:pointer}
+.slft-wl-vendor-row select:focus{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.15)}
 /* v882 (2026-09-11) PERF: mapa Leaflet aislado + hint al compositor.
    contain: layout paint style = subtree autocontenido salvo size (el mapa
    depende del flex:1 del padre para su altura, si aplicamos "strict" con
@@ -3392,6 +3401,20 @@ body.can-revision .pm-back-to-waitlist{display:inline-flex}
       <div class="slft-wl-hdr">
         <span>PEDIDOS EN ESPERA</span>
         <span class="slft-wl-count" id="slft-wl-count">0</span>
+      </div>
+      <!-- Total con stock de las ordenes visibles (respeta filtros). -->
+      <div class="slft-wl-disp-card" id="slft-wl-disp-card" title="">
+        <div>
+          <div class="slft-wl-disp-label">Disponible (Con Stock)</div>
+          <div class="slft-wl-disp-sub" id="slft-wl-disp-sub">si se confirman todas</div>
+        </div>
+        <div class="slft-wl-disp-val" id="slft-wl-disp-val">$0</div>
+      </div>
+      <!-- Filtro por vendedor (oculto para el VDE: ya ve solo lo suyo). -->
+      <div class="slft-wl-vendor-row" id="slft-wl-vendor-row" style="display:none">
+        <select id="slft-wl-vendor" aria-label="Filtrar por vendedor">
+          <option value="__ALL__">Todos los vendedores</option>
+        </select>
       </div>
       <!-- v494 (2026-08-12): buscador por cliente / localidad / provincia. -->
       <div class="slft-wl-search-row">
@@ -6342,7 +6365,7 @@ _logT('script start');
 // Se loguea apenas arranca el script asi en F12 -> Console se ve clarito
 // que version esta corriendo. Tambien chequeamos contra la version del SW
 // para detectar desync (HTML nuevo + SW viejo o viceversa).
-const APP_VERSION = 'v1588';
+const APP_VERSION = 'v1589';
 window.APP_VERSION = APP_VERSION;
 
 // v1581 (2026-11-25): helper debounce global para buscadores pesados.
@@ -20850,6 +20873,8 @@ async function reserveNextOrderNumber(){
 // modal grande). Reusa el mismo calculo de excedentes que _renderWaitlistRows.
 // v494: filtro de texto para el buscador. Persiste hasta reload.
 var _slftWlSearch = '';
+// Filtro de vendedor del panel ('__ALL__' = todos, '__NONE__' = sin vendedor).
+var _slftWlVendor = '__ALL__';
 function _renderWaitlistSidebar(){
   const cont = document.getElementById('sidebar-left-waitlist');
   const rows = document.getElementById('slft-wl-rows');
@@ -20877,6 +20902,14 @@ function _renderWaitlistSidebar(){
       _slftWlSearch = '';
       _renderWaitlistSidebar();
       inp.focus();
+    });
+  }
+  const vendorSel = document.getElementById('slft-wl-vendor');
+  if (vendorSel && !vendorSel._wired) {
+    vendorSel._wired = true;
+    vendorSel.addEventListener('change', () => {
+      _slftWlVendor = vendorSel.value || '__ALL__';
+      _renderWaitlistSidebar();
     });
   }
   const arr = revisionWaitlist || [];
@@ -20910,10 +20943,48 @@ function _renderWaitlistSidebar(){
       });
     }
   }
-  const filteredRaw = q ? arrForRole.filter(w => {
+  // Filtro de vendedor: las opciones salen solo de lo que el rol ya ve
+  // (arrForRole), asi el selector nunca muestra ordenes ajenas. El VDE no lo
+  // ve porque su lista ya es solo suya.
+  const _sum = window.__phase0 && window.__phase0.pure && window.__phase0.pure.waitlistSidebarSummary;
+  const vendorRow = document.getElementById('slft-wl-vendor-row');
+  let arrForVendor = arrForRole;
+  if (_sum && vendorSel && vendorRow) {
+    const _isVde = (typeof userRole !== 'undefined' && userRole === 'vendedor');
+    const _opts = _isVde ? [] : _sum.buildVendorFilterOptions(arrForRole);
+    if (_opts.length < 2) {
+      vendorRow.style.display = 'none';
+      _slftWlVendor = '__ALL__';
+    } else {
+      vendorRow.style.display = '';
+      if (_slftWlVendor !== '__ALL__' && !_opts.some(o => o.value === _slftWlVendor)) _slftWlVendor = '__ALL__';
+      const _fmtName = (k) => (typeof titleCase === 'function') ? titleCase(k.toLowerCase()) : k;
+      const _sig = _opts.map(o => o.value + ':' + o.count).join('|');
+      if (vendorSel._sig !== _sig) {
+        vendorSel._sig = _sig;
+        while (vendorSel.firstChild) vendorSel.removeChild(vendorSel.firstChild);
+        const _all = document.createElement('option');
+        _all.value = '__ALL__';
+        _all.textContent = 'Todos los vendedores (' + arrForRole.length + ')';
+        vendorSel.appendChild(_all);
+        _opts.forEach(o => {
+          const op = document.createElement('option');
+          op.value = o.value;
+          op.textContent = (o.key ? _fmtName(o.key) : 'Sin vendedor') + ' (' + o.count + ')';
+          vendorSel.appendChild(op);
+        });
+      }
+      vendorSel.value = _slftWlVendor;
+      arrForVendor = _sum.filterWaitlistsByVendor(arrForRole, _slftWlVendor);
+    }
+  } else if (vendorRow) {
+    vendorRow.style.display = 'none';
+  }
+  const _vendorActive = _slftWlVendor !== '__ALL__';
+  const filteredRaw = q ? arrForVendor.filter(w => {
     const hay = (w.clientName || '') + ' ' + (w.clientLocality || '') + ' ' + (w.clientProvince || '');
     return hay.toLowerCase().indexOf(q) >= 0;
-  }) : arrForRole;
+  }) : arrForVendor;
   // v501: ordenar por orderNumber numerico ascendente (42, 43, 44...).
   // Los que no tienen orden se muestran al final. Los que tienen texto
   // no-numerico se ordenan lexico. Nota: no mutamos revisionWaitlist,
@@ -20932,12 +21003,14 @@ function _renderWaitlistSidebar(){
     return ta - tb;
   });
   // Contador: si hay filtro, mostrar "N/Total"; si no, solo Total.
-  cnt.textContent = q ? (filtered.length + '/' + arr.length) : String(arr.length);
+  cnt.textContent = (q || _vendorActive) ? (filtered.length + '/' + arrForRole.length) : String(arrForRole.length);
   if (clearBtn) clearBtn.style.display = q ? '' : 'none';
+  _renderWaitlistDisponibleCard(filtered);
   while (rows.firstChild) rows.removeChild(rows.firstChild);
   if (!filtered.length) {
     empty.style.display = '';
-    empty.textContent = q ? 'Sin resultados para "' + _slftWlSearch + '".' : 'Sin pedidos en espera.';
+    empty.textContent = q ? 'Sin resultados para "' + _slftWlSearch + '".'
+      : (_vendorActive ? 'Sin pedidos en espera de este vendedor.' : 'Sin pedidos en espera.');
     return;
   }
   empty.style.display = 'none';
@@ -21075,6 +21148,59 @@ function _renderWaitlistSidebar(){
   });
 }
 window._renderWaitlistSidebar = _renderWaitlistSidebar;
+
+// Card "Disponible (Con Stock)": cuanto se podria facturar si se confirman
+// todas las ordenes que se ven en el panel (respeta vendedor + buscador).
+// Misma formula por linea que "Subtotal del pedido (Con Stock)" del detalle,
+// pero el stock se reparte entre ordenes: un SKU que piden dos ordenes y
+// alcanza para una se cuenta una sola vez (src/pure/waitlist-sidebar-summary.js).
+function _renderWaitlistDisponibleCard(list){
+  const card = document.getElementById('slft-wl-disp-card');
+  const valEl = document.getElementById('slft-wl-disp-val');
+  const subEl = document.getElementById('slft-wl-disp-sub');
+  if (!card || !valEl || !subEl) return;
+  const _p = window.__phase0 && window.__phase0.pure;
+  const _sum = _p && _p.waitlistSidebarSummary;
+  if (!_sum || !Array.isArray(list) || !list.length) {
+    card.style.display = (_sum && Array.isArray(list)) ? '' : 'none';
+    valEl.textContent = '$0';
+    subEl.textContent = 'sin pedidos en espera';
+    card.title = '';
+    return;
+  }
+  card.style.display = '';
+  const _pedidos = (typeof globalPedidos !== 'undefined' && Array.isArray(globalPedidos)) ? globalPedidos : [];
+  const firmesIndex = _sum.buildFirmesPropiasIndex(_pedidos, _p.lineReservesStock || null, Date.now());
+  const getSkuStock = (code) => {
+    const stk = (typeof _revisionStockFor === 'function') ? _revisionStockFor(code) : { hasData: false };
+    if (!stk.hasData || typeof window.getStockPorCliente !== 'function') {
+      return { hasData: !!stk.hasData, fisico: 0, sobrante: Math.max(Number(stk.disponible) || 0, 0) };
+    }
+    // Con un cardCode cualquiera todas las reservas caen en "otros":
+    // sobrante = fisico - reservas, igual que el residual del detalle.
+    const pc = window.getStockPorCliente(code, '__TOTAL__');
+    const fisico = Number(pc.fisico) || 0;
+    const reservas = (Number(pc.reservadasPorCliente) || 0) + (Number(pc.reservadasPorOtros) || 0);
+    return { hasData: true, fisico, sobrante: Math.max(fisico - reservas, 0) };
+  };
+  const getPrice = (code) => (typeof getDefaultPrice === 'function') ? (getDefaultPrice(code) || 0) : 0;
+  let r;
+  try {
+    r = _sum.computeDisponibleConStockTotal(list, { getSkuStock, firmesIndex, getPrice });
+  } catch (e) {
+    console.warn('[slft-wl-disp] calculo fallo', e);
+    card.style.display = 'none';
+    return;
+  }
+  const fmt = (n) => '$' + Math.round(n).toLocaleString('es-AR');
+  valEl.textContent = fmt(r.total);
+  subEl.textContent = list.length + (list.length === 1 ? ' orden' : ' órdenes') + ' · si se confirman todas';
+  card.title = 'Lo que entraria con stock si se confirman todas estas ordenes. El stock se reparte entre ordenes: '
+    + 'si dos piden el mismo producto y alcanza para una, se cuenta una sola vez.'
+    + (Math.round(r.sumaPorOrden) !== Math.round(r.total)
+      ? '\nSumando el detalle de cada orden por separado da ' + fmt(r.sumaPorOrden) + '.'
+      : '');
+}
 
 // ============================================================
 // v504 (2026-08-13): modal ESTADO - vista unificada de pedidos.
