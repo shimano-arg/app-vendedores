@@ -579,6 +579,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Stack S-12 Phase 2 (ADR-0016, 2026-11-26): queue de pedidos cuya
+    // replicacion a Postgres fallo (dual_write_pedidos_enabled=true + PG
+    // caido o invalid shape). Solo escribe el Admin SDK dentro de
+    // commitPedidoCore via `dual-write-pg.js:enqueuePendingRetry` para
+    // reintento manual via script. Cerrada 100% para cualquier cliente —
+    // la cola no es sensible por si misma (solo tiene pedidoId + errorMessage)
+    // pero no hay razon para exponerla.
+    match /dual_write_pending/{pedidoId} {
+      allow read, write: if false;
+    }
+
     // Visits: mismo patrón que pedidos — vendor list solo own.
     match /visits/{visitId} {
       allow get: if isReader();

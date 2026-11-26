@@ -76,6 +76,11 @@ import { healAsigRefs } from './asig-ref-healing.js';
 // eslint-disable-next-line no-unused-vars
 // biome-ignore lint/correctness/noUnusedImports: preservación intencional — sync con el espejo cliente (ver comentario arriba)
 import { computeBoEntryRows as _syncBoEntryRows } from './bo_entry_logic.js';
+// Stack S-12 Phase 2 (ADR-0016): wiring dual-write Firestore → PG post-commit.
+// Fire-and-forget detrás de flag `dual_write_pedidos_enabled` (OFF default).
+// Si PG falla, el pedido queda encolado en `dual_write_pending` sin romper
+// el commit. Firestore sigue siendo fuente de verdad en todos los casos.
+import { replicatePedidoToPg } from './dual-write-pg.js';
 // §Decisión-1 v<N> (2026-11-25) P0-B: shape canónico VDE→interno.
 // Query inversa: dado internoUid, devuelve set de VDEs que lo tienen como pareja.
 import { getVendorsPairedWithInterno, isVendorInInternoPair } from './interno-pareja-helpers.js';
@@ -242,6 +247,10 @@ export async function commitPedidoCore(deps, payload) {
     });
     markPhase(_timers, 'idempotent_hit');
     emitPhaseTimers(deps, payload, _timers, 'ok_idempotent');
+    // Stack S-12 (ADR-0016): dual-write fire-and-forget. En idempotent hit
+    // replicamos el existingPedido.data (shape ya en Firestore) por si la
+    // ejecucion anterior fue pre-flag-on. Nunca bloquea el return.
+    _fireAndForgetDualWrite(deps, existingPedido.id, existingPedido.data);
     return {
       ok: true,
       pedidoId: existingPedido.id,
@@ -757,6 +766,14 @@ export async function commitPedidoCore(deps, payload) {
           ? 'rejected_' + (resultForClient.errorCode || 'UNKNOWN')
           : 'ok';
       emitPhaseTimers(deps, payload, _timers, _outcome);
+      // Stack S-12 (ADR-0016): dual-write fire-and-forget solo en commit OK.
+      // Si el tx devolvio ok:false (ej. manual_backorder sin linesPrebuilt),
+      // no replicamos. Si ok:true, armamos el shape Firestore desde el payload
+      // + resultForClient y lo pasamos al replicador. Nunca bloquea el return.
+      if (resultForClient && resultForClient.ok === true && resultForClient.pedidoId) {
+        const pedidoDocForPg = _buildPedidoDocForPg(payload, resultForClient, now);
+        _fireAndForgetDualWrite(deps, resultForClient.pedidoId, pedidoDocForPg);
+      }
       return { ...resultForClient, servidorNowMs: now, commitAtIso: nowIso };
     } catch (e) {
       const err = /** @type {any} */ (e);
@@ -2678,6 +2695,113 @@ export function extractWhitelistedForLog(errData) {
     }
   }
   return out;
+}
+
+/**
+ * Stack S-12 (ADR-0016): fire-and-forget wrapper del replicador dual-write.
+ *
+ * Nunca awaitea, nunca throws. El `.catch` loguea con nombre descriptivo
+ * para que un reviewer adversarial (silent-failure-hunter) vea que el error
+ * NO esta silenciado — solo esta separado del happy path del commit.
+ *
+ * Delega la lógica real al modulo `functions/core/dual-write-pg.js` que
+ * tiene su propia defensa (flag check, no-op si no hay pool, enqueue
+ * retry en Firestore). Este wrapper solo garantiza que no propaga al
+ * caller.
+ *
+ * @param {CommitPedidoDeps} deps
+ * @param {string} pedidoId
+ * @param {Record<string, any>} pedidoDoc - shape Firestore con lines[].
+ */
+function _fireAndForgetDualWrite(deps, pedidoId, pedidoDoc) {
+  const log = deps && deps.log ? deps.log : () => {};
+  try {
+    const p = replicatePedidoToPg(deps, pedidoId, pedidoDoc);
+    if (p && typeof (/** @type {any} */ (p).catch) === 'function') {
+      /** @type {any} */ (p).catch((/** @type {any} */ err) => {
+        log('dual_write_fire_forget_err', {
+          pedidoId,
+          err: err && err.message,
+        });
+      });
+    }
+  } catch (err) {
+    // Red de seguridad para cualquier throw sincrono inesperado antes
+    // de que el promise del replicador exista.
+    log('dual_write_fire_forget_err', {
+      pedidoId,
+      err: /** @type {any} */ (err) && /** @type {any} */ (err).message,
+    });
+  }
+}
+
+/**
+ * Stack S-12 (ADR-0016): arma un shape Firestore minimo para pasarle al
+ * replicador dual-write a partir del payload del cliente + el result
+ * del commitInTransaction.
+ *
+ * Shape output es el mismo que pedido-doc en Firestore (con `lines[]`
+ * reflejando qtyConfirmed/qtyBO del result en vez de la pediste del
+ * cliente). `transformPedidoToPg` lo normaliza al shape PG.
+ *
+ * Decision importante: `lines[]` acá mapea `qtyConfirmed` → `state:'confirmed'`
+ * + `qtyBO` → `state:'BO'`. Una línea cliente que resulta en 2u confirmed +
+ * 1u BO ya fue splitteada en 2 lineasResultado por el commitInTransaction;
+ * aqui las reflejamos tal como vienen.
+ *
+ * @param {any} payload
+ * @param {any} resultForClient
+ * @param {number} nowMs
+ * @returns {Record<string, any>}
+ */
+function _buildPedidoDocForPg(payload, resultForClient, nowMs) {
+  const nowIso = new Date(nowMs).toISOString();
+  const lines = Array.isArray(resultForClient.lines)
+    ? resultForClient.lines.map((/** @type {any} */ l) => {
+        const qtyConfirmed = Number(l.qtyConfirmed || 0);
+        const qtyBO = Number(l.qtyBO || 0);
+        // Elegimos un state representativo por línea. commitInTransaction
+        // emite 1 lineaResultado por SKU: si tiene qtyConfirmed > 0 es
+        // 'confirmed'; si solo qtyBO > 0 es 'BO'; si ambas son 0 es
+        // 'cancelled' (edge raro). Un mismo SKU que resulta en 2 u
+        // confirmed + 1 u BO se emite como una sola linea con ambas qty
+        // populadas — mantenemos la convencion del shape aqui.
+        /** @type {'confirmed' | 'BO' | 'cancelled'} */
+        const state = qtyConfirmed > 0 ? 'confirmed' : qtyBO > 0 ? 'BO' : 'cancelled';
+        const qty = qtyConfirmed + qtyBO;
+        const qtyOpen = qty;
+        return {
+          code: l.sku,
+          state,
+          qty: qty > 0 ? qty : 1, // guard contra qty=0 que transformPedidoToPg rechazaria.
+          qtyOpen: qtyOpen > 0 ? qtyOpen : 0,
+          qtyCancelled: 0,
+          price: Number(l.precio || 0),
+          // asigAt se deja null — el core nunca emite state='ASIG' aca
+          // (las ASIG viven en el pedido origen; el pedido NUEVO va
+          // directo a confirmed o BO).
+          asigAt: null,
+          confirmedAt: state === 'confirmed' ? nowIso : null,
+        };
+      })
+    : [];
+  return {
+    _fsId: resultForClient.pedidoId,
+    orderNumber: resultForClient.orderNumber || resultForClient._orderNumber || 0,
+    clientCardCode: payload && payload.cardCode,
+    clientName: (payload && payload.clientName) || '',
+    assignedVendorUid: (payload && payload.assignedVendorUid) || '',
+    vendorAssigned: (payload && payload.vendorAssigned) || '',
+    ownerUid: (payload && payload.ownerUid) || '',
+    cargadoPorUid: (payload && payload.cargadoPorUid) || (payload && payload.ownerUid) || '',
+    origen: (payload && payload.origen) || 'manual',
+    draftId: (payload && payload.draftId) || null,
+    transferidoSAP: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    closedAt: null,
+    lines,
+  };
 }
 
 /**
