@@ -31337,6 +31337,33 @@ async function hashPasswordSHA256(password, salt){
 
 let passwordGateResolver = null;
 
+// S-8 B2-A (2026-11-26): verificacion de password y TOTP via CF server-side.
+// passwordHash, passwordSalt y totpSecret NO se leen aqui — toda verificacion
+// ocurre en authVerifyLoginCF. La password del usuario se pasa al CF y se
+// descarta despues del call; nunca se persiste ni se guarda en el DOM.
+//
+// Flujo de 2 pasos para TOTP:
+//   1. submitPasswordGate llama authVerifyLoginCF({email, password}).
+//      Si la respuesta es {ok:false, code:'requires_totp'}: mostrar TOTP modal.
+//   2. submitTotpGate llama authVerifyLoginCF({email, password, totpCode}).
+//      Si {ok:true}: el gate pasa, se guarda la cache de 30d, se limpia el password.
+//
+// NUNCA se escriben passwordHash, passwordSalt ni totpSecret en atributos del DOM.
+
+/** Almacenamiento temporal del email y password durante el flujo 2-step TOTP.
+ *  Se inicializa en ensurePasswordGate y se limpia en cuanto se obtiene ok:true
+ *  o cuando el usuario cancela. NUNCA se persiste en localStorage ni sessionStorage.
+ */
+let _pwGateEmail = null;
+let _pwGatePassword = null;
+
+async function _sha256HexClient(str) {
+  const enc = new TextEncoder();
+  const data = enc.encode(str || '');
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function ensurePasswordGate(){
   // Si el usuario logueo con email+password de Firebase Auth, ya valido su
   // password al entrar - no necesita una segunda capa de validacion. El
@@ -31347,30 +31374,30 @@ async function ensurePasswordGate(){
     const usedPassword = providers.some(p => p && p.providerId === 'password');
     if (usedPassword) return true;
   } catch(e) { console.warn('check providerData', e); }
-  // Lee el doc actual del usuario.
-  let snap;
-  try { snap = await fbDb.collection('roles').doc(currentUser.uid).get(); }
-  catch(e) { console.error('passwordGate fetch', e); return true; } // si falla el read, dejamos pasar (no romper la app)
-  if (!snap || !snap.exists) return true;
-  const data = snap.data() || {};
-  // D8 (2026-11-06): sin hash configurado NO hay gate. Antes se inicializaba
-  // con un default publicado en este archivo; ademas el write client-side ya
-  // quedaba bloqueado por el freeze S04b PR-B. El admin setea la contraseña
-  // desde Panel Usuarios (CF setPasswordGate).
-  if (!data.passwordHash || !data.passwordSalt) return true;
-  // Mostrar modal y esperar validacion.
-  return showPasswordGateModal(data.passwordSalt, data.passwordHash);
+
+  // S-8 B2-A: NO leer passwordHash/passwordSalt/totpSecret de Firestore aqui.
+  // Solo mostrar el modal de ingreso de password; la verificacion ocurre CF-side.
+  const email = (currentUser && (currentUser.email || '')) || '';
+  if (!email) return true; // sin email no hay gate (usuario anonimo / edge case)
+
+  // Guardar email para el flujo 2-step (se limpia en cancelPasswordGate o en ok:true).
+  _pwGateEmail = email.trim().toLowerCase();
+
+  return showPasswordGateModal();
 }
 
-function showPasswordGateModal(salt, expectedHash){
+function showPasswordGateModal(){
+  // S-8 B2-A: NO recibe salt ni expectedHash — la verificacion es CF-side.
+  // El DOM nunca almacena secretos criptograficos en dataset ni atributos.
   return new Promise(resolve => {
     passwordGateResolver = resolve;
     const overlay = document.getElementById('password-gate-modal');
     document.getElementById('pwd-gate-input').value = '';
     document.getElementById('pwd-gate-error').style.display = 'none';
     overlay.classList.add('open');
-    overlay.dataset.salt = salt;
-    overlay.dataset.expectedHash = expectedHash;
+    // Limpiar cualquier remanente de atributos de versiones anteriores (defensivo).
+    delete overlay.dataset.salt;
+    delete overlay.dataset.expectedHash;
     // Bloquear scroll del fondo mientras el gate esta abierto: el modal es
     // un "telon" full-screen, pero por defecto el body sigue scrolleable si
     // hay overflow. iOS Safari ignora overflow:hidden en body, asi que
@@ -31382,26 +31409,78 @@ function showPasswordGateModal(salt, expectedHash){
 }
 
 window.submitPasswordGate = async function(){
-  const overlay = document.getElementById('password-gate-modal');
+  // S-8 B2-A: verificacion de password via CF server-side.
+  // La password se pasa al CF como texto plano sobre HTTPS; nunca se hashea
+  // en el cliente ni se guarda en el DOM. Se limpia inmediatamente post-call.
   const pwd = (document.getElementById('pwd-gate-input').value || '');
-  if (!pwd) { document.getElementById('pwd-gate-error').textContent = 'Ingresá la contraseña.'; document.getElementById('pwd-gate-error').style.display = ''; return; }
-  const hash = await hashPasswordSHA256(pwd, overlay.dataset.salt);
-  if (hash === overlay.dataset.expectedHash) {
+  if (!pwd) {
+    document.getElementById('pwd-gate-error').textContent = 'Ingresá la contraseña.';
+    document.getElementById('pwd-gate-error').style.display = '';
+    return;
+  }
+
+  const submitBtn = document.getElementById('pwd-gate-submit');
+  if (submitBtn) submitBtn.disabled = true;
+  document.getElementById('pwd-gate-error').style.display = 'none';
+
+  // Guardar password temporalmente para el flujo 2-step TOTP.
+  _pwGatePassword = pwd;
+
+  let result;
+  try {
+    const callAuthVerify = firebase.app().functions('southamerica-east1').httpsCallable('authVerifyLoginCF');
+    const payload = {
+      email: _pwGateEmail || '',
+      password: pwd,
+      sha256EmailHash: await _sha256HexClient(_pwGateEmail || ''),
+    };
+    result = (await callAuthVerify(payload)).data;
+  } catch(e) {
+    if (submitBtn) submitBtn.disabled = false;
+    _pwGatePassword = null;
+    const err = document.getElementById('pwd-gate-error');
+    err.textContent = 'Error del sistema, reintentá en 1 minuto.';
+    err.style.display = '';
+    return;
+  } finally {
+    // La password en el input se limpia siempre, independientemente del resultado.
+    document.getElementById('pwd-gate-input').value = '';
+  }
+
+  if (submitBtn) submitBtn.disabled = false;
+
+  if (result && result.ok === true) {
+    // Gate pasado — no necesita TOTP (o ya fue verificado en el 2do paso).
+    _pwGatePassword = null;
+    _pwGateEmail = null;
+    const overlay = document.getElementById('password-gate-modal');
     overlay.classList.remove('open');
-    // Restaurar scroll del body (lo bloqueamos al abrir el modal).
     document.body.style.overflow = '';
     document.documentElement.style.overflow = '';
     if (passwordGateResolver) { passwordGateResolver(true); passwordGateResolver = null; }
+  } else if (result && result.ok === false && result.code === 'requires_totp') {
+    // TOTP requerido: mostrar modal de codigo sin cerrar el gate.
+    // _pwGatePassword se preserva para el 2do paso.
+    const overlay = document.getElementById('password-gate-modal');
+    overlay.classList.remove('open');
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+    // Mostrar TOTP modal inline en el flujo del password gate.
+    showTotpGateModal();
   } else {
+    // Password incorrecta u otro error.
+    _pwGatePassword = null;
     const err = document.getElementById('pwd-gate-error');
     err.textContent = 'Contraseña incorrecta. Si la olvidaste, pedile a Mariano que te la resetee.';
     err.style.display = '';
-    document.getElementById('pwd-gate-input').value = '';
     document.getElementById('pwd-gate-input').focus();
   }
 };
 
 window.cancelPasswordGate = async function(){
+  // S-8 B2-A: limpiar estado temporal del flujo 2-step al cancelar.
+  _pwGatePassword = null;
+  _pwGateEmail = null;
   const overlay = document.getElementById('password-gate-modal');
   overlay.classList.remove('open');
   document.body.style.overflow = '';
@@ -31446,27 +31525,45 @@ function setTotpLastOK(uid){
 const TOTP_REQUIRED_ROLES = [];
 
 async function ensureTotpGate(){
-  let snap;
-  try { snap = await fbDb.collection('roles').doc(currentUser.uid).get(); }
-  catch(e) { console.warn('totpGate fetch', e); return true; }
-  if (!snap || !snap.exists) return true;
-  const data = snap.data() || {};
-  const myRole = data.role || userRole;
-  const hasTotp = data.totpEnabled && data.totpSecret;
-  // FORZADO: si el rol exige 2FA y no esta configurado, hay que setearlo ahora.
-  if (TOTP_REQUIRED_ROLES.indexOf(myRole) >= 0 && !hasTotp) {
-    const ok = await forceTotpSelfSetup();
-    return ok; // si cancela, devuelve false => se desloguea
+  // S-8 B2-A: NO leer totpSecret de Firestore aqui.
+  // Si el flujo de 2 pasos ya paso por el password gate y llamo a
+  // authVerifyLoginCF con totpCode, el TOTP ya fue verificado CF-side.
+  // Si TOTP era requerido, submitPasswordGate redirige al totpGateModal
+  // y lo verifica en ese paso. Por lo tanto:
+  //
+  // Case A — el flujo TOTP se completo dentro de ensurePasswordGate
+  //   (submitTotpGate llamo al CF y obtuvo ok:true + passwordGateResolver(true)).
+  //   Cuando llegamos aqui, el passwordGateResolver ya resolvio — OK directo.
+  //
+  // Case B — el usuario no tiene TOTP habilitado.
+  //   El CF en el primer paso devuelve ok:true sin requires_totp — OK directo.
+  //
+  // Case C — TOTP_REQUIRED_ROLES tiene al usuario y no tiene TOTP configurado.
+  //   El CF devuelve invalid_credentials o no_role; el usuario ya no pasa el
+  //   password gate. forceTotpSelfSetup sigue siendo para ese path:
+  //   el CF todavia puede devolver un code futuro 'requires_totp_setup'
+  //   pero por ahora TOTP_REQUIRED_ROLES = [] entonces nunca se llega aqui.
+  //
+  // Case D — cache de 30 dias activa (mismo dispositivo, reciente verificacion).
+  //   Skip del gate completo (ni siquiera se llama al CF).
+  //
+  // IMPORTANTE: la cache de 30 dias se escribe en setTotpLastOK despues de
+  // un ok:true del CF que incluyo totpCode (dentro de submitTotpGate).
+
+  // Respetar el cache de 30 dias del dispositivo.
+  if (currentUser) {
+    const lastOK = getTotpLastOK(currentUser.uid);
+    if (lastOK && (Date.now() - lastOK) < TOTP_REMEMBER_MS) {
+      const dias = Math.floor((Date.now() - lastOK) / (24*60*60*1000));
+      console.log('[TOTP] skip: ultima verificacion OK hace ' + dias + ' dia(s) (cache de ' + TOTP_REMEMBER_DAYS + ' dias)');
+      return true;
+    }
   }
-  if (!hasTotp) return true; // rol no obligatorio y no tiene -> sigue OK
-  // Si verifico OK en los ultimos 30 dias (1 mes) en este dispositivo, skip.
-  const lastOK = getTotpLastOK(currentUser.uid);
-  if (lastOK && (Date.now() - lastOK) < TOTP_REMEMBER_MS) {
-    const dias = Math.floor((Date.now() - lastOK) / (24*60*60*1000));
-    console.log('[TOTP] skip: ultima verificacion OK hace ' + dias + ' dia(s) (cache de ' + TOTP_REMEMBER_DAYS + ' dias)');
-    return true;
-  }
-  return showTotpGateModal(data.totpSecret);
+
+  // Si llegamos aqui sin cache vigente, el password gate ya manejo el TOTP
+  // (si era requerido) a traves del flujo 2-step en submitPasswordGate.
+  // No hay nada mas que hacer.
+  return true;
 }
 
 // Pantalla bloqueante para usuarios con rol obligatorio que NO tienen 2FA todavia.
@@ -31499,13 +31596,14 @@ window.cancelForceTotpSetup = async function(){
   try { await fbAuth.signOut(); } catch(e) {}
 };
 
-function showTotpGateModal(secret){
+function showTotpGateModal(){
   return new Promise(resolve => {
     totpGateResolver = resolve;
     const overlay = document.getElementById('totp-gate-modal');
     document.getElementById('totp-gate-input').value = '';
     document.getElementById('totp-gate-error').style.display = 'none';
-    overlay.dataset.secret = secret;
+    // S-8 B1: NO almacenar totpSecret en el DOM. Verificacion ocurre server-side via authVerifyLoginCF.
+    delete overlay.dataset.secret;
     overlay.classList.add('open');
     // Bloquear scroll del fondo mientras el gate esta abierto.
     document.body.style.overflow = 'hidden';
@@ -31523,24 +31621,61 @@ window.submitTotpGate = async function(){
     err.style.display = '';
     return;
   }
-  const ok = await totpVerifyCode(overlay.dataset.secret, code, 1);
-  if (ok) {
+
+  // S-8 B1: verificacion TOTP server-side via authVerifyLoginCF (segundo paso del flujo 2-step).
+  // _pwGateEmail y _pwGatePassword se setearon en submitPasswordGate cuando el CF devolvio requires_totp.
+  const submitBtn = document.getElementById('totp-gate-submit') || null;
+  if (submitBtn) submitBtn.disabled = true;
+
+  let cfResult;
+  try {
+    const sha256Hash = await _sha256HexClient(_pwGateEmail || '');
+    const authVerifyLoginCF = firebase.app().functions('southamerica-east1').httpsCallable('authVerifyLoginCF');
+    const cfResp = await authVerifyLoginCF({
+      email: _pwGateEmail,
+      password: _pwGatePassword,
+      totpCode: code,
+      sha256EmailHash: sha256Hash,
+    });
+    cfResult = cfResp.data;
+  } catch(e) {
+    if (submitBtn) submitBtn.disabled = false;
+    const err = document.getElementById('totp-gate-error');
+    err.textContent = 'Error del sistema, reintentá en 1 minuto.';
+    err.style.display = '';
+    document.getElementById('totp-gate-input').value = '';
+    document.getElementById('totp-gate-input').focus();
+    return;
+  } finally {
+    // Siempre limpiar el input (§CLAUDE.md §68: no dejar credenciales en el DOM).
+    document.getElementById('totp-gate-input').value = '';
+  }
+
+  if (submitBtn) submitBtn.disabled = false;
+
+  if (cfResult && cfResult.ok) {
     overlay.classList.remove('open');
     document.body.style.overflow = '';
     document.documentElement.style.overflow = '';
     // Guardar timestamp para no pedir codigo de nuevo durante 30 dias.
     try { if (currentUser) setTotpLastOK(currentUser.uid); } catch(e) {}
+    // Limpiar credenciales temporales ANTES de resolver (fail-closed).
+    _pwGatePassword = null;
+    _pwGateEmail = null;
     if (totpGateResolver) { totpGateResolver(true); totpGateResolver = null; }
   } else {
     const err = document.getElementById('totp-gate-error');
-    err.textContent = 'Código incorrecto. Asegurate de tener la hora del celular sincronizada y reintentá.';
+    err.textContent = 'Error del sistema, reintentá en 1 minuto.';
     err.style.display = '';
-    document.getElementById('totp-gate-input').value = '';
     document.getElementById('totp-gate-input').focus();
+    // Mantener _pwGatePassword para permitir reintentos del codigo TOTP.
   }
 };
 
 window.cancelTotpGate = async function(){
+  // S-8 B1: limpiar credenciales temporales al cancelar el flujo 2-step TOTP.
+  _pwGatePassword = null;
+  _pwGateEmail = null;
   const overlay = document.getElementById('totp-gate-modal');
   overlay.classList.remove('open');
   document.body.style.overflow = '';

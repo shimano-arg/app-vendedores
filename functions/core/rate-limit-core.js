@@ -363,3 +363,37 @@ export async function recordAuthGateResult(deps, uid, opName, r) {
   const res = await registerAuthGateOutcome(deps, uid, opName, outcome === 'success');
   return { outcome, recorded: true, failStreak: res.failStreak, lockedUntil: res.lockedUntil };
 }
+
+/**
+ * Devuelve un slot de rate-limit para un gate de autenticacion cuando el
+ * intento fue valido (credenciales correctas) pero el flujo requiere un paso
+ * adicional del lado del usuario (ej. ingresar el codigo TOTP).
+ *
+ * Decrementa el contador `count` del opName en 1 (minimo 0) dentro de la
+ * ventana activa. No toca `failStreak`, `lockedUntil` ni `windowStartAt`.
+ * Idempotente: si count ya es 0 no escribe nada.
+ *
+ * @param {import('./rate-limit-core.js').RateLimitDeps | any} deps
+ * @param {string} uid
+ * @param {string} opName
+ * @returns {Promise<void>}
+ */
+export async function refundAuthGateSlot(deps, uid, opName) {
+  if (!uid || !opName) return;
+  const ref = deps.fbDb.collection('rate_limits').doc(uid);
+  await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    const op = data[opName] || {};
+    const currentCount = typeof op.count === 'number' ? op.count : 0;
+    if (currentCount <= 0) return;
+    tx.set(
+      ref,
+      {
+        [opName]: Object.assign({}, op, { count: currentCount - 1 }),
+      },
+      { merge: true }
+    );
+  });
+}
