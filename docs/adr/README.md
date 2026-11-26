@@ -15,7 +15,7 @@ el contexto, la decisión y las consecuencias de un cambio estructural.
 
 | N | Título | Status | Fecha |
 |---|---|---|---|
-| 0001 | Modelo de datos pedidos/líneas/reservas (PostgreSQL) | Proposed → Accepted en S-10 (ver PR schema PG) | 2026-11-26 |
+| 0001 | [Modelo de datos de pedidos + líneas + reservas en PostgreSQL](./0001-modelo-datos-pedidos-pg.md) | Accepted | 2026-11-26 |
 | 0002 | (informal — ver CLAUDE.md §56-§107) | — | — |
 | 0003 | Ambiente staging separado (ver guía PENDIENTE_HUMANO) | Accepted (project `app-vendedores-staging`) | 2026-11-26 |
 | 0004 | [Frontend React + TypeScript (Vite)](./0004-frontend-react-typescript-vite.md) | Accepted | 2026-11-26 |
