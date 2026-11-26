@@ -419,3 +419,22 @@ export async function disableTotpCore(deps, { targetUid, deleteFieldValue }) {
     throw new TransientAuthError('disableTotp tx fallo: ' + ((e && e.message) || e));
   }
 }
+
+/**
+ * Devuelve el estado TOTP del usuario SIN exponer el secreto crudo.
+ * Lee de /auth_secrets/{targetUid} (colección cerrada al cliente).
+ * @param {AuthSecretsDeps} deps
+ * @param {string} targetUid
+ * @returns {Promise<{enabled: boolean, hasSecret: boolean, setAt: string|null}>}
+ */
+export async function getTotpStatusCore(deps, targetUid) {
+  if (!targetUid) throw new Error('targetUid requerido');
+  const snap = await deps.fbDb.collection('auth_secrets').doc(targetUid).get();
+  if (!snap.exists) return { enabled: false, hasSecret: false, setAt: null };
+  const data = snap.data() || {};
+  return {
+    enabled: !!data.totpEnabled,
+    hasSecret: typeof data.totpSecret === 'string' && data.totpSecret.length > 0,
+    setAt: data.totpSetAt || null,
+  };
+}
