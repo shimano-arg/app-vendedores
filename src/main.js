@@ -355,6 +355,9 @@ import './domains/sap-integration-modal.js'; // ensureSapVendorsListener al logi
 import './domains/sap-service-layer.js'; // sapSL objeto usado por sap-auto-send
 import './domains/sap-auto-send-listener.js'; // ensureSapAutoSendListener reactivo
 import './domains/sap-admin-panel.js'; // listenSapMaps + ensureSapConfigListener al login
+// S-10 P2.8 (2026-11-26): version-check IIFE extraido de index.html (lineas 6364-6575).
+// Auto-check cada 3 min + modal "Nueva version" + window._checkAppVersion.
+import './domains/version-check.js'; // IIFE auto-arranca al load; expone window._checkAppVersion
 // Stack S-2 T4 (fire-and-forget, 20% sampling, no behavior change).
 import './domains/instrumentation.js'; // initInstrumentation (Web Vitals + cache + timing)
 
