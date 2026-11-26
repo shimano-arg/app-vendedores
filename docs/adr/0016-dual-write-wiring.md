@@ -1,9 +1,10 @@
 # ADR-0016 — Wiring dual-write Firestore → PG inline en commitPedidoCore
 
-- **Status**: Proposed
+- **Status**: Proposed (review adversarial pasado 2026-11-26)
 - **Fecha**: 2026-11-26
 - **Rama**: `feat/s12-dual-write-wiring`
 - **Decisor**: Mariano (pendiente — Phase 2 Stack S-12)
+- **Updates**: 2026-11-26 — fixes H1 + H2 + M1 + M2 del review adversarial.
 - **Supersedes**: parcialmente a `docs/superpowers/plans/2026-11-26-dual-write-pedidos.md` (sección "trigger onDocumentWritten"). Los helpers `transformPedidoToPg` + `comparePedidoParity` permanecen vigentes.
 
 ## Contexto
@@ -99,6 +100,64 @@ Archivos modificados:
 
 ## Verificación
 
-- `tests/functions/dual-write-commit-pedido.test.js` — 6 tests unit.
-- `backend-new/db/tests/dual-write-integration.test.js` — 4 tests integration contra `crm-staging`.
-- Post-merge: `operations_log` con `type='dual_write_ok|failed|skipped_*'` documenta cada ejecución.
+- `tests/functions/dual-write-commit-pedido.test.js` — 17 tests unit.
+- `tests/functions/dual-write-m1-m2.test.js` — 10 tests M1 + M2 (review 2026-11-26).
+- `tests/functions/dual-write-retry-worker.test.js` — 10 tests worker scheduled H2.
+- `tests/unit/audit/dual-write-shape-parity.test.js` — 7 tests H1 parity.
+- `tests/unit/audit/dual-write-pg-helpers-sync.test.js` — 1 test sync §57.
+- `tests/unit/dual-write-pg-helpers.test.js` — 10 tests SQL building.
+- `backend-new/db/tests/dual-write-integration.test.js` — 5 tests integration contra `crm-staging`.
+- Post-merge: `operations_log` con `type='dual_write_ok|failed|skipped_*|unexpected_err|retry_worker_run|pending_stale'` documenta cada ejecución.
+
+## Decisiones post-review adversarial (2026-11-26)
+
+El review adversarial detectó 4 issues que se resolvieron antes del merge:
+
+### H1 — Shape divergente idempotente vs happy path
+
+- **Problema**: el idempotent hit pasaba `existingPedido.data` (shape Firestore
+  nativo con `lines[]` splitteadas por state); el happy path pasaba un shape
+  sintético construido por `_buildPedidoDocForPg` que mergeaba `qtyConfirmed+qtyBO`
+  en 1 sola línea + omitía campos per-línea que `transformPedidoToPg` lee
+  (`enTransito`, `asigAtTransito`, `enDep11At`, `cancelledAt`, `asigRevertidaAt/By/Reason`,
+  `splitFromLineIndex`, `closedReason`, `closedBy`, `cancelledBy`, `discountPct`).
+- **Fix**: `commitInTransaction` ahora embeds `pedidoData` (el mismo objeto que
+  escribe a Firestore via `tx.set(pedidoRef, pedidoData)`) en el return como
+  `_pedidoDocForDualWrite`. El wrapper del commit extrae ese campo antes del
+  response al cliente (no leak) y lo pasa al replicador. `_buildPedidoDocForPg`
+  lo retorna tal cual.
+- **Test**: `dual-write-shape-parity.test.js` valida que el shape nativo se lee
+  correctamente por `transformPedidoToPg` (7 tests).
+
+### H2 — `dual_write_pending` sin TTL ni worker
+
+- **Problema**: la colección acumulaba entries sin mecanismo de retry automático.
+- **Fix**:
+  - `buildDualWritePendingEntry` agrega `createdAt` + `nextRetryAt` (= now + 5 min).
+  - Nuevos helpers puros `computeNextRetryAtIso(attempts)` (backoff exponencial 5min, 15min, 1hr, 4hr, 24hr) + `isDualWritePendingStale(entry)` (attempts > 10 OR firstFailedAt > 24h).
+  - Nuevo módulo `functions/core/dual-write-retry-worker-core.js` con `runDualWriteRetryWorker(deps)` fail-open.
+  - Nuevo scheduled CF `scheduledDualWriteRetry` en `functions/index.js` (cron every 15 minutes).
+  - Entries stale escriben `operations_log` con `type='dual_write_pending_stale'`.
+- **Test**: `dual-write-retry-worker.test.js` cubre happy path + backoff + stale alert + edge cases (10 tests).
+
+### M1 — Doble read Firestore del flag
+
+- **Problema**: `isFlagEnabled` hacía `.get()` cada invocación aunque el flags
+  doc ya estuviera cargado en memoria.
+- **Fix**: `commitPedidoCore` pre-carga `app_config/feature_flags` al top (via
+  `deps.featureFlagsDoc`) y lo pasa transitivamente. `isFlagEnabled` prefiere
+  el doc precargado si viene; fallback al `.get()` si no.
+- **Test**: `dual-write-m1-m2.test.js` M1a-M1f (6 tests) valida que
+  featureFlagsDoc precargado → 0 reads; sin él → 1 read.
+
+### M2 — Catch outer broad en `replicatePedidoToPg`
+
+- **Problema**: el catch outer atrapaba TODO (incluyendo TypeError/ReferenceError
+  del propio helper) y lo silenciaba con un log genérico. Bugs internos
+  enmascarados como "dual_write_fire_forget_err".
+- **Fix**: catch acotado solo a errores esperados de PG/transform
+  (`pg.DatabaseError` con `.code`, mensajes con ECONNREFUSED/ETIMEDOUT/etc.).
+  Errores inesperados (`TypeError`, `ReferenceError`) propagan al `.catch()`
+  del fire-and-forget del caller y ADEMÁS escriben `operations_log` con
+  `type='dual_write_unexpected_err'` + stack truncado 2000 chars.
+- **Test**: `dual-write-m1-m2.test.js` M2a-M2d (4 tests).

@@ -153,6 +153,69 @@ export async function enqueuePendingRetry(deps, pedidoId, err) {
 }
 
 /**
+ * Clasifica un error como "esperado del flow PG/transform" (donde enqueue
+ * tiene sentido — volver a reintentar manual/worker) vs "inesperado"
+ * (ReferenceError, TypeError del helper mismo, bug en commitPedidoCore).
+ *
+ * M2 (review 2026-11-26): el outer catch antes atrapaba TODO, enmascarando
+ * bugs internos (ej. `deps.undefined.undefined`). Ahora el outer solo loguea
+ * + escribe `operations_log` con type `dual_write_unexpected_err` y stack
+ * truncado a 2000 chars; el fire-and-forget del caller lo recibe pero no
+ * lo propaga al cliente.
+ *
+ * Tipos considerados "esperados de PG":
+ *   - pg.DatabaseError (code populated, ej. 23505 unique violation).
+ *   - Errores de red con message incluyendo 'ECONNREFUSED', 'ETIMEDOUT',
+ *     'connection timeout', 'connection terminated'.
+ *   - Errores de pool exhausted.
+ *
+ * @param {any} err
+ * @returns {boolean}
+ */
+function _isExpectedPgError(err) {
+  if (!err) return false;
+  // pg.DatabaseError tiene .code string (ej. '23505'). TypeErrors no.
+  if (typeof err.code === 'string' && err.code.length > 0) return true;
+  const msg = String(err.message || '').toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes('econnrefused') ||
+    msg.includes('etimedout') ||
+    msg.includes('connection timeout') ||
+    msg.includes('connection terminated') ||
+    msg.includes('connection ended') ||
+    msg.includes('pool is ended') ||
+    msg.includes('too many clients')
+  );
+}
+
+/**
+ * Escribe un entry en `operations_log` con type='dual_write_unexpected_err'.
+ * Fire-and-forget: nunca throws.
+ *
+ * @param {DualWriteDeps} deps
+ * @param {string} pedidoId
+ * @param {any} err
+ */
+async function _logUnexpectedToOperationsLog(deps, pedidoId, err) {
+  if (!deps || !deps.fbDb) return;
+  try {
+    const anyErr = /** @type {any} */ (err || {});
+    const stack = String(anyErr.stack || anyErr.message || String(err)).slice(0, 2000);
+    await deps.fbDb.collection('operations_log').add({
+      type: 'dual_write_unexpected_err',
+      pedidoId: String(pedidoId || ''),
+      errMessage: String(anyErr.message || '').slice(0, 2000),
+      errName: String(anyErr.name || ''),
+      errStack: stack,
+      timestamp: new Date(),
+    });
+  } catch (_logErr) {
+    // Fire-and-forget nested: no bloqueamos.
+  }
+}
+
+/**
  * Replica un documento `pedidos/{id}` de Firestore a PG. Fire-and-forget:
  * nunca propaga errores al caller.
  *
@@ -164,6 +227,13 @@ export async function enqueuePendingRetry(deps, pedidoId, err) {
  *   5. executeReplicationTx (BEGIN/COMMIT atomico).
  *   6. Success → log 'dual_write_ok'.
  *   7. Failure → log 'dual_write_failed' + enqueuePendingRetry.
+ *
+ * M2 (review 2026-11-26): el outer try/catch antes atrapaba TODO
+ * (including TypeError/ReferenceError del propio helper) y lo silenciaba
+ * con un log noise. Ahora los errores "esperados" (transform + PG) se
+ * capturan inline + encolan; errores "inesperados" (bugs del helper)
+ * propagan al .catch() del fire-and-forget y ADEMAS escriben a
+ * operations_log con stack truncado para forensics.
  *
  * Idempotente por `pedidoId`: 2 ejecuciones consecutivas con mismo
  * pedidoDoc producen el mismo estado final en PG (DELETE antes de INSERT
@@ -177,65 +247,98 @@ export async function enqueuePendingRetry(deps, pedidoId, err) {
  */
 export async function replicatePedidoToPg(deps, pedidoId, pedidoDoc) {
   const log = (deps && deps.log) || (() => {});
+  // Validaciones basicas — guards independientes del try/catch outer.
+  if (!pedidoId || typeof pedidoId !== 'string') {
+    log('dual_write_skipped_invalid_pedidoId', { pedidoId });
+    return { ok: false, skipped: 'invalid_pedidoId' };
+  }
+  if (!pedidoDoc || typeof pedidoDoc !== 'object') {
+    log('dual_write_skipped_invalid_pedidoDoc', { pedidoId });
+    return { ok: false, skipped: 'invalid_pedidoDoc' };
+  }
+
+  // 1. Flag check (fail-closed). Si isFlagEnabled lanza inesperado, log + propaga.
+  let enabled;
   try {
-    if (!pedidoId || typeof pedidoId !== 'string') {
-      log('dual_write_skipped_invalid_pedidoId', { pedidoId });
-      return { ok: false, skipped: 'invalid_pedidoId' };
+    enabled = await isFlagEnabled(deps);
+  } catch (flagErr) {
+    const e = /** @type {any} */ (flagErr);
+    if (_isExpectedPgError(e)) {
+      log('dual_write_flag_read_failed', { pedidoId, err: e && e.message });
+      return { ok: false, errorMessage: e && e.message };
     }
-    if (!pedidoDoc || typeof pedidoDoc !== 'object') {
-      log('dual_write_skipped_invalid_pedidoDoc', { pedidoId });
-      return { ok: false, skipped: 'invalid_pedidoDoc' };
-    }
+    // Inesperado: log + operations_log + rethrow para que .catch() del
+    // fire-and-forget lo vea.
+    log('dual_write_unexpected_err', { pedidoId, err: e && e.message, phase: 'flag_check' });
+    await _logUnexpectedToOperationsLog(deps, pedidoId, e);
+    throw e;
+  }
+  if (!enabled) {
+    log('dual_write_skipped_flag_off', { pedidoId });
+    return { ok: false, skipped: 'flag_off' };
+  }
 
-    // 1. Flag check (fail-closed).
-    const enabled = await isFlagEnabled(deps);
-    if (!enabled) {
-      log('dual_write_skipped_flag_off', { pedidoId });
-      return { ok: false, skipped: 'flag_off' };
-    }
+  // 2. Pool check.
+  if (!deps || !deps.pgPool) {
+    log('dual_write_skipped_no_pool', { pedidoId });
+    return { ok: false, skipped: 'no_pool' };
+  }
 
-    // 2. Pool check.
-    if (!deps || !deps.pgPool) {
-      log('dual_write_skipped_no_pool', { pedidoId });
-      return { ok: false, skipped: 'no_pool' };
+  // 3. Transform + 4. Build statements.
+  //   transformPedidoToPg lanza si header invalido. Lo capturamos y
+  //   encolamos para debug (el pedido existe en Firestore pero no se
+  //   puede replicar — bug en el shape, necesita manual review).
+  let statements;
+  try {
+    const docWithId = { ...pedidoDoc, _fsId: pedidoDoc._fsId || pedidoDoc.id || pedidoId };
+    const result = transformPedidoToPg(docWithId);
+    statements = buildReplicationStatements(result);
+    if (result.warnings && result.warnings.length > 0) {
+      log('dual_write_warnings', { pedidoId, warnings: result.warnings });
     }
-
-    // 3. Transform + 4. Build statements.
-    //   transformPedidoToPg lanza si header invalido. Lo capturamos y
-    //   encolamos para debug (el pedido existe en Firestore pero no se
-    //   puede replicar — bug en el shape, necesita manual review).
-    let statements;
-    try {
-      const docWithId = { ...pedidoDoc, _fsId: pedidoDoc._fsId || pedidoDoc.id || pedidoId };
-      const result = transformPedidoToPg(docWithId);
-      statements = buildReplicationStatements(result);
-      if (result.warnings && result.warnings.length > 0) {
-        log('dual_write_warnings', { pedidoId, warnings: result.warnings });
-      }
-    } catch (transformErr) {
-      const e = /** @type {any} */ (transformErr);
-      log('dual_write_transform_failed', { pedidoId, err: e.message });
-      await enqueuePendingRetry(deps, pedidoId, e);
-      return { ok: false, errorMessage: e.message };
+  } catch (transformErr) {
+    const e = /** @type {any} */ (transformErr);
+    // transformPedidoToPg lanza Errors con message 'invalid_pedido_doc: ...'
+    // — esperados (shape invalido). Si cualquier otro tipo (TypeError
+    // interno) → log operations_log + encolar igual (el shape no se puede
+    // replicar; manual review).
+    if (!e || (typeof e.message === 'string' && e.message.startsWith('invalid_pedido_doc'))) {
+      log('dual_write_transform_failed', { pedidoId, err: e && e.message });
+    } else {
+      log('dual_write_unexpected_err', {
+        pedidoId,
+        err: e && e.message,
+        phase: 'transform',
+      });
+      await _logUnexpectedToOperationsLog(deps, pedidoId, e);
     }
+    await enqueuePendingRetry(deps, pedidoId, e);
+    return { ok: false, errorMessage: e && e.message };
+  }
 
-    // 5. Execute tx.
-    try {
-      await executeReplicationTx(deps.pgPool, statements);
-      log('dual_write_ok', { pedidoId, stmts: statements.length });
-      return { ok: true };
-    } catch (pgErr) {
-      const e = /** @type {any} */ (pgErr);
+  // 5. Execute tx. Outer catch acotado a errores esperados de PG.
+  try {
+    await executeReplicationTx(deps.pgPool, statements);
+    log('dual_write_ok', { pedidoId, stmts: statements.length });
+    return { ok: true };
+  } catch (pgErr) {
+    const e = /** @type {any} */ (pgErr);
+    if (_isExpectedPgError(e)) {
       log('dual_write_failed', { pedidoId, err: e.message, code: e.code });
       await enqueuePendingRetry(deps, pedidoId, e);
       return { ok: false, errorMessage: e.message };
     }
-  } catch (unexpectedErr) {
-    // Red de seguridad: cualquier throw inesperado del propio helper NO
-    // propaga al caller. Es fire-and-forget.
-    const e = /** @type {any} */ (unexpectedErr);
-    log('dual_write_fire_forget_err', { pedidoId, err: e && e.message });
-    return { ok: false, errorMessage: e && e.message };
+    // Inesperado (TypeError/ReferenceError del codigo mismo): log +
+    // operations_log + encolar + rethrow. El .catch del fire-and-forget
+    // lo captura.
+    log('dual_write_unexpected_err', {
+      pedidoId,
+      err: e && e.message,
+      phase: 'execute_tx',
+    });
+    await _logUnexpectedToOperationsLog(deps, pedidoId, e);
+    await enqueuePendingRetry(deps, pedidoId, e);
+    throw e;
   }
 }
 

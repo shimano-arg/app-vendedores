@@ -236,20 +236,30 @@ export function buildReplicationStatements(transformResult) {
  * `pedidoId` como doc id para dedupe natural + `merge: true` para
  * acumular attempts.
  *
+ * H2 (review 2026-11-26): se agregan `createdAt` + `nextRetryAt` para que
+ * el worker (`scheduledDualWriteRetry`) sepa cuando intentar de nuevo.
+ * Backoff inicial = 5 min desde el failedAt.
+ *
  * @param {string} pedidoId
  * @param {Error | {message?: string, code?: string}} err
- * @param {{nowIso?: string, firstFailedAtIso?: string}} [opts]
+ * @param {{nowIso?: string, firstFailedAtIso?: string, nextRetryAtIso?: string}} [opts]
  * @returns {Record<string, unknown>}
  */
 export function buildDualWritePendingEntry(pedidoId, err, opts) {
   const o = opts || {};
   const nowIso = o.nowIso || new Date().toISOString();
   const anyErr = /** @type {any} */ (err);
+  // H2: nextRetryAt default = now + 5 min (initial backoff). El worker
+  // actualiza este campo con backoff exponencial en cada retry.
+  const nextRetryIso =
+    o.nextRetryAtIso || new Date(new Date(nowIso).getTime() + 5 * 60 * 1000).toISOString();
   /** @type {Record<string, any>} */
   const entry = {
     pedidoId: String(pedidoId),
+    createdAt: nowIso, // H2: timestamp de creacion del doc (no se pisa con merge).
     failedAt: nowIso,
     lastAttemptAt: nowIso,
+    nextRetryAt: nextRetryIso, // H2: cuando el worker puede reintentarlo.
     errorMessage: err && err.message ? String(err.message).slice(0, 2000) : null,
     errorCode: anyErr && anyErr.code ? String(anyErr.code) : null,
     // attempts se incrementa en el .set({merge:true}) via FieldValue.increment(1)
@@ -262,4 +272,46 @@ export function buildDualWritePendingEntry(pedidoId, err, opts) {
   return entry;
 }
 
-export const DUAL_WRITE_PG_HELPERS_VERSION = 1;
+/**
+ * Computa el siguiente `nextRetryAt` basado en el numero de attempts actual.
+ * Backoff exponencial: 5min, 15min, 1hr, 4hr, 24hr (capped).
+ *
+ * @param {number} attempts - numero de attempts YA ejecutados (incluye el que falló).
+ * @param {{nowIso?: string}} [opts]
+ * @returns {string} ISO del proximo retry.
+ */
+export function computeNextRetryAtIso(attempts, opts) {
+  const o = opts || {};
+  const nowIso = o.nowIso || new Date().toISOString();
+  const nowMs = new Date(nowIso).getTime();
+  // Tabla: attempts 1 → 5min, 2 → 15min, 3 → 1hr, 4 → 4hr, 5+ → 24hr.
+  const MIN = 60 * 1000;
+  const HR = 60 * MIN;
+  const schedule = [5 * MIN, 15 * MIN, 1 * HR, 4 * HR, 24 * HR];
+  const idx = Math.max(0, Math.min(schedule.length - 1, (Number(attempts) || 1) - 1));
+  return new Date(nowMs + schedule[idx]).toISOString();
+}
+
+/**
+ * Decide si un pending entry es "stale" (necesita alerta al admin).
+ * Condiciones: attempts > 10 OR firstFailedAt > 24h ago.
+ *
+ * @param {{attempts?: number, firstFailedAt?: string}} entry
+ * @param {{nowIso?: string}} [opts]
+ * @returns {boolean}
+ */
+export function isDualWritePendingStale(entry, opts) {
+  if (!entry || typeof entry !== 'object') return false;
+  const o = opts || {};
+  const nowIso = o.nowIso || new Date().toISOString();
+  const nowMs = new Date(nowIso).getTime();
+  const attempts = Number(entry.attempts || 0);
+  if (attempts > 10) return true;
+  if (entry.firstFailedAt) {
+    const ageMs = nowMs - new Date(entry.firstFailedAt).getTime();
+    if (ageMs > 24 * 60 * 60 * 1000) return true;
+  }
+  return false;
+}
+
+export const DUAL_WRITE_PG_HELPERS_VERSION = 2;

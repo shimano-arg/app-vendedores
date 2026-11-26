@@ -56,6 +56,12 @@
  *   alcance sobre la orden en espera de origen y los pedidos de asigRefs.
  * @property {(uid: string) => Promise<any>} [getRoleDoc] Lector de roles/{uid}
  *   para el alcance del interno (ver interno-scope.js).
+ * @property {Record<string, any> | null | undefined} [featureFlagsDoc] Stack
+ *   S-12 M1 (review 2026-11-26): `app_config/feature_flags` precargado por el
+ *   core al inicio para evitar reads duplicados. Si `undefined`, el core lo
+ *   carga; si viene seteado (null incluido), no se recarga.
+ * @property {any} [pgPool] Stack S-12: pg.Pool para dual-write. Opcional —
+ *   `replicatePedidoToPg` lo lee de aquí. TBD wiring en `functions/index.js`.
  */
 
 import {
@@ -150,6 +156,25 @@ export async function commitPedidoCore(deps, payload) {
   const nowIso = new Date(now).toISOString();
   // Stack S-2 T4: phase timers (fire-and-forget, 20% sampling, never throws).
   const _timers = createPhaseTimers();
+
+  // Stack S-12 M1 (review 2026-11-26): pre-cargar `app_config/feature_flags`
+  // una sola vez al inicio y pasarlo a los helpers que lo consuman via
+  // `deps.featureFlagsDoc`. Antes `replicatePedidoToPg` hacia un read
+  // extra por commit (1 por idempotent hit + 1 por happy path). Ahora:
+  //   - commit happy path: 1 read de flags (este), 0 reads dentro de dual-write.
+  //   - commit idempotent: 1 read de flags, 0 reads dentro de dual-write.
+  // Fire-and-forget: si falla, cae al read interno de dual-write (fallback
+  // via deps.fbDb) y en ultima instancia a flag OFF (fail-closed).
+  if (deps && deps.featureFlagsDoc === undefined) {
+    try {
+      const _flagsSnap = await deps.fbDb.doc('app_config/feature_flags').get();
+      deps.featureFlagsDoc = _flagsSnap && _flagsSnap.exists ? _flagsSnap.data() || null : null;
+    } catch (_eFlags) {
+      // No bloquear — dual-write tiene su propio fallback (y los demas
+      // call-sites que necesiten flags tambien pueden recargar).
+      deps.featureFlagsDoc = null;
+    }
+  }
 
   // S-3 adversarial fix F3 (2026-11-25): wrap return makeError para
   // emitir phase timers también en rechazos. Antes solo el happy path
@@ -754,7 +779,11 @@ export async function commitPedidoCore(deps, payload) {
           // No propagar.
         }
       }
-      const { _absorbSkipped: _omitAbsorbSkipped, ...resultForClient } = result;
+      const {
+        _absorbSkipped: _omitAbsorbSkipped,
+        _pedidoDocForDualWrite: _pedidoDocEmbedded,
+        ...resultForClient
+      } = result;
       // Stack S-2 T4: emit phase timers. Fire-and-forget.
       // S-3 adversarial fix F3 (2026-11-25): commitInTransaction puede
       // retornar `{ok:false, errorCode}` directamente (sin throw) para
@@ -766,12 +795,16 @@ export async function commitPedidoCore(deps, payload) {
           ? 'rejected_' + (resultForClient.errorCode || 'UNKNOWN')
           : 'ok';
       emitPhaseTimers(deps, payload, _timers, _outcome);
-      // Stack S-12 (ADR-0016): dual-write fire-and-forget solo en commit OK.
-      // Si el tx devolvio ok:false (ej. manual_backorder sin linesPrebuilt),
-      // no replicamos. Si ok:true, armamos el shape Firestore desde el payload
-      // + resultForClient y lo pasamos al replicador. Nunca bloquea el return.
+      // Stack S-12 (ADR-0016 + H1 fix 2026-11-26): dual-write fire-and-forget
+      // solo en commit OK. Pasa el shape EXACTO que acabamos de persistir en
+      // Firestore (via `_pedidoDocEmbedded` del result) — garantiza paridad
+      // de shape con el idempotent-hit path. Nunca bloquea el return.
       if (resultForClient && resultForClient.ok === true && resultForClient.pedidoId) {
-        const pedidoDocForPg = _buildPedidoDocForPg(payload, resultForClient, now);
+        const pedidoDocForPg = _buildPedidoDocForPg(
+          payload,
+          { ...resultForClient, _pedidoDocForDualWrite: _pedidoDocEmbedded },
+          now
+        );
         _fireAndForgetDualWrite(deps, resultForClient.pedidoId, pedidoDocForPg);
       }
       return { ...resultForClient, servidorNowMs: now, commitAtIso: nowIso };
@@ -1838,6 +1871,11 @@ async function commitInTransaction(deps, tx, payload, now, nowIso) {
     boAbsorbSkippedCount: absorbSkipped.length,
     _absorbSkipped: absorbSkipped,
     attempts: 1,
+    // Stack S-12 H1 (review 2026-11-26): el shape Firestore nativo que
+    // acabamos de persistir, para que el dual-write replique el MISMO
+    // shape que el idempotent-hit (existingPedido.data). Nunca enviar al
+    // cliente — se saca en el caller justo antes del return.
+    _pedidoDocForDualWrite: pedidoData,
   };
 }
 
@@ -2736,18 +2774,27 @@ function _fireAndForgetDualWrite(deps, pedidoId, pedidoDoc) {
 }
 
 /**
- * Stack S-12 (ADR-0016): arma un shape Firestore minimo para pasarle al
- * replicador dual-write a partir del payload del cliente + el result
- * del commitInTransaction.
+ * Stack S-12 (ADR-0016 + review adversarial H1): arma un shape Firestore
+ * EXACTAMENTE equivalente al que persiste `commitInTransaction` en
+ * `pedidos/{id}` para pasarle al replicador dual-write.
  *
- * Shape output es el mismo que pedido-doc en Firestore (con `lines[]`
- * reflejando qtyConfirmed/qtyBO del result en vez de la pediste del
- * cliente). `transformPedidoToPg` lo normaliza al shape PG.
+ * H1 (review 2026-11-26): el idempotent-hit path pasa `existingPedido.data`
+ * (shape Firestore nativo) al dual-write. El happy path tiene que pasar el
+ * mismo shape para que `transformPedidoToPg` lea los mismos campos. La
+ * version previa de este helper emitia 1 linea por SKU (mergeado
+ * qtyConfirmed+qtyBO) + omitia campos per-linea que transformPedidoToPg
+ * lee (`enTransito`, `asigAtTransito`, `enDep11At`, `cancelledAt`,
+ * `asigRevertidaAt/By/Reason`, `splitFromLineIndex`, `closedReason`,
+ * `closedBy`, `cancelledBy`, `discountPct`). Fix: usa `pedidoData` tal cual
+ * lo escribio el tx (incluye `lines: docLines` ya splitteado por state).
  *
- * Decision importante: `lines[]` acá mapea `qtyConfirmed` → `state:'confirmed'`
- * + `qtyBO` → `state:'BO'`. Una línea cliente que resulta en 2u confirmed +
- * 1u BO ya fue splitteada en 2 lineasResultado por el commitInTransaction;
- * aqui las reflejamos tal como vienen.
+ * `pedidoData` viene expuesto en `resultForClient._pedidoDocForDualWrite`
+ * (ver `commitInTransaction` — campo privado, no se envia al cliente).
+ *
+ * Fallback: si por alguna razon (version vieja, path legacy) no esta el
+ * `_pedidoDocForDualWrite`, reconstruye con splitting por SKU — garantiza
+ * shape consistente con lo que Firestore tiene aunque el shape de las
+ * lineas pueda diferir en campos opcionales.
  *
  * @param {any} payload
  * @param {any} resultForClient
@@ -2755,38 +2802,54 @@ function _fireAndForgetDualWrite(deps, pedidoId, pedidoDoc) {
  * @returns {Record<string, any>}
  */
 function _buildPedidoDocForPg(payload, resultForClient, nowMs) {
+  // H1 fix: usar pedidoData directo si vino embebido en el result.
+  // Shape matchea byte-for-byte con `existingPedido.data` del idempotent hit
+  // (ambos son `pedidoRef.set(pedidoData)` → `doc.data()`). `replicatePedidoToPg`
+  // se encarga del `_fsId` fallback a `pedidoId` cuando el shape nativo no lo
+  // tiene (Firestore lo almacena como doc id, no como field).
+  if (
+    resultForClient &&
+    resultForClient._pedidoDocForDualWrite &&
+    typeof resultForClient._pedidoDocForDualWrite === 'object'
+  ) {
+    return resultForClient._pedidoDocForDualWrite;
+  }
+
+  // Fallback legacy — splittea qtyConfirmed/qtyBO en 2 lineas para que
+  // el shape per-linea matchee con lo que Firestore persiste (docLines).
   const nowIso = new Date(nowMs).toISOString();
-  const lines = Array.isArray(resultForClient.lines)
-    ? resultForClient.lines.map((/** @type {any} */ l) => {
-        const qtyConfirmed = Number(l.qtyConfirmed || 0);
-        const qtyBO = Number(l.qtyBO || 0);
-        // Elegimos un state representativo por línea. commitInTransaction
-        // emite 1 lineaResultado por SKU: si tiene qtyConfirmed > 0 es
-        // 'confirmed'; si solo qtyBO > 0 es 'BO'; si ambas son 0 es
-        // 'cancelled' (edge raro). Un mismo SKU que resulta en 2 u
-        // confirmed + 1 u BO se emite como una sola linea con ambas qty
-        // populadas — mantenemos la convencion del shape aqui.
-        /** @type {'confirmed' | 'BO' | 'cancelled'} */
-        const state = qtyConfirmed > 0 ? 'confirmed' : qtyBO > 0 ? 'BO' : 'cancelled';
-        const qty = qtyConfirmed + qtyBO;
-        const qtyOpen = qty;
-        return {
-          code: l.sku,
-          state,
-          qty: qty > 0 ? qty : 1, // guard contra qty=0 que transformPedidoToPg rechazaria.
-          qtyOpen: qtyOpen > 0 ? qtyOpen : 0,
-          qtyCancelled: 0,
-          price: Number(l.precio || 0),
-          // asigAt se deja null — el core nunca emite state='ASIG' aca
-          // (las ASIG viven en el pedido origen; el pedido NUEVO va
-          // directo a confirmed o BO).
-          asigAt: null,
-          confirmedAt: state === 'confirmed' ? nowIso : null,
-        };
-      })
+  /** @type {Array<Record<string, any>>} */
+  const lines = [];
+  const resultLines = Array.isArray(resultForClient && resultForClient.lines)
+    ? resultForClient.lines
     : [];
+  for (const l of resultLines) {
+    const qtyConfirmed = Number(l.qtyConfirmed || 0);
+    const qtyBO = Number(l.qtyBO || 0);
+    if (qtyConfirmed > 0) {
+      lines.push({
+        code: l.sku,
+        state: 'confirmed',
+        qty: qtyConfirmed,
+        qtyOpen: qtyConfirmed,
+        qtyCancelled: 0,
+        price: Number(l.precio || 0),
+        confirmedAt: nowIso,
+      });
+    }
+    if (qtyBO > 0) {
+      lines.push({
+        code: l.sku,
+        state: 'BO',
+        qty: qtyBO,
+        qtyOpen: qtyBO,
+        qtyCancelled: 0,
+        price: Number(l.precio || 0),
+      });
+    }
+    // Edge: qtyConfirmed=0 && qtyBO=0 — no emitimos nada (shape nativo tampoco).
+  }
   return {
-    _fsId: resultForClient.pedidoId,
     orderNumber: resultForClient.orderNumber || resultForClient._orderNumber || 0,
     clientCardCode: payload && payload.cardCode,
     clientName: (payload && payload.clientName) || '',
@@ -2796,7 +2859,7 @@ function _buildPedidoDocForPg(payload, resultForClient, nowMs) {
     cargadoPorUid: (payload && payload.cargadoPorUid) || (payload && payload.ownerUid) || '',
     origen: (payload && payload.origen) || 'manual',
     draftId: (payload && payload.draftId) || null,
-    transferidoSAP: {},
+    transferidoSAP: null,
     createdAt: nowIso,
     updatedAt: nowIso,
     closedAt: null,
