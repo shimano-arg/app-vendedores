@@ -1,115 +1,83 @@
-# ADR-0015: Mobile first + Core Web Vitals como criterios de aceptación por pantalla
+# ADR-0015: Mobile-first + Core Web Vitals en el frontend nuevo
 
 - **Status**: Accepted (2026-11-26).
-- **Decididor**: Mariano (owner técnico).
-- **Fecha decisión**: 2026-11-26 11:25 ART.
-- **Supersede**: ninguno — formaliza una expectativa ya implícita (CLAUDE.md §106 patrón pill mobile + apple-design §21).
-- **Relacionado**: ADR-004 (frontend React), ADR-011 (bundle budget), ADR-013 (piloto solo lectura).
+- **Decididores**: Mariano (owner técnico).
+- **Relacionado**: ADR-004 (stack), ADR-011 (bundle budget), ADR-013 (piloto solo-lectura).
 
 ## Contexto
 
-La app se usa **100% desde celular** (CLAUDE.md §21). Hoy no hay baseline cuantitativa de performance mobile por pantalla — las decisiones de UX pasan por "le pregunto a un vendedor" o "me parece lento". El equipo no tiene manera de comparar objetivamente antes/después de un cambio.
+Los vendedores usan el CRM 100% desde celular. El CRM legacy evolucionó mobile-first ad-hoc (CLAUDE.md §21 apple-design) sin presupuesto formal de métricas. El frontend nuevo (ADR-004) tiene oportunidad de arrancar con targets explícitos.
 
-Google formalizó Core Web Vitals (CWV) como estándar — tres métricas que correlacionan con la percepción del usuario:
+Device de referencia (del parque real de vendedores 2026):
 
-- **LCP (Largest Contentful Paint)**: tiempo hasta que el elemento visualmente más grande termina de pintar. Mide "cuándo parece cargada la pantalla".
-- **INP (Interaction to Next Paint)**: latencia desde tap/click hasta próximo frame visible. Mide "cuán fluida se siente la interacción". Reemplazó FID en 2024.
-- **CLS (Cumulative Layout Shift)**: suma de desplazamientos inesperados del layout. Mide "qué tanto se mueve la pantalla mientras cargo".
+- **Moto G Power** (o equivalente Android gama media-baja): 6GB RAM, Snapdragon 662, display 720×1600.
+- **Red 4G Argentina**: ~1.5 Mbps down, 150ms RTT (percentil 50 según Cloudflare Radar + reports de Mariano).
 
 ## Decisión
 
-Toda pantalla nueva (empezando por el piloto ADR-013) debe cumplir los siguientes **thresholds mobile** antes del merge:
+Targets Core Web Vitals (median de 3 corridas, Moto G Power equivalente + 4G throttle):
 
-| Métrica | Threshold "bueno" | Threshold "aceptable" | Fail |
-|---|---|---|---|
-| LCP | ≤ 2.5 s | ≤ 4.0 s | > 4.0 s |
-| INP | ≤ 200 ms | ≤ 500 ms | > 500 ms |
-| CLS | ≤ 0.1 | ≤ 0.25 | > 0.25 |
+| Métrica | Target | Rationale |
+|---|---|---|
+| LCP | ≤ 2.5s | Umbral `good` de web-vitals. Experiencia aceptable en 4G. |
+| INP | ≤ 200ms | Umbral `good`. Respuesta táctil sin "lag" percibido. |
+| CLS | ≤ 0.1 | Umbral `good`. Zero CLS en la primera vista es objetivo (skeleton reserva espacio). |
 
-**"Aceptable"** se permite temporalmente con justificación en el PR body + ticket de follow-up. **"Fail"** bloquea merge.
+Targets secundarios informativos:
 
-### Device + condiciones de medición
+- FCP ≤ 1.8s
+- TTFB ≤ 800ms
 
-- **Device emulado**: "Moto G Power" en Chrome DevTools (4× CPU throttle, 1.6 Mbps down, 750 Kbps up, 150 ms RTT — equivalente a 4G lento promedio en zonas no-urbanas de Argentina).
-- **Device real** (para validación final): un smartphone Android mid-range del equipo de ventas (Samsung A54 o similar) en red móvil real.
-- **3 corridas** por PR, el valor reportado es la **mediana** (patrón §11 tolerante a corridas fallidas).
+### Técnicas obligatorias
 
-### Herramientas
+1. **Skeleton inline en `index.html`** con mismo alto que el header real → zero CLS en el mount React.
+2. **Chunks lazy por ruta** (ADR-011 por-ruta ≤ 50 KB gzipped) → shell inicial liviano.
+3. **Fuentes del system stack** (`-apple-system, BlinkMacSystemFont, ...`) → zero FOIT, zero network.
+4. **`prefers-reduced-motion` respetado** en todas las animaciones (CLAUDE.md §21 §14).
+5. **Touch targets ≥ 44×44 px** en nav + botones (CLAUDE.md §106).
+6. **`web-vitals` library** reportando a `console.log` (P1.5) → `/api/metrics/cwv` (P1.6).
 
-- **Lighthouse CI** (GitHub Action `treosh/lighthouse-ci-action`) corre en cada PR de pantalla nueva.
-- **web-vitals** library (ya integrada en el bundle actual via instrumentation) para RUM — mide usuarios reales en producción.
-- Reporte CWV semanal: `scripts/audit/E3_cwv_report.cjs --days=7 --full` (ya existe, se corre post-18:00 ART cada día).
+### Técnicas opt-in (no obligatorias pre-P1.6)
 
-### Mobile first obligatorio
+- Preload/prefetch de chunks de ruta visible.
+- Service worker con stale-while-revalidate (CLAUDE.md §19).
+- Image lazy loading nativo (`loading="lazy"`) cuando aparezcan imágenes.
 
-- Diseño parte de **360×640 (iPhone SE legacy)** como mínimo soportado.
-- Breakpoints up: 640px, 768px, 1024px, 1280px. Desktop es "mejora progresiva", no target principal.
-- Touch targets ≥ 44×44 CSS px (Apple HIG + WCAG 2.5.5).
-- Viewport meta: `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`.
-- `prefers-reduced-motion` respetado (CLAUDE.md §21 punto 10).
-- Formularios: inputs con `inputmode` + `autocomplete` apropiados (tipo numérico abre teclado numérico).
+### Medición
 
-### Bundle budget
+`scripts/perf/measure-vitals-app2.js` (Puppeteer + CDP throttling):
 
-Complementa ADR-0011 (bundle budget general):
-
-- **Shell React**: ≤ 150 KB gzipped (React + ReactDOM + router + react-query + shell chrome).
-- **Por ruta**: ≤ 50 KB gzipped (componentes específicos de pantalla, excluyendo vendor shared).
-- **Imágenes**: AVIF primario con fallback WebP. Nunca PNG/JPG grandes sin `<picture>` + `loading="lazy"`.
-
-### PR template adiciones
-
-Cada PR que agrega/modifica una pantalla React debe incluir en el body:
-
-```
-## CWV baseline
-- Ruta: /app2/<ruta>
-- Device: Moto G Power (emulado) / 4G
-- LCP: <medido> s (threshold 2.5 s)
-- INP: <medido> ms (threshold 200 ms)
-- CLS: <medido> (threshold 0.1)
-- Bundle de ruta: <medido> KB gzipped (budget 50 KB)
-- 3 corridas, mediana. Link al Lighthouse CI run: <url>
-```
+- 3 corridas, tolerante a 1 fallo (CLAUDE.md §11).
+- CPU 4× + Network 1.5 Mbps / 750 kbps / 150ms (preset Moto G Power ~ ADR).
+- Output JSON compatible con lighthouse-ci.
+- Exit code 2 si algún target duro (LCP/INP/CLS) se excede por la median.
 
 ## Consecuencias
 
-### Bueno
+### Positivas
 
-- Baseline cuantitativa de performance → decisiones informadas.
-- Fricción explícita si un dev quiere agregar una pantalla pesada.
-- CWV Google-standard → aprovecha herramientas (Lighthouse, Search Console, PageSpeed Insights) sin inventar nada.
-- Mobile first elimina reclamos recurrentes del equipo ("no entra en mi celular", "el botón es chico").
+- Targets explícitos → PR puede fallar si se degradan.
+- Baseline temprano (P1.5) permite detectar regresiones en P1.6+.
+- Mobile-first forzado desde la primera iteración.
 
-### Malo
+### Negativas
 
-- Requiere setup inicial de Lighthouse CI + web-vitals wiring (1 PR dedicado, ~4 horas).
-- Puede bloquear merges si una pantalla cae por un vendor pesado agregado por accidente (ej. Chart.js). Trade-off aceptable — justamente eso buscamos.
-- Measurement en dispositivo real es manual (no automatizable 100%) — toca al dev del PR.
+- Scripts de medición en Windows con Puppeteer pueden ser flaky (ver CLAUDE.md §10 CDP timeouts). Mitigación: tolerante a 1 fallo + usar `page.evaluate` para dispatch events bajo throttling.
+- Device real de vendedores varía. "Moto G Power" es proxy; el target real es consistencia con web-vitals thresholds.
 
-### Lo que NO cambia
+## Verificación
 
-- Pantallas vanilla actuales (index.html) no están obligadas retroactivamente — la medición empieza con el piloto ADR-013. Las vanilla pueden mejorar oportunamente.
-- Rules Firestore.
-- Backend contracts (ADR-014).
+- `scripts/perf/measure-vitals-app2.js` corre contra el preview. Exit 0 si todos los targets pasan.
+- CI (`.github/workflows/frontend-ci.yml`) corre el script en P1.6 como gate blocking.
+- Spot checks manuales en Moto G Power real al menos 1× por release mayor.
 
-## Alternativas evaluadas
+## Referencias
 
-1. **Solo medir LCP** (ignorar INP y CLS). Rechazado — INP correlaciona mejor con percepción de "fluidez" en una app operativa. CLS baja frustración de usuarios que tapean el botón equivocado por reflow.
-2. **Thresholds desktop + mobile combinados**. Rechazado — desktop es minoría, enfoque claro en mobile first.
-3. **Solo RUM (producción) sin lighthouse CI**. Rechazado — RUM mide usuarios reales pero el feedback loop es días. Lighthouse en CI atrapa regresiones antes del merge.
-
-## Verification
-
-- `.github/workflows/lighthouse-ci.yml` nuevo (PR dedicado post-ADR).
-- Audit test `tests/unit/audit/cwv-pr-template.test.js`: si la label `pantalla-nueva` está presente en el PR, el body debe incluir el bloque "CWV baseline".
-- Script `scripts/audit/cwv_baseline_report.cjs --days=7` genera el reporte semanal (ya existe como `E3_cwv_report.cjs`, se extiende).
-
-## Rollback
-
-Si los thresholds resultan demasiado estrictos para el stack elegido:
-
-1. Primero: ajustar thresholds (ej. LCP 3.0 s en vez de 2.5 s) con PR dedicado + justificación.
-2. Después: si siguen bloqueando, considerar que el stack frontend (ADR-004) no es adecuado — pero eso es un ADR separado.
-
-El CI gate se puede desactivar temporalmente editando el workflow — nunca con `continue-on-error: true` (prohibido por regla S-9/S-10).
+- [web.dev/vitals](https://web.dev/vitals) — definición de LCP / INP / CLS.
+- CLAUDE.md §10 — CDP throttling + dispatch events desde `page.evaluate`.
+- CLAUDE.md §11 — scripts tolerantes en environment inestable.
+- CLAUDE.md §19 — stale-while-revalidate (reservado para P1.6+).
+- CLAUDE.md §21 — interacciones gestuales via `apple-design` skill.
+- ADR-004 — stack.
+- ADR-011 — bundle budget.
+- ADR-013 — piloto solo-lectura.

@@ -1,88 +1,84 @@
-# ADR-0004: Frontend React + TypeScript (Vite) conviviendo con la app actual
+# ADR-0004: Frontend nuevo en React + TypeScript + Vite bajo `/app2/`
 
 - **Status**: Accepted (2026-11-26).
-- **Decididor**: Mariano (owner técnico).
-- **Fecha decisión**: 2026-11-26 11:22 ART.
-- **Supersede**: ninguno formal. Cambio de dirección respecto del vanilla JS inline + bundle IIFE actual (CLAUDE.md §13-§18).
-- **Relacionado**: ADR-008 (migración no-downtime), ADR-011 (bundle budget), ADR-013 (piloto solo lectura), ADR-015 (mobile first + CWV).
+- **Decididores**: Mariano (owner técnico).
+- **Supersede**: nada (decisión nueva).
+- **Relacionado**: ADR-011 (bundle budget), ADR-013 (piloto solo-lectura), ADR-015 (CWV mobile-first).
 
 ## Contexto
 
-La app actual vive en `index.html` (~40k LOC inline) + un bundle IIFE que se cargan blocking en `<head>`. El pattern actual (documentado en CLAUDE.md §13-§18) tiene fricciones acumuladas: extracciones manuales de dominios (map-tile-layer PR #1470, force-update-app PR #1473), scope global compartido con `var`, idempotencia manual de listeners `onSnapshot`, y presupuesto de bundle sin herramienta formal (ADR-011 limitado a 3.5 MB + 400 KB chunks).
+El CRM vigente vive en `index.html` (root) + `app.bundle.js` + chunks (todos trackeados en `main`). Se shippean cambios directo al monolito desde hace meses. Problemas crecientes:
 
-Las métricas Core Web Vitals del piloto móvil van a ser el criterio de aceptación de cada pantalla nueva (ADR-015). Un stack con árbol de componentes + bundling moderno (tree-shaking real, code splitting por ruta, HMR en dev) baja la curva de aprendizaje para cada feature nueva y facilita medir CWV por pantalla.
+- Bundle del shell ~3,04 MB raw (CLAUDE.md §16, ADR-011). Techo hoy 3,5 MB — queda ~15% de margen.
+- No hay tipos. Debugging de bugs de shape (ej. `line.origen`, `asigRefs`) es by-grep.
+- Tests UI son casi solo smoke de Playwright. Costoso evolucionar UI compleja.
+- Interacciones mobile-first requieren disciplina manual (CLAUDE.md §21 apple-design) que no escala.
+
+Propuesta: abrir una segunda aplicación React + TS + Vite montada bajo `/app2/*` que conviva con el legacy. Mariano pidió explícitamente: "frontend nuevo, mobile-first, convive con el legacy; sin lógica de negocio todavía — eso es P1.6".
 
 ## Decisión
 
-El frontend nuevo del CRM se construye con **React 18 + TypeScript + Vite**, pantalla por pantalla, conviviendo con `index.html` del `shimano-arg.github.io`. Se despliega en la misma URL base bajo rutas nuevas (ej. `/app2/stock`, `/app2/pedidos`) sin desplazar las URLs actuales.
+Stack:
 
-### Stack técnico
+| Capa | Tecnología | Por qué |
+|---|---|---|
+| Lenguaje | TypeScript 5 strict (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`) | Tipos cubren bugs de shape (ej. §40.3 `asigRefs[]`) antes del test. |
+| UI | React 18 | Mismo mental model que el equipo. Concurrent features + Suspense maduros. |
+| Bundler | Vite 5 | HMR rápido, ESM nativo, target `es2022`. Sin la complejidad de webpack. |
+| Router | React Router v6 (`BrowserRouter` + `basename="/app2"`) | Convive con `/` legacy sin conflicto. URL limpia. |
+| Data fetching | TanStack Query v5 | `staleTime: 30s`, retry 2, `refetchOnWindowFocus: false` — pensado para vendedores en 4G. |
+| Testing unit | Vitest + Testing Library | Mismo runner que el legacy (`vitest.config.js` en root). |
+| Testing E2E | Playwright + Pixel 5 viewport | Mobile-first (ADR-015). |
+| Lint/format | Biome 2.5.6 | Extends del `biome.json` raíz. Consistencia cross-subproject. |
+| Styling | CSS nativo + CSS vars (`tokens.css`) | Sin runtime, sin bundle extra. Paleta alineada a `apple-design.css` legacy. |
+| Metrics | `web-vitals` v4 | LCP/INP/CLS/FCP/TTFB vía `console.log` prefixed `[CWV]` en P1.5; endpoint `/api/metrics/cwv` en P1.6. |
 
-- **Framework**: React 18 (concurrent mode disponible).
-- **Lenguaje**: TypeScript 5 (strict mode).
-- **Bundler**: Vite 5 (`@vitejs/plugin-react`).
-- **Router**: `react-router-dom` 6 (data loaders + nested routes).
-- **Estado server**: `@tanstack/react-query` v5 (cache + suspense).
-- **Estilos**: CSS Modules + Tailwind 4 (opcional, decisión en ADR aparte). Mobile first obligatorio.
-- **Tests**: Vitest + Testing Library (unit) + Playwright (e2e crítico).
-- **Lint**: Biome (ya en el repo; cero config extra).
+Output: `../app2-dist/` committed a `main` (mismo pattern que `app.bundle.js` legacy). GitHub Pages sirve `/` del root y `/app2/` del dist.
 
-### Convivencia con `index.html`
+### Alternativas descartadas
 
-- `index.html` sigue siendo el entry principal. React carga en una ruta `/app2/*` servida por Pages (mismo deploy pipeline).
-- Deploy único: `npm run build` genera `frontend-new/dist/` que Pages publica bajo `/app2/`.
-- Sesión Firebase compartida: `firebase.initializeApp(sameConfig)` desde el shell React lee el auth del usuario logueado en la app actual. El piloto solo lectura (ADR-013) no requiere cross-auth entre runtimes.
-- CSP / COOP sin cambios iniciales.
-
-### Mobile first + CWV (criterios de aceptación)
-
-Cada pantalla nueva debe cumplir (medido con Lighthouse CI o similar, device "Moto G Power" / 4G throttling):
-
-- **LCP ≤ 2.5 s**.
-- **INP ≤ 200 ms**.
-- **CLS ≤ 0.1**.
-- **Bundle de ruta ≤ 150 KB gzipped** (shell + componentes de pantalla, excluyendo vendor).
-- Breakpoint mínimo: 360×640 (iPhone SE legacy).
-
-Si una pantalla no cumple → bloquea merge.
+- **Next.js**: SSR requiere Node server o Vercel. Rompe la simplicidad de Pages. Convivencia con el legacy es más frágil (rewrite reglas). El equipo no necesita SSR hoy — los vendedores están autenticados y el contenido es dinámico post-login.
+- **Reemplazo in-place** del `index.html` legacy: imposible sin migrar los 14 dominios de una vez. El pattern "run strangler" (CLAUDE.md §13/§14 para extracciones) nos enseña que grandes refactors monolíticos no funcionan.
+- **Svelte / Solid**: menor adopción en el equipo. Costo de onboarding alto para el beneficio marginal.
+- **Vanilla TS + routing a mano**: viable pero no escalable. Router + QueryClient dan baseline productivo sin bundle significativo.
 
 ## Consecuencias
 
-### Bueno
+### Positivas
 
-- Code splitting por ruta via Vite → cada pantalla trae sólo lo suyo. No más bundle monolítico de 3.14 MB.
-- Mediciones CWV por pantalla gracias a Web Vitals library (ya hay instrumentación §instrumentation en el bundle actual — reusable).
-- React Query maneja cache de Firestore + backend nuevo con contratos tipados.
-- TypeScript strict atrapa errores de contrato cliente↔servidor (ADR-010).
-- Estándar de la industria → onboarding de futuros devs es inmediato.
+- Tests UI primero → regresiones UX se detectan en el PR, no en producción.
+- Tipos cubren `pedido.lines[i].origen` + `asigRefs[]` + `boEntryResolved` antes del gate server (CLAUDE.md §35/§56).
+- Shell separado del legacy permite iterar sin bloquear hotfixes al CRM productivo.
+- Chunks lazy por ruta (ADR-011): shell inicial ≤ 150 KB gzipped, cada pantalla ≤ 50 KB gzipped (target).
+- CWV instrumentados desde el día 1 (ADR-015).
 
-### Malo
+### Negativas
 
-- Curva de aprendizaje puntual para el equipo (hoy mayormente vanilla).
-- Dos runtimes en producción durante la convivencia (vanilla + React). Payload extra temporal estimado: +300 KB (React + ReactDOM + router + react-query minified).
-- CI pipeline duplica: `npm run test:unit` del repo raíz + `cd frontend-new && npm run test` nuevo.
-- Firestore SDK se carga dos veces (una por runtime). Mitigación: futuro trabajo de shared bundle via module federation o `import maps`.
+- Dos frontends en el mismo repo. Dev tiene que entender dónde vive cada cosa.
+- `app2-dist/` committed infla el repo (~500 KB-1 MB por release).
+- Hasta P1.6 el frontend nuevo no reemplaza nada — es overhead puro durante la transición.
 
-### Lo que NO cambia
+### Trade-offs aceptados
 
-- `index.html` sigue siendo entry principal durante la transición.
-- Deploy pipeline (Pages auto-deploy on merge to `main`) no cambia.
-- Firebase rules y Cloud Functions no cambian por este ADR.
-- Usuarios no notan el cambio salvo donde se migre una pantalla específica.
+- **`app2-dist/` committed** (en vez de pipeline CI que buildea en deploy): evita depender de GitHub Actions para servir Pages. Pattern probado con `app.bundle.js`.
+- **BrowserRouter + fallback 404** (en vez de HashRouter): URLs limpias para los vendedores; al costo de necesitar `404.html` copia de `index.html` en Pages (TODO P1.6).
+- **Sin SSR / sin Static Generation**: todo client-side. Para una app post-login es aceptable.
 
-## Alternativas evaluadas y descartadas
+## Verificación
 
-1. **Next.js 15** (SSR + RSC). Sobredimensionado para 15 vendedores + 2k writes/día. SSR requiere servidor nuevo (vs Pages static). Postergado a si se migra a server-rendered por SEO (no es caso).
-2. **Lit Elements / Web Components**. Permite integrar con vanilla sin framework. Rechazado por falta de ecosistema para data fetching + routing + tipos.
-3. **Preact + Preact Signals**. 10× más chico que React. Rechazado por equipo sin experiencia + biblioteca de componentes más chica.
-4. **Seguir con vanilla + mejor extraction pattern**. Rechazado porque no resuelve el problema de medir CWV por pantalla ni code splitting formal.
+1. `cd frontend-new && npm run build` genera `../app2-dist/` con `index.html` + assets hasheados.
+2. `npm run test` corre Vitest + Testing Library sobre `tests/unit/`.
+3. `npm run test:e2e` corre Playwright sobre la build (preview localhost).
+4. `.github/workflows/frontend-ci.yml` corre lint + typecheck + test + build en cada PR.
+5. `scripts/perf/measure-vitals-app2.js` mide CWV contra el preview — valida targets ADR-015.
 
-## Verification
+## Referencias
 
-- Audit test `tests/unit/audit/frontend-new-stack-contract.test.js` (a crear): verifica que `frontend-new/package.json` tiene `react@18`, `typescript@5`, `vite@5` como deps principales.
-- CI gate: PR que toca `frontend-new/` debe correr `cd frontend-new && npm run build && npm run test`.
-- Verificación empírica de CWV en cada PR de pantalla nueva: script `scripts/perf/measure-vitals-<route>.js` reporta LCP/INP/CLS en el PR body.
-
-## Rollback
-
-El stack React vive en `/app2/*`. Si se decide abortar, bastaría con desplegar sin `frontend-new/dist/` publicado en Pages. Las pantallas vanilla actuales siguen funcionando — no hay dependencia de React en el runtime principal.
+- CLAUDE.md §13/§14/§17/§18 — patterns aprendidos de extracciones E2 del legacy.
+- CLAUDE.md §16 — historial bundle budget.
+- CLAUDE.md §21 — interacciones gestuales vía `apple-design` skill.
+- CLAUDE.md §106 — botones pill `.btn-zonas`.
+- CLAUDE.md §108 — sin dark mode.
+- ADR-011 — bundle budget formal.
+- ADR-013 — piloto solo-lectura (stock + pedidos).
+- ADR-015 — Core Web Vitals mobile-first.
