@@ -24,6 +24,15 @@ const SCHEMA_SQL_PATH = resolve(__dirname, '../schema/0001_initial.sql');
 export const DATABASE_URL = process.env.DATABASE_URL || null;
 export const hasDb = Boolean(DATABASE_URL);
 
+// Schema aislado para la suite de tests. NUNCA tocar `public` del DB conectado
+// (en staging eso rompe cualquier data concurrente y es irrecuperable por el
+// gate del sandbox). Un schema fijo `crm_test` se recrea en cada corrida y
+// queda disponible para debug post-run (ej. `SET search_path TO crm_test; \dt`).
+//
+// Se puede sobrescribir via env `PG_TEST_SCHEMA` si se quiere aislar aun mas
+// (ej. CI matrix con N schemas paralelos).
+export const TEST_SCHEMA = process.env.PG_TEST_SCHEMA || 'crm_test';
+
 let sharedPool = null;
 let schemaApplied = false;
 
@@ -39,6 +48,10 @@ export function getPool() {
       max: 5,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,
+      // Cada conexion del pool arranca con search_path apuntando al schema
+      // aislado. Asi las queries `SELECT ... FROM pedidos` resuelven a
+      // `TEST_SCHEMA.pedidos` sin que los tests tengan que calificar.
+      options: `-c search_path=${TEST_SCHEMA},public`,
     });
   }
   return sharedPool;
@@ -48,17 +61,25 @@ export async function ensureSchemaApplied() {
   if (!hasDb) return;
   if (schemaApplied) return;
 
+  // Validamos la identidad del schema para evitar inyeccion via env.
+  if (!/^[a-z_][a-z0-9_]*$/i.test(TEST_SCHEMA)) {
+    throw new Error(
+      `PG_TEST_SCHEMA invalido: ${TEST_SCHEMA}. Use [a-zA-Z_][a-zA-Z0-9_]*.`
+    );
+  }
+
   const sql = readFileSync(SCHEMA_SQL_PATH, 'utf8');
   const pool = getPool();
   const client = await pool.connect();
   try {
     // La migracion 0001 no es idempotente per se (usa CREATE TYPE sin IF NOT
-    // EXISTS porque PostgreSQL no lo soporta para ENUM pre-9.1-style).
-    // Hacemos un DROP SCHEMA + CREATE SCHEMA defensivo: los tests arrancan
-    // siempre con DB limpia.
-    await client.query('DROP SCHEMA public CASCADE');
-    await client.query('CREATE SCHEMA public');
-    await client.query('GRANT ALL ON SCHEMA public TO public');
+    // EXISTS porque PostgreSQL no lo soporta para ENUM pre-9.1-style). Por eso
+    // hacemos DROP + CREATE del schema aislado — NUNCA tocar `public`.
+    await client.query(`DROP SCHEMA IF EXISTS "${TEST_SCHEMA}" CASCADE`);
+    await client.query(`CREATE SCHEMA "${TEST_SCHEMA}"`);
+    // search_path session-level: aplica solo a esta conexion durante el DDL.
+    // Las conexiones del pool ya lo tienen configurado via options.
+    await client.query(`SET search_path TO "${TEST_SCHEMA}", public`);
     await client.query(sql);
     schemaApplied = true;
   } finally {
