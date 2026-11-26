@@ -10,7 +10,7 @@
     "test:rules": "firebase emulators:exec --only firestore \"vitest run tests/rules/\"",
     "test:functions": "firebase emulators:exec --only functions,firestore,auth \"vitest run tests/functions/\"",
     "test:smoke": "vitest run tests/smoke/",
-    "test:e2e": "firebase emulators:exec --only functions,firestore,auth \"vitest run tests/e2e/01-login-create-commit.emulator.test.js tests/e2e/02-interno-pareja-scope.emulator.test.js tests/e2e/03-vde-pedido-y-roles.emulator.test.js tests/e2e/04-anon-y-sin-rol.emulator.test.js tests/e2e/05-waitlist-flujo.emulator.test.js tests/e2e/06-stock-changed.emulator.test.js\"",
+    "test:e2e": "firebase emulators:exec --only functions,firestore,auth \"vitest run tests/e2e/01-login-create-commit.emulator.test.js tests/e2e/02-interno-pareja-scope.emulator.test.js tests/e2e/03-vde-pedido-y-roles.emulator.test.js tests/e2e/04-anon-y-sin-rol.emulator.test.js tests/e2e/05-waitlist-flujo.emulator.test.js tests/e2e/06-stock-changed.emulator.test.js --fileParallelism=false\"",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "lint": "biome check",
     "lint:fix": "biome check --write",

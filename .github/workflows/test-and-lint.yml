@@ -307,7 +307,7 @@ jobs:
           REQUIRE_EMULATOR: '1'
         run: >-
           npx --yes firebase-tools@14.27.0 emulators:exec --project demo-ci --only firestore,auth
-          "npx vitest run tests/e2e/01-login-create-commit.emulator.test.js tests/e2e/02-interno-pareja-scope.emulator.test.js tests/e2e/03-vde-pedido-y-roles.emulator.test.js tests/e2e/04-anon-y-sin-rol.emulator.test.js tests/e2e/05-waitlist-flujo.emulator.test.js tests/e2e/06-stock-changed.emulator.test.js --reporter=default --reporter=json --outputFile=e2e-report.json"
+          "npx vitest run tests/e2e/01-login-create-commit.emulator.test.js tests/e2e/02-interno-pareja-scope.emulator.test.js tests/e2e/03-vde-pedido-y-roles.emulator.test.js tests/e2e/04-anon-y-sin-rol.emulator.test.js tests/e2e/05-waitlist-flujo.emulator.test.js tests/e2e/06-stock-changed.emulator.test.js --reporter=default --reporter=json --outputFile=e2e-report.json --fileParallelism=false"
 
       # Gate anti-falso-positivo E2E: mismo patron que `security-tests` y
       # `functions-with-emulator`. Verifica:
