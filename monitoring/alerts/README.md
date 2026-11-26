@@ -4,7 +4,7 @@ Templates de Cloud Monitoring alert policies para `app-vendedores-shimano`.
 
 Estos YAMLs **NO estan aplicados**. Son templates listos para `gcloud alpha monitoring policies create --policy-from-file=...` una vez que Mariano:
 
-1. Decida canal de notificacion (email vs Slack vs PagerDuty). Default: email a `erbinomariano@gmail.com`.
+1. Decida canal de notificacion (email vs Slack vs PagerDuty). Configurar el destino en los secrets del repo (`ALERT_EMAIL_FROM` / `ALERT_EMAIL_TO`) — no hardcodear el email en los templates (repo PÚBLICO).
 2. Cree el notification channel en Cloud Console (o via `gcloud alpha monitoring channels create`).
 3. Reemplace `NOTIFICATION_CHANNEL_ID_PLACEHOLDER` por el ID real del channel.
 4. Aplique con `gcloud` autenticado contra `app-vendedores-shimano`.
