@@ -314,39 +314,29 @@ export async function setPasswordCore(deps, { targetUid, password }) {
     throw new TransientAuthError('password invalida');
   }
   if (!deps.randomBytesHex) throw new TransientAuthError('randomBytesHex no inyectado');
-  if (!deps.sha256Hex) throw new TransientAuthError('sha256Hex no inyectado');
   const nowIso = _now(deps).toISOString();
-  // scrypt para auth_secrets (fuente de verdad nueva).
+  // B2-c (Stack S-10, 2026-11-26): corte del dual-write a /roles.
+  // B2-a ya desplegado: verifyPasswordCore + verifyTotpCore leen SOLO /auth_secrets.
+  // B3 (futuro): limpieza de los campos residuales passwordSalt/passwordHash en /roles
+  // via script de backfill con snapshot §55. Hasta entonces esos campos quedan stale
+  // pero nadie los lee (gate de lectura ya cortado en B2-a).
   const scryptSalt = deps.randomBytesHex(16);
   const scryptHash = await hashPasswordScrypt(deps, password, scryptSalt);
-  // sha256 legacy para /roles (compat rollback). Salt distinto a proposito.
-  const legacySalt = deps.randomBytesHex(8);
-  const legacyHash = await deps.sha256Hex(legacySalt + password);
 
   const asRef = deps.fbDb.collection('auth_secrets').doc(targetUid);
-  const rolesRef = deps.fbDb.collection('roles').doc(targetUid);
   try {
-    await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
-      // Dual-write atomico. Admin SDK bypassa reglas (incluido el futuro freeze).
-      tx.set(
-        asRef,
-        {
-          pwVersion: PW_VERSION_CURRENT,
-          pwSalt: scryptSalt,
-          pwHash: scryptHash,
-          pwUpdatedAt: nowIso,
-        },
-        { merge: true }
-      );
-      tx.set(
-        rolesRef,
-        { passwordSalt: legacySalt, passwordHash: legacyHash, pwUpdatedAt: nowIso },
-        { merge: true }
-      );
-    });
+    await asRef.set(
+      {
+        pwVersion: PW_VERSION_CURRENT,
+        pwSalt: scryptSalt,
+        pwHash: scryptHash,
+        pwUpdatedAt: nowIso,
+      },
+      { merge: true }
+    );
     return { ok: true };
   } catch (e) {
-    throw new TransientAuthError('setPassword tx fallo: ' + ((e && e.message) || e));
+    throw new TransientAuthError('setPassword fallo: ' + ((e && e.message) || e));
   }
 }
 
@@ -363,30 +353,23 @@ export async function setTotpCore(deps, { targetUid, secretBase32, enabledBy }) 
   }
   const nowIso = _now(deps).toISOString();
   const asRef = deps.fbDb.collection('auth_secrets').doc(targetUid);
-  const rolesRef = deps.fbDb.collection('roles').doc(targetUid);
+  // B2-c (Stack S-10, 2026-11-26): corte del dual-write a /roles. El bit
+  // totpEnabled + totpSecret residual en /roles queda stale; verifyTotpCore
+  // lee SOLO /auth_secrets (B2-a desplegado). Cleanup residual: B3 script.
+  // Mantenemos enabledBy en el audit del propio /auth_secrets.
   try {
-    await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
-      tx.set(
-        asRef,
-        { totpSecret: secretBase32, totpLastStep: -1, totpUpdatedAt: nowIso },
-        { merge: true }
-      );
-      // En /roles mantenemos totpEnabled (booleano no sensible) + el secret
-      // para compat de rollback; totpEnabled TRUE.
-      tx.set(
-        rolesRef,
-        {
-          totpEnabled: true,
-          totpSecret: secretBase32,
-          totpEnabledAt: nowIso,
-          totpEnabledBy: enabledBy || '',
-        },
-        { merge: true }
-      );
-    });
+    await asRef.set(
+      {
+        totpSecret: secretBase32,
+        totpLastStep: -1,
+        totpUpdatedAt: nowIso,
+        totpEnabledBy: enabledBy || '',
+      },
+      { merge: true }
+    );
     return { ok: true };
   } catch (e) {
-    throw new TransientAuthError('setTotp tx fallo: ' + ((e && e.message) || e));
+    throw new TransientAuthError('setTotp fallo: ' + ((e && e.message) || e));
   }
 }
 
@@ -400,23 +383,18 @@ export async function disableTotpCore(deps, { targetUid, deleteFieldValue }) {
   if (!targetUid) throw new TransientAuthError('targetUid requerido');
   const nowIso = _now(deps).toISOString();
   const asRef = deps.fbDb.collection('auth_secrets').doc(targetUid);
-  const rolesRef = deps.fbDb.collection('roles').doc(targetUid);
+  // B2-c (Stack S-10, 2026-11-26): corte del dual-write a /roles. Si queda
+  // totpEnabled=true en /roles tras este call, es stale: verifyTotpCore lee
+  // /auth_secrets y el totpSecret ahi ya fue borrado. B3 script limpia
+  // los campos residuales en /roles de forma centralizada.
   try {
-    await deps.fbDb.runTransaction(async (/** @type {any} */ tx) => {
-      tx.set(
-        asRef,
-        { totpSecret: deleteFieldValue, totpLastStep: deleteFieldValue, totpDisabledAt: nowIso },
-        { merge: true }
-      );
-      tx.set(
-        rolesRef,
-        { totpEnabled: false, totpSecret: deleteFieldValue, totpDisabledAt: nowIso },
-        { merge: true }
-      );
-    });
+    await asRef.set(
+      { totpSecret: deleteFieldValue, totpLastStep: deleteFieldValue, totpDisabledAt: nowIso },
+      { merge: true }
+    );
     return { ok: true };
   } catch (e) {
-    throw new TransientAuthError('disableTotp tx fallo: ' + ((e && e.message) || e));
+    throw new TransientAuthError('disableTotp fallo: ' + ((e && e.message) || e));
   }
 }
 

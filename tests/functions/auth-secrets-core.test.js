@@ -70,6 +70,16 @@ function makeMockDb(initial = {}) {
         const data = store.get(path);
         return { exists: data !== undefined, data: () => (data ? { ...data } : undefined) };
       },
+      async set(data, opts) {
+        const prev = opts && opts.merge ? store.get(path) || {} : {};
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(data)) {
+          if (v && v.__delete__) delete next[k];
+          else next[k] = v;
+        }
+        store.set(path, next);
+        return undefined;
+      },
     };
   }
   const api = {
@@ -224,38 +234,11 @@ describe('verifyTotpCore (anti-replay atomico)', () => {
   });
 });
 
-describe('setters dual-write (auth_secrets + roles)', () => {
-  it('setPasswordCore escribe ambos docs', async () => {
-    const db = makeMockDb({ 'roles/u1': { role: 'vendedor', email: 'v@x.com' } });
-    await setPasswordCore(baseDeps(db), { targetUid: 'u1', password: 'Nueva#12' });
-    const as = db._store.get('auth_secrets/u1');
-    const roles = db._store.get('roles/u1');
-    expect(as.pwVersion).toBe(PW_VERSION_CURRENT);
-    expect(as.pwHash).toBeTruthy();
-    expect(roles.passwordHash).toBeTruthy(); // dual-write legacy en roles
-    expect(roles.role).toBe('vendedor'); // merge, no pisa otros campos
-  });
-  it('setTotpCore activa en ambos + totpLastStep reset', async () => {
-    const db = makeMockDb({ 'roles/u1': { role: 'vendedor' } });
-    await setTotpCore(baseDeps(db), {
-      targetUid: 'u1',
-      secretBase32: 'JBSWY3DPEHPK3PXP',
-      enabledBy: 'a@x',
-    });
-    expect(db._store.get('auth_secrets/u1').totpSecret).toBe('JBSWY3DPEHPK3PXP');
-    expect(db._store.get('auth_secrets/u1').totpLastStep).toBe(-1);
-    expect(db._store.get('roles/u1').totpEnabled).toBe(true);
-  });
-  it('disableTotpCore borra el secret en ambos', async () => {
-    const db = makeMockDb({
-      'auth_secrets/u1': { totpSecret: 'JBSWY3DPEHPK3PXP', totpLastStep: 5 },
-      'roles/u1': { role: 'vendedor', totpEnabled: true, totpSecret: 'JBSWY3DPEHPK3PXP' },
-    });
-    await disableTotpCore(baseDeps(db), { targetUid: 'u1', deleteFieldValue: FAKE_DELETE });
-    expect(db._store.get('auth_secrets/u1').totpSecret).toBeUndefined();
-    expect(db._store.get('roles/u1').totpEnabled).toBe(false);
-    expect(db._store.get('roles/u1').totpSecret).toBeUndefined();
-  });
+// Nota: el bloque legacy "setters dual-write (auth_secrets + roles)" fue
+// reemplazado por "B2-c: no dual-write a /roles" (abajo). B2-c corto el
+// dual-write a /roles (Stack S-10, 2026-11-26) tras B2-a (v1573) migrar
+// login + TOTP a Cloud Function callable que lee SOLO /auth_secrets.
+describe('setters: guards de validacion', () => {
   it('setPasswordCore con password corta -> TransientAuthError', async () => {
     const db = makeMockDb();
     await expect(
@@ -363,5 +346,88 @@ describe('M5 base32Decode estricto', () => {
   it('entrada vacia -> throw', () => {
     expect(() => base32Decode('')).toThrow();
     expect(() => base32Decode('   ')).toThrow();
+  });
+});
+
+// B2-c (Stack S-10, 2026-11-26): corte del dual-write a /roles.
+// Verifica que setPassword/setTotp/disableTotp NO tocan la coleccion /roles.
+// Precedente: B2-a (v1573 commit b9023ada 2026-11-25) migro login+TOTP a CF
+// callable; verifyPasswordCore + verifyTotpCore ya leen SOLO /auth_secrets.
+// Si este test rompe en el futuro, se re-abrio la dependencia dual-write.
+describe('B2-c: no dual-write a /roles', () => {
+  it('setPasswordCore escribe solo /auth_secrets (sin /roles)', async () => {
+    const db = makeMockDb();
+    const deps = baseDeps(db);
+    await setPasswordCore(deps, { targetUid: 'u1', password: 'Secreta#1' });
+    expect(db._store.has('auth_secrets/u1')).toBe(true);
+    expect(db._store.has('roles/u1')).toBe(false);
+  });
+
+  it('setPasswordCore con doc /roles preexistente NO lo muta', async () => {
+    const db = makeMockDb({
+      'roles/u1': { role: 'vendedor', email: 'u1@shimano.com.ar', passwordHash: 'VIEJO' },
+    });
+    const deps = baseDeps(db);
+    await setPasswordCore(deps, { targetUid: 'u1', password: 'OtraPass#1' });
+    // /roles queda intacto (pisarlo seria re-abrir el dual-write).
+    const rolesAfter = db._store.get('roles/u1');
+    expect(rolesAfter.role).toBe('vendedor');
+    expect(rolesAfter.passwordHash).toBe('VIEJO'); // stale, pero sin leer (B2-a).
+    // /auth_secrets tiene la version nueva (scrypt-v2).
+    expect(db._store.get('auth_secrets/u1').pwVersion).toBe(PW_VERSION_CURRENT);
+  });
+
+  it('setTotpCore escribe solo /auth_secrets (sin /roles)', async () => {
+    const db = makeMockDb();
+    const deps = baseDeps(db);
+    await setTotpCore(deps, {
+      targetUid: 'u1',
+      secretBase32: 'JBSWY3DPEHPK3PXP',
+      enabledBy: 'admin@shimano.com.ar',
+    });
+    expect(db._store.has('auth_secrets/u1')).toBe(true);
+    expect(db._store.get('auth_secrets/u1').totpSecret).toBe('JBSWY3DPEHPK3PXP');
+    expect(db._store.get('auth_secrets/u1').totpEnabledBy).toBe('admin@shimano.com.ar');
+    expect(db._store.has('roles/u1')).toBe(false);
+  });
+
+  it('setTotpCore con doc /roles preexistente NO lo muta', async () => {
+    const db = makeMockDb({
+      'roles/u1': { role: 'vendedor', totpEnabled: false, totpSecret: null },
+    });
+    const deps = baseDeps(db);
+    await setTotpCore(deps, {
+      targetUid: 'u1',
+      secretBase32: 'JBSWY3DPEHPK3PXP',
+      enabledBy: 'admin@shimano.com.ar',
+    });
+    const rolesAfter = db._store.get('roles/u1');
+    expect(rolesAfter.totpEnabled).toBe(false); // stale pero sin lectores (B2-a).
+    expect(rolesAfter.totpSecret).toBe(null);
+  });
+
+  it('disableTotpCore escribe solo /auth_secrets (sin /roles)', async () => {
+    const db = makeMockDb({
+      'auth_secrets/u1': { totpSecret: 'JBSWY3DPEHPK3PXP', totpLastStep: 42 },
+    });
+    const deps = baseDeps(db);
+    await disableTotpCore(deps, { targetUid: 'u1', deleteFieldValue: FAKE_DELETE });
+    const asAfter = db._store.get('auth_secrets/u1');
+    expect('totpSecret' in asAfter).toBe(false);
+    expect('totpLastStep' in asAfter).toBe(false);
+    expect(asAfter.totpDisabledAt).toBeTruthy();
+    expect(db._store.has('roles/u1')).toBe(false);
+  });
+
+  it('disableTotpCore con doc /roles preexistente NO lo muta', async () => {
+    const db = makeMockDb({
+      'auth_secrets/u1': { totpSecret: 'JBSWY3DPEHPK3PXP', totpLastStep: 42 },
+      'roles/u1': { role: 'vendedor', totpEnabled: true, totpSecret: 'JBSWY3DPEHPK3PXP' },
+    });
+    const deps = baseDeps(db);
+    await disableTotpCore(deps, { targetUid: 'u1', deleteFieldValue: FAKE_DELETE });
+    const rolesAfter = db._store.get('roles/u1');
+    expect(rolesAfter.totpEnabled).toBe(true); // stale; B3 limpia residuos.
+    expect(rolesAfter.totpSecret).toBe('JBSWY3DPEHPK3PXP');
   });
 });

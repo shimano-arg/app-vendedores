@@ -87,6 +87,19 @@ function makeMockDb(initial = {}) {
         const data = store.get(path);
         return { exists: data !== undefined, data: () => (data ? { ...data } : undefined) };
       },
+      async set(data, opts) {
+        // B2-c (Stack S-10 2026-11-26): setters de auth-secrets-core ya no usan
+        // runTransaction; escriben directo via asRef.set(). El mock replica el
+        // merge semantics de Firestore con soporte para FieldValue.delete().
+        const prev = opts && opts.merge ? store.get(path) || {} : {};
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(data)) {
+          if (v && v.__delete__) delete next[k];
+          else next[k] = v;
+        }
+        store.set(path, next);
+        return undefined;
+      },
     };
   }
   const api = {
