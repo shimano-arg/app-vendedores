@@ -38,18 +38,32 @@ describe('D8 — sin contraseña por defecto hard-codeada', () => {
     expect(html).not.toContain('"Shi0*"');
   });
 
-  it('P3: ensurePasswordGate NO inicializa credenciales client-side (sin hash → sin gate)', () => {
+  it('P3: ensurePasswordGate NO lee passwordHash ni passwordSalt del Firestore (B2-A: verificacion movida a CF)', () => {
+    // B2-A (2026-11-26): la verificacion de credenciales se movio server-side via
+    // authVerifyLoginCF. ensurePasswordGate ya no lee /roles/{uid} para obtener
+    // passwordHash/passwordSalt — esos secretos nunca deben llegar al browser.
+    // Este test verifica que la implementacion nueva NO contiene los patrones viejos.
     const body = fnBody('ensurePasswordGate');
     expect(body).not.toContain('buildPasswordCredentials(');
     // No escribe credenciales a /roles desde el cliente.
     expect(body).not.toMatch(/\.update\(/);
-    expect(body).toMatch(/if \(!data\.passwordHash \|\| !data\.passwordSalt\) return true;/);
+    // B2-A: ya NO debe leer data.passwordHash ni data.passwordSalt del Firestore.
+    expect(body).not.toContain('data.passwordHash');
+    expect(body).not.toContain('data.passwordSalt');
+    // B2-A: debe existir la funcion (no fue eliminada).
+    expect(body.length).toBeGreaterThan(0);
   });
 
-  it('P4: con hash configurado el gate se sigue mostrando (verify interino preservado)', () => {
-    expect(fnBody('ensurePasswordGate')).toContain(
-      'showPasswordGateModal(data.passwordSalt, data.passwordHash)'
-    );
+  it('P4: ensurePasswordGate usa flujo CF (no llama a showPasswordGateModal con hash/salt)', () => {
+    // B2-A (2026-11-26): la firma vieja showPasswordGateModal(data.passwordSalt, data.passwordHash)
+    // era el punto de inyeccion de secretos al browser. Con B2-A el modal se muestra
+    // sin recibir secretos como parametros — la verificacion ocurre en la CF.
+    const body = fnBody('ensurePasswordGate');
+    // El patron viejo con secretos como args NO debe existir.
+    expect(body).not.toContain('showPasswordGateModal(data.passwordSalt, data.passwordHash)');
+    expect(body).not.toContain('showPasswordGateModal(data.passwordHash');
+    // La funcion showPasswordGateModal puede seguir siendo llamada pero sin hash/salt.
+    // (puede llamarse con solo el email, o puede no llamarse directamente desde ensurePasswordGate)
   });
 
   it('P5: se eliminan los helpers client-side de armado de credenciales (dead code)', () => {
