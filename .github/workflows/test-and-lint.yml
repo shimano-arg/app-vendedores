@@ -254,3 +254,104 @@ jobs:
             }
             console.log("OK: emulator gate pass");
           '
+
+  # S-8 D2 (2026-11-25): red de seguridad E2E como check REQUIRED.
+  # Corre los 6 escenarios E2E de P2-A.a (tests/e2e/*.emulator.test.js)
+  # contra el emulador Firebase (Firestore + Auth) usando el script
+  # `npm run test:e2e` definido en package.json (que a su vez envuelve
+  # `firebase emulators:exec --only firestore,auth "vitest run tests/e2e/..."`).
+  #
+  # REQUIRE_EMULATOR=1 garantiza que si el emulador no levanta en el
+  # runner, los tests FALLAN en lugar de pasar skipeados (patrón §40.8).
+  # El reporte JSON se emite para que el gate anti-falso-positivo exija
+  # un piso de tests ejecutados (evita el caso "no corrio ningun test
+  # pero el step termino exit 0" por typo de path).
+  #
+  # Este job es REQUIRED: no tiene `continue-on-error`, cualquier falla
+  # bloquea el PR. Rules + Functions ya tienen su propio job required
+  # (`security-tests`); este es el tercer check required (E2E).
+  e2e-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java (emulador Firestore + Auth)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Install functions deps
+        run: cd functions && npm ci
+
+      # P2-A.a (2026-11-25): 6 tests emulator.test.js con escenarios de
+      # flujos criticos (login+create+commit, scope interno, VDE roles,
+      # anon sin rol, waitlist, STOCK_CHANGED). El npm script ya wrappea
+      # con `firebase emulators:exec --only firestore,auth`, pero aca lo
+      # invocamos via npx firebase-tools pinneado para alinearse con el
+      # patron del job `security-tests` (mismo Firebase CLI version).
+      # Reporte JSON para el gate anti-falso-positivo.
+      - name: E2E tests (emulador Firestore + Auth)
+        env:
+          REQUIRE_EMULATOR: '1'
+        run: >-
+          npx --yes firebase-tools@14.27.0 emulators:exec --project demo-ci --only firestore,auth
+          "npx vitest run tests/e2e/01-login-create-commit.emulator.test.js tests/e2e/02-interno-pareja-scope.emulator.test.js tests/e2e/03-vde-pedido-y-roles.emulator.test.js tests/e2e/04-anon-y-sin-rol.emulator.test.js tests/e2e/05-waitlist-flujo.emulator.test.js tests/e2e/06-stock-changed.emulator.test.js --reporter=default --reporter=json --outputFile=e2e-report.json"
+
+      # Gate anti-falso-positivo E2E: mismo patron que `security-tests` y
+      # `functions-with-emulator`. Verifica:
+      #  (a) El reporte JSON existe (vitest no crasheo antes de escribir).
+      #  (b) numTotalTests >= 6 (1 por archivo minimo, con emulator operativo
+      #      los 6 archivos ejecutan al menos 1 test cada uno).
+      #  (c) numFailedTests == 0.
+      #  (d) Los 6 archivos E2E esperados presentes en testResults.
+      - name: Gate E2E (archivos presentes + minimo ejecutados + sin fallas)
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = "./e2e-report.json";
+            if (!fs.existsSync(path)) {
+              console.error("FAIL: reporte e2e-report.json no existe (vitest no corrio o crasheo)");
+              process.exit(1);
+            }
+            const r = JSON.parse(fs.readFileSync(path, "utf8"));
+            const n = r.numTotalTests || 0;
+            const failed = r.numFailedTests || 0;
+            const skipped = r.numPendingTests || 0;
+            const files = (r.testResults || []).map((t) => (t.name || "").replace(/\\/g, "/"));
+            console.log(`e2e: total=${n} pass=${r.numPassedTests||0} fail=${failed} skip=${skipped} files=${files.length}`);
+            console.log("files:", files.map((f) => f.split("/").slice(-2).join("/")).join(", "));
+            const expected = [
+              "tests/e2e/01-login-create-commit.emulator.test.js",
+              "tests/e2e/02-interno-pareja-scope.emulator.test.js",
+              "tests/e2e/03-vde-pedido-y-roles.emulator.test.js",
+              "tests/e2e/04-anon-y-sin-rol.emulator.test.js",
+              "tests/e2e/05-waitlist-flujo.emulator.test.js",
+              "tests/e2e/06-stock-changed.emulator.test.js",
+            ];
+            const missing = expected.filter((e) => !files.some((f) => f.endsWith(e)));
+            if (missing.length) {
+              console.error("FAIL: archivos E2E esperados ausentes del reporte:", missing.join(", "));
+              process.exit(1);
+            }
+            if (n < 6) {
+              console.error(`FAIL: solo ${n} tests E2E ejecutados (esperado >= 6 con emulator operativo)`);
+              process.exit(1);
+            }
+            if (failed > 0) {
+              console.error(`FAIL: ${failed} tests E2E fallaron`);
+              process.exit(1);
+            }
+            console.log("OK: E2E gate pass");
+          '
