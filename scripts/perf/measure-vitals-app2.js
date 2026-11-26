@@ -80,27 +80,23 @@ async function runOnce(iteration) {
   await client.send('Network.emulateNetworkConditions', NETWORK);
   await client.send('Emulation.setCPUThrottlingRate', { rate: CPU_THROTTLE });
 
-  // Inject web-vitals v4 desde el bundle de la app — mas simple que inyectar desde CDN
-  // (evita flakiness por red). Asumimos que `src/lib/vitals.ts` del app ya reporta via
-  // console.log con prefijo "[CWV] <METRIC>=<value> (<rating>) ...".
+  // `src/lib/vitals.ts` (v1479+) escribe window.__CWV__ con {lcp, inp, cls, route}.
+  // Leemos despues del load + interaction via page.evaluate.
   const metrics = {};
-  page.on('console', (msg) => {
-    const text = msg.text();
-    const m = text.match(/\[CWV\]\s+(\w+)=([\d.]+)\s+\((\w+)\)/);
-    if (m) {
-      metrics[m[1]] = { value: Number(m[2]), rating: m[3] };
-    }
-  });
 
   const startedAt = Date.now();
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 60_000 });
 
+  // Espera inicial para que React monte + initVitals corra post hydration.
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
   // INP necesita interaccion para medirse — simulamos tap breve.
   // Usamos page.evaluate (CLAUDE.md §10) en vez de page.mouse.click para evitar
   // timeouts del CDP command bajo throttling.
+  // IMPORTANTE: dispatch sobre body/div para evitar navegacion si el target es <a>.
   try {
     await page.evaluate(() => {
-      const target = document.querySelector('.shell__nav-item');
+      const target = document.body;
       if (!target) return;
       target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
       target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
@@ -111,6 +107,31 @@ async function runOnce(iteration) {
 
   // Esperamos 2s mas para que INP + CLS post-interaction se emitan.
   await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  // Leemos snapshot de vitals desde window.__CWV__ (patron ADR-015).
+  let cwv = null;
+  try {
+    cwv = await page.evaluate('window.__CWV__ || null');
+  } catch (err) {
+    console.warn(`[run ${iteration}] lectura __CWV__ fallo:`, err?.message || err);
+  }
+  if (cwv && typeof cwv === 'object') {
+    if (typeof cwv.lcp === 'number')
+      metrics.LCP = {
+        value: cwv.lcp,
+        rating: cwv.lcp <= 2500 ? 'good' : cwv.lcp <= 4000 ? 'needs-improvement' : 'poor',
+      };
+    if (typeof cwv.inp === 'number')
+      metrics.INP = {
+        value: cwv.inp,
+        rating: cwv.inp <= 200 ? 'good' : cwv.inp <= 500 ? 'needs-improvement' : 'poor',
+      };
+    if (typeof cwv.cls === 'number')
+      metrics.CLS = {
+        value: cwv.cls,
+        rating: cwv.cls <= 0.1 ? 'good' : cwv.cls <= 0.25 ? 'needs-improvement' : 'poor',
+      };
+  }
 
   await browser.close();
   const elapsedMs = Date.now() - startedAt;

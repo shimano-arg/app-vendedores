@@ -6,6 +6,23 @@
   "storage": {
     "rules": "storage.rules"
   },
+  "hosting": [
+    {
+      "target": "app2-staging",
+      "public": "app2-dist-staging",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/app2/**",
+          "destination": "/app2/index.html"
+        }
+      ]
+    }
+  ],
   "functions": [
     {
       "source": "functions",
