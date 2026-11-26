@@ -620,14 +620,44 @@ export function aggregateForSku(pedidos, sku, nowMs) {
 }
 
 /**
- * Query Firestore: pedidos WHERE closedAt == null. Filtra en memoria por sku.
- * Nota: hoy son ~56 pedidos, full read es viable. Cuando escale, indexar
- * por sku es opcion (subcollection lines/{sku}).
+ * Query Firestore: pedidos WHERE closedAt == null. Proyecta SOLO los 6 campos
+ * que consume aggregateForSku (fix OOM S-10 P0, 2026-11-26). Resto del doc
+ * (netAmountArs, observaciones, discountSnapshot, assignedVendorUid, _backfill,
+ * etc.) NO se carga en memoria → reduce heap ~50% por invocación.
+ *
+ * Precedente OOM: STACK_44 2026-11-26 — 31 OOM / 3 clusters / pico 535 MiB
+ * sobre límite 512 MiB. Root cause: loadOpenPedidos cargaba ~475 docs completos
+ * (~2-5 KB c/u) para cada trigger write + varias invocaciones concurrentes =
+ * pico memoria excede el límite.
+ *
+ * Mariano decidió optimizar query, NO bump memoria (2026-11-26 11:22 ART).
+ *
  * @param {SnapshotDeps} deps
  * @returns {Promise<PedidoDoc[]>}
  */
 async function loadOpenPedidos(deps) {
-  const snap = await deps.fbDb.collection('pedidos').where('closedAt', '==', null).get();
+  // .select(...) proyecta solo los campos listados en el response de Firestore.
+  // Admin SDK soporta este método; filtra server-side antes de deserializar.
+  // Los 6 campos que consume aggregateForSku:
+  //   - closedAt (early-return guard)
+  //   - transferidoSAP (early-return guard v578)
+  //   - clientCardCode (agg por cliente)
+  //   - lines (loop principal)
+  //   - createdAt (lineReservesStock BO TTL §37)
+  //   - confirmedAt (lineReservesStock confirmed TTL §38)
+  const query = deps.fbDb.collection('pedidos').where('closedAt', '==', null);
+  const projected =
+    typeof query.select === 'function'
+      ? query.select(
+          'clientCardCode',
+          'lines',
+          'closedAt',
+          'transferidoSAP',
+          'createdAt',
+          'confirmedAt'
+        )
+      : query;
+  const snap = await projected.get();
   /** @type {PedidoDoc[]} */
   const out = [];
   snap.forEach((/** @type {any} */ doc) => {
@@ -642,6 +672,64 @@ async function loadOpenPedidos(deps) {
       confirmedAt: data.confirmedAt || null,
     });
   });
+  return out;
+}
+
+/**
+ * One-pass aggregate: itera `pedidos` UNA sola vez por los SKUs afectados en
+ * vez de hacerlo K veces (una por SKU). Reduce CPU y memory pressure por GC
+ * (fix OOM S-10 P0, 2026-11-26).
+ *
+ * Preserva byte-exacto el output de llamar `aggregateForSku` por cada SKU.
+ * @param {PedidoDoc[]} pedidos
+ * @param {Set<string>} affectedSkus
+ * @param {number} [nowMs]
+ * @returns {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>}
+ */
+function aggregateManySkus(pedidos, affectedSkus, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const perSku = new Map();
+  // Normaliza las keys del set: upper-case una sola vez.
+  const skuSet = new Set();
+  for (const sku of affectedSkus) {
+    const skuUp = String(sku).toUpperCase();
+    skuSet.add(skuUp);
+    perSku.set(skuUp, { bo: 0, asig: 0, asigByClient: new Map(), boByClient: new Map() });
+  }
+  for (const p of pedidos) {
+    if (p.closedAt) continue;
+    if (!p.transferidoSAP) continue;
+    const lines = p.lines || [];
+    const cc = String(p.clientCardCode || '').trim();
+    for (const l of lines) {
+      if (!l || !l.code) continue;
+      const codeUp = String(l.code).toUpperCase();
+      if (!skuSet.has(codeUp)) continue;
+      if (!OPEN_STATES.has(l.state)) continue;
+      const q = Number(l.qtyOpen || 0);
+      if (q <= 0) continue;
+      const agg = perSku.get(codeUp);
+      if (l.state === 'BO') {
+        if (p.createdAt) {
+          const createdAtMs = toMillisSafe(p.createdAt);
+          if (createdAtMs !== null && (now - createdAtMs) / DAY_MS > 90) continue;
+        }
+        agg.bo += q;
+        if (cc) agg.boByClient.set(cc, (agg.boByClient.get(cc) || 0) + q);
+      } else if (l.state === 'ASIG') {
+        if (!lineReservesStock(l, now, p)) continue;
+        agg.asig += q;
+        if (cc) agg.asigByClient.set(cc, (agg.asigByClient.get(cc) || 0) + q);
+      }
+    }
+  }
+  // Devuelve claves originales (sin uppercase forzado) para que el caller
+  // reciba el mismo shape que construía con aggregateForSku.
+  const out = new Map();
+  for (const sku of affectedSkus) {
+    const skuUp = String(sku).toUpperCase();
+    out.set(sku, perSku.get(skuUp));
+  }
   return out;
 }
 
@@ -802,14 +890,15 @@ export async function recalcSnapshotForSkus(deps, affectedSkus) {
   const snapshotDoc = mode === 'active' ? SNAPSHOT_DOC_ACTIVE : SNAPSHOT_DOC_SHADOW;
   const pedidos = await loadOpenPedidos(deps);
 
-  /** @type {Map<string, {bo: number, asig: number, asigByClient: Map<string, number>, boByClient: Map<string, number>}>} */
-  const perSku = new Map();
   /** @type {Record<string, {bo: number, asig: number}>} */
   const totals = {};
   const now = Date.now();
-  for (const sku of affectedSkus) {
-    const agg = aggregateForSku(pedidos, sku, now);
-    perSku.set(sku, agg);
+  // Fix OOM S-10 P0 (2026-11-26): one-pass aggregate en vez de for-sku × for-pedido.
+  // Reduce iteraciones de O(475 × K × 10) a O(475 × 10), bajando memory pressure
+  // + CPU. Output byte-exacto con llamar aggregateForSku K veces (verificado por
+  // tests en pedido-snapshot-core-oom-fix.test.js).
+  const perSku = aggregateManySkus(pedidos, affectedSkus, now);
+  for (const [sku, agg] of perSku.entries()) {
     totals[sku] = { bo: agg.bo, asig: agg.asig };
   }
 
