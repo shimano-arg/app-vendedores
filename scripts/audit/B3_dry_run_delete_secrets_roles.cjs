@@ -14,16 +14,25 @@
 // backfill previo (B2-a migrar login client + B2-c desactivar dual-write)
 // ya mergeados y deployed. Ver PENDIENTE_HUMANO #15.
 //
-// Si Mariano autoriza en el futuro: adaptar este script para que el --apply
-// (a) exija --confirm-project=app-vendedores-shimano (patrón BA_auth_secrets_backfill),
-// (b) genere el backup JSON pre-write (ya implementado abajo),
-// (c) corra con usuario humano al teclado, nunca en CI ni como agente.
+// Capas de defensa (S-9, 2026-11-26):
+//   1) --confirm-project=app-vendedores-shimano REQUERIDO si se corre con --apply
+//      (defensa contra apuntar al proyecto equivocado). Sin el flag o con
+//      project incorrecto → exit 1 ANTES de llegar al gate humano.
+//   2) --apply sigue BLOQUEADO con console.error + exit 1 (autorización humana).
+//      Mariano ajusta ese bloqueo cuando autorice la ejecución real.
+//   3) Backup JSON a disco pre-write: si en el futuro autorizado --apply +
+//      --confirm-project ambos pasan, el script graba
+//      scripts/audit/output/B3_backup_<timestamp>.json ANTES de cualquier write.
+//      Permite reversibilidad (CLAUDE.md §55). En dry-run el shape del backup
+//      se imprime pero no se persiste.
 //
 // Flags:
-//   (default)   dry-run: cuenta + plan por doc. NO escribe nunca.
-//   --apply     bloqueado: console.error + exit(1). Ver §70 CLAUDE.md.
-//   --json      output JSON machine-readable (sin uids, solo aggregates).
-//   --limit=N   procesa solo N docs (debug local).
+//   (default)              dry-run: cuenta + plan por doc. NO escribe nunca.
+//   --apply                bloqueado: console.error + exit(1). Ver §70 CLAUDE.md.
+//   --confirm-project=X    required con --apply para que la ejecución real
+//                          pueda arrancar. X debe ser 'app-vendedores-shimano'.
+//   --json                 output JSON machine-readable (sin uids, solo aggregates).
+//   --limit=N              procesa solo N docs (debug local).
 //
 // Secretos: jamás se imprime el valor de passwordHash/passwordSalt/totpSecret.
 // Solo booleanos "field present / absent" + timestamp de última escritura.
@@ -62,7 +71,10 @@ function parseArgs(argv) {
   const json = argv.includes('--json');
   const limArg = argv.find((a) => a.startsWith('--limit='));
   const limit = limArg && Number(limArg.split('=')[1]) > 0 ? Number(limArg.split('=')[1]) : Infinity;
-  return { apply, json, limit };
+  const confirmArg = argv.find((a) => a.startsWith('--confirm-project='));
+  // Undefined = no se pasó. String vacío = se pasó vacío. String no vacío = valor.
+  const confirmProject = confirmArg ? confirmArg.slice('--confirm-project='.length) : undefined;
+  return { apply, json, limit, confirmProject };
 }
 
 /**
@@ -79,10 +91,93 @@ function listSensitiveFieldsPresent(data) {
   return out;
 }
 
+/**
+ * Valida --confirm-project cuando --apply se pasó. Devuelve
+ * { ok: boolean, reason?: 'missing' | 'mismatch' }. Siempre que ok=false,
+ * el caller DEBE salir con exit 1 antes del gate humano. Si --apply no vino,
+ * confirm-project es irrelevante y devuelve ok=true.
+ * @param {{apply:boolean, confirmProject:(string|undefined)}} args
+ */
+function validateConfirmProject(args) {
+  if (!args.apply) return { ok: true };
+  if (args.confirmProject === undefined || args.confirmProject === '') {
+    return { ok: false, reason: 'missing' };
+  }
+  if (args.confirmProject !== EXPECTED_PROJECT) {
+    return { ok: false, reason: 'mismatch' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Arma el shape del backup JSON pre-write. Idempotente, no toca disco.
+ * Separa shape del write para que dry-run pueda imprimirlo sin persistir.
+ * @param {{slug:string, mode:'dry-run'|'apply', rolesDocsSize:number,
+ *          processed:number, docsWithAnySensitive:number,
+ *          fieldCounts:object, rows:object[]}} input
+ */
+function buildBackupPayload(input) {
+  const note = input.mode === 'dry-run'
+    ? 'dry-run: este archivo NO se escribe hasta que --apply + --confirm-project sean autorizados.'
+    : 'apply: snapshot pre-write persistido ANTES de borrar campos en /roles.';
+  return {
+    slug: input.slug,
+    mode: input.mode,
+    generatedAt: new Date().toISOString(),
+    project: EXPECTED_PROJECT,
+    totals: {
+      rolesDocs: input.rolesDocsSize,
+      processed: input.processed,
+      docsWithAnySensitive: input.docsWithAnySensitive,
+      byField: input.fieldCounts,
+    },
+    rows: input.rows,
+    note,
+  };
+}
+
+/**
+ * Deriva el path del backup JSON a disco. Único por timestamp.
+ * @param {Date} [now]
+ */
+function buildBackupPath(now) {
+  const t = now || new Date();
+  const nowIsoSafe = t.toISOString().replace(/[:.]/g, '-');
+  return path.join(__dirname, 'output', `B3_backup_${nowIsoSafe}.json`);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  // HARD-GATE: --apply bloqueado. Nunca se escribe desde este script por ahora.
+  // CAPA 1: --confirm-project obligatorio si --apply fue pasado.
+  // Esto corre ANTES del gate humano para dar un mensaje distinto cuando
+  // el operador se olvidó el flag o apuntó al proyecto equivocado.
+  const projCheck = validateConfirmProject(args);
+  if (!projCheck.ok) {
+    console.error('================================================================');
+    console.error('[B3] --apply requiere --confirm-project');
+    console.error('================================================================');
+    if (projCheck.reason === 'missing') {
+      console.error(`Falta --confirm-project=${EXPECTED_PROJECT}.`);
+      console.error('Sin este flag el script no puede verificar que apuntás al');
+      console.error('proyecto correcto. Rechazado antes de cualquier read/write.');
+    } else {
+      console.error(`--confirm-project recibido no coincide con el proyecto esperado.`);
+      console.error(`  recibido: ${JSON.stringify(args.confirmProject)}`);
+      console.error(`  esperado: ${JSON.stringify(EXPECTED_PROJECT)}`);
+      console.error('Rechazado antes de cualquier read/write.');
+    }
+    console.error('');
+    console.error('Uso autorizado (cuando Mariano levante el gate humano):');
+    console.error(`  node ${path.basename(__filename)} --apply --confirm-project=${EXPECTED_PROJECT}`);
+    console.error('');
+    process.exit(1);
+    return;
+  }
+
+  // CAPA 2: --apply BLOQUEADO (autorización humana). Incluso con
+  // --confirm-project correcto, el gate humano sigue activo. Mariano ajusta
+  // este bloqueo cuando autorice la ejecución real.
   if (args.apply) {
     console.error('================================================================');
     console.error('[B3] --apply BLOQUEADO');
@@ -98,8 +193,13 @@ async function main() {
     console.error('  4) Backup previo (JSON snapshot en disco) — este script ya lo');
     console.error('     prepara abajo; sin --apply NO se graba.');
     console.error('');
+    console.error('Capas de defensa activas (S-9):');
+    console.error(`  - --confirm-project=${EXPECTED_PROJECT} (OK en este run).`);
+    console.error('  - backup pre-write a scripts/audit/output/B3_backup_<timestamp>.json');
+    console.error('    (reversibilidad, CLAUDE.md §55).');
+    console.error('');
     console.error('Flow autorizado (cuando llegue el momento):');
-    console.error('  - Mariano ajusta este bloqueo + agrega --confirm-project.');
+    console.error('  - Mariano ajusta este bloqueo + preserva --confirm-project check.');
     console.error('  - Correr dry-run (sin --apply) + revisar JSON output.');
     console.error('  - Ejecutar manualmente con humano al teclado, nunca en CI.');
     console.error('');
@@ -170,29 +270,35 @@ async function main() {
     }
   }
 
-  // Backup previo (snapshot a disco) — se prepara SIEMPRE en dry-run para
-  // documentar qué habría que persistir si Mariano autoriza el --apply.
-  // Shape del backup: por doc { uid, hasFields, snapshotKeys }.
-  const backupDir = path.join(__dirname, '..', '..', 'docs', 'auditoria');
-  const nowIsoSafe = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupPath = path.join(backupDir, `b3_dryrun_backup_${nowIsoSafe}.json`);
-  const backupBlocked = args.apply === false; // dry-run -> no se graba.
-  const backupPayload = {
+  // CAPA 3: Backup pre-write a disco.
+  // Shape del backup es el mismo en dry-run y apply para que lo que se
+  // imprime en dry-run sea exactamente lo que se persistiría. Solo cambia
+  // 'mode' + 'note'.
+  const mode = args.apply ? 'apply' : 'dry-run';
+  const backupPath = buildBackupPath();
+  const backupPayload = buildBackupPayload({
     slug: SLUG,
-    mode: 'dry-run',
-    generatedAt: new Date().toISOString(),
-    project: EXPECTED_PROJECT,
-    totals: {
-      rolesDocs: rolesSnap.size,
-      processed,
-      docsWithAnySensitive,
-      byField: fieldCounts,
-    },
+    mode,
+    rolesDocsSize: rolesSnap.size,
+    processed,
+    docsWithAnySensitive,
+    fieldCounts,
     rows,
-    note: backupBlocked
-      ? 'dry-run: este archivo NO se escribe hasta que --apply sea autorizado.'
-      : 'apply: contiene el snapshot pre-write que habría que persistir ANTES de borrar.',
-  };
+  });
+
+  // Dry-run: NO escribir a disco, solo imprimir el shape (si no es --json).
+  // Apply autorizado futuro: escribir a disco ANTES de los writes Firestore
+  // (permite reversibilidad, CLAUDE.md §55). Hoy el gate humano hace exit
+  // antes de llegar acá, así que la rama apply no se ejecuta en runtime —
+  // queda lista para cuando Mariano levante el bloqueo.
+  if (args.apply) {
+    const backupDir = path.dirname(backupPath);
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    fs.writeFileSync(backupPath, JSON.stringify(backupPayload, null, 2), 'utf8');
+    if (!args.json) console.log(`Backup JSON persistido en: ${backupPath}`);
+  }
 
   // Resumen.
   if (args.json) {
@@ -226,6 +332,9 @@ module.exports = {
   parseArgs,
   redactUid,
   listSensitiveFieldsPresent,
+  validateConfirmProject,
+  buildBackupPayload,
+  buildBackupPath,
   SENSITIVE_FIELDS,
   SLUG,
   EXPECTED_PROJECT,
