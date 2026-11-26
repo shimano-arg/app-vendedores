@@ -1,24 +1,36 @@
 {
   "name": "shimano-crm-backend-new",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "PostgreSQL schema v0 + tests para CRM Shimano (ADR-001). Independiente del functions/ raiz.",
+  "description": "Backend TypeScript/Node del CRM Shimano (ADR-014). Capa de acceso a datos + piloto solo-lectura ADR-013. Independiente del functions/ raiz.",
   "type": "module",
   "scripts": {
     "migrate:up": "node-pg-migrate up --migrations-dir db/schema --migration-file-language sql",
     "migrate:down": "node-pg-migrate down --migrations-dir db/schema --migration-file-language sql",
     "migrate:create": "node-pg-migrate create --migrations-dir db/schema --migration-file-language sql",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@google-cloud/secret-manager": "^5.6.0",
+    "firebase-admin": "^13.0.1",
+    "firebase-functions": "^6.1.1",
+    "hono": "^4.6.14",
+    "kysely": "^0.27.4",
+    "node-pg-migrate": "^7.9.0",
     "pg": "^8.13.0",
-    "node-pg-migrate": "^7.9.0"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/pg": "^8.11.10",
+    "testcontainers": "^10.13.0",
+    "typescript": "^5.7.2",
     "vitest": "^2.1.9"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   }
 }
