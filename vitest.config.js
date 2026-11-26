@@ -4,6 +4,8 @@
 // v1435 (2026-10-23): sumado .claude/worktrees/** porque los worktrees de
 // agentes paralelos vivian dentro del root y vitest root los recogia por
 // error (tests contra snapshots de ramas en curso -> ruido / falsos fallos).
+// 2026-11-26: sumado frontend-new/** por ADR-004 — el frontend nuevo tiene
+// su propio vitest.config.ts + jsdom environment propio. No mezclar.
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -14,6 +16,7 @@ export default defineConfig({
       'apps/**',
       'functions/node_modules/**',
       '.claude/worktrees/**',
+      'frontend-new/**',
     ],
   },
 });
