@@ -3,7 +3,7 @@
  * genera todas las tablas, enums, triggers y constraints esperados.
  */
 import { beforeAll, expect, it } from 'vitest';
-import { describeIfDb, ensureSchemaApplied, getPool, hasDb } from './setup.js';
+import { describeIfDb, ensureSchemaApplied, getPool, hasDb, TEST_SCHEMA } from './setup.js';
 
 describeIfDb('schema smoke', () => {
   beforeAll(async () => {
@@ -13,9 +13,9 @@ describeIfDb('schema smoke', () => {
   it.skipIf(!hasDb)('todas las tablas v0 existen', async () => {
     const { rows } = await getPool().query(`
       SELECT tablename FROM pg_tables
-      WHERE schemaname = 'public'
+      WHERE schemaname = $1
       ORDER BY tablename;
-    `);
+    `, [TEST_SCHEMA]);
     const tables = rows.map(r => r.tablename);
     expect(tables).toEqual(expect.arrayContaining([
       'ingresos_reparto',
@@ -47,8 +47,8 @@ describeIfDb('schema smoke', () => {
   it.skipIf(!hasDb)('indice partial de draft_id esta en su lugar', async () => {
     const { rows } = await getPool().query(`
       SELECT indexdef FROM pg_indexes
-      WHERE indexname = 'uq_pedidos_draft_id';
-    `);
+      WHERE schemaname = $1 AND indexname = 'uq_pedidos_draft_id';
+    `, [TEST_SCHEMA]);
     expect(rows).toHaveLength(1);
     expect(rows[0].indexdef).toMatch(/WHERE \(draft_id IS NOT NULL\)/i);
   });
@@ -73,8 +73,8 @@ describeIfDb('schema smoke', () => {
   it.skipIf(!hasDb)('v_stock_breakdown view existe', async () => {
     const { rows } = await getPool().query(`
       SELECT viewname FROM pg_views
-      WHERE schemaname = 'public' AND viewname = 'v_stock_breakdown';
-    `);
+      WHERE schemaname = $1 AND viewname = 'v_stock_breakdown';
+    `, [TEST_SCHEMA]);
     expect(rows).toHaveLength(1);
   });
 

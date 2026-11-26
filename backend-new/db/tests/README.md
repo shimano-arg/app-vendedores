@@ -63,15 +63,24 @@ npm test
 
 ## Isolation
 
-Cada test corre en una **transaction que rollbackea al final** (via `BEGIN` + `ROLLBACK` wrapper del helper `withTx(cb)`). Esto evita cleanup manual y permite correr los tests en cualquier orden sin contaminar.
+**Schema aislado `crm_test`** (default). El helper `setup.js` NUNCA toca el schema `public` del DB conectado — crítico cuando se corre contra `crm` de staging donde `public` tiene data compartida. En cada corrida:
 
-**Excepción**: los tests que validan triggers `CONSTRAINT TRIGGER ... IMMEDIATE` necesitan `COMMIT` real para disparar — en esos casos, limpian la tabla al final.
+1. `DROP SCHEMA IF EXISTS "crm_test" CASCADE`.
+2. `CREATE SCHEMA "crm_test"`.
+3. `SET search_path TO "crm_test", public`.
+4. Aplicar `0001_initial.sql` dentro del schema aislado.
+
+El pool `pg` corre con `options: '-c search_path=crm_test,public'`, por lo que todas las queries de los tests resuelven contra `crm_test.*` sin que haga falta calificar.
+
+Para correr paralelo con otro schema (ej. CI matrix): `PG_TEST_SCHEMA=crm_test_run_123 npm test`.
+
+**Dentro de la corrida**: los tests que no necesitan `COMMIT` real (la mayoría) usan el helper `withTx(cb)` que hace `BEGIN` + `ROLLBACK`. Los tests que validan `CONSTRAINT TRIGGER ... IMMEDIATE` necesitan `COMMIT` — hacen `TRUNCATE ... RESTART IDENTITY CASCADE` en `beforeEach` para limpiar.
 
 ## Setup
 
 El helper `setup.js`:
 1. Lee `DATABASE_URL`.
-2. Si no existe → `describe.skip(...)` el archivo.
-3. Si existe → antes de todo, corre `0001_initial.sql` idempotente (via `IF NOT EXISTS` y `CREATE OR REPLACE`).
+2. Si no existe → `describe.skip(...)` el archivo entero.
+3. Si existe → antes de todo, recrea el schema `crm_test` (o `PG_TEST_SCHEMA` si se override) y aplica `0001_initial.sql`.
 
-**Nota**: la primera corrida sobre DB vacía toma ~1-2 segundos (CREATE TYPE + CREATE TABLE + CREATE INDEX). Las siguientes son <100 ms (DDL idempotente).
+**Nota**: la recreación del schema toma ~1-2 segundos por el DDL (CREATE TYPE + CREATE TABLE + CREATE INDEX). Recorre una sola vez por `npm test` (`ensureSchemaApplied` es idempotente intra-proceso vía flag `schemaApplied`).

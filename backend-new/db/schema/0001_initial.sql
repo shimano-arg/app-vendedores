@@ -601,21 +601,28 @@ CREATE TRIGGER t_ingresos_reparto_touch
 -- MATERIALIZED VIEW + REFRESH CONCURRENTLY si profiling lo justifica.
 -- Shape minimo — solo los campos criticos para el piloto. Expandible.
 
+-- Cast ::INTEGER sobre los SUM() es intencional: Postgres devuelve BIGINT para
+-- SUM(INTEGER), que el driver `pg` serializa como string (BIGINT > MAX_SAFE_INTEGER
+-- protection). Nuestros consumidores (TS en `infra/db/schema.ts`, repo de stock,
+-- contratos Zod de `shared/contracts/get-stock.ts`) asumen `number`. El cap
+-- razonable de unidades por SKU/warehouse en el dominio real esta muy por debajo
+-- del rango INTEGER (2^31). El cast alinea el shape de la VIEW con el contrato
+-- publico sin que cada call-site tenga que hacer Number() defensivo.
 CREATE OR REPLACE VIEW v_stock_breakdown AS
 WITH reservations_by_sku AS (
   SELECT
     sku,
     warehouse,
-    SUM(qty) FILTER (WHERE state = 'ASIG')       AS qty_asig,
-    SUM(qty) FILTER (WHERE state = 'confirmed')  AS qty_confirmed,
-    SUM(qty)                                     AS qty_total
+    SUM(qty) FILTER (WHERE state = 'ASIG')::INTEGER       AS qty_asig,
+    SUM(qty) FILTER (WHERE state = 'confirmed')::INTEGER  AS qty_confirmed,
+    SUM(qty)::INTEGER                                     AS qty_total
   FROM stock_reservations
   GROUP BY sku, warehouse
 ),
 backorder_by_sku AS (
   SELECT
     pl.sku,
-    SUM(pl.qty_open) AS qty_bo
+    SUM(pl.qty_open)::INTEGER AS qty_bo
   FROM pedido_lines pl
   WHERE pl.state = 'BO' AND pl.qty_open > 0
   GROUP BY pl.sku
