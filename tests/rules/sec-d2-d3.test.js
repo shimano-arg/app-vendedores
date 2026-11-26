@@ -75,13 +75,21 @@ describe('D2 — lectura de roles de vendedores', () => {
   it('L2: autenticado sin doc en roles NO puede leer el doc de un vendedor', async () => {
     await assertFails(getDoc(doc(authedDb('uid-sin-doc'), 'roles', UID.vendorOther)));
   });
-  it('L3: un vendedor sigue pudiendo leer docs de vendedores (caso v1491 vendorKey→UID)', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendorOther)));
+  it('L3: un vendedor NO puede leer docs de otros vendedores (§S04: fix 2026-11-25)', async () => {
+    // Pre-fix: v1491 habilitaba isReader() && role=='vendedor', exponiendo
+    // passwordHash/totpSecret a cualquier VDE con sesión. Severidad ALTA.
+    // Fix: removida la rama vulnerable. Resolver vendorKey→UID lo hace el
+    // server §89 (resolveClientVendorServerSide + Admin SDK).
+    await assertFails(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendorOther)));
   });
-  it('L4: interno, viewer, gerente y admin siguen pudiendo leerlos', async () => {
-    for (const u of [UID.interno, UID.viewer, UID.gerente, UID.admin]) {
+  it('L4: interno, gerente y admin siguen pudiendo leerlos (viewer ya no — removido con el fix)', async () => {
+    // El fix §S04 removió la rama isReader() que incluía `viewer`. Admin/
+    // gerente/interno quedaron con allows explícitos; viewer NO lee /roles
+    // ajenos (no tiene use-case que lo justifique en la UI actual).
+    for (const u of [UID.interno, UID.gerente, UID.admin]) {
       await assertSucceeds(getDoc(doc(authedDb(u), 'roles', UID.vendorOther)));
     }
+    await assertFails(getDoc(doc(authedDb(UID.viewer), 'roles', UID.vendorOther)));
   });
   it('L5: cada usuario sigue leyendo su propio doc (incluido unassigned)', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.unassigned), 'roles', UID.unassigned)));
