@@ -1,53 +1,32 @@
 // @ts-nocheck
-// Globals leídos del entorno (declarados en index.html inline):
-// fbDb, firebase, currentUser, userRole, escapeHtml, escapeAttr, titleCase,
-// showSyncTag, compressImage, openRendicionDetail (bundle rendiciones),
-// openClientApplicationDetail (inline), abrirVisitaParaTienda_real (bundle rutas),
-// myNotifications + unsubMyNotifs (top-level lets del inline, visibles via
-// free reference gracias al Global Environment Record compartido),
-// ensureNotifsListener + updateNotifsBadge (top-level funcs del inline,
-// mismo mecanismo).
-// Módulo extraído verbatim: tipado real fuera de scope E2.g.
-//
-// PANEL ALERTAS Y TAREAS (Notificaciones) — panel UI + tabs (Recibidas /
+// PANEL ALERTAS Y TAREAS (Notificaciones): panel UI + tabs (Recibidas /
 // Realizadas / Crear tarea / Enviadas) + broadcast + task actions.
-// Extraído verbatim de index.html (líneas 12512-13730 pre-E2.g) como parte
-// de E2.g (e2b-perf 2026-07-28). Preserva 100% comportamiento.
 //
-// NOTA: Fragmento parcial del dominio notificaciones. Las declaraciones
-// myNotifications/unsubMyNotifs (líneas 12068-69 pre-E2.g) están dentro
-// del bloque VDE-VDI compartido y se dejan en el inline. Las funciones
-// ensureNotifsListener (12269) + ensureVisitsPartnerListener (12304) +
-// updateNotifsBadge (12318) también se dejan en el inline porque están
-// intercaladas con VDE-VDI y modal reagendamiento (12335-12511). Extraer
-// esas requeriría un mini-plan de reorganización, fuera de scope E2.g.
+// Globals del inline: fbDb, firebase, currentUser, userRole, escapeHtml,
+// escapeAttr, titleCase, showSyncTag, compressImage, openRendicionDetail,
+// myNotifications, unsubMyNotifs, ensureNotifsListener, updateNotifsBadge,
+// abrirVisitaParaTienda_real.
 //
-// KNOWN BUG (verbatim preservado): window.markAllNotifsRead está declarada
-// DOS veces en el bloque (líneas ~13409 y ~13699 pre-E2.g). La 2da sobrescribe
-// la 1ra en runtime. TODO E6 code review: consolidar en una sola implementación.
+// KNOWN BUG: window.markAllNotifsRead está declarada dos veces en el archivo
+// (líneas ~1395 y ~1825). La 2da sobrescribe la 1ra en runtime. Consolidar
+// en una sola implementación. Ver docs/notes/notificaciones-dup-mark-all.md
 //
-// Cross-scope state (via window):
-// - window.unsubMySentTasks: listener con cleanup en detachFirebaseListeners()
-// del inline (línea ~23869 pre-E2.g).
-// Locals al módulo: window.notifsTab, mySentTasks, taskFormImages, pendingNotifIdToMarkRead.
-// === Notificaciones panel ===
-// ============================================================
-// PANEL ALERTAS Y TAREAS (tabs: Recibidas / Crear tarea / Enviadas)
+// Cross-scope state via window: window.unsubMySentTasks tiene cleanup en
+// detachFirebaseListeners() del inline (regla CLAUDE.md §17).
+
 import { jsArgAttr, safeImgSrc } from '../pure/html-safe.js';
 
-// ============================================================
-// CROSS-SCOPE (E6 fix C3): updateNotifsBadge del inline (L8519) lee window.notifsTab.
-// Bundle strict tira ReferenceError → lista notif no re-renderea en snapshot.
+// window.notifsTab vive en window porque updateNotifsBadge (inline) la lee;
+// un let del bundle IIFE quedaría invisible (regla CLAUDE.md §13).
 if (typeof window.notifsTab === 'undefined') window.notifsTab = 'recibidas';
-let mySentTasks = []; // notifs creadas por mi tipo task (con status del destinatario)
+let mySentTasks = [];
 if (typeof window.unsubMySentTasks === 'undefined') window.unsubMySentTasks = null;
-// Estado del form "Crear tarea"
-let taskFormImages = []; // base64 strings
+let taskFormImages = [];
 
 function ensureMySentTasksListener() {
   if (unsubMySentTasks || !currentUser || !fbDb) return;
-  // Solo filtramos por fromUid (evita necesidad de indice compuesto).
-  // El filtro por type === 'task' se aplica en cliente.
+  // Filtramos por fromUid sin where('type') para evitar índice compuesto;
+  // el filtro por type === 'task' se aplica en cliente.
   window.unsubMySentTasks = fbDb
     .collection('notifications')
     .where('fromUid', '==', currentUser.uid)
@@ -73,8 +52,8 @@ function ensureMySentTasksListener() {
     );
 }
 
-// openNotifsPanel/closeNotifsPanel quedaron como shims para retro-compat:
-// el "modal" de notificaciones ahora es la pestana 'notif' del sidebar.
+// Shims retro-compat: el "modal" de notificaciones ahora es la pestaña
+// 'notif' del sidebar; closeNotifsPanel queda no-op para no romper callers legacy.
 window.openNotifsPanel = function () {
   setTab('notif');
   ensureMySentTasksListener();
@@ -82,36 +61,25 @@ window.openNotifsPanel = function () {
   populateTaskTargetSelect();
   updateNotifsTabCounts();
 };
-window.closeNotifsPanel = function () {
-  // Antes cerraba el modal. Ahora no hace falta hacer nada porque es una
-  // pestana; el usuario puede simplemente cambiar a otra pestana. Lo
-  // dejamos como no-op para no romper llamadas legacy.
-};
+window.closeNotifsPanel = function () {};
 window.populateTaskTargets = function () {
-  // Alias defensivo: si en el futuro se llama desde setTab, garantiza que
-  // el dropdown de destinatarios se llene.
   try {
     populateTaskTargetSelect();
   } catch (_e) {}
 };
 
-// ============================================================
-// ALTA CLIENTES - solicitud de alta + aprobacion (Santiago + Diego)
-// ============================================================
-// Aprobadores: se identifican por email. Si necesitas cambiarlos, editar la lista.
+// ALTA CLIENTES — solicitud de alta + aprobación (Santiago + Diego).
+// Aprobadores identificados por email; editar la lista para cambiarlos.
 const CLIENT_APPLICATION_APPROVER_EMAILS = ['srb90284@gmail.com', 'quilgym@gmail.com'];
 const ALTA_CLI_MAX_FOTOS = 5;
 let altaCliFiles = { arca: null, iibb: null, fotos: [] };
-let altaCliMine = []; // mis solicitudes (vendedor logueado)
-// Cross-scope: el inline detachFirebaseListeners hace
-// off('unsubAltaCliMine', unsubAltaCliMine, () => unsubAltaCliMine = null)
-// donde `unsubAltaCliMine` es free reference. Sin `window.` explícito, el
-// `let` del bundle IIFE NO es visible al inline → off skipeaba → listener leak.
+let altaCliMine = [];
+// window.unsubAltaCliMine es cross-scope: el off() del inline no ve lets del
+// bundle IIFE (regla CLAUDE.md §17 — un let acá genera listener leak silencioso).
 if (typeof window.unsubAltaCliMine === 'undefined') window.unsubAltaCliMine = null;
 
 function ensureAltaCliListener() {
   if (window.unsubAltaCliMine || !currentUser || !fbDb) return;
-  // Solo necesito mis propias solicitudes para la sub-tab "Mis solicitudes"
   window.unsubAltaCliMine = fbDb
     .collection('client_applications')
     .where('ownerUid', '==', currentUser.uid)
@@ -140,7 +108,7 @@ function populateAltaCliProvincias() {
   const provs = new Set();
   (POINTS || []).forEach((p) => provs.add(p.province));
   const sorted = [...provs].sort();
-  // Lleno el select de "Nueva solicitud" y tambien el de "Alta rapida".
+  // Llena el select de "Nueva solicitud" y el de "Alta rapida".
   ['ac-provincia', 'ar-provincia'].forEach((id) => {
     const sel = document.getElementById(id);
     if (!sel || sel.options.length > 1) return;
@@ -154,7 +122,6 @@ function populateAltaCliProvincias() {
 }
 
 function buildAltaCliShareUrl() {
-  // Base = misma URL pero apuntando a alta-cliente.html
   const base =
     window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'alta-cliente.html';
   const params = new URLSearchParams();
@@ -168,7 +135,6 @@ function buildAltaCliShareUrl() {
 
 window.copyAltaCliShareLink = function () {
   const url = buildAltaCliShareUrl();
-  // Intentar Clipboard API; fallback a prompt
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard
       .writeText(url)
@@ -200,8 +166,8 @@ window.setAltaCliSubtab = function (sub) {
   document
     .querySelectorAll('.ac-subtab-btn')
     .forEach((b) => b.classList.toggle('active', b.dataset.acsub === sub));
-  // v341+ (2026-07-28): sub-tab 'nuevo' + pane #ac-pane-nuevo removidos. Los
-  // getElementById se hacen con guard para tolerar el pane eliminado sin tirar.
+  // Guard: el sub-tab 'nuevo' y su pane pueden no existir en runtime (removidos
+  // sin eliminar los callers). Tolerar undefined en vez de tirar.
   const nuevoPane = document.getElementById('ac-pane-nuevo');
   if (nuevoPane) nuevoPane.style.display = sub === 'nuevo' ? '' : 'none';
   document.getElementById('ac-pane-mias').style.display = sub === 'mias' ? '' : 'none';
@@ -210,10 +176,8 @@ window.setAltaCliSubtab = function (sub) {
   if (sub === 'mias') renderAltaCliMisSolicitudes();
 };
 
-// Alta rapida (provisoria): solo 3 campos, sin SAP, sin aprobacion. Se
-// crea un doc en client_applications con status='approved' (asi entra
-// directo a las listas de tiendas habilitadas) y un flag manualSapPending
-// = true para que admin sepa que hay que cargarlo a mano en SAP.
+// Alta rápida (provisoria): sin SAP ni aprobación. Crea el doc con
+// status='approved' + manualSapPending=true para que admin lo cargue en SAP a mano.
 window.submitAltaRapida = async function () {
   if (!currentUser) {
     alert('No hay sesión activa.');
@@ -227,10 +191,8 @@ window.submitAltaRapida = async function () {
   const direccion = (document.getElementById('ar-direccion').value || '').trim();
   const dueno = (document.getElementById('ar-dueno').value || '').trim();
   const telefono = (document.getElementById('ar-telefono').value || '').trim();
-  // CUIT opcional. Solo digitos para poder matchear con SAP (que a veces
-  // trae 20-12345678-9, otras 20123456789). Si el vendedor escribe algo
-  // que no es un CUIT valido (menos de 11 digitos), guardamos igual pero
-  // avisamos - el match automatico usa strict equality sobre digitos.
+  // CUIT opcional. Solo dígitos para matchear con SAP (que mezcla 20-12345678-9
+  // y 20123456789). Si no llega a 11 dígitos avisamos pero guardamos igual.
   const cuitRaw = (document.getElementById('ar-cuit') || { value: '' }).value || '';
   const cuit = cuitRaw.replace(/\D/g, '');
   if (comercio.length < 2) {
@@ -289,7 +251,6 @@ window.submitAltaRapida = async function () {
     btn.disabled = true;
     btn.textContent = 'Guardando...';
   }
-  // Vendor efectivo: el del vendedor logueado (assignedVendor) o admin.
   const myVendor = typeof assignedVendor !== 'undefined' && assignedVendor ? assignedVendor : '';
   // Geocoding fire-and-forget: intentamos pero no bloqueamos el alta.
   let geoPromise = Promise.resolve(null);
@@ -306,10 +267,10 @@ window.submitAltaRapida = async function () {
       localidadFinal: localidad,
       duenoNombre: dueno,
       telefonoContacto: telefono || '',
-      cuit: cuit || '', // v293+: CUIT opcional para match automatico con SAP
+      cuit: cuit || '',
       status: 'approved',
       source: 'alta_rapida',
-      manualSapPending: true, // FLAG: admin tiene que cargar a SAP manual
+      manualSapPending: true, // admin tiene que cargar manualmente a SAP
       assignedVendor: myVendor,
       ownerUid: currentUser.uid,
       ownerEmail: currentUser.email || '',
@@ -326,7 +287,6 @@ window.submitAltaRapida = async function () {
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    // Geocoding en background (no bloquea).
     geoPromise.then((geo) => {
       if (geo && geo.lat != null && geo.lng != null) {
         const update = {
@@ -348,7 +308,7 @@ window.submitAltaRapida = async function () {
           .catch((e) => console.warn('geocode update alta rapida', e));
       }
     });
-    // Notificar al admin para que sepa que hay un alta provisoria que cargar.
+    // Notificar al admin: hay un alta provisoria pendiente de carga en SAP.
     try {
       const adminsSnap = await fbDb.collection('roles').where('role', '==', 'admin').get();
       const me = currentUser.displayName || currentUser.email || 'Vendedor';
@@ -409,7 +369,7 @@ window.onAltaCliFile = async function (input, kind) {
         }
         altaCliFiles.fotos.push(b64);
       } else {
-        altaCliFiles[kind] = b64; // reemplaza el anterior
+        altaCliFiles[kind] = b64;
         break;
       }
     } catch (e) {
@@ -476,7 +436,6 @@ function resetAltaCliForm() {
 }
 
 window.submitClientApplication = async function () {
-  // Validar
   const errors = [];
   function read(id) {
     const el = document.getElementById(id);
@@ -507,7 +466,7 @@ window.submitClientApplication = async function () {
     if (!read(id)) errors.push(label);
   });
   if (!altaCliFiles.arca) errors.push('Constancia ARCA');
-  // Constancia IIBB es OPCIONAL: muchas tiendas (monotributistas) no tienen.
+  // Constancia IIBB opcional: muchas tiendas monotributistas no tienen.
   if (!altaCliFiles.fotos.length) errors.push('Fotos del local (al menos 1)');
   if (errors.length) {
     alert('Faltan completar:\n\n- ' + errors.join('\n- '));
@@ -524,7 +483,6 @@ window.submitClientApplication = async function () {
     return;
 
   const data = {
-    // Datos comercio
     email: read('ac-email'),
     comercio: read('ac-comercio'),
     fantasia: read('ac-fantasia'),
@@ -538,18 +496,15 @@ window.submitClientApplication = async function () {
     telefono: read('ac-telefono'),
     web: read('ac-web'),
     redes: read('ac-redes'),
-    // Contacto
     contactoNombre: read('ac-contacto-nombre'),
     contactoTelParticular: read('ac-contacto-telpart'),
     contactoWhatsapp: read('ac-contacto-wsp'),
     contactoEmail: read('ac-contacto-email'),
     tipoComercio: read('ac-tipocomercio'),
     tiendaOnline: read('ac-tiendaonline'),
-    // Documentos
     constanciaArca: altaCliFiles.arca,
     constanciaIIBB: altaCliFiles.iibb,
     fotosLocal: altaCliFiles.fotos.slice(),
-    // Metadata
     ownerUid: currentUser.uid,
     ownerEmail: currentUser.email || '',
     ownerName: currentUser.displayName || currentUser.email || '',
@@ -565,7 +520,6 @@ window.submitClientApplication = async function () {
   }
   try {
     const docRef = await fbDb.collection('client_applications').add(data);
-    // Notificar a cada aprobador
     const approvers = await findApproverUids();
     for (const u of approvers) {
       try {
@@ -611,12 +565,8 @@ window.submitClientApplication = async function () {
 };
 
 async function findApproverUids() {
-  // Busca aprobadores por email via callable getUsersDirectoryCF.
-  //
-  // S-7 P0-A Fase 2B (2026-11-25): migrado de collection('roles').get() directo
-  // a callable. Post-#1445 el read directo devuelve snapshot vacio para VDE.
-  // Fail-closed: si la callable falla, devolvemos [] (el flow aguas arriba
-  // arma notif sin destinatarios, admin lo reasigna).
+  // Lee users via getUsersDirectoryCF: reads directos a /roles devuelven snapshot
+  // vacío para VDE post-#1445. Fail-closed: si la callable falla devolvemos [].
   const out = [];
   try {
     const callable = firebase
@@ -687,10 +637,9 @@ function renderAltaCliMisSolicitudes() {
         '</div>';
     }
     html += '</div>';
-    // Boton eliminar. Para altas rapidas se permite siempre (mientras
-    // no esten cargadas en SAP). Para altas formales se permite cuando
-    // estan pendientes o rechazadas - aprobadas con cardCode no se pueden
-    // borrar desde aca (se manejan desde SAP).
+    // Alta rápida se puede eliminar mientras no tenga cardCode; alta formal se
+    // puede eliminar si está pendiente, rechazada o aprobada sin cardCode
+    // (una vez cargada en SAP la gestión pasa por allá).
     const canDelete = isRapida ? !hasSap : a.status !== 'approved' || !hasSap;
     if (canDelete) {
       const safeId = escapeAttr(a._fsId || '');
@@ -729,22 +678,9 @@ window.deleteMyAltaCli = async function (fsId, comercio) {
   }
 };
 
-// ============================================================
-// RENDICIONES - solicitud anticipo + gastos con foto + aprobacion
-// ============================================================
-// E2.e (e2b-perf 2026-07-28): movido a src/domains/rendiciones.js (901 LOC).
-// Bundle registra window.ensureRendicionesListener, window.openRendicionDetail,
-// window.setRendSubtab, window.submitRendSolicitud, window.submitRendGasto,
-// window.approveRendicion, window.rejectRendicion, window.exportMisRendicionesExcel,
-// window.setTodasRendFilter + ~5 handlers de UI (adjuntos + fotos + OCR retry).
-// Callers del inline las usan sin prefix.
-// Cross-scope state: window.unsubMisRendiciones + window.unsubTodasRendiciones
-// (listeners con cleanup en detachFirebaseListeners) inicializados por el bundle.
-// Nota: myRendicionesApproverUid/Email siguen declaradas como let en el inline;
-// el bundle las lee via free reference (Global Environment Record compartido).
-// ============================================================
+// Dominio RENDICIONES: movido a src/domains/rendiciones.js.
 
-// Detalle de solicitud de alta -> aprobar / rechazar
+// Detalle de solicitud de alta: aprobar o rechazar.
 window.openClientApplicationDetail = async function (appId, notifId) {
   if (!appId) {
     alert('Solicitud no encontrada.');
@@ -794,7 +730,7 @@ window.openClientApplicationDetail = async function (appId, notifId) {
     h +=
       '<h4 style="font-size:12px;color:#0891b2;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;padding-bottom:5px;border-bottom:1.5px solid #67e8f9">Documentaci&oacute;n</h4>';
     h += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
-    // sec 2026-11-24: src de imágenes saneado (solo data:image/* o https:).
+    // Sanitiza src: solo data:image/* o https: (previene XSS via src arbitrario).
     const _arcaSrc = safeImgSrc(a.constanciaArca);
     const _iibbSrc = safeImgSrc(a.constanciaIIBB);
     if (_arcaSrc)
@@ -844,12 +780,10 @@ window.openClientApplicationDetail = async function (appId, notifId) {
         escapeHtml(a.rejectedReason || '-') +
         '</div>';
     }
-    // Bloque de "datos del aprobador" - solo visible si soy aprobador y no
-    // di mi aprobacion todavia. Aca el aprobador completa info que la
-    // solicitud no trae del lado del vendedor:
-    // - cardCode SAP: BP a usar en pedidos (sin esto no entra el ZIP DTW)
-    // - assignedVendor: vendor que va a atender la tienda (aparece en su mapa)
-    // - localidadFinal: por si la localidad declarada no matchea con el mapa
+    // Bloque "datos del aprobador": solo visible si soy aprobador y aún no
+    // di mi OK. Completa cardCode SAP (sin él no entra el ZIP DTW),
+    // assignedVendor (determina en qué mapa aparece la tienda) y
+    // localidadFinal (fallback si la declarada no matchea con el mapa).
     const meEmail = (currentUser.email || '').toLowerCase();
     const iAmApprover = CLIENT_APPLICATION_APPROVER_EMAILS.indexOf(meEmail) >= 0;
     const iAlreadyApproved = a.approvals && a.approvals[currentUser.uid];
@@ -954,9 +888,7 @@ window.closeClientApplicationDetail = function () {
 };
 
 window.approveClientApplication = async function (appId, notifId) {
-  // Leer los 3 inputs del bloque "Datos del aprobador" antes de confirmar.
-  // CardCode y vendor son obligatorios; localidadFinal puede quedar vacia
-  // (fallback a la declarada por el vendedor).
+  // CardCode y vendor son obligatorios; localidadFinal cae al declarado si queda vacío.
   const cardCodeEl = document.getElementById('ca-cardcode');
   const vendorEl = document.getElementById('ca-vendor');
   const locFinalEl = document.getElementById('ca-loc-final');
@@ -985,24 +917,21 @@ window.approveClientApplication = async function (appId, notifId) {
       email: currentUser.email || '',
       name: currentUser.displayName || '',
     };
-    // Guardamos los datos del aprobador en la solicitud. Si ya estaban
-    // cargados (otro aprobador los lleno antes), no los sobrescribimos
-    // a menos que ahora se pasen valores no vacios.
+    // Si otro aprobador ya cargó estos campos, respetarlos salvo que ahora
+    // venga un valor no vacío (último aprobador con dato gana por campo).
     if (cardCode) upd.cardCodeSap = cardCode;
     if (assignedVendor) upd.assignedVendor = assignedVendor;
     if (localidadFinal) upd.localidadFinal = localidadFinal;
     await fbDb.collection('client_applications').doc(appId).update(upd);
-    // Releer para chequear si ambos aprobaron
+    // Releer para chequear si ya hay 2 aprobaciones.
     const snap = await fbDb.collection('client_applications').doc(appId).get();
     const a = snap.data() || {};
     const apN = a.approvals ? Object.keys(a.approvals).length : 0;
     if (apN >= 2 && a.status === 'pending_approval') {
-      // Marcar como aprobada definitivamente
       await fbDb.collection('client_applications').doc(appId).update({
         status: 'approved',
         approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-      // Notificar al vendedor
       if (a.ownerUid) {
         await fbDb.collection('notifications').add({
           type: 'client_approval_ack',
@@ -1021,7 +950,6 @@ window.approveClientApplication = async function (appId, notifId) {
         });
       }
     }
-    // Marcar la notif del aprobador como done
     if (notifId) {
       try {
         await fbDb
@@ -1058,7 +986,6 @@ window.rejectClientApplication = async function (appId, notifId) {
         rejectedReason: reason.trim(),
         rejectedAt: firebase.firestore.FieldValue.serverTimestamp(),
       });
-    // Notificar al vendedor
     const snap = await fbDb.collection('client_applications').doc(appId).get();
     const a = snap.data() || {};
     if (a.ownerUid) {
@@ -1110,7 +1037,6 @@ window.setNotifsTab = function (tab) {
 };
 
 function isNotifPending(n) {
-  // Pendiente = no leida y no completada (segun tipo).
   return n.status !== 'read' && n.status !== 'done';
 }
 
@@ -1127,7 +1053,7 @@ function updateNotifsTabCounts() {
     realEl.textContent = realizadas > 0 ? realizadas : '';
     realEl.classList.toggle('zero', realizadas === 0);
   }
-  // Enviadas: tareas que mande y que estan pendientes (no done)
+  // Enviadas: tareas que mandé y siguen pendientes.
   const pendSent = (mySentTasks || []).filter((t) => t.status !== 'done').length;
   const sentEl = document.getElementById('ntab-enviadas-count');
   if (sentEl) {
@@ -1171,8 +1097,7 @@ function notifItemHtml(n, opts) {
   opts = opts || {};
   const type = n.type || 'derivacion';
   const isClosed = n.status === 'read' || n.status === 'done';
-  // El tipo viene del doc (lo escribe quien crea la notificación): solo se
-  // usa como clase CSS si es uno conocido; si no, clase genérica.
+  // Tipo del doc → clase CSS si está en KNOWN_NOTIF_TYPES; si no, clase genérica.
   const cls = 'notif-item type-' + notifTypeClass(type) + (isClosed ? ' read' : '');
   const dtStr = fmtNotifDate(n);
   let h = '<div class="' + cls + '">';
@@ -1289,9 +1214,8 @@ function notifItemHtml(n, opts) {
       h += '</div>';
     }
   } else if (type === 'auto_confirm_timeout') {
-    // v921 (2026-09-14): pedido pasado automaticamente de pending a confirmed
-    // por el CF autoConfirmPendingPedidosCF tras N min de inactividad. El VDE
-    // ve el alerta + link a la card confirmada para revisar el envio a SAP.
+    // Pedido promovido de pending a confirmed por autoConfirmPendingPedidosCF
+    // tras N min de inactividad; el VDE ve el alerta para revisar el envío a SAP.
     const minutes = Number(n.minutesInPending) || 10;
     h += '<h4 style="color:#b45309">&#9200; Pedido auto-confirmado por timeout</h4>';
     h +=
@@ -1335,9 +1259,7 @@ function notifItemHtml(n, opts) {
       h += '</div>';
     }
   }
-  // Boton "Eliminar" generico para todas las notificaciones recibidas
-  // (excepto modo readonly). No depende del tipo - cualquier notif
-  // puede borrarse de la lista propia.
+  // Eliminar aplica a todas las notificaciones (excepto readonly).
   if (!opts.readonly) {
     h += '<div class="notif-item-actions" style="margin-top:6px;justify-content:flex-end">';
     h +=
@@ -1363,15 +1285,12 @@ window.deleteNotif = async function (fsId) {
 };
 
 function renderNotifsList() {
-  // Recibidas = solo pendientes (no read, no done)
   const cont = document.getElementById('notifs-list');
   const pendientes = (myNotifications || []).filter(isNotifPending);
   if (!pendientes.length) {
     cont.innerHTML = '<div class="notif-empty">No tenes alertas ni tareas pendientes. </div>';
     return;
   }
-  // v321+: header con contador + boton "Marcar todas como leidas" para
-  // limpiar la bandeja de una. Util cuando se acumulan 100+ notifs.
   const nPend = pendientes.length;
   let html = '';
   html +=
@@ -1389,9 +1308,9 @@ function renderNotifsList() {
   cont.innerHTML = html;
 }
 
-// v321+: bulk mark-as-read. Usa writeBatch de Firestore (max 500 ops).
-// Loop de batches de 400 para tener margen. Confirma antes por si el
-// user aprieta por accidente (280 notifs es mucho para deshacer).
+// Bulk mark-as-read en writeBatch de Firestore (límite 500 ops → chunks de 400).
+// Ojo: `window.markAllNotifsRead` se redefine más abajo y la segunda definición
+// gana en runtime. Ver docs/notes/notificaciones-dup-mark-all.md
 window.markAllNotifsRead = async function () {
   const pendientes = (myNotifications || []).filter(isNotifPending);
   if (!pendientes.length) {
@@ -1417,7 +1336,7 @@ window.markAllNotifsRead = async function () {
     btn.textContent = 'Marcando...';
   }
   try {
-    const CHUNK = 400; // margen sobre el limite de 500
+    const CHUNK = 400; // margen bajo el límite Firestore de 500 ops por batch
     let ok = 0;
     for (let i = 0; i < pendientes.length; i += CHUNK) {
       const slice = pendientes.slice(i, i + CHUNK);
@@ -1433,7 +1352,6 @@ window.markAllNotifsRead = async function () {
       ok += slice.length;
     }
     showSyncTag(ok + ' notificaciones marcadas como leidas');
-    // El listener onSnapshot repinta al toque cuando llegan los updates.
   } catch (e) {
     console.error('markAllNotifsRead', e);
     alert('Error marcando notificaciones: ' + (e.message || e));
@@ -1445,7 +1363,6 @@ window.markAllNotifsRead = async function () {
 };
 
 function renderNotifsRealizadas() {
-  // Realizadas = ya cerradas (read o done). Solo lectura.
   const cont = document.getElementById('notifs-realizadas-list');
   const cerradas = (myNotifications || []).filter((n) => !isNotifPending(n));
   if (!cerradas.length) {
@@ -1505,7 +1422,7 @@ function renderMySentTasks() {
   cont.innerHTML = html;
 }
 
-// === Image viewer (modal fullscreen) ===
+// Image viewer (modal fullscreen).
 window.openImgViewer = function (thumbId) {
   const thumb = document.getElementById(thumbId);
   if (!thumb) return;
@@ -1516,12 +1433,9 @@ window.closeImgViewer = function () {
   document.getElementById('img-viewer-overlay').classList.remove('open');
 };
 
-// === Tarea: poblar destinatario, manejar imagenes, enviar ===
-// IMPORTANTE: Firestore Rules bloquean a vendedores de listar /roles
-// (solo pueden leer su propio doc). Para que el dropdown de destinatarios
-// funcione para todos los roles, leemos de app_config/users_directory
-// (un mapa publico que el admin mantiene sincronizado). Si esa fuente
-// no existe todavia, fallback a /roles (admin / viewer si funcionan).
+// Populate del dropdown de destinatarios: lee app_config/users_directory
+// (mapa público mantenido por admin) porque rules bloquean list /roles a VDE;
+// fallback a callable getUsersDirectoryCF si el doc público no existe.
 function populateTaskTargetSelect() {
   const sel = document.getElementById('task-target');
   if (!sel) return;
@@ -1545,7 +1459,6 @@ function populateTaskTargetSelect() {
     });
     sel.innerHTML = opts.join('');
   }
-  // Intento principal: directorio publico mantenido por admin.
   fbDb
     .collection('app_config')
     .doc('users_directory')
@@ -1555,9 +1468,6 @@ function populateTaskTargetSelect() {
         renderFromMap(snap.data().users);
         return;
       }
-      // Fallback: callable getUsersDirectoryCF.
-      // S-7 P0-A Fase 2B (2026-11-25): migrado de /roles directo porque
-      // post-#1445 VDE recibe snapshot vacio.
       loadUsersFromCallable(sel, renderFromMap, 'users_directory-empty');
     })
     .catch((e) => {
@@ -1566,8 +1476,7 @@ function populateTaskTargetSelect() {
     });
 }
 
-// Helper S-7 P0-A Fase 2B: carga users desde callable getUsersDirectoryCF.
-// Fail-closed: si falla, muestra mensaje en el select.
+// Carga users desde callable getUsersDirectoryCF; fail-closed al select vacío.
 function loadUsersFromCallable(sel, renderFromMap, reason) {
   try {
     const callable = firebase
@@ -1604,9 +1513,8 @@ function loadUsersFromCallable(sel, renderFromMap, reason) {
   }
 }
 
-// Admin solo: sincronizar el directorio publico a partir del usersCache
-// que se carga en openAdminPanel. Los demas roles lo leen para poblar
-// el dropdown de destinatarios de tareas.
+// Admin sincroniza el directorio público (consumido por populateTaskTargetSelect
+// cuando rules bloquean list /roles a VDE). Se dispara al abrir el Panel Usuarios.
 function syncUsersDirectory() {
   if (userRole !== 'admin') return;
   if (!Array.isArray(usersCache) || !usersCache.length) return;
@@ -1752,12 +1660,11 @@ window.completarTask = async function (notifId) {
     return;
   }
   try {
-    // 1) Update de la tarea: status done
     await fbDb.collection('notifications').doc(notifId).update({
       status: 'done',
       doneAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    // 2) Notificacion de ACK al que la envio (si no soy el mismo, que no deberia)
+    // ACK al emisor (si no soy yo mismo, que no debería pasar).
     if (n.fromUid && n.fromUid !== currentUser.uid) {
       const myName = currentUser.displayName || currentUser.email || 'el destinatario';
       await fbDb.collection('notifications').add({
@@ -1792,13 +1699,9 @@ window.markNotifRead = async function (fsId) {
   }
 };
 
-// Cuando el VDI toca "Contactar" en una notif: cerramos el panel de notifs,
-// abrimos el form de visita ya pre-poblado con la tienda derivada, y guardamos
-// el notifId para marcar la notif como leida cuando el form se envie con exito.
-// v362: en window (no let) porque visitas.js la lee/escribe al submit del
-// form. Cada src/domains/*.js es su propio scope en el bundle IIFE de
-// esbuild — cross-module reads requieren window (regla CLAUDE.md #17
-// extendida: aplica tambien entre modulos del bundle, no solo bundle vs inline).
+// VDI toca "Contactar": abre el form de visita pre-poblado y guarda el notifId
+// para marcar la notif como leída al enviar. En window porque visitas.js (otro
+// módulo del bundle) lo lee en el submit (regla CLAUDE.md §17 extendida a cross-module).
 if (typeof window.pendingNotifIdToMarkRead === 'undefined') window.pendingNotifIdToMarkRead = null;
 window.contactarDesdeNotif = function (notifId) {
   const n = (myNotifications || []).find((x) => x._fsId === notifId);
@@ -1822,6 +1725,8 @@ window.contactarDesdeNotif = function (notifId) {
   }
 };
 
+// Segunda definición que pisa a la primera en runtime. Mantiene el ACK al
+// emisor para tareas; ver docs/notes/notificaciones-dup-mark-all.md
 window.markAllNotifsRead = async function () {
   const pending = (myNotifications || []).filter(isNotifPending);
   if (!pending.length) return;
@@ -1838,7 +1743,7 @@ window.markAllNotifsRead = async function () {
         ? { status: 'done', doneAt: firebase.firestore.FieldValue.serverTimestamp() }
         : { status: 'read', readAt: firebase.firestore.FieldValue.serverTimestamp() };
       await fbDb.collection('notifications').doc(n._fsId).update(upd);
-      // Si es una tarea, mando ACK al emisor (mismo flujo que completarTask, pero sin confirmacion).
+      // ACK al emisor en tareas, igual que completarTask pero sin confirm.
       if (isTask && n.fromUid && n.fromUid !== currentUser.uid) {
         const myName = currentUser.displayName || currentUser.email || 'el destinatario';
         try {
@@ -1864,17 +1769,10 @@ window.markAllNotifsRead = async function () {
   }
 };
 
-// === Exports a window para callers cross-scope ===
-// - renderNotifsList: llamada desde línea 12046 (tab handler), 12284 y 12331
-// (dentro de ensureNotifsListener + updateNotifsBadge del inline).
-// - updateNotifsTabCounts: llamada desde línea 12329-30 del inline.
-// - populateTaskTargets: ya está window.populateTaskTargets = function.
-// - syncUsersDirectory: ya está window.syncUsersDirectory = syncUsersDirectory (dentro del bloque).
-// - ensureAltaCliListener: llamada desde applyRolePermissions inline L11540.
+// Exports a window para callers cross-scope (inline + otros módulos del bundle).
 window.renderNotifsList = renderNotifsList;
 window.ensureAltaCliListener = ensureAltaCliListener;
 window.updateNotifsTabCounts = updateNotifsTabCounts;
-// E6 hotfix 2: populateAltaCliProvincias llamada desde setTab('altacli') inline L8221.
 window.populateAltaCliProvincias = populateAltaCliProvincias;
-// E6 hotfix 3: cross-module bug — rendiciones.js llama notifItemHtml.
+// rendiciones.js (otro módulo del bundle) llama notifItemHtml.
 window.notifItemHtml = notifItemHtml;
