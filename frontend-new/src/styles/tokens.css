@@ -1,0 +1,102 @@
+/*
+  tokens.css — design tokens del frontend nuevo.
+
+  Convention: --<categoria>-<slot>. Paleta derivada del CRM legacy (apple-design)
+  con equivalencias que apuntan a los mismos valores donde aplica, para que el
+  salto visual entre la app legacy (/) y la app nueva (/app2/) sea minimo.
+
+  ADR-015 mobile-first:
+  - Base font-size: 14px (viewport <480px) / 15px (>=480px) / 16px (>=1024px).
+  - Line-height: 1.45 — respira mejor en mobile.
+  - Spacing en escala de 4px.
+
+  Sin dark mode (CLAUDE.md §108 v1580).
+*/
+
+:root {
+  /* Tipografia — stack 100% nativo (zero FOIT, zero network). */
+  --font-base:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+
+  /* Colores — alineados con apple-design del CRM legacy. */
+  --color-bg: #f8fafc;
+  --color-bg-elev: #ffffff;
+  --color-bg-muted: #f1f5f9;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-text-subtle: #94a3b8;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+
+  --color-primary: #1f2937;
+  --color-primary-hover: #374151;
+  --color-primary-active: #111827;
+  --color-primary-fg: #ffffff;
+
+  --color-accent: #dc2626;
+  --color-accent-hover: #ef4444;
+
+  --color-success: #16a34a;
+  --color-success-bg: #dcfce7;
+  --color-warning: #ca8a04;
+  --color-warning-bg: #fef9c3;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fee2e2;
+
+  /* Shell layout — mismo valor que #root-skeleton del index.html → zero CLS. */
+  --shell-header-h: 56px;
+  --shell-nav-h: 64px;
+  --shell-main-pad-x: 16px;
+  --shell-main-pad-y: 12px;
+
+  /* Spacing — escala 4px. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* Radius — pill estilo Apple (§106). */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Sombras — sutiles, con prefers-reduced-motion respetado abajo. */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.02);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+
+  /* Z-index scale — explicita, evitamos stacking context bugs. */
+  --z-header: 100;
+  --z-nav: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+
+  /* Transitions — rapidas para touch. */
+  --transition-fast: 100ms ease-out;
+  --transition-mid: 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-mid: 0ms;
+  }
+}
+
+@media (min-width: 480px) {
+  :root {
+    --shell-main-pad-x: 24px;
+    --shell-main-pad-y: 16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --shell-nav-h: 0px; /* En desktop el nav pasa a side-nav (ver global.css). */
+  }
+}
