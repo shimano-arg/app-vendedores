@@ -39,6 +39,7 @@ import {
   base32Decode,
   checkRecentGoogleReauth,
   disableTotpCore,
+  getTotpStatusCore,
   setPasswordCore,
   setTotpCore,
   TransientAuthError,
@@ -1690,6 +1691,72 @@ export const getUsersDirectoryCF = onCall(
       if (e instanceof HttpsError) throw e;
       console.error('[getUsersDirectoryCF:general]', e);
       throw new HttpsError('internal', 'error interno; reintentá en unos segundos');
+    }
+  }
+);
+
+/**
+ * getTotpStatusCF — devuelve el estado TOTP de un usuario sin exponer el secreto.
+ *
+ * S04 B2-b (2026-11-25): reemplaza la lectura directa de /roles/{uid}.totpSecret
+ * en admin-users.js. El secreto crudo jamas sale del servidor; el cliente recibe
+ * solo {enabled, hasSecret, setAt}.
+ *
+ * Permisos: solo admin o gerente pueden consultar el estado TOTP de otro usuario.
+ * Log de auditoria: escribe en operations_log (fire-and-forget).
+ */
+export const getTotpStatusCF = onCall(
+  {
+    region: REGION,
+    cors: true,
+    enforceAppCheck: false,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+  },
+  async (req) => {
+    const auth = req.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'login requerido');
+    }
+    const db = getFirestore();
+    // Verificar rol del caller: solo admin o gerente pueden consultar estado TOTP.
+    let callerRole = null;
+    try {
+      const snap = await db.collection('roles').doc(auth.uid).get();
+      callerRole = snap.exists ? String((snap.data() || {}).role || '').toLowerCase() : null;
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      console.error('[getTotpStatusCF:roleCheck]', e);
+      throw new HttpsError('internal', 'no se pudo validar rol');
+    }
+    if (!['admin', 'gerente'].includes(callerRole || '')) {
+      throw new HttpsError('permission-denied', 'rol no autorizado');
+    }
+    // Validar targetUid.
+    const { targetUid } = req.data || {};
+    if (!targetUid || typeof targetUid !== 'string' || !targetUid.trim()) {
+      throw new HttpsError('invalid-argument', 'targetUid requerido');
+    }
+    // Leer estado TOTP via core (sin exponer secreto crudo).
+    try {
+      const result = await getTotpStatusCore(
+        { fbDb: db, log: (m, extra) => console.log(m, extra || {}) },
+        targetUid
+      );
+      // Auditoria (fire-and-forget).
+      db.collection('operations_log')
+        .add({
+          type: 'totp_status_queried',
+          callerUid: auth.uid,
+          targetUid,
+          at: new Date().toISOString(),
+        })
+        .catch(() => {});
+      return result;
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      console.error('[getTotpStatusCF:core]', e);
+      throw new HttpsError('internal', 'error interno');
     }
   }
 );

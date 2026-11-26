@@ -865,20 +865,21 @@ window.openTotpSetup = async function (uid, email) {
   }
   const subtEl = document.getElementById('totp-setup-subt');
   if (subtEl) subtEl.textContent = 'Para: ' + (email || uid);
-  // Leer estado actual
+  // Leer estado actual via CF (S04 B2-b: nunca leer /roles/{uid}.totpSecret en cliente).
   let curEnabled = false;
-  let curSecret = null;
+  // _curSecret siempre null post-migración: el secreto crudo nunca sale del servidor.
+  const _curSecret = null;
+  let _totpHasSecret = false;
   try {
-    const snap = await fbDb.collection('roles').doc(uid).get();
-    if (snap.exists) {
-      const d = snap.data() || {};
-      curEnabled = !!d.totpEnabled;
-      curSecret = d.totpSecret || null;
-    } else {
-      console.warn('[2FA] doc roles/' + uid + ' no existe');
-    }
+    const getTotpStatusCF = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('getTotpStatusCF');
+    const result = await getTotpStatusCF({ targetUid: uid });
+    curEnabled = !!(result.data && result.data.enabled);
+    _totpHasSecret = !!(result.data && result.data.hasSecret);
   } catch (e) {
-    console.error('[2FA] error leyendo roles/' + uid, e);
+    console.error('[2FA] error consultando estado TOTP via CF', e);
     alert('Error leyendo el estado de 2FA del usuario: ' + (e.message || e));
     return;
   }
@@ -887,7 +888,7 @@ window.openTotpSetup = async function (uid, email) {
     alert('Error: contenedor del modal de 2FA no encontrado. Recarga la pagina.');
     return;
   }
-  if (curEnabled && curSecret) {
+  if (curEnabled && _totpHasSecret) {
     c.innerHTML =
       '<div style="background:var(--color-success-bg);border:1px solid #86efac;border-radius:6px;padding:12px;font-size:12px;color:var(--color-success);text-align:center">' +
       '<b>&#10003; 2FA ya está activo</b> para este usuario.' +
