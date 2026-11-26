@@ -154,18 +154,15 @@ describe('/roles', () => {
   it('vendor puede leer su propio role', async () => {
     await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendor)));
   });
-  // D2 (2026-10-29, actualizado ciclo 17): la lectura de docs de vendedores
-  // quedó para roles lectores. Un VDE ES lector, así que VDE → VDE está
-  // permitido a propósito: es el caso v1491 (el VDE resuelve vendorKey→UID
-  // client-side vía resolveClientVendorFromMaster/vdeUsers; sin esa lectura el
-  // payload sale sin assignedVendorUid y el gate server rechaza con
-  // VENDOR_UID_MISSING). El test previo ("vendor NO puede leer role de otro
-  // vendor") reflejaba una intención anterior a v1491 y nunca coincidió con la
-  // regla real (en main alcanzaba con estar autenticado). La frontera de
-  // seguridad real de D2 — unassigned / autenticado sin rol NO leen — se
-  // mantiene abajo y también en tests/rules/sec-d2-d3.test.js (L1/L2).
-  it('vendor SÍ puede leer role de otro vendor (D2: caso v1491 vendorKey→UID)', async () => {
-    await assertSucceeds(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendorOther)));
+  // STACK_19 §S04 (2026-11-25): la rama `isReader() && role=='vendedor'`
+  // introducida por v1491 permitía a cualquier VDE leer /roles de otros VDEs,
+  // incluyendo passwordHash/totpSecret. Severidad ALTA. El fix removió la
+  // rama; VDE → VDE (ajeno) queda DENIED. La resolución vendorKey→UID la
+  // hace el server-side via §89 (resolveClientVendorServerSide con Admin SDK
+  // bypassa rules), por lo que el gate VENDOR_UID_MISSING NO rebota commits
+  // de VDE. Cobertura full en tests/rules/roles-s04.test.js.
+  it('vendor NO puede leer role de otro vendor (§S04: fix del leak de credenciales)', async () => {
+    await assertFails(getDoc(doc(authedDb(UID.vendor), 'roles', UID.vendorOther)));
   });
   it('D2: unassigned NO puede leer role de un vendor', async () => {
     await assertFails(getDoc(doc(authedDb(UID.unassigned), 'roles', UID.vendor)));
