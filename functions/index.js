@@ -20,6 +20,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { defineSecret } from 'firebase-functions/params';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
@@ -46,6 +47,9 @@ import {
   verifyPasswordCore,
   verifyTotpCore,
 } from './core/auth-secrets-core.js';
+// B2-A (2026-11-26): login + TOTP verificados server-side. S-8 B1.
+// passwordHash/passwordSalt/totpSecret nunca llegan al browser.
+import { verifyLoginCore } from './core/auth-verify-login-core.js';
 // v818 (2026-09-07): auto-envio pedidos confirmed a SAP via CF trigger. Elimina
 // dependencia del auto-send client-side (que solo corria en sesion admin/gerente
 // con SL activo). Fix bug reportado por Mariano: pedidos VDE confirmed quedaban
@@ -4881,6 +4885,57 @@ export const verifyTotpGate = onCall(
         throw new HttpsError('unavailable', 'no se pudo verificar ahora, reintentá');
       }
       console.error('verifyTotpGate unexpected', e);
+      throw new HttpsError('internal', 'error inesperado');
+    }
+  }
+);
+
+/**
+ * authVerifyLoginCF — B2-A (2026-11-26). Verifica email+password+TOTP
+ * completamente server-side. NUNCA devuelve passwordHash / passwordSalt /
+ * totpSecret al browser.
+ *
+ * INPUT (req.data):
+ *   { email: string, password: string, totpCode?: string }
+ *
+ * OUTPUT OK:
+ *   { ok: true, uid: string, role: string }
+ * OUTPUT FAIL:
+ *   { ok: false, code: string, message: string, requiresTotp?: true }
+ *
+ * Errores transientes (TransientAuthError) -> HttpsError('unavailable', ...).
+ * Nunca ok:true por fallback silencioso (fail-closed).
+ */
+export const authVerifyLoginCF = onCall(
+  { region: REGION, enforceAppCheck: false, memory: '512MiB', timeoutSeconds: 30, concurrency: 2 },
+  async (req) => {
+    // No exige auth.uid — el caller todavia NO tiene un token Firebase Auth.
+    // La verificacion de credenciales IS el login.
+    const data = req.data || {};
+    const db = getFirestore();
+    const authSecretsDeps = _buildAuthSecretsDeps(db);
+    // sha256EmailHash: usar la misma primitiva sha256Hex del deps pero
+    // aplicada al email (el hash sirve como doc-id del rate-limit para que
+    // el email nunca sea el id del documento en Firestore).
+    const sha256EmailHash = async (/** @type {string} */ email) =>
+      createHash('sha256').update(String(email)).digest('hex');
+    const deps = Object.assign({}, authSecretsDeps, {
+      fbDb: db,
+      getUserByEmail: (/** @type {string} */ email) => getAuth().getUserByEmail(email),
+    });
+    try {
+      return await verifyLoginCore(deps, {
+        email: String(data.email || ''),
+        password: String(data.password || ''),
+        totpCode: data.totpCode != null ? String(data.totpCode) : null,
+        sha256EmailHash,
+      });
+    } catch (e) {
+      if (e instanceof TransientAuthError) {
+        console.error('authVerifyLoginCF transient', e.message);
+        throw new HttpsError('unavailable', 'no se pudo verificar ahora, reintentá');
+      }
+      console.error('authVerifyLoginCF unexpected', e);
       throw new HttpsError('internal', 'error inesperado');
     }
   }
