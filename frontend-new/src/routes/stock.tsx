@@ -17,12 +17,12 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loading, TableSkeleton } from '../components/Loading.js';
+import type { GetStockOutput } from '../contracts/get-stock.js';
 import { getStock } from '../lib/api.js';
 import { initVitals } from '../lib/vitals.js';
-import type { GetStockOutput } from '../contracts/get-stock.js';
 
 interface Row {
   label: string;
@@ -62,7 +62,7 @@ export default function StockRoute() {
   const [cardCodeInput, setCardCodeInput] = useState(initialCardCode);
   const [skuInput, setSkuInput] = useState(initialSku);
   const [submitted, setSubmitted] = useState<{ cardCode: string; sku: string } | null>(
-    initialCardCode && initialSku ? { cardCode: initialCardCode, sku: initialSku } : null,
+    initialCardCode && initialSku ? { cardCode: initialCardCode, sku: initialSku } : null
   );
 
   useEffect(() => {
@@ -78,7 +78,7 @@ export default function StockRoute() {
 
   const rows = useMemo(
     () => (query.data ? toRows(query.data, submitted!.cardCode) : null),
-    [query.data, submitted],
+    [query.data, submitted]
   );
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -96,7 +96,10 @@ export default function StockRoute() {
         Stock por cliente
       </h1>
 
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
+      <form
+        onSubmit={onSubmit}
+        style={{ display: 'grid', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}
+      >
         <label style={{ display: 'grid', gap: 'var(--space-xs)' }}>
           <span style={{ fontSize: '0.85em', color: 'var(--color-text-secondary)' }}>
             Cliente (cardCode)

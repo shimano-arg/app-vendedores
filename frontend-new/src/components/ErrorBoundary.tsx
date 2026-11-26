@@ -41,9 +41,7 @@ export class ErrorBoundary extends Component<Props, State> {
       >
         <h2 style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-md)' }}>{title}</h2>
         <p style={{ marginBottom: 'var(--space-sm)' }}>{message}</p>
-        {hint && (
-          <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9em' }}>{hint}</p>
-        )}
+        {hint && <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9em' }}>{hint}</p>}
         <button
           type="button"
           onClick={this.reset}

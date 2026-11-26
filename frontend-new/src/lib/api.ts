@@ -13,23 +13,20 @@
  */
 
 import type { z } from 'zod';
-import { getIdTokenForced } from './auth.js';
-import { API_BASE_URL } from './firebase.js';
 import {
   GetPedidosByClientOutput,
   type GetPedidosByClientOutput as GetPedidosByClientOutputT,
 } from '../contracts/get-pedidos.js';
-import {
-  GetStockOutput,
-  type GetStockOutput as GetStockOutputT,
-} from '../contracts/get-stock.js';
+import { GetStockOutput, type GetStockOutput as GetStockOutputT } from '../contracts/get-stock.js';
+import { getIdTokenForced } from './auth.js';
+import { API_BASE_URL } from './firebase.js';
 
 export class ApiError extends Error {
   constructor(
     public readonly errorCode: string,
     message: string,
     public readonly status: number,
-    public readonly serverData?: Record<string, unknown>,
+    public readonly serverData?: Record<string, unknown>
   ) {
     super(message);
     this.name = 'ApiError';
@@ -39,11 +36,11 @@ export class ApiError extends Error {
 export class ApiValidationError extends Error {
   constructor(
     public readonly endpoint: string,
-    public readonly zodError: z.ZodError,
+    public readonly zodError: z.ZodError
   ) {
     super(
       `El servidor devolvió una respuesta que no matchea el contrato de ${endpoint}. ` +
-        `Avisale a Mariano.`,
+        `Avisale a Mariano.`
     );
     this.name = 'ApiValidationError';
   }
@@ -52,7 +49,7 @@ export class ApiValidationError extends Error {
 export class NetworkError extends Error {
   constructor(
     public readonly endpoint: string,
-    cause: unknown,
+    cause: unknown
   ) {
     super(`No pudimos conectar con el servidor. Revisá tu conexión y volvé a intentar.`);
     this.name = 'NetworkError';
@@ -61,7 +58,10 @@ export class NetworkError extends Error {
 }
 
 /** URL con query params serializados. Omite keys con valor undefined/null. */
-function buildUrl(path: string, params?: Record<string, string | number | undefined | null>): string {
+function buildUrl(
+  path: string,
+  params?: Record<string, string | number | undefined | null>
+): string {
   const base = API_BASE_URL.replace(/\/+$/, '');
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(base + cleanPath);
@@ -80,7 +80,7 @@ async function apiFetch<T extends z.ZodTypeAny>(
   path: string,
   params: Record<string, string | number | undefined | null> | undefined,
   schema: T,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<z.infer<T>> {
   const token = await getIdTokenForced();
   const url = buildUrl(path, params);
@@ -107,12 +107,16 @@ async function apiFetch<T extends z.ZodTypeAny>(
   }
 
   if (!response.ok || (payload as { ok?: boolean })?.ok === false) {
-    const envelope = payload as { errorCode?: string; message?: string; data?: Record<string, unknown> };
+    const envelope = payload as {
+      errorCode?: string;
+      message?: string;
+      data?: Record<string, unknown>;
+    };
     throw new ApiError(
       envelope?.errorCode ?? 'UNKNOWN',
       envelope?.message ?? `Error ${response.status}`,
       response.status,
-      envelope?.data,
+      envelope?.data
     );
   }
 
@@ -136,7 +140,7 @@ export async function getStock(params: GetStockParams): Promise<GetStockOutputT>
     '/api/stock',
     { cardCode: params.cardCode, sku: params.sku },
     GetStockOutput,
-    params.signal,
+    params.signal
   );
 }
 
@@ -153,6 +157,6 @@ export async function getPedidos(params: GetPedidosParams): Promise<GetPedidosBy
     '/api/pedidos',
     { cardCode: params.cardCode, cursor: params.cursor, limit: params.limit },
     GetPedidosByClientOutput,
-    params.signal,
+    params.signal
   );
 }

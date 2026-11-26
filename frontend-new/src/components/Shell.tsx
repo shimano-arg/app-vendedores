@@ -63,9 +63,7 @@ export function Shell() {
               fontSize: '0.95em',
               fontWeight: isActive ? 600 : 400,
               color: isActive ? 'var(--color-primary)' : 'var(--color-text)',
-              borderBottom: isActive
-                ? '2px solid var(--color-primary)'
-                : '2px solid transparent',
+              borderBottom: isActive ? '2px solid var(--color-primary)' : '2px solid transparent',
               textDecoration: 'none',
             })}
           >

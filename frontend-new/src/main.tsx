@@ -37,5 +37,5 @@ createRoot(rootEl).render(
         <App />
       </QueryClientProvider>
     </BrowserRouter>
-  </StrictMode>,
+  </StrictMode>
 );

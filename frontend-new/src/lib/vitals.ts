@@ -39,7 +39,10 @@ export function initVitals(route: string): void {
   try {
     const lcpObs = new PerformanceObserver((list) => {
       const entries = list.getEntries();
-      const last = entries[entries.length - 1] as PerformanceEntry & { renderTime?: number; loadTime?: number };
+      const last = entries[entries.length - 1] as PerformanceEntry & {
+        renderTime?: number;
+        loadTime?: number;
+      };
       if (last) {
         snapshot.lcp = last.renderTime ?? last.loadTime ?? last.startTime;
       }
@@ -61,7 +64,11 @@ export function initVitals(route: string): void {
         }
       }
     });
-    eventObs.observe({ type: 'event', buffered: true, durationThreshold: 16 } as PerformanceObserverInit);
+    eventObs.observe({
+      type: 'event',
+      buffered: true,
+      durationThreshold: 16,
+    } as PerformanceObserverInit);
   } catch {
     /* unsupported */
   }

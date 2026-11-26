@@ -6,12 +6,12 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loading } from '../components/Loading.js';
+import type { PedidoSlim } from '../contracts/get-pedidos.js';
 import { getPedidos } from '../lib/api.js';
 import { initVitals } from '../lib/vitals.js';
-import type { PedidoSlim } from '../contracts/get-pedidos.js';
 
 const ARS_FMT = new Intl.NumberFormat('es-AR', {
   style: 'currency',
@@ -40,7 +40,7 @@ export default function PedidosRoute() {
 
   const [cardCodeInput, setCardCodeInput] = useState(initialCardCode);
   const [submittedCard, setSubmittedCard] = useState<string | null>(
-    initialCardCode ? initialCardCode : null,
+    initialCardCode ? initialCardCode : null
   );
   const [selected, setSelected] = useState<PedidoSlim | null>(null);
 
@@ -68,7 +68,10 @@ export default function PedidosRoute() {
         Pedidos del cliente
       </h1>
 
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
+      <form
+        onSubmit={onSubmit}
+        style={{ display: 'grid', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}
+      >
         <label style={{ display: 'grid', gap: 'var(--space-xs)' }}>
           <span style={{ fontSize: '0.85em', color: 'var(--color-text-secondary)' }}>
             Cliente (cardCode)
@@ -117,12 +120,12 @@ export default function PedidosRoute() {
               }}
               data-testid={`pedido-card-${pedido.orderNumber}`}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-sm)' }}>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-sm)' }}
+              >
                 <strong>ORDEN {pedido.orderNumber}</strong>
                 <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                  {pedido.netAmountArs !== null
-                    ? ARS_FMT.format(pedido.netAmountArs)
-                    : '—'}
+                  {pedido.netAmountArs !== null ? ARS_FMT.format(pedido.netAmountArs) : '—'}
                 </span>
               </div>
               <p style={{ margin: '4px 0', fontSize: '0.9em' }}>{pedido.clientName}</p>
@@ -166,6 +169,7 @@ function PedidoDetailModal({ pedido, onClose }: PedidoDetailModalProps) {
   }, [onClose]);
 
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handler ya está wire via useEffect window.keydown (línea 164-169).
     <div
       role="dialog"
       aria-modal="true"
