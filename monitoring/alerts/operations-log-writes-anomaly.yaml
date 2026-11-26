@@ -1,0 +1,52 @@
+# Cloud Monitoring alert policy — operations_log writes/sec anomaly
+# Project: app-vendedores-shimano
+# Baseline normal observado: 1-10 writes/min (~0.017-0.17/sec).
+# Dispara si cae a <0.5/min (silencio sospechoso) O supera 50/min (storm).
+# Ref: STACK_40_D5_ALERTAS.md
+
+displayName: "[WARN] operations_log writes anomaly (10m)"
+documentation:
+  content: |
+    Las escrituras a Firestore `operations_log` estan fuera del rango normal
+    (1-10/min). Dos escenarios:
+
+    A) >50/min durante 10 min:
+       - Storm de errores (retry loop en algun CF).
+       - Buscar operation=="error_*" en operations_log para identificar fuente.
+
+    B) <0.5/min durante 10 min (opuesto, requiere alerta dedicada si se quiere):
+       - CFs posiblemente colgadas / no procesando.
+       - Chequear si commitPedido, syncSapInvoicesToApp, etc. estan corriendo.
+
+    NOTA: Esta policy monitorea solo escenario A (storm). Para silencio,
+    crear una segunda policy con COMPARISON_LT y absent_for.
+  mimeType: text/markdown
+
+combiner: OR
+enabled: true
+
+conditions:
+  - displayName: "operations_log doc writes > 50/min (storm)"
+    conditionThreshold:
+      # firestore.googleapis.com/document/write_count filtrado por collection
+      filter: |
+        resource.type="firestore.googleapis.com/Database"
+        metric.type="firestore.googleapis.com/document/write_count"
+        metric.labels.collection_id="operations_log"
+      aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+      comparison: COMPARISON_GT
+      thresholdValue: 0.833        # 50/min = 0.833/sec
+      duration: 600s               # sostenido 10 min
+      trigger:
+        count: 1
+
+alertStrategy:
+  autoClose: 3600s
+
+notificationChannels:
+  - "projects/app-vendedores-shimano/notificationChannels/NOTIFICATION_CHANNEL_ID_PLACEHOLDER"
+
+severity: WARNING
