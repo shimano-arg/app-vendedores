@@ -1791,9 +1791,11 @@ Cada notificación recibida tiene un **botón Eliminar rojo** alineado a la dere
 - **VDE** (vendedor externo): visita las tiendas, recibe pedidos. Su zona es restringida geográficamente.
 - **VDI** (vendedor interno): hace soporte desde la oficina. Atiende llamadas de tiendas, carga pedidos en nombre de un VDE pareja cuando este está en ruta.
 
-### Configuración de pareja
+### Configuración de pareja (shape canónico VDE → interno)
 
 En el panel admin "Usuarios", al vendedor VDE le aparece un campo dropdown "**Pareja interno**". Se elige un usuario con rol `interno`. Esto setea `roles/{vde}.internalPartnerUid = uid_vdi`.
+
+> **Importante (post v1577 + S-7 #1447 shipped 2026-11-25)**: la pareja se guarda **solo en el doc del VDE**. El interno NO guarda el vínculo inverso. Resolución autoritaria del set de VDEs pareja de un interno: `roles.where('internalPartnerUid','==',internoUid)`. Fail-closed si la query falla. Ver CLAUDE.md §108.1.
 
 ### Filtrado para VDI
 
@@ -1814,6 +1816,18 @@ Al confirmar:
 - `onBehalfOf = true`.
 
 El VDE recibe una notificación automática "X cargó un pedido en tu nombre".
+
+### Confirmación de pedidos cargados por admin/Pablo (post v1577-v1579)
+
+Cuando Pablo (admin) carga un pedido para un cliente del equipo, el `assignedVendorUid` del pedido/waitlist se resuelve server-side desde el **master del cliente** (§44 + §89), no desde el user logueado:
+
+- **VDE confirma**: puede confirmar pedidos cargados por Pablo **siempre que el cliente sea suyo según el master** (gate server-side `VENDEDOR_WAITLIST_FUERA_CLIENTE` en `commitPedidoCF`, v1578).
+- **Interno confirma**: puede confirmar pedidos cargados por Pablo **siempre que el cliente sea de su VDE pareja** (gate `INTERNO_CLIENTE_FUERA_DE_PAREJA`, v1577 + fix shape S-7 #1447).
+- **El `ownerUid` original se preserva** — autoría (Pablo) no se sobrescribe al VDE/interno que confirma (v1578 decisión 3).
+
+Operaciones derivadas (editar pedido, mover a waitlist, rechazar CPST, quitar item ASIG) tienen scope más estrecho — ver CLAUDE.md §108.5 (tabla completa de permisos por rol × operación × dentro/fuera de pareja).
+
+**Prerrequisito operativo**: cada VDE debe tener `internalPartnerUid` cargado en su doc `roles/<vdeUid>`. Si falta, el interno pareja no podrá confirmar pedidos de ese VDE (rebote `interno_sin_pareja`). Validar en Admin → Usuarios.
 
 ---
 

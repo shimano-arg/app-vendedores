@@ -1528,6 +1528,8 @@ Resultado: una orden manual que absorbió una línea CPST se marca badge STOCK A
 
 ## 44. El vendedor de un pedido/waitlist siempre viene del cliente master (2026-10-22, v1406)
 
+> **UPDATE Stack S-7 #1447 (2026-11-25)**: la **pareja interno ↔ VDE** es canónica VDE→interno (el VDE guarda `roles/<vdeUid>.internalPartnerUid = <internoUid>`; el interno NO guarda el vínculo inverso). El gate server-side del commit para interno (introducido en v1577, ver §108) ahora resuelve el set de VDEs pareja con `roles.where('internalPartnerUid','==',internoUid)` en vez de leer `interno.internalPartnerUid` single-value (shape invertido que v1577 asumía por error). Fail-closed intacto: `reason='interno_sin_pareja' | 'cliente_de_otra_pareja' | 'pareja_query_failed'`. Helpers puros: `src/pure/interno-pareja-helpers.js` + mirror `functions/core/interno-pareja-helpers.js` (§57). Detalle en §108.
+
 **Regla fuerte**: el vendedor que ve el Planner (y cualquier filtro por vendedor) sale **siempre del master del cliente** (OCRD/POINTS), nunca del user logueado que hizo el click. "Cargado por" queda como campo aparte (`cargadoPorUid` + `cargadoPorEmail`) y se muestra como línea secundaria.
 
 Aplica a los 3 caminos de carga + la unificación §42:
@@ -2739,6 +2741,12 @@ Suite completa post-v1441: **1711/1711 PASS**.
 
 ## 63. releaseAsigCF — endpoint único cross-vendor + rules VDE con assignedVendorUid (2026-10-23, v1442)
 
+> **UPDATE v1571/v1572 (2026-11-25)**: el permission check server-side de `releaseAsigCF` se afinó para interno:
+> - `action='remove_item'`: el interno ejecuta sobre su propia waitlist O sobre waitlists de su VDE pareja (via `evaluatePedidoScopeInterno`). Fuera de pareja → `INTERNO_FUERA_DE_PAREJA`.
+> - `action='rechazo_cpst'`: el interno **solo** puede rechazar/borrar waitlists propias. Sobre la del VDE pareja → `WAITLIST_BORRAR_SOLO_PROPIA` + registro en `operations_log`.
+>
+> Admin/gerente sin cambio (OK siempre). VDE sin cambio (ownerUid O assignedVendorUid de la waitlist). Detalle: §108 + `docs/CHANGELOG-sec-cf-interno-pareja-2026-11-25.md` + `docs/CHANGELOG-sec-interno-seguimiento-2026-11-25.md`.
+
 **Regla fuerte**: toda escritura cross-vendor del cliente que mute `pedidos` ajenos pasa SIEMPRE por `releaseAsigCF` (Cloud Function callable con validación server-side). El cliente NO escribe directo a `pedidos` ajenos. La rule `pedidos.update` para VDE exige `ownerUid == auth.uid` OR `assignedVendorUid == auth.uid` (patrón §44/§46/§59).
 
 **Contexto**: §61 (v1440) fue parche temporal — abrió `pedidos.update` para VDE sin ownerUid check porque Gonzalo no podía ejecutar §40.7 (Quitar producto con ASIG) en ORDEN 516 BROBRO (cross-vendor). Trade-off aceptado como emergencia: un VDE podía mutar `lines` de otros. §63 cierra el gap.
@@ -3936,4 +3944,157 @@ Para debug / audit en Firestore:
    - "pedí algo y me lo mandó a SAP sin stock físico" → chequear `operations_log type='sap_autosend_partial_transito'` para ese pedidoId; la línea tránsito debería haber quedado fuera del payload.
    - "stock tránsito trabado que no cruza nunca" → chequear `scheduledTransitoSafetyNet` logs cada 60 min; si corre bien y no flipea, es porque `fisicoDep11 < qtyTransito` del SKU (todavía no llegó el stock físico).
    - "quiero apagar todo ya" → toggle OFF + script U con --apply.
+
+## 108. Pareja VDE ↔ interno + flujos Pablo-carga / VDE-interno confirman (2026-11-25, v1577-v1579 + S-7 #1447)
+
+Consolida las reglas de operación de la **pareja VDE ↔ interno** que se shippearon en los PRs E (v1577), F (v1578), G (v1579) y el fix shape canónico de S-7 #1447. Las §§40-46 + §63 + §80 siguen siendo las reglas base; esta sección documenta las intersecciones específicas de **interno dentro de pareja** + **Pablo que carga para clientes del equipo** + **VDE/interno que confirma esos pedidos cargados por Pablo**.
+
+### 108.1 Pareja VDE → interno es canónica (shape)
+
+**Regla fuerte**: el vínculo pareja se guarda **solo** en el doc del VDE:
+
+```
+roles/<vdeUid>.internalPartnerUid = <internoUid>    ✓ ÚNICA fuente de verdad
+roles/<internoUid>.internalPartnerUid              ✗ NO existe (y aunque exista, se ignora)
+```
+
+**Por qué**: un interno puede tener N VDEs pareja (ej. Santiago apoya a Mauricio + Martin). Guardar el vínculo en el VDE deja la relación 1-N natural. Guardarlo en el interno exigiría array (`internoUid → [vdeUids]`) + sync bidireccional con riesgo de drift.
+
+**Resolución del set de VDEs pareja de un interno** (server-side, tx-safe):
+
+```js
+// functions/core/interno-pareja-helpers.js (mirror src/pure/interno-pareja-helpers.js §57)
+const q = await db.collection('roles')
+  .where('internalPartnerUid', '==', internoUid)
+  .get();
+const partnerVdeUids = new Set(q.docs.filter(d => d.data().role === 'vendedor').map(d => d.id));
+```
+
+**Fail-closed**: si la query falla (permission, red) → `reason='pareja_query_failed'` + rebote del commit/release. Nunca degradar a "sin pareja = cualquier cliente" (eso rompe aislamiento).
+
+**Precedente bug S-7 #1447**: v1577 (gate `INTERNO_CLIENTE_FUERA_DE_PAREJA`) leía inicialmente `interno.internalPartnerUid` single-value (shape invertido). Resultado: el interno no podía confirmar NINGÚN pedido para clientes de su VDE pareja real (resolución siempre vacía). Fix S-7 #1447 (commit `cf45423e`): query canónica `.where('internalPartnerUid','==',internoUid)` + chequeo `_resolvedVendorUid ∈ partnerVdeUids`. ErrorCode `INTERNO_CLIENTE_FUERA_DE_PAREJA` se preserva para compat con tests + UX heredada. Mensajes §68.
+
+### 108.2 Pablo (admin) carga pedidos para clientes del equipo
+
+**Flow**: Pablo abre modal "Confirmar pedido" / "Crear en nombre de" → payload resulta:
+
+```js
+{
+  // Cliente master del vendedor (§44 canonical)
+  vendorAssigned: '<VendorKey del master>',      // ej. 'MAURICIO GIL'
+  assignedVendorUid: '<uid_vde_master>',         // resuelto server-side §89
+  assignedVendorEmail: '<email_vde>',
+  ownerVendor: '<VendorKey del master>',         // alineado con vendorAssigned
+  // Quién cargó (Pablo)
+  ownerUid: '<uid_pablo>',
+  ownerEmail: '<email_pablo>',
+  cargadoPorUid: '<uid_pablo>',
+  cargadoPorEmail: '<email_pablo>',
+}
+```
+
+**Regla**: Pablo (admin) puede cargar para cualquier cliente del equipo (sin restricción de pareja). La resolución del `assignedVendorUid` sale del master (§44/§46/§89) — no del user logueado.
+
+### 108.3 VDE confirma pedidos cargados por Pablo (sus propios clientes)
+
+**Regla fuerte** (v1578 PR F — decisión 2A): un VDE puede confirmar pedidos cargados por Pablo (u otro admin/gerente/interno) **siempre que el cliente sea suyo según el master**.
+
+Gate server-side en `commitPedidoCF` (`functions/core/commit-pedido-core.js`):
+
+- Si `callerRole === 'vendedor'` + `waitlistOrigenSnap` existe → validar `waitlist.assignedVendorUid === auth.uid` O `waitlist.ownerUid === auth.uid`.
+- Si NO: rebote `VENDEDOR_WAITLIST_FUERA_CLIENTE` (§68 mensaje humano).
+
+**Por qué**: antes del v1578 el VDE podía consumir CUALQUIER waitlist (gap sec — un VDE malicioso podía confirmar waitlist cargada por Pablo para OTRO VDE). Ahora el `assignedVendorUid` del waitlist (que viene del master del cliente, §44) determina quién puede confirmarlo.
+
+**Caso de uso típico**: Pablo abre modal → carga ORDEN para BROBRO SA (master=Gonzalo). Queda `assignedVendorUid=Gonzalo`. Gonzalo abre app → ve la orden en Lista de Espera (filtro §59) → confirma sin problema. Pablo NO puede confirmarla desde su user como VDE (no es VDE); pero sí puede como admin (admin/gerente pass sin este gate).
+
+### 108.4 Interno confirma pedidos cargados por Pablo (clientes de su pareja)
+
+**Regla fuerte** (v1577 PR E — decisión 1 + S-7 #1447 fix shape): un interno puede confirmar pedidos **solo si el cliente pertenece a su pareja VDE**.
+
+Gate server-side en `commitPedidoCF`:
+
+1. `callerRole === 'interno'` → resolver `partnerVdeUids = roles.where('internalPartnerUid','==',internoUid)` (§108.1).
+2. Si set vacío → rebote `INTERNO_CLIENTE_FUERA_DE_PAREJA` + `reason='interno_sin_pareja'`.
+3. Si `_resolvedVendorUid ∉ partnerVdeUids` → rebote `INTERNO_CLIENTE_FUERA_DE_PAREJA` + `reason='cliente_de_otra_pareja'`.
+4. Si query falla → rebote con `reason='pareja_query_failed'`.
+5. OK → proceder al commit normal.
+
+**Caso de uso**: Pablo carga ORDEN para cliente master=Mauricio. Santiago (interno pareja de Mauricio) ve la orden en su panel y puede confirmarla. Ioannis (interno pareja de Federico/Gonzalo) NO puede confirmarla → rebote.
+
+**Importante — interacción con §108.3**: cuando el interno confirma un pedido cargado por Pablo, el `ownerUid` del pedido/waitlist **permanece Pablo** (preservado por `fresh_data.ownerUid || auth.uid` en v1578 decisión 3). La "autoría" (`cargadoPorUid`) no se reescribe al interno que confirma.
+
+### 108.5 Interno + Pablo: flujos derivados (waitlist / absorción BO / rechazo CPST)
+
+Las operaciones derivadas tienen scope más estrecho que el "confirmar":
+
+| Operación | admin/gerente | VDE (dentro de pareja) | interno (dentro de pareja) | Fuera de pareja |
+|---|---|---|---|---|
+| **Confirmar pedido** (§108.3/§108.4) | OK siempre | OK si cliente propio | OK si cliente del VDE pareja | Rebote `VENDEDOR_WAITLIST_FUERA_CLIENTE` o `INTERNO_CLIENTE_FUERA_DE_PAREJA` |
+| **Editar pedido existente** (`updatePedidoLinesCF`) | OK | OK si `ownerUid` O `assignedVendorUid` propios | OK sobre propios + pareja (contenido/entrega/notas/Planner) | `INTERNO_FUERA_DE_PAREJA` |
+| **Mover a waitlist** (`movePedidoToWaitlistCF`, v1578 decisión 3) | OK | OK propios | OK propios O del VDE pareja | — |
+| **Absorción BO automática** (dentro de `commitPedidoCF`, v1572) | OK | OK propios | Solo toca pedidos propios O de su pareja; otros se saltean con `bo_absorb_skipped_fuera_de_pareja` | Skip silencioso |
+| **Rechazo CPST** (`releaseAsigCF action='rechazo_cpst'`, v1572) | OK | OK si assignedVendorUid propio | **Solo propias**; sobre pareja → `WAITLIST_BORRAR_SOLO_PROPIA` | Rebote |
+| **Quitar item ASIG** (`releaseAsigCF action='remove_item'`) | OK | OK si assignedVendorUid propio | OK propios O del VDE pareja | `INTERNO_FUERA_DE_PAREJA` |
+
+**Fail-closed**: todos los gates fallan cerrado si no se puede leer el rol del caller O resolver la pareja. Helper central: `functions/core/interno-scope.js` (`evaluatePedidoScopeInterno`).
+
+### 108.6 Prerrequisitos operativos
+
+- **Cada VDE debe tener `internalPartnerUid` cargado en `roles/<vdeUid>`**. Sin este dato, el interno pareja NO podrá confirmar sus pedidos (rebote `interno_sin_pareja`).
+- **Panel admin Usuarios**: el dropdown "Pareja interno" sobre un VDE escribe `internalPartnerUid` en el doc del VDE (NO del interno). Validar en el modal Admin → Usuarios.
+- **El fallback hardcoded** `VENDOR_INCLUDES_OTHERS` (`IOANNIS → [FEDERICO, GONZALO]` + `SANTIAGO → [MAURICIO, MARTIN]`) sigue vivo para scope de UI del interno (dropdown ZONA, mapa, Masterfile). El gate server-side de commit/release NO usa este fallback — depende exclusivamente de `internalPartnerUid` persistido. Mantener ambos sincronizados.
+
+### 108.7 Mensajes al usuario (§68)
+
+Entries nuevas en `src/pure/mensajes-vendedor.js` + fallback inline en `_SERVER_ERROR_FALLBACK_TEXTS` (index.html) para bundle stale:
+
+- `INTERNO_CLIENTE_FUERA_DE_PAREJA` — "Este cliente no es de tu pareja. Solo podés operar sobre clientes del VDE que tenés asignado como pareja."
+- `VENDEDOR_WAITLIST_FUERA_CLIENTE` — "No podés confirmar un pedido de un cliente que no es tuyo."
+- `INTERNO_FUERA_DE_PAREJA` — "No podés editar/quitar un item de un pedido fuera de tu pareja."
+- `INTERNO_SOLO_PEDIDO_PROPIO` — para `movePedidoToWaitlistCF` sobre pedidos NO propios del interno (v1571 — scope reducido vs commit).
+- `WAITLIST_BORRAR_SOLO_PROPIA` — rechazo CPST del interno sobre waitlist de su pareja.
+- `WAITLIST_FUERA_DE_PAREJA` — edición de waitlist fuera de pareja (guard §42.2 no mezcla líneas antes de confirmar).
+
+### 108.8 Archivos vivos
+
+**Pure (cliente + espejo server §57)**:
+- `src/pure/interno-pareja-helpers.js` + `functions/core/interno-pareja-helpers.js` — resolución del set `partnerVdeUids` + chequeo `isClientInInternoPareja`.
+- `functions/core/interno-scope.js` — `evaluatePedidoScopeInterno` (helper único cerrado para los 4 call-sites: `updatePedidoLinesCF`, `updateAsigLineStateCF`, `releaseAsigCF`, `unifyWaitlistsCF`). Falla cerrada.
+- `src/pure/mensajes-vendedor.js` — entries §68.
+
+**Server-only**:
+- `functions/core/commit-pedido-core.js` — gates `INTERNO_CLIENTE_FUERA_DE_PAREJA` (S-7 #1447 shape canónico) + `VENDEDOR_WAITLIST_FUERA_CLIENTE` (v1578).
+- `functions/core/move-pedido-to-waitlist-core.js` — líneas 417 y 616 flexibilizadas a `!scope.ok` (acepta `via='propio' | 'pareja'`, v1578 decisión 3).
+- `functions/core/release-asig-core.js` — permission check con scope interno pareja (v1571/v1572).
+
+**Cliente**:
+- `index.html:_SERVER_ERROR_FALLBACK_TEXTS` — fallbacks para bundle stale.
+
+### 108.9 Changelogs detallados
+
+- v1577: `docs/CHANGELOG-pr-e-interno-cliente-pareja.md` (si existe en el commit E) + commit `75699f00`.
+- v1578: commit `8394a503` + mensaje incluye tests `tests/functions/pr-f-decisiones-2-3-v1578.test.js` (T10-T16).
+- v1571: `docs/CHANGELOG-sec-cf-interno-pareja-2026-11-25.md`.
+- v1572: `docs/CHANGELOG-sec-interno-seguimiento-2026-11-25.md`.
+- Rules VDI pareja (2026-11-25): `docs/CHANGELOG-sec-rules-vdi-pareja-2026-11-25.md`.
+- S-7 #1447 (fix shape): commit `cf45423e` + tests `tests/unit/audit/interno-pareja-fix-v1587.test.js` (T1-T11) + sync `tests/unit/audit/interno-pareja-sync.test.js`.
+
+### 108.10 Prohibido
+
+- Leer `interno.internalPartnerUid` como single-value para resolver pareja — shape canónico es VDE→interno (§108.1). Query autoritaria: `roles.where('internalPartnerUid','==',internoUid)`.
+- Setear `ownerUid` del waitlist al interno/VDE que confirma un pedido cargado por Pablo — rompe auditoría. El `ownerUid` original se preserva (v1578 decisión 3).
+- Agregar fallback hardcoded de pareja al gate server-side. El gate depende **solo** de `internalPartnerUid` persistido. Si falta → fail-closed. El fallback `VENDOR_INCLUDES_OTHERS` queda para scope UI (mapa/Masterfile/dropdown Zona del interno).
+- Abrir el scope de operaciones cross-pareja sin pasar por `evaluatePedidoScopeInterno`. Cualquier CF nueva que mute pedidos ajenos del interno TIENE que invocar ese helper.
+
+### 108.11 Rollback
+
+Cada capa se puede revertir independientemente:
+
+1. **Fix S-7 #1447 shape canónico**: `git revert cf45423e` + redeploy `commitPedidoCF`. Vuelve al comportamiento v1577 original (interno nunca puede confirmar, rebote constante).
+2. **PR F v1578** (confirmar Pablo-cargados + interno waitlist pareja): `git revert 8394a503` + redeploy. Restauraría gap pre-v1578 (VDE podía consumir cualquier waitlist).
+3. **PR E v1577** (gate inicial interno pareja): `git revert 75699f00` + redeploy. Elimina el gate server-side; interno recupera acceso irrestricto (regresión sec).
+4. **Rules VDI pareja 2026-11-25**: `firebase deploy --only firestore:rules` desde commit anterior. Vuelve a rules pre-cambio.
+
+**Prohibido mix de rollbacks**: si se revierte S-7 #1447 sin revertir también v1577, el interno queda bloqueado. Si se revierte v1577 sin revertir §108.5 operaciones, quedan gates inconsistentes. Decidir rollback como bloque.
 
