@@ -611,19 +611,29 @@ window.submitClientApplication = async function () {
 };
 
 async function findApproverUids() {
-  // Busca en /roles los uids de los aprobadores por email
+  // Busca aprobadores por email via callable getUsersDirectoryCF.
+  //
+  // S-7 P0-A Fase 2B (2026-11-25): migrado de collection('roles').get() directo
+  // a callable. Post-#1445 el read directo devuelve snapshot vacio para VDE.
+  // Fail-closed: si la callable falla, devolvemos [] (el flow aguas arriba
+  // arma notif sin destinatarios, admin lo reasigna).
   const out = [];
   try {
-    const qs = await fbDb.collection('roles').get();
-    qs.forEach((d) => {
-      const data = d.data() || {};
-      const em = (data.email || '').toLowerCase();
-      if (CLIENT_APPLICATION_APPROVER_EMAILS.indexOf(em) >= 0) {
-        out.push({ uid: d.id, email: em });
+    const callable = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('getUsersDirectoryCF');
+    const result = await callable({});
+    const users =
+      result && result.data && Array.isArray(result.data.users) ? result.data.users : [];
+    for (const u of users) {
+      const em = String(u.email || '').toLowerCase();
+      if (em && CLIENT_APPLICATION_APPROVER_EMAILS.indexOf(em) >= 0) {
+        out.push({ uid: u.uid, email: em });
       }
-    });
+    }
   } catch (e) {
-    console.warn('findApproverUids', e);
+    console.warn('[getUsersDirectoryCF] findApproverUids fallo', e);
   }
   return out;
 }
@@ -1545,40 +1555,53 @@ function populateTaskTargetSelect() {
         renderFromMap(snap.data().users);
         return;
       }
-      // Fallback: leer /roles directamente (funciona para admin/viewer
-      // pero NO para vendedor por security rules).
-      fbDb
-        .collection('roles')
-        .get()
-        .then((qs) => {
-          const usersMap = {};
-          qs.forEach((d) => {
-            usersMap[d.id] = d.data() || {};
-          });
-          renderFromMap(usersMap);
-        })
-        .catch((e) => {
-          console.warn('populate task target - sin /roles ni users_directory:', e);
-          sel.innerHTML =
-            '<option value="">Seleccionar... (sin usuarios disponibles, pedile al admin que entre 1 vez al Panel Usuarios)</option>';
-        });
+      // Fallback: callable getUsersDirectoryCF.
+      // S-7 P0-A Fase 2B (2026-11-25): migrado de /roles directo porque
+      // post-#1445 VDE recibe snapshot vacio.
+      loadUsersFromCallable(sel, renderFromMap, 'users_directory-empty');
     })
     .catch((e) => {
-      console.warn('populate task target - fallback a /roles:', e);
-      fbDb
-        .collection('roles')
-        .get()
-        .then((qs) => {
-          const usersMap = {};
-          qs.forEach((d) => {
-            usersMap[d.id] = d.data() || {};
-          });
-          renderFromMap(usersMap);
-        })
-        .catch(() => {
-          sel.innerHTML = '<option value="">Seleccionar... (sin usuarios disponibles)</option>';
-        });
+      console.warn('populate task target - fallback a callable:', e);
+      loadUsersFromCallable(sel, renderFromMap, 'users_directory-read-fail');
     });
+}
+
+// Helper S-7 P0-A Fase 2B: carga users desde callable getUsersDirectoryCF.
+// Fail-closed: si falla, muestra mensaje en el select.
+function loadUsersFromCallable(sel, renderFromMap, reason) {
+  try {
+    const callable = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('getUsersDirectoryCF');
+    callable({})
+      .then((result) => {
+        const users =
+          result && result.data && Array.isArray(result.data.users) ? result.data.users : [];
+        const usersMap = {};
+        users.forEach((u) => {
+          if (!u || !u.uid) return;
+          usersMap[u.uid] = u;
+        });
+        renderFromMap(usersMap);
+      })
+      .catch((e) => {
+        console.warn('[getUsersDirectoryCF] populate task target fallo (' + reason + '):', e);
+        sel.textContent = '';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent =
+          'Seleccionar... (sin usuarios disponibles, pedile al admin que entre 1 vez al Panel Usuarios)';
+        sel.appendChild(opt);
+      });
+  } catch (e) {
+    console.warn('[getUsersDirectoryCF] populate task target sync fallo:', e);
+    sel.textContent = '';
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Seleccionar... (sin usuarios disponibles)';
+    sel.appendChild(opt);
+  }
 }
 
 // Admin solo: sincronizar el directorio publico a partir del usersCache

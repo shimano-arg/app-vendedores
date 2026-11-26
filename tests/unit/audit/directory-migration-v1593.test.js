@@ -10,6 +10,14 @@ import { describe, expect, it } from 'vitest';
 const ROOT = resolve(import.meta.dirname, '..', '..', '..');
 const INDEX_HTML = readFileSync(resolve(ROOT, 'index.html'), 'utf8');
 const MASTER_CLIENTES = readFileSync(resolve(ROOT, 'src', 'domains', 'master-clientes.js'), 'utf8');
+const NOTIFICACIONES = readFileSync(resolve(ROOT, 'src', 'domains', 'notificaciones.js'), 'utf8');
+const RENDICIONES = readFileSync(resolve(ROOT, 'src', 'domains', 'rendiciones.js'), 'utf8');
+
+/** Strippa comentarios // y /* ... *‍/ de un bloque de codigo para que las
+ * aserciones "NO contiene X" no se rompan por referencias en comentarios. */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
+}
 
 /**
  * Extrae el cuerpo de una función `async function <name>(...)` o
@@ -163,6 +171,80 @@ describe('S-7 P0-A Fase 2 — consumidores migrados a getUsersDirectoryCF', () =
         'utf8'
       );
       expect(rateLimitCore).toMatch(/getUsersDirectoryCF:\s*\{[^}]*threshold:\s*\d+/);
+    });
+  });
+
+  // S-7 P0-A Fase 2B (2026-11-25): tests para los 4 consumidores adicionales.
+  describe('Fase 2B — notificaciones.js:findApproverUids', () => {
+    const body = extractFnBody(NOTIFICACIONES, 'async function findApproverUids()');
+
+    it('invoca getUsersDirectoryCF', () => {
+      expect(body).toMatch(/getUsersDirectoryCF/);
+      expect(body).toMatch(/httpsCallable\(['"]getUsersDirectoryCF['"]\)/);
+    });
+
+    it('NO lee /roles directo con collection(roles).get() sin filtro', () => {
+      expect(stripComments(body)).not.toMatch(/collection\(['"]roles['"]\)\.get\(\)/);
+    });
+
+    it('usa region southamerica-east1', () => {
+      expect(body).toMatch(/functions\(['"]southamerica-east1['"]\)/);
+    });
+
+    it('fail-closed: catch con warn + devuelve array vacio implicito', () => {
+      expect(body).toMatch(/console\.warn\(.*getUsersDirectoryCF/);
+    });
+  });
+
+  describe('Fase 2B — notificaciones.js:populateTaskTargetSelect fallback', () => {
+    it('reemplaza los 2 fallback a /roles directo por callable', () => {
+      // Antes habia 2 bloques "fbDb.collection('roles').get()" en la funcion.
+      // Ahora deberian ser 0 (el fallback pasa por loadUsersFromCallable).
+      const fnIdx = NOTIFICACIONES.indexOf('function populateTaskTargetSelect()');
+      expect(fnIdx).toBeGreaterThan(-1);
+      // Extraer hasta la proxima funcion.
+      const nextFn = NOTIFICACIONES.indexOf('\nfunction ', fnIdx + 1);
+      const fnBody = NOTIFICACIONES.slice(fnIdx, nextFn > 0 ? nextFn : undefined);
+      expect(fnBody).not.toMatch(/collection\(['"]roles['"]\)\.get\(\)/);
+      expect(fnBody).toMatch(/loadUsersFromCallable/);
+    });
+
+    it('helper loadUsersFromCallable existe e invoca getUsersDirectoryCF', () => {
+      const body = extractFnBody(
+        NOTIFICACIONES,
+        'function loadUsersFromCallable(sel, renderFromMap, reason)'
+      );
+      expect(body).toMatch(/getUsersDirectoryCF/);
+      expect(body).toMatch(/httpsCallable\(['"]getUsersDirectoryCF['"]\)/);
+      expect(body).toMatch(/functions\(['"]southamerica-east1['"]\)/);
+      // Fail-closed: muestra mensaje al user si falla.
+      expect(body).toMatch(/sin usuarios disponibles/);
+    });
+  });
+
+  describe('Fase 2B — rendiciones.js:resolveMyRendicionesApprover', () => {
+    const body = extractFnBody(RENDICIONES, 'async function resolveMyRendicionesApprover()');
+
+    it('invoca getUsersDirectoryCF con uids=[approverUid]', () => {
+      expect(body).toMatch(/getUsersDirectoryCF/);
+      expect(body).toMatch(/httpsCallable\(['"]getUsersDirectoryCF['"]\)/);
+      // Pasa el uid especifico en el payload.
+      expect(body).toMatch(/uids:\s*\[\s*myRendicionesApproverUid\s*\]/);
+    });
+
+    it('NO lee /roles/{uid} directo', () => {
+      expect(body).not.toMatch(
+        /collection\(['"]roles['"]\)\.doc\(myRendicionesApproverUid\)\.get\(\)/
+      );
+    });
+
+    it('usa region southamerica-east1', () => {
+      expect(body).toMatch(/functions\(['"]southamerica-east1['"]\)/);
+    });
+
+    it('fail-closed: catch con warn + return null', () => {
+      expect(body).toMatch(/console\.warn\(.*getUsersDirectoryCF/);
+      expect(body).toMatch(/return\s+null/);
     });
   });
 });

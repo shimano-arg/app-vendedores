@@ -520,17 +520,30 @@ async function resolveMyRendicionesApprover() {
   } catch (e) {
     console.warn('resolve approver via directory', e);
   }
+  // S-7 P0-A Fase 2B (2026-11-25): callable getUsersDirectoryCF con filtro
+  // uids=[approverUid] en vez de /roles/{uid} directo. Post-#1445, VDE
+  // (rinde) solo puede leer su propio roles doc + el del VDI partner; para
+  // casos borde (admin aprobando VDE sin cache ni directorio publico) el
+  // callable valida permission server-side y strippa secretos.
+  // Fail-closed: si la callable falla, devolvemos null → caller registra
+  // sin aprobador y admin lo reasigna manualmente.
   try {
-    const snap = await fbDb.collection('roles').doc(myRendicionesApproverUid).get();
-    if (!snap.exists) return null;
-    const data = snap.data() || {};
+    const callable = firebase
+      .app()
+      .functions('southamerica-east1')
+      .httpsCallable('getUsersDirectoryCF');
+    const result = await callable({ uids: [myRendicionesApproverUid] });
+    const users =
+      result && result.data && Array.isArray(result.data.users) ? result.data.users : [];
+    const u = users.find((x) => x && x.uid === myRendicionesApproverUid);
+    if (!u) return null;
     return {
       uid: myRendicionesApproverUid,
-      email: data.email || '',
-      name: data.displayName || data.email || '',
+      email: u.email || '',
+      name: u.displayName || u.email || '',
     };
   } catch (e) {
-    console.warn('resolve approver via roles', e);
+    console.warn('[getUsersDirectoryCF] resolve approver fallo', e);
     return null;
   }
 }
