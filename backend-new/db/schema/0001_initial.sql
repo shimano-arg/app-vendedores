@@ -70,13 +70,10 @@ CREATE TABLE stock_snapshot (
 );
 
 COMMENT ON TABLE stock_snapshot IS
-  'Fisico actual por SKU y warehouse. Fuente: sync SAP (via ADR-008). ' ||
-  'Trigger t_stock_snapshot_guard protege contra bajar debajo de reservations activas.';
+  'Fisico actual por SKU y warehouse. Fuente: sync SAP (via ADR-008). Trigger t_stock_snapshot_guard protege contra bajar debajo de reservations activas.';
 
 COMMENT ON COLUMN stock_snapshot.physical_qty IS
-  'Unidades fisicas disponibles en el warehouse. Nunca negativo (CHECK). ' ||
-  'Puede subir por ingreso o bajar por venta real (invoiced). ' ||
-  'El trigger no deja bajar debajo de SUM(stock_reservations.qty) activas.';
+  'Unidades fisicas disponibles en el warehouse. Nunca negativo (CHECK). Puede subir por ingreso o bajar por venta real (invoiced). El trigger no deja bajar debajo de SUM(stock_reservations.qty) activas.';
 
 
 -- ---------------------------------------------------------------------------
@@ -286,9 +283,7 @@ CREATE INDEX ix_stock_reservations_sku_warehouse
   ON stock_reservations (sku, warehouse);
 
 COMMENT ON TABLE stock_reservations IS
-  'Tabla sincronizada con pedido_lines (via trigger t_reservations_sync). ' ||
-  'Invariante: SUM(qty) WHERE sku+warehouse <= stock_snapshot.physical_qty. ' ||
-  'Garantizada por t_reservations_check_invariant.';
+  'Tabla sincronizada con pedido_lines (via trigger t_reservations_sync). Invariante: SUM(qty) WHERE sku+warehouse <= stock_snapshot.physical_qty. Garantizada por t_reservations_check_invariant.';
 
 
 -- ---------------------------------------------------------------------------
@@ -376,9 +371,7 @@ CREATE TABLE pedido_draft_locks (
 );
 
 COMMENT ON TABLE pedido_draft_locks IS
-  'Idempotency key para commits concurrentes (§64.3). INSERT con ON CONFLICT ' ||
-  'DO NOTHING RETURNING pedido_id. Si no devuelve filas, el lock existia y el ' ||
-  'caller debe hacer SELECT pedido_id FROM pedido_draft_locks WHERE draft_id=$1.';
+  'Idempotency key para commits concurrentes (§64.3). INSERT con ON CONFLICT DO NOTHING RETURNING pedido_id. Si no devuelve filas, el lock existia y el caller debe hacer SELECT pedido_id FROM pedido_draft_locks WHERE draft_id=$1.';
 
 
 -- ============================================================================
@@ -655,9 +648,7 @@ LEFT JOIN backorder_by_sku bo
   ON bo.sku = s.sku;
 
 COMMENT ON VIEW v_stock_breakdown IS
-  'Equivalente minimo de getStockBreakdown (§39). V0 shape: fisico, transito, ' ||
-  'backorder app, asignadas por warehouse, confirmadas por warehouse, libre_dep11. ' ||
-  'En v1 extender con waitlist_cpst, reparto_abierto, sobre_asignada FIFO.';
+  'Equivalente minimo de getStockBreakdown (§39). V0 shape: fisico, transito, backorder app, asignadas por warehouse, confirmadas por warehouse, libre_dep11. En v1 extender con waitlist_cpst, reparto_abierto, sobre_asignada FIFO.';
 
 
 -- ============================================================================
