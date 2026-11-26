@@ -81,6 +81,12 @@ jobs:
       - name: Gate smoke (sin fallas + piso de ejecutados)
         run: node scripts/ci/check-known-failures.mjs smoke smoke-report.json
 
+      # ADR-0011 (2026-11-25): gate formal de bundle size.
+      # Falla el PR si app.bundle.js > 3,5 MB o si algún chunks/*.js > 400 KB
+      # o si el total de chunks > 2 MB. Ver docs/adr/0011-bundle-budget.md.
+      - name: Bundle size budget (ADR-0011)
+        run: node scripts/ci/bundle-size-check.mjs
+
       # C9-D4 (2026-11-03): tests Python (solo stdlib, sin red ni credenciales).
       # Cubren los guards de scripts destructivos y helpers de los syncs.
       #
