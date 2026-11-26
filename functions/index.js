@@ -1127,32 +1127,38 @@ export const onPedidoConfirmedSendToSap = onDocumentWritten(
           db.collection('sap_products').get(),
           db.collection('sap_vendors').get(),
         ]);
-        cliSnap.forEach((d) => {
-          const data = d.data() || {};
-          const nameNorm = String(data.clientName || d.id)
-            .toUpperCase()
-            .normalize('NFD')
-            .replace(/[̀-ͯ]/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          if (nameNorm && data.cardCode) sapClients.set(nameNorm, String(data.cardCode));
-        });
-        prodSnap.forEach((d) => {
-          const data = d.data() || {};
-          if (data.appCode && data.sapItemCode)
-            sapProducts.set(String(data.appCode), String(data.sapItemCode));
-        });
-        venSnap.forEach((d) => {
-          const data = d.data() || {};
-          const vendorKey = String(data.vendorKey || d.id)
-            .toUpperCase()
-            .normalize('NFD')
-            .replace(/[̀-ͯ]/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          const slp = Number(data.slpCode);
-          if (vendorKey && Number.isFinite(slp)) sapVendors.set(vendorKey, slp);
-        });
+        cliSnap.forEach(
+          /** @param {any} d */ (d) => {
+            const data = d.data() || {};
+            const nameNorm = String(data.clientName || d.id)
+              .toUpperCase()
+              .normalize('NFD')
+              .replace(/[̀-ͯ]/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (nameNorm && data.cardCode) sapClients.set(nameNorm, String(data.cardCode));
+          }
+        );
+        prodSnap.forEach(
+          /** @param {any} d */ (d) => {
+            const data = d.data() || {};
+            if (data.appCode && data.sapItemCode)
+              sapProducts.set(String(data.appCode), String(data.sapItemCode));
+          }
+        );
+        venSnap.forEach(
+          /** @param {any} d */ (d) => {
+            const data = d.data() || {};
+            const vendorKey = String(data.vendorKey || d.id)
+              .toUpperCase()
+              .normalize('NFD')
+              .replace(/[̀-ͯ]/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            const slp = Number(data.slpCode);
+            if (vendorKey && Number.isFinite(slp)) sapVendors.set(vendorKey, slp);
+          }
+        );
       } catch (mapErr) {
         console.warn('onPedidoConfirmedSendToSap: mapping load failed (non-blocking)', {
           err: mapErr?.message || String(mapErr),
@@ -3964,33 +3970,37 @@ export const generateVentasReportCF = onCall(
 
     // Fetch client_master.
     const clientSnap = await db.collection('client_master').get();
-    const clients = clientSnap.docs.map((d) => {
-      const data = d.data() || {};
-      return {
-        cardCode: String(data.sapCardCode || '').trim(),
-        clientName: String(data.clientName || '').trim(),
-        vendor: String(data.vendor || '').trim(),
-        provincia: String(data.provincia || '').trim(),
-        localidad: String(data.localidad || '').trim(),
-      };
-    });
+    const clients = clientSnap.docs.map(
+      /** @param {any} d */ (d) => {
+        const data = d.data() || {};
+        return {
+          cardCode: String(data.sapCardCode || '').trim(),
+          clientName: String(data.clientName || '').trim(),
+          vendor: String(data.vendor || '').trim(),
+          provincia: String(data.provincia || '').trim(),
+          localidad: String(data.localidad || '').trim(),
+        };
+      }
+    );
     console.log('[generateVentasReportCF] clients:', clients.length);
 
     // Fetch sap_vendors.
     const vendSnap = await db.collection('sap_vendors').get();
     const vendors = vendSnap.docs
-      .map((d) => {
-        const data = d.data() || {};
-        const key = String(data.vendorKey || '').trim();
-        if (!key) return null;
-        return {
-          vendorKey: key,
-          slpCode: data.slpCode,
-          slpName: String(data.slpName || '').trim(),
-          zone: String(data.zone || '').trim(),
-        };
-      })
-      .filter((x) => x !== null);
+      .map(
+        /** @param {any} d */ (d) => {
+          const data = d.data() || {};
+          const key = String(data.vendorKey || '').trim();
+          if (!key) return null;
+          return {
+            vendorKey: key,
+            slpCode: data.slpCode,
+            slpName: String(data.slpName || '').trim(),
+            zone: String(data.zone || '').trim(),
+          };
+        }
+      )
+      .filter(/** @param {any} x */ (x) => x !== null);
     console.log('[generateVentasReportCF] vendors:', vendors.length);
 
     // Fetch visitas del mes (via campo fecha YYYY-MM-DD).
@@ -4004,19 +4014,21 @@ export const generateVentasReportCF = onCall(
       .where('fecha', '>=', startStr)
       .where('fecha', '<', endStr)
       .get();
-    const visits = visitSnap.docs.map((d) => {
-      const data = d.data() || {};
-      return {
-        tienda: String(data.tienda || '').trim(),
-        vendor: String(data.vendor || '').trim(),
-        fecha: String(data.fecha || '').trim(),
-        provincia: String(data.provincia || '').trim(),
-        localidad: String(data.localidad || '').trim(),
-        formaContacto: String(data.formaContacto || '').trim(),
-        interactionType: String(data.interactionType || '').trim(),
-        tipo: String(data.tipo || '').trim(),
-      };
-    });
+    const visits = visitSnap.docs.map(
+      /** @param {any} d */ (d) => {
+        const data = d.data() || {};
+        return {
+          tienda: String(data.tienda || '').trim(),
+          vendor: String(data.vendor || '').trim(),
+          fecha: String(data.fecha || '').trim(),
+          provincia: String(data.provincia || '').trim(),
+          localidad: String(data.localidad || '').trim(),
+          formaContacto: String(data.formaContacto || '').trim(),
+          interactionType: String(data.interactionType || '').trim(),
+          tipo: String(data.tipo || '').trim(),
+        };
+      }
+    );
     console.log('[generateVentasReportCF] visits:', visits.length);
 
     // v1252 (2026-10-13): query extra para columna ULTIMA_COMPRA en ws4

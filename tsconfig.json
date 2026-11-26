@@ -17,6 +17,6 @@
     "skipLibCheck": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*.js", "src/**/*.ts", "functions/core/**/*.js", "functions/index.js"],
+  "include": ["src/**/*.js", "src/**/*.ts", "functions/core/**/*.js", "functions/index.js", "types/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "functions/node_modules", "functions/lib", "tests", "scripts"]
 }
