@@ -355,6 +355,10 @@ import './domains/sap-integration-modal.js'; // ensureSapVendorsListener al logi
 import './domains/sap-service-layer.js'; // sapSL objeto usado por sap-auto-send
 import './domains/sap-auto-send-listener.js'; // ensureSapAutoSendListener reactivo
 import './domains/sap-admin-panel.js'; // listenSapMaps + ensureSapConfigListener al login
+// S-9 c2 (2026-11-26): "Recargar limpio" + CLEAN_RELOAD_PRESERVE_KEYS extraidos
+// del inline. Expone window.forceUpdateApp + window.CLEAN_RELOAD_PRESERVE_KEYS.
+// Invocado desde el RefreshAppControl Leaflet en index.html (createMap).
+import './domains/force-update-app.js'; // window.forceUpdateApp + CLEAN_RELOAD_PRESERVE_KEYS (CLAUDE.md §100 §101)
 // Stack S-2 T4 (fire-and-forget, 20% sampling, no behavior change).
 import './domains/instrumentation.js'; // initInstrumentation (Web Vitals + cache + timing)
 
