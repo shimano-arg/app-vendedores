@@ -355,6 +355,8 @@ import './domains/sap-integration-modal.js'; // ensureSapVendorsListener al logi
 import './domains/sap-service-layer.js'; // sapSL objeto usado por sap-auto-send
 import './domains/sap-auto-send-listener.js'; // ensureSapAutoSendListener reactivo
 import './domains/sap-admin-panel.js'; // listenSapMaps + ensureSapConfigListener al login
+// S-9 (2026-11-26): tile layer OSM del mapa principal extraído del inline (31 LOC).
+import './domains/map-tile-layer.js'; // window.initMapTileLayer(map) — invocado en index.html:~7320 al init
 // Stack S-2 T4 (fire-and-forget, 20% sampling, no behavior change).
 import './domains/instrumentation.js'; // initInstrumentation (Web Vitals + cache + timing)
 
