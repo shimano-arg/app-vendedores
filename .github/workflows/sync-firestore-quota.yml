@@ -1,5 +1,10 @@
 name: Sync Firestore Quota
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: high
+# On failure: 3 fallos seguidos → email a Owner
+
 # v625 (2026-08-25): panel de control PR B. Syncea uso Firestore (reads/writes/
 # deletes 24h + storage bytes) desde Cloud Monitoring API a Firestore
 # (app_config/firestore_quota) para que el Panel de Control (Mariano-only)

@@ -1,5 +1,10 @@
 name: Send Rendiciones Aprobadas
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: medium
+# On failure: 3 fallos seguidos → email a Owner
+
 # v1059 (2026-09-24): cron ajustado de 12 UTC -> 8 UTC. GitHub Actions
 # dispara los cron con delay consistente de 3-5h en horario pico USA (GH
 # deprioriza cron cuando la infra esta cargada). Con 8 UTC + delay ~3-5h,

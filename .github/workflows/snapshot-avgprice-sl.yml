@@ -1,5 +1,10 @@
 name: Snapshot AvgPrice SL (semanal)
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: medium
+# On failure: 3 fallos seguidos → email a Owner
+
 # Job automatico de los lunes 01:00 ART (04:00 UTC): ejecuta la SQLQuery
 # 'AVGPRICE_BQ' en el Service Layer de Shimano y escribe los ~6.300 items
 # en costo_snapshot_semanal con cost_source='oitm_avg_price_sl_<yyyymmdd>'.

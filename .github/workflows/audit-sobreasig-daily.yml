@@ -1,5 +1,10 @@
 name: Audit sobre-asignación diaria (CLAUDE.md §56/§40.8)
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: high
+# On failure: 3 fallos seguidos → email a Owner
+
 # v1574 (2026-11-25): watchdog diario para detectar SKUs sobre-asignados.
 # Precedente: CLC66H2PY 2026-11-25 reportado por Mariano — 12u confirmed sobre
 # 4u fisicas. ANGLER + ROMERO solo con Cotizacion (sin SO) → riesgo real.

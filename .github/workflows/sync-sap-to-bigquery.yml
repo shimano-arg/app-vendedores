@@ -1,5 +1,10 @@
 name: Sync SAP to BigQuery
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: critical
+# On failure: 3 fallos seguidos → email a Owner
+
 # Corre cada 30 min. Complementa al sync-sap-catalog-stock.yml (que va a
 # Firestore para el frontend). Este va directo a BigQuery para el pipeline
 # Power BI:

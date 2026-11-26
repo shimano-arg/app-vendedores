@@ -1,5 +1,10 @@
 name: Sync Storage Usage
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: low
+# On failure: 3 fallos seguidos → email a Owner
+
 # v687 (2026-08-27): Panel Control card "Storage" - anticipa Firebase Storage
 # free tier hit (5 GB). Enumera buckets user data + suma bytes + top folders.
 # Cron 1x/dia (list_blobs es caro con muchos objetos).

@@ -1,5 +1,10 @@
 name: BO Daily Audit
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: medium
+# On failure: 3 fallos seguidos → email a Owner
+
 # Agente autonomo diario que verifica duplicacion de backorder en produccion.
 # Reutiliza la logica de scripts/audit_backorder_overlap.py (v1130 split-aware)
 # y manda email a mariano.erbino@shimano.com.ar con sumario + delta vs ayer.

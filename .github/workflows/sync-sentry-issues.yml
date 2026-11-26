@@ -1,5 +1,10 @@
 name: Sync Sentry Issues
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: medium
+# On failure: 3 fallos seguidos → email a Owner
+
 # v613 (2026-08-24): panel de control iter 3. Syncea unresolved issues de
 # Sentry a Firestore (app_config/sentry_issues) para que el Panel de Control
 # (Mariano-only) muestre estado de errores runtime capturados en la app.

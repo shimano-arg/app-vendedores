@@ -1,5 +1,10 @@
 name: Reclamos Keepalive Supabase
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: low
+# On failure: 3 fallos seguidos → email a Owner
+
 on:
   schedule:
     - cron: '0 10 */3 * *'  # cada 3 dias a las 10:00 UTC (07:00 ART)

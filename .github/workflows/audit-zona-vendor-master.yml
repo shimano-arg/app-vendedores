@@ -1,5 +1,10 @@
 name: Audit Zona vs Vendor Master (CLAUDE.md §102)
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: medium
+# On failure: 3 fallos seguidos → email a Owner
+
 # v1506 §102 (2026-10-28): audit diario que verifica que los pedidos de cada
 # cliente tengan `assignedVendorUid` consistente con el vendedor que resuelve
 # del master (OCRD + vendor_overrides + client_applications).

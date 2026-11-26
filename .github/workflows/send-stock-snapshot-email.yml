@@ -1,5 +1,10 @@
 name: Send Stock Snapshot Email
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: low
+# On failure: 3 fallos seguidos → email a Owner
+
 # Envia el resumen diario de stock SAP (bodega 11 — Pesca Disponible Venta)
 # al cierre del dia habil, dirigido a Pablo Gonzalez (gerente ventas) con
 # copia a Mariano para visibilidad.

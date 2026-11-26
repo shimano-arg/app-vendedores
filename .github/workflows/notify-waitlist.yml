@@ -1,5 +1,10 @@
 name: Notify Waitlist New (VDE cargas)
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: high
+# On failure: 3 fallos seguidos → email a Owner
+
 # Corre cada 5 minutos. Lee revision_waitlist de Firestore, filtra los
 # docs sin notifiedEmailAt cuyo ownerEmail es un VDE (Gonzalo, Federico,
 # Mauricio, Martin) y manda un mail a Pablo (gerente) + pareja VDI
