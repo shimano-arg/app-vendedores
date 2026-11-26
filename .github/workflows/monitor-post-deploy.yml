@@ -3,7 +3,7 @@ name: Monitor post-deploy error rate (D5 fallback)
 # Owner: Mariano
 # SLA: ventana critica 15 min post-deploy + standard 2h
 # Criticality: medium (fallback; GCP Cloud Monitoring es el canal primario cuando se habilite)
-# On failure: email a erbinomariano@gmail.com si error rate > threshold
+# On failure: email al destinatario configurado en el secret ALERT_EMAIL_TO si error rate > threshold
 #
 # Stack S-8 D5 (2026-11-25): workflow de monitoreo liviano via `gcloud logging read`.
 # Util como fallback cuando los alert policies de GCP Monitoring todavia no estan
@@ -20,11 +20,15 @@ name: Monitor post-deploy error rate (D5 fallback)
 #
 # Thresholds en .github/workflows/monitor-post-deploy.yml (hardcoded por ahora).
 #
-# Secrets requeridos:
+# Secrets requeridos (repo PÚBLICO — jamás hardcodear emails ni datos personales):
 #   FIREBASE_SERVICE_ACCOUNT   service account con roles/logging.viewer + roles/monitoring.viewer
 #   GMAIL_APP_PASSWORD         app password Gmail para enviar email (opcional)
-#   ALERT_EMAIL_FROM           (opcional, default erbinomariano@gmail.com)
-#   ALERT_EMAIL_TO             (opcional, default erbinomariano@gmail.com — CLAUDE.md §60)
+#   ALERT_EMAIL_FROM           dirección remitente (requerido si SEND_EMAIL=true)
+#   ALERT_EMAIL_TO             dirección destinatario (requerido si SEND_EMAIL=true)
+#
+# Si faltan ALERT_EMAIL_FROM/TO al momento del breach, el step loguea un
+# ::warning:: y saltea el envío sin bloquear el workflow. Repo Settings →
+# Secrets and variables → Actions para configurarlos.
 
 on:
   workflow_dispatch:
@@ -177,14 +181,18 @@ jobs:
         if: env.DRY_RUN != '1' && steps.evaluate.outputs.breach == '1' && env.SEND_EMAIL == 'true'
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM || 'erbinomariano@gmail.com' }}
-          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO || 'erbinomariano@gmail.com' }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
           REASONS: ${{ steps.evaluate.outputs.reasons }}
           COMMIT_RATE: ${{ steps.commit_pedido.outputs.rate_pct }}
           CRIT_RATE: ${{ steps.crit_cfs.outputs.rate_pct }}
         run: |
           if [ -z "$GMAIL_APP_PASSWORD" ]; then
             echo "::warning::GMAIL_APP_PASSWORD missing — skipping email"
+            exit 0
+          fi
+          if [ -z "$ALERT_EMAIL_FROM" ] || [ -z "$ALERT_EMAIL_TO" ]; then
+            echo "::warning::ALERT_EMAIL_FROM or ALERT_EMAIL_TO secret missing — skipping email. Configure via repo secrets."
             exit 0
           fi
           python3 <<'PY'
