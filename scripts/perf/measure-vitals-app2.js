@@ -116,9 +116,21 @@ async function runOnce(iteration) {
     console.warn(`[run ${iteration}] lectura __CWV__ fallo:`, err?.message || err);
   }
   if (cwv && typeof cwv === 'object') {
-    if (typeof cwv.lcp === 'number') metrics.LCP = { value: cwv.lcp, rating: cwv.lcp <= 2500 ? 'good' : cwv.lcp <= 4000 ? 'needs-improvement' : 'poor' };
-    if (typeof cwv.inp === 'number') metrics.INP = { value: cwv.inp, rating: cwv.inp <= 200 ? 'good' : cwv.inp <= 500 ? 'needs-improvement' : 'poor' };
-    if (typeof cwv.cls === 'number') metrics.CLS = { value: cwv.cls, rating: cwv.cls <= 0.1 ? 'good' : cwv.cls <= 0.25 ? 'needs-improvement' : 'poor' };
+    if (typeof cwv.lcp === 'number')
+      metrics.LCP = {
+        value: cwv.lcp,
+        rating: cwv.lcp <= 2500 ? 'good' : cwv.lcp <= 4000 ? 'needs-improvement' : 'poor',
+      };
+    if (typeof cwv.inp === 'number')
+      metrics.INP = {
+        value: cwv.inp,
+        rating: cwv.inp <= 200 ? 'good' : cwv.inp <= 500 ? 'needs-improvement' : 'poor',
+      };
+    if (typeof cwv.cls === 'number')
+      metrics.CLS = {
+        value: cwv.cls,
+        rating: cwv.cls <= 0.1 ? 'good' : cwv.cls <= 0.25 ? 'needs-improvement' : 'poor',
+      };
   }
 
   await browser.close();
