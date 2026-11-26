@@ -90,17 +90,37 @@ const win = window;
     msg.style.cssText =
       'font-size:14px;color:var(--text-secondary);' +
       'line-height:1.5;margin-bottom:24px;font-weight:400;letter-spacing:-0.006em';
-    // Verbatim del inline original. APP_VERSION es const local trusted;
-    // remoteVer viene del regex match del HTML remoto (mismo origen).
-    // Audit CLAUDE.md section 31 lo marca como "no modificar en esta tarea".
-    msg.innerHTML =
-      'Estas usando <b style="color:var(--text-primary);font-weight:600">' +
-      win.APP_VERSION +
-      '</b> ' +
-      'pero la ultima es <b style="color:var(--text-primary);font-weight:600">' +
-      remoteVer +
-      '</b>.<br><br>' +
+    // Stack S-10 P2.8 (2026-11-26): el inline original usaba `innerHTML` con
+    // interpolacion de `win.APP_VERSION` y `remoteVer`. Ambos son trusted
+    // (const local y regex match del HTML del mismo origen), pero el hook
+    // del entorno (Write tool) bloquea `innerHTML` en writes nuevos para no
+    // normalizar el patron en codigo nuevo. Refactor a DOM builder con
+    // `textContent` + `createElement`: respeta el gate, mismo render visual.
+    const _msgPart1 = document.createElement('span');
+    _msgPart1.textContent = 'Estas usando ';
+    const _bLocal = document.createElement('b');
+    _bLocal.style.cssText = 'color:var(--text-primary);font-weight:600';
+    _bLocal.textContent = String(win.APP_VERSION);
+    const _msgPart2 = document.createElement('span');
+    _msgPart2.textContent = ' pero la ultima es ';
+    const _bRemoto = document.createElement('b');
+    _bRemoto.style.cssText = 'color:var(--text-primary);font-weight:600';
+    _bRemoto.textContent = String(remoteVer);
+    const _msgPart3 = document.createElement('span');
+    _msgPart3.textContent = '.';
+    const _msgPart4 = document.createElement('span');
+    _msgPart4.textContent =
       'Actualiza ahora para no perder los ultimos cambios ni arrastrar bugs de la version vieja.';
+    msg.append(
+      _msgPart1,
+      _bLocal,
+      _msgPart2,
+      _bRemoto,
+      _msgPart3,
+      document.createElement('br'),
+      document.createElement('br'),
+      _msgPart4
+    );
 
     const btnRefresh = document.createElement('button');
     btnRefresh.type = 'button';
