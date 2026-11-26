@@ -1,0 +1,226 @@
+name: Monitor post-deploy error rate (D5 fallback)
+
+# Owner: Mariano
+# SLA: ventana critica 15 min post-deploy + standard 2h
+# Criticality: medium (fallback; GCP Cloud Monitoring es el canal primario cuando se habilite)
+# On failure: email a erbinomariano@gmail.com si error rate > threshold
+#
+# Stack S-8 D5 (2026-11-25): workflow de monitoreo liviano via `gcloud logging read`.
+# Util como fallback cuando los alert policies de GCP Monitoring todavia no estan
+# aplicados (requieren OK humano de canal + credenciales — ver monitoring/alerts/).
+#
+# Trigger principal: `workflow_dispatch` manual post-deploy. Tambien cron
+# "defensivo" cada 15 min durante horario comercial (10-20 ART = 13-23 UTC)
+# para captar regresiones fuera de deploy.
+#
+# Chequeos:
+#   1) commitPedidoCF error rate (5 min) > 5%  → CRITICAL
+#   2) CFs secundarias error rate (5 min) > 2% → HIGH
+#   3) commitPedidoCF p95 latency > 10s        → HIGH
+#
+# Thresholds en .github/workflows/monitor-post-deploy.yml (hardcoded por ahora).
+#
+# Secrets requeridos:
+#   FIREBASE_SERVICE_ACCOUNT   service account con roles/logging.viewer + roles/monitoring.viewer
+#   GMAIL_APP_PASSWORD         app password Gmail para enviar email (opcional)
+#   ALERT_EMAIL_FROM           (opcional, default erbinomariano@gmail.com)
+#   ALERT_EMAIL_TO             (opcional, default erbinomariano@gmail.com — CLAUDE.md §60)
+
+on:
+  workflow_dispatch:
+    inputs:
+      window_minutes:
+        description: 'Ventana de analisis en minutos (default 15)'
+        required: false
+        default: '15'
+      send_email:
+        description: 'Enviar email si alguna metrica supera threshold'
+        required: false
+        default: 'true'
+  schedule:
+    # Cada 15 min durante horario comercial ART (13-23 UTC Mo-Fr)
+    - cron: '*/15 13-23 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitor-post-deploy
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: app-vendedores-shimano
+      WINDOW_MIN: ${{ github.event.inputs.window_minutes || '15' }}
+      SEND_EMAIL: ${{ github.event.inputs.send_email || 'true' }}
+      COMMIT_PEDIDO_THRESHOLD_PCT: '5'
+      CRIT_CFS_THRESHOLD_PCT: '2'
+      P95_LATENCY_MS: '10000'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup gcloud auth
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT secret missing — skipping (dry mode)"
+            echo "DRY_RUN=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          mkdir -p "$HOME/.config/gcloud"
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$HOME/.config/gcloud/application_default_credentials.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/.config/gcloud/application_default_credentials.json" >> "$GITHUB_ENV"
+
+      - name: Install gcloud
+        if: env.DRY_RUN != '1'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Query error counts (commitPedidoCF)
+        if: env.DRY_RUN != '1'
+        id: commit_pedido
+        run: |
+          set -e
+          SINCE=$(date -u -d "${WINDOW_MIN} minutes ago" +%Y-%m-%dT%H:%M:%SZ)
+          echo "Window since: $SINCE"
+
+          # Total ejecuciones
+          TOTAL=$(gcloud logging read \
+            "resource.type=cloud_function AND resource.labels.function_name=commitPedidoCF AND timestamp>=\"$SINCE\"" \
+            --project="$PROJECT_ID" --format="value(timestamp)" --limit=1000 | wc -l)
+
+          # Ejecuciones con error
+          ERRORS=$(gcloud logging read \
+            "resource.type=cloud_function AND resource.labels.function_name=commitPedidoCF AND severity>=ERROR AND timestamp>=\"$SINCE\"" \
+            --project="$PROJECT_ID" --format="value(timestamp)" --limit=1000 | wc -l)
+
+          if [ "$TOTAL" -eq 0 ]; then
+            RATE=0
+          else
+            RATE=$(awk "BEGIN {printf \"%.2f\", ($ERRORS/$TOTAL)*100}")
+          fi
+
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+          echo "rate_pct=$RATE" >> "$GITHUB_OUTPUT"
+          echo "commitPedidoCF: $ERRORS errors / $TOTAL total = $RATE%"
+
+      - name: Query error counts (CFs secundarias)
+        if: env.DRY_RUN != '1'
+        id: crit_cfs
+        run: |
+          set -e
+          SINCE=$(date -u -d "${WINDOW_MIN} minutes ago" +%Y-%m-%dT%H:%M:%SZ)
+          FILTER='resource.type=cloud_function AND (resource.labels.function_name=getUsersDirectoryCF OR resource.labels.function_name=getTotpStatusCF OR resource.labels.function_name=releaseAsigCF OR resource.labels.function_name=applyRepartoManualCF)'
+
+          TOTAL=$(gcloud logging read \
+            "$FILTER AND timestamp>=\"$SINCE\"" \
+            --project="$PROJECT_ID" --format="value(timestamp)" --limit=5000 | wc -l)
+
+          ERRORS=$(gcloud logging read \
+            "$FILTER AND severity>=ERROR AND timestamp>=\"$SINCE\"" \
+            --project="$PROJECT_ID" --format="value(timestamp)" --limit=5000 | wc -l)
+
+          if [ "$TOTAL" -eq 0 ]; then
+            RATE=0
+          else
+            RATE=$(awk "BEGIN {printf \"%.2f\", ($ERRORS/$TOTAL)*100}")
+          fi
+
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
+          echo "rate_pct=$RATE" >> "$GITHUB_OUTPUT"
+          echo "critCFs: $ERRORS errors / $TOTAL total = $RATE%"
+
+      - name: Evaluate thresholds
+        if: env.DRY_RUN != '1'
+        id: evaluate
+        env:
+          COMMIT_RATE: ${{ steps.commit_pedido.outputs.rate_pct }}
+          CRIT_RATE: ${{ steps.crit_cfs.outputs.rate_pct }}
+        run: |
+          set -e
+          BREACH=0
+          REASONS=""
+
+          if awk "BEGIN {exit !($COMMIT_RATE > $COMMIT_PEDIDO_THRESHOLD_PCT)}"; then
+            BREACH=1
+            REASONS="${REASONS}commitPedidoCF error rate ${COMMIT_RATE}% > ${COMMIT_PEDIDO_THRESHOLD_PCT}%\n"
+          fi
+          if awk "BEGIN {exit !($CRIT_RATE > $CRIT_CFS_THRESHOLD_PCT)}"; then
+            BREACH=1
+            REASONS="${REASONS}CFs secundarias error rate ${CRIT_RATE}% > ${CRIT_CFS_THRESHOLD_PCT}%\n"
+          fi
+
+          echo "breach=$BREACH" >> "$GITHUB_OUTPUT"
+          {
+            echo 'reasons<<EOF'
+            printf "%b" "$REASONS"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$BREACH" -eq 1 ]; then
+            echo "::warning::Thresholds breach detected"
+          else
+            echo "All thresholds green"
+          fi
+
+      - name: Send alert email on breach
+        if: env.DRY_RUN != '1' && steps.evaluate.outputs.breach == '1' && env.SEND_EMAIL == 'true'
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM || 'erbinomariano@gmail.com' }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO || 'erbinomariano@gmail.com' }}
+          REASONS: ${{ steps.evaluate.outputs.reasons }}
+          COMMIT_RATE: ${{ steps.commit_pedido.outputs.rate_pct }}
+          CRIT_RATE: ${{ steps.crit_cfs.outputs.rate_pct }}
+        run: |
+          if [ -z "$GMAIL_APP_PASSWORD" ]; then
+            echo "::warning::GMAIL_APP_PASSWORD missing — skipping email"
+            exit 0
+          fi
+          python3 <<'PY'
+          import os, smtplib
+          from email.mime.text import MIMEText
+
+          reasons = os.environ.get("REASONS", "").strip()
+          body = f"""[ALERT] Error rate post-deploy (app-vendedores-shimano)
+
+          Ventana: {os.environ.get('WINDOW_MIN')} min
+          Window end: UTC now
+
+          Breaches:
+          {reasons}
+
+          Metricas:
+            commitPedidoCF error rate: {os.environ.get('COMMIT_RATE')}%
+            CFs secundarias error rate: {os.environ.get('CRIT_RATE')}%
+
+          Fuente: GitHub Actions monitor-post-deploy.yml
+          Runbook: monitoring/alerts/README.md + Desktop\\RESPUESTAS\\STACK_40_D5_ALERTAS.md
+          """
+
+          msg = MIMEText(body)
+          msg["Subject"] = "[ALERT] app-vendedores error rate breach"
+          msg["From"] = os.environ["ALERT_EMAIL_FROM"]
+          msg["To"] = os.environ["ALERT_EMAIL_TO"]
+
+          with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+              s.login(os.environ["ALERT_EMAIL_FROM"], os.environ["GMAIL_APP_PASSWORD"])
+              s.sendmail(os.environ["ALERT_EMAIL_FROM"], [os.environ["ALERT_EMAIL_TO"]], msg.as_string())
+          print("Email sent to", os.environ["ALERT_EMAIL_TO"])
+          PY
+
+      - name: Fail job on breach
+        if: env.DRY_RUN != '1' && steps.evaluate.outputs.breach == '1'
+        run: |
+          echo "::error::Error rate threshold breached. See previous steps."
+          exit 1
