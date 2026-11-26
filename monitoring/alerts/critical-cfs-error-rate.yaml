@@ -1,0 +1,70 @@
+# Cloud Monitoring alert policy — CFs criticas secundarias error rate > 2% (5 min)
+# Project: app-vendedores-shimano
+# CFs: getUsersDirectoryCF, getTotpStatusCF, releaseAsigCF, applyRepartoManualCF
+# Umbral mas estricto (2%) que commitPedido porque son operaciones auxiliares
+# que no deberian fallar bajo carga normal.
+# Ref: STACK_40_D5_ALERTAS.md
+
+displayName: "[HIGH] CFs secundarias error rate > 2% (5m)"
+documentation:
+  content: |
+    Alguna de las siguientes CFs esta con error rate > 2% en los ultimos 5 min:
+    - getUsersDirectoryCF   (login / directorio)
+    - getTotpStatusCF       (2FA)
+    - releaseAsigCF         (liberar ASIG)
+    - applyRepartoManualCF  (reparto manual gerente)
+
+    Runbook:
+    1. Ver la label `function_name` en el notification payload para identificar cual.
+    2. Sentry + logs:
+       gcloud logging read 'resource.type="cloud_function" resource.labels.function_name="<CF>" severity>=ERROR' --limit 50
+    3. Si es getTotpStatusCF: chequear secret / TOTP reset flow (CLAUDE.md §77).
+    4. Si es releaseAsigCF: chequear invariantes ASIG (CLAUDE.md §40.11).
+  mimeType: text/markdown
+
+combiner: OR
+enabled: true
+
+conditions:
+  - displayName: "CF secundarias error ratio > 2%"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_function"
+        (resource.labels.function_name="getUsersDirectoryCF" OR
+         resource.labels.function_name="getTotpStatusCF" OR
+         resource.labels.function_name="releaseAsigCF" OR
+         resource.labels.function_name="applyRepartoManualCF")
+        metric.type="cloudfunctions.googleapis.com/function/execution_count"
+        metric.labels.status!="ok"
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+            - resource.label.function_name
+      denominatorFilter: |
+        resource.type="cloud_function"
+        (resource.labels.function_name="getUsersDirectoryCF" OR
+         resource.labels.function_name="getTotpStatusCF" OR
+         resource.labels.function_name="releaseAsigCF" OR
+         resource.labels.function_name="applyRepartoManualCF")
+        metric.type="cloudfunctions.googleapis.com/function/execution_count"
+      denominatorAggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+            - resource.label.function_name
+      comparison: COMPARISON_GT
+      thresholdValue: 0.02        # 2%
+      duration: 300s
+      trigger:
+        count: 1
+
+alertStrategy:
+  autoClose: 1800s
+
+notificationChannels:
+  - "projects/app-vendedores-shimano/notificationChannels/NOTIFICATION_CHANNEL_ID_PLACEHOLDER"
+
+severity: ERROR

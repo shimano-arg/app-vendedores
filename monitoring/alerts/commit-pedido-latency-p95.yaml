@@ -1,0 +1,51 @@
+# Cloud Monitoring alert policy — commitPedidoCF p95 latency > 10s
+# Project: app-vendedores-shimano
+# Ref: STACK_40_D5_ALERTAS.md
+
+displayName: "[HIGH] commitPedidoCF p95 latency > 10s (5m)"
+documentation:
+  content: |
+    commitPedidoCF esta tardando mas de 10s en el p95 durante los ultimos 5 min.
+
+    Baseline normal: p95 ~1.5-3s (ver sync-cf-health daily).
+
+    Posibles causas:
+    - Firestore transaction retries (contencion en counters/orderNumber o stock).
+    - SAP Service Layer lento (operaciones_log operation="sap_sl_slow").
+    - Cold start por auto-scale (si min-instances no esta seteado).
+
+    Runbook:
+    1. gcloud logging read 'resource.type="cloud_function" resource.labels.function_name="commitPedidoCF" jsonPayload.operation=~"commit_pedido"' --limit 20
+    2. Chequear Firestore contention en Firebase console → Performance.
+    3. Chequear SAP SL latencia (operations_log operation="sap_sl_*").
+  mimeType: text/markdown
+
+combiner: OR
+enabled: true
+
+conditions:
+  - displayName: "commitPedidoCF p95 execution time > 10000 ms"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_function"
+        resource.labels.function_name="commitPedidoCF"
+        metric.type="cloudfunctions.googleapis.com/function/execution_times"
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_PERCENTILE_95
+          crossSeriesReducer: REDUCE_MAX
+          groupByFields:
+            - resource.label.function_name
+      comparison: COMPARISON_GT
+      thresholdValue: 10000000000      # execution_times en nanoseconds → 10s = 10_000_000_000
+      duration: 300s
+      trigger:
+        count: 1
+
+alertStrategy:
+  autoClose: 1800s
+
+notificationChannels:
+  - "projects/app-vendedores-shimano/notificationChannels/NOTIFICATION_CHANNEL_ID_PLACEHOLDER"
+
+severity: WARNING
