@@ -4680,6 +4680,19 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### v1588 (2026-11-25) — Stack S-7 P1-C: minVersion configurable + recarga pre-confirm
+
+- **Antes**: `app_config/version_minima` solo bloqueaba post-login (E10 v1434). Un VDE con sesión viva nunca veía el modal hasta que cerrara y volviera a entrar; entretanto podía disparar `commitPedidoCF` con versiones stale → 52% de los rechazos ASIG_REF_INVALID.
+- **Cambio**: hook pre-confirm en `_tryCommitPedidoCF`. Fetch 1× por sesión de `app_config/version_minima.minVersion` + comparación. Si `APP_VERSION < minVersion` → modal apple-design (§106) + `location.reload()`. Draft preservado en `localStorage['shimano_zonas_pending_v1']` (§101).
+- Pure fn nueva: `src/pure/min-version-check.js` (`parseAppVersion`, `shouldForceReload`, `compareAppVersion`). Expuesta via `window.__phase0.pure.minVersionCheck`.
+- Fail-open §77: sin doc Firestore, sin versión parseable, o fetch con error → no bloquea (el gate server-side VERSION_OLD sigue siendo autoridad).
+- Error code nuevo `VERSION_OLD_CLIENT` (interno al cliente, no viaja al CF). Handler en `doConfirmPedido` cierra el modal sin alert.
+- Audit script read-only: `scripts/audit/P1C_version_mix.cjs` — mix de versiones + stale rejections.
+- Instrumentación: `operations_log` entry `client_pre_confirm_reload` cada vez que el modal dispara.
+- Tests: 32 nuevos (20 pure fn + 12 contrato). Suite completa 3378/3378 PASS.
+- **Herramienta lista. Mariano configura `minVersion` en Firestore cuando decida activar el enforcement.**
+- Detalle: [`docs/CHANGELOG-p1c-min-version-enforced-2026-11-25.md`](docs/CHANGELOG-p1c-min-version-enforced-2026-11-25.md).
+
 ### v1572 (2026-11-25) — Interno: seguimiento de la revisión (absorción de back order, borrado de órdenes, mensajes)
 
 - `commitPedidoCF`: si confirma un interno, la absorción automática de back order solo toca pedidos propios o de su pareja; los de otra pareja se saltean (no se rechaza el pedido) y quedan en `operations_log` (`bo_absorb_skipped_fuera_de_pareja`).

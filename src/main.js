@@ -99,6 +99,9 @@ import {
   PALABRAS_PROHIBIDAS,
   SERVER_ERROR_CODES_MAPEADOS,
 } from './pure/mensajes-vendedor.js';
+// Stack S-7 P1-C (v1588 2026-11-25) — pure fn para enforcement pre-confirm de
+// versión mínima. Testeable + espejo usable server-side si en el futuro se migra.
+import { compareAppVersion, parseAppVersion, shouldForceReload } from './pure/min-version-check.js';
 import {
   displayVendorName,
   escapeHtml,
@@ -600,6 +603,15 @@ const phase0 = {
       isFirestoreTimestamp,
       pedidoDateForPlanner,
       plannerCutoffIsoForQuery,
+    },
+    // Stack S-7 P1-C (v1588 2026-11-25) — enforcement pre-confirm de versión
+    // mínima. `shouldForceReload` decide; el hook del navegador (en
+    // index.html) consume el resultado y muestra modal + reload preservando
+    // borrador en localStorage['shimano_zonas_pending_v1'] (CLAUDE.md §101).
+    minVersionCheck: {
+      parseAppVersion,
+      shouldForceReload,
+      compareAppVersion,
     },
     // v1484 §83 (2026-10-27) — resolve prov/loc huérfano via client_master.
     // v1488 §86 (2026-10-27) — fuente única para los 2 exports de backorder
