@@ -2,7 +2,15 @@
   "projects": {
     "default": "app-vendedores-shimano"
   },
-  "targets": {},
+  "targets": {
+    "app-vendedores-staging": {
+      "hosting": {
+        "app2-staging": [
+          "app-vendedores-staging"
+        ]
+      }
+    }
+  },
   "etags": {
     "app-vendedores-shimano": {
       "extensionInstances": {
