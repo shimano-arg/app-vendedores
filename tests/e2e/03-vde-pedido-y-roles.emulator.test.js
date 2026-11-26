@@ -1,15 +1,23 @@
 /**
  * P2-A.a T5+T6 — VDE Gonzalo: pedido cliente propio + lectura /roles ajenos.
  *
- * T5: VDE Gonzalo crea pedido para cliente propio → success
- * T6: VDE Gonzalo lee /roles/{otro_vde_uid} → PERMISSION_DENIED
- *     (post fix #1445: D2 restringe lectura de roles a Reader + vendor)
+ * T5: VDE NO puede create directo a /pedidos — SOLO via commitPedidoCF.
+ *     Desde #1379 (2026-11-24): `pedidos.create` restringido a admin/gerente.
+ *     Todo pedido de vendedor o interno nace en commitPedidoCF (Admin SDK,
+ *     no pasa por rules; §67 v1454 eliminó el `pedidos.add` del cliente).
+ *     El VDE sigue pudiendo leer su propio rol (/roles/<uid>).
  *
- * T6 verifica la regla de D2 (2026-10-29): un vendedor puede leer roles de
- * otros vendedores (resource.data.role=='vendedor') pero NO de internos,
- * admins, gerentes u otras cuentas no-vendedor.
+ * T6: VDE NO puede leer /roles/{otro_vde} — cerrado por S04 (fix #1445).
+ *     Commit 983d8085 (v1491 cap 2, 2026-10-27) agregó temporalmente
+ *     `resource.data.role == 'vendedor'` como rama permisiva para que
+ *     `resolveClientVendorFromMaster` resolviera UIDs client-side.
+ *     Commit 852e2e9b (S04, 2026-11-25, PR #1445) la REMOVIÓ explícitamente
+ *     por read leak: cualquier VDE con sesión podía enumerar nombres+emails
+ *     de los 4 VDEs via consola. La resolución VDE→UID la hace ahora
+ *     `resolveClientVendorServerSide` (admin SDK, §89).
+ *     VDE sigue sin poder leer roles de internos ni admins.
  *
- * S-7 / 2026-11-25
+ * S-7 / 2026-11-26 — fixture alineado a rules post-#1379 + post-#1445.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CARD_CODE_GONZALO, seedAllRoles, TEST_SKU } from './fixtures/seed-roles.js';
@@ -45,20 +53,25 @@ beforeEach(async () => {
   });
 });
 
-describe('T5 — VDE Gonzalo crea pedido cliente propio → success', () => {
-  it.skipIf(emulatorUnavailable)('puede crear pedido para su cliente', async () => {
-    const db = authedDb(UID.vdeGonzalo);
-    await assertSucceeds(
-      setDoc(doc(db, 'pedidos', 'e2e-t5-vde-ped-01'), {
-        ownerUid: UID.vdeGonzalo,
-        assignedVendorUid: UID.vdeGonzalo,
-        clientCardCode: CARD_CODE_GONZALO,
-        stage: 'pending',
-        createdAt: new Date().toISOString(),
-        lines: [{ code: TEST_SKU, qty: 1, state: 'pending', qtyOpen: 1, precio: 100 }],
-      })
-    );
-  });
+describe('T5 — VDE Gonzalo + /pedidos (post #1379 2026-11-24)', () => {
+  it.skipIf(emulatorUnavailable)(
+    'NO puede create directo a /pedidos (solo admin/gerente; VDE pasa por commitPedidoCF)',
+    async () => {
+      // #1379: `pedidos.create: if isAdminOrGerente()`.
+      // Un VDE que intenta setDoc directo recibe PERMISSION_DENIED.
+      const db = authedDb(UID.vdeGonzalo);
+      await assertFails(
+        setDoc(doc(db, 'pedidos', 'e2e-t5-vde-ped-01'), {
+          ownerUid: UID.vdeGonzalo,
+          assignedVendorUid: UID.vdeGonzalo,
+          clientCardCode: CARD_CODE_GONZALO,
+          stage: 'pending',
+          createdAt: new Date().toISOString(),
+          lines: [{ code: TEST_SKU, qty: 1, state: 'pending', qtyOpen: 1, precio: 100 }],
+        })
+      );
+    }
+  );
 
   it.skipIf(emulatorUnavailable)('puede leer su propio rol', async () => {
     const db = authedDb(UID.vdeGonzalo);
@@ -66,13 +79,15 @@ describe('T5 — VDE Gonzalo crea pedido cliente propio → success', () => {
   });
 });
 
-describe('T6 — VDE Gonzalo lee /roles/{otro_vde} y no-vendedor', () => {
+describe('T6 — VDE Gonzalo lee /roles/{otro_uid} (post #1445 S04)', () => {
   it.skipIf(emulatorUnavailable)(
-    'puede leer rol de otro VDE (resource.data.role==vendedor)',
+    'NO puede leer rol de otro VDE (S04 cerró la rama role==vendedor)',
     async () => {
-      // D2: isReader() && resource.data.role=='vendedor' → permitido para VDE.
+      // Pre-#1445 existía `resource.data.role == 'vendedor'` (v1491 cap 2).
+      // #1445 la removió: read leak de nombres+emails de VDEs.
+      // La resolución VDE→UID ahora es server-side via admin SDK (§89).
       const db = authedDb(UID.vdeGonzalo);
-      await assertSucceeds(getDoc(doc(db, 'roles', UID.vdePachi)));
+      await assertFails(getDoc(doc(db, 'roles', UID.vdePachi)));
     }
   );
 
