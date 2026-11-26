@@ -4700,6 +4700,14 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 - Interruptor `app_config/feature_flags.invoices_bq_incremental_disabled`. Estado en `app_config/invoices_bq_sync`.
 - Detalle, requisitos de deploy y rollback: [docs/CHANGELOG-facturacion-bq-incremental-2026-11-26.md](docs/CHANGELOG-facturacion-bq-incremental-2026-11-26.md).
 
+### v1589 (2026-11-26) — Pedidos en espera: filtro de vendedor + card "Disponible (Con Stock)"
+
+- **Antes**: el panel "Pedidos en espera" del mapa solo tenía el buscador; para saber cuánto se podía facturar había que abrir orden por orden.
+- **Cambio**: selector de vendedor arriba del buscador (las opciones salen solo de las órdenes que el rol ya ve; el VDE no lo ve porque su lista ya es solo suya) y card "Disponible (Con Stock)" con el total de las órdenes visibles, respetando vendedor y buscador.
+- **Cálculo**: misma fórmula por línea que "Subtotal del pedido (Con Stock)" del detalle, pero el stock se reparte entre órdenes: si dos piden el mismo SKU y alcanza para una, se cuenta una vez. Las reservas firmes de un cliente cubren solo sus órdenes. El tooltip muestra también la suma de los detalles por separado cuando difiere. Pure fn: `src/pure/waitlist-sidebar-summary.js`.
+- **Verificación**: 14 tests nuevos; suite unit + smoke 3577/3577.
+- **Rollback**: revertir el commit; no toca datos ni Cloud Functions.
+
 ### v1588 (2026-11-25) — Stack S-7 P1-C: minVersion configurable + recarga pre-confirm
 
 - **Antes**: `app_config/version_minima` solo bloqueaba post-login (E10 v1434). Un VDE con sesión viva nunca veía el modal hasta que cerrara y volviera a entrar; entretanto podía disparar `commitPedidoCF` con versiones stale → 52% de los rechazos ASIG_REF_INVALID.

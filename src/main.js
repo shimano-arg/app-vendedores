@@ -315,6 +315,16 @@ import {
   filterYaEnOtroPedidoForLine,
   lineCountsAsPedidoAnterior,
 } from './pure/waitlist-repetido-filter.js';
+// Filtro de vendedor + card "Disponible (Con Stock)" del panel Pedidos en espera.
+import {
+  buildFirmesPropiasIndex,
+  buildVendorFilterOptions,
+  computeDisponibleConStockTotal,
+  filterWaitlistsByVendor,
+  VENDOR_FILTER_ALL,
+  VENDOR_FILTER_NONE,
+  waitlistVendorKey,
+} from './pure/waitlist-sidebar-summary.js';
 import {
   findOpenWaitlistsForClient,
   formatWaitlistForConfirm,
@@ -541,6 +551,16 @@ const phase0 = {
     waitlistVisibility: {
       isWaitlistVisibleForVendor,
       filterWaitlistsForVendor,
+    },
+    // Panel Pedidos en espera: filtro de vendedor + card Disponible (Con Stock).
+    waitlistSidebarSummary: {
+      buildFirmesPropiasIndex,
+      buildVendorFilterOptions,
+      computeDisponibleConStockTotal,
+      filterWaitlistsByVendor,
+      VENDOR_FILTER_ALL,
+      VENDOR_FILTER_NONE,
+      waitlistVendorKey,
     },
     // v1534 (2026-11-02): alcance por rol de las exportaciones (lo usa
     // chunks/exports-core.js; expuesto para pruebas desde la consola).
