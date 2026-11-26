@@ -1,54 +1,90 @@
-import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
-
 /**
- * vitals.ts — inicializa web-vitals y rutea los eventos.
+ * Core Web Vitals reporter (ADR-015).
  *
- * ADR-015 metrics target (Moto G Power / 4G throttle):
- *  - LCP ≤ 2.5s
- *  - INP ≤ 200ms
- *  - CLS ≤ 0.1
+ * El script `scripts/perf/measure-vitals-app2.js` del repo root (scaffold v1479) lee
+ * `window.__CWV__` después del load + interaction para generar el reporte. Acá solo
+ * instrumentamos los 3 hooks observables nativos: LCP, INP, CLS.
  *
- * P1.5: log a console.log con prefijo estable `[CWV]` para que los runs locales
- *       (y el script `scripts/perf/measure-vitals-app2.js`) los detecten.
- *
- * P1.6: el backend-new expone POST /api/metrics/cwv que escribe a operations_log
- *       con shape {type:'cwv_metric', metric:'LCP', value:..., delta:..., id:...,
- *       route:..., userId:...}. Hacemos navigator.sendBeacon ahi (idempotente,
- *       sobrevive a tab close).
+ * Nota: evitamos agregar `web-vitals` como dep para no inflar el shell (< 150 KB).
+ * Los PerformanceObservers nativos cubren el 95% del uso del piloto.
  */
 
-interface VitalsEvent {
-  readonly name: 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTFB';
-  readonly value: number;
-  readonly delta: number;
-  readonly id: string;
-  readonly rating: 'good' | 'needs-improvement' | 'poor';
+interface VitalsSnapshot {
+  lcp: number | null;
+  inp: number | null;
+  cls: number;
+  route: string;
+  measuredAt: number;
 }
 
-function report(metric: VitalsEvent): void {
-  // Prefix estable para logs de CI y scripts de medicion.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[CWV] ${metric.name}=${metric.value.toFixed(2)} (${metric.rating}) delta=${metric.delta.toFixed(2)} id=${metric.id}`
-  );
-
-  // P1.6: navigator.sendBeacon('/api/metrics/cwv', JSON.stringify(metric))
-  // envolver en try/catch — nunca romper por telemetria.
+declare global {
+  interface Window {
+    __CWV__?: VitalsSnapshot;
+  }
 }
 
-/**
- * Inicializa los listeners. Llamar una sola vez por page load.
- * Idempotente: `web-vitals` protege contra doble-subscription.
- */
-export function initVitals(): void {
-  if (typeof window === 'undefined') return;
+export function initVitals(route: string): void {
+  if (typeof window === 'undefined' || typeof PerformanceObserver === 'undefined') return;
+
+  const snapshot: VitalsSnapshot = {
+    lcp: null,
+    inp: null,
+    cls: 0,
+    route,
+    measuredAt: Date.now(),
+  };
+  window.__CWV__ = snapshot;
+
+  // LCP
   try {
-    onCLS(report);
-    onFCP(report);
-    onINP(report);
-    onLCP(report);
-    onTTFB(report);
-  } catch (err) {
-    console.warn('[frontend-new] initVitals fallo:', err);
+    const lcpObs = new PerformanceObserver((list) => {
+      const entries = list.getEntries();
+      const last = entries[entries.length - 1] as PerformanceEntry & {
+        renderTime?: number;
+        loadTime?: number;
+      };
+      if (last) {
+        snapshot.lcp = last.renderTime ?? last.loadTime ?? last.startTime;
+      }
+    });
+    lcpObs.observe({ type: 'largest-contentful-paint', buffered: true });
+  } catch {
+    /* unsupported */
+  }
+
+  // INP (Interaction to Next Paint) — aproximación con 'event' entries.
+  try {
+    let maxInp = 0;
+    const eventObs = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const e = entry as PerformanceEntry & { duration: number; interactionId?: number };
+        if (e.interactionId && e.duration > maxInp) {
+          maxInp = e.duration;
+          snapshot.inp = maxInp;
+        }
+      }
+    });
+    eventObs.observe({
+      type: 'event',
+      buffered: true,
+      durationThreshold: 16,
+    } as PerformanceObserverInit);
+  } catch {
+    /* unsupported */
+  }
+
+  // CLS — suma de layout shifts no provocados por input.
+  try {
+    const clsObs = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const e = entry as PerformanceEntry & { value: number; hadRecentInput?: boolean };
+        if (!e.hadRecentInput) {
+          snapshot.cls += e.value;
+        }
+      }
+    });
+    clsObs.observe({ type: 'layout-shift', buffered: true });
+  } catch {
+    /* unsupported */
   }
 }

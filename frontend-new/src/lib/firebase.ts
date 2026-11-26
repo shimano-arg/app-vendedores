@@ -1,54 +1,48 @@
 /**
- * firebase.ts — inicializacion del SDK Firebase.
+ * Config Firebase para el piloto (ADR-013).
  *
- * P1.5: todavia no conectamos al Firebase real. En P1.6 este modulo:
- * 1. Importa firebase/app + firebase/auth + firebase/firestore (modular v9+).
- * 2. Reusa la MISMA config publica que `index.html` legacy (es publica, va
- *    hardcodeada — no son secretos; rules + AppCheck son la autorizacion real).
- * 3. Expone `getFirebaseApp()` + `getFirestore()` + `getAuth()` singletons.
+ * El app1 (index.html) ya inicializa Firebase vía `firebase-app-compat`. Cuando `/app2/`
+ * se sirve desde el mismo origin, el user ya está autenticado y `window.firebase` existe.
+ * Este módulo expone helpers tipados sin re-inicializar Firebase.
  *
- * Config publica legacy (del root index.html):
- *   apiKey:            AIza... (publica)
- *   authDomain:        app-vendedores-shimano.firebaseapp.com
- *   projectId:         app-vendedores-shimano
- *   storageBucket:     app-vendedores-shimano.appspot.com
- *   messagingSenderId: ...
- *   appId:             ...
- *
- * Reglas:
- * - NO duplicar la config aca manualmente; en P1.6 la leemos de un modulo
- *   compartido con el bundle legacy (via `scripts/shared/firebase-config.js`)
- *   para que un cambio de proyecto se propague a ambos frontends.
- * - NO exponer admin credentials (eso vive solo en functions/).
+ * El `API_BASE_URL` es constante (ADR-013 prohíbe env vars en el piloto).
  */
 
-export interface FirebaseConfig {
-  readonly apiKey: string;
-  readonly authDomain: string;
-  readonly projectId: string;
-  readonly storageBucket: string;
-  readonly messagingSenderId: string;
-  readonly appId: string;
+// ADR-013: API base del backend-new. Localhost para dev local. Cuando backend-new
+// deploye a Cloud Run (futuro), reemplazar por la URL productiva en un PR dedicado.
+export const API_BASE_URL = 'http://localhost:8080';
+
+/** Minimal shape que usamos de firebase.auth().currentUser para getIdToken. */
+interface FirebaseUserMinimal {
+  getIdToken(forceRefresh?: boolean): Promise<string>;
+  uid: string;
+  email: string | null;
+}
+
+interface FirebaseAuthMinimal {
+  currentUser: FirebaseUserMinimal | null;
+}
+
+interface FirebaseGlobal {
+  auth(): FirebaseAuthMinimal;
+}
+
+declare global {
+  interface Window {
+    firebase?: FirebaseGlobal;
+  }
 }
 
 /**
- * Placeholder hasta P1.6. Devuelve null para que el resto del codigo detecte
- * "no auth yet" sin crashear.
+ * Lee `firebase.auth().currentUser` del app1 (compat SDK).
+ * Devuelve null si Firebase no está inicializado (ej. abrir `/app2/` sin pasar por login).
  */
-export function getFirebaseApp(): unknown {
-  return null;
-}
-
-/**
- * Placeholder hasta P1.6.
- */
-export function getFirestore(): unknown {
-  return null;
-}
-
-/**
- * Placeholder hasta P1.6.
- */
-export function getAuth(): unknown {
-  return null;
+export function getCurrentUser(): FirebaseUserMinimal | null {
+  const fb = typeof window !== 'undefined' ? window.firebase : undefined;
+  if (!fb || typeof fb.auth !== 'function') return null;
+  try {
+    return fb.auth().currentUser;
+  } catch {
+    return null;
+  }
 }
