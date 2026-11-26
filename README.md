@@ -421,10 +421,9 @@ GitHub Pages propaga en 1-5 minutos. Los usuarios reciben el SW nuevo cuando cie
 1. **Usuario abre la URL** → ve splash + spinner "Cargando sesión..." (foto fondo: río al amanecer).
 2. **Firebase auth.onAuthStateChanged()** chequea si hay sesión guardada en IndexedDB.
 3. Si **hay sesión** → directo al password gate (PIN de 4 dígitos).
-4. Si **no hay sesión** → la pantalla muestra **4 alternativas** de login:
+4. Si **no hay sesión** → la pantalla muestra **3 alternativas** de login:
    - **Continuar con Google** (`signInWithRedirect` + provider Google).
-   - **Continuar con Microsoft** (`signInWithRedirect` + `OAuthProvider('microsoft.com')`, Azure AD).
-   - **Email + contraseña** (`signInWithEmailAndPassword`).
+   - **Email + contraseña** (`signInWithEmailAndPassword`). Flujo nuevo server-side vía callable `authVerifyLogin` (B2-a): el cliente nunca recibe `passwordHash/passwordSalt/totpSecret`.
    - **Continuar con email** (magic link / passwordless: `sendSignInLinkToEmail` → el usuario clickea el link recibido por mail → `signInWithEmailLink` cierra el flow).
 5. **Password gate** (PIN) → admin lo configura desde panel Usuarios (legacy, sigue funcionando).
 6. **2FA** (opcional para cualquier rol) → Authenticator de Google con QR.
