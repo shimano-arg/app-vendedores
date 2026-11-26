@@ -134,7 +134,7 @@ export async function verifyLoginCore(deps, input) {
   try {
     const userRecord = await deps.getUserByEmail(emailClean);
     uid = userRecord.uid;
-  } catch (e) {
+  } catch (_e) {
     // user-not-found o error de red. No distinguir para evitar user enumeration.
     const code = 'invalid_credentials';
     await _logLoginFailed(deps.fbDb, {
