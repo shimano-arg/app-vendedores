@@ -151,6 +151,7 @@ import { checkStockSyncStale } from './core/stock-sync-alert-core.js';
 // §63 Fase 3 Capa 1 (2026-10-23 v1444): sync stock scheduled nativo
 // (Cloud Scheduler via onSchedule, confiable vs GHA cron que saltea).
 import { syncClientesSapCore } from './core/sync-clientes-sap-core.js';
+import { syncInvoicesBqIncrementalCore } from './core/sync-invoices-bq-incremental-core.js';
 import { syncSapCatalogStockCore } from './core/sync-sap-catalog-stock-core.js';
 import { handleSyncSapDocTotals } from './core/sync-sap-doc-totals-core.js';
 import { syncSapOrders } from './core/sync-sap-orders-core.js';
@@ -606,6 +607,109 @@ export const syncSapCatalogStockCF = onSchedule(
       });
     } catch (e) {
       console.warn('syncSapCatalogStockCF alert check fallo', (e && e.message) || e);
+    }
+  }
+);
+
+/**
+ * syncInvoicesBqIncrementalCF — facturas y notas de crédito SAP → BigQuery
+ * cada 5 minutos, solo lo que SAP tocó desde ayer (DELETE+INSERT por
+ * doc_entry en una transacción). El workflow GHA sync-sap-to-bigquery.yml
+ * sigue haciendo el full sync del resto de las tablas; ver el JSDoc del core.
+ *
+ * Interruptor: app_config/feature_flags.invoices_bq_incremental_disabled=true
+ * hace que la corrida no haga nada.
+ * Estado de la última corrida: app_config/invoices_bq_sync.
+ * Requiere que la cuenta de servicio de runtime tenga BigQuery Data Editor
+ * sobre el dataset shimano_app y BigQuery Job User en el proyecto.
+ *
+ * Rollback: borrar la función (firebase functions:delete
+ * syncInvoicesBqIncrementalCF --region southamerica-east1) o prender el
+ * interruptor. El full sync GHA sigue cubriendo como antes.
+ */
+export const syncInvoicesBqIncrementalCF = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 5 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 0,
+    memory: '512MiB',
+    timeoutSeconds: 240,
+    secrets: [SAP_SL_PASSWORD],
+  },
+  async () => {
+    const db = getFirestore();
+    const flagsSnap = await db.doc('app_config/feature_flags').get();
+    if ((flagsSnap.data() || {}).invoices_bq_incremental_disabled === true) {
+      console.log('syncInvoicesBqIncrementalCF: interruptor apagado, skip');
+      return;
+    }
+    const sapCfgSnap = await db.doc('app_config/sap_integration').get();
+    const sl = (sapCfgSnap.data() || {}).serviceLayer || {};
+    if (!sl.enabled || !sl.url || !sl.companyDB) {
+      console.warn('syncInvoicesBqIncrementalCF: serviceLayer deshabilitado o incompleto, skip');
+      return;
+    }
+    const { BigQuery } = await import('@google-cloud/bigquery');
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const BQ_LOCATION = 'southamerica-east1';
+    const bqClient = new BigQuery({ projectId: 'app-vendedores-shimano' });
+    const dataset = bqClient.dataset('shimano_app');
+    const bq = {
+      /** @param {string} table */
+      async getSchema(table) {
+        const [meta] = await dataset.table(table).getMetadata();
+        return (meta.schema && meta.schema.fields) || [];
+      },
+      /** @param {string} table @param {any[]} schema @param {any[]} rows */
+      async loadTruncate(table, schema, rows) {
+        const file = path.join(os.tmpdir(), `${table}-${Date.now()}.ndjson`);
+        await fs.writeFile(file, rows.map((r) => JSON.stringify(r)).join('\n'));
+        try {
+          await dataset.table(table).load(file, {
+            sourceFormat: 'NEWLINE_DELIMITED_JSON',
+            writeDisposition: 'WRITE_TRUNCATE',
+            createDisposition: 'CREATE_IF_NEEDED',
+            schema: { fields: schema },
+            location: BQ_LOCATION,
+          });
+        } finally {
+          await fs.rm(file, { force: true });
+        }
+      },
+      /** @param {string} sql */
+      async query(sql) {
+        await bqClient.query({ query: sql, location: BQ_LOCATION });
+      },
+    };
+    const result = await syncInvoicesBqIncrementalCore({
+      sapConfig: {
+        url: sl.url,
+        companyDB: sl.companyDB,
+        userName: sl.username || sl.userName,
+        password: SAP_SL_PASSWORD.value(),
+        fetch: globalThis.fetch,
+      },
+      acquireSession,
+      releaseSession,
+      bq,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    const nowIso = new Date().toISOString();
+    await db.doc('app_config/invoices_bq_sync').set(
+      {
+        lastRunAt: nowIso,
+        ...(result.ok ? { lastOkAt: nowIso } : {}),
+        lastResult: result,
+      },
+      { merge: true }
+    );
+    console.log('syncInvoicesBqIncrementalCF summary', result);
+    if (!result.ok) {
+      // Que la corrida figure como fallida en Cloud Logging/Scheduler.
+      throw new Error(`syncInvoicesBqIncrementalCF errores: ${result.errors.join(' | ')}`);
     }
   }
 );

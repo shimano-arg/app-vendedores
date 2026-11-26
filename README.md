@@ -4693,6 +4693,13 @@ Estos 5 items son la Fase 0 del roadmap detallado en `APP-CONTEXTO.md`. Trabajo 
 
 ## 41) Changelog v300 → v1210
 
+### CF-only (2026-11-26) — Facturación SAP → BigQuery cada 5 minutos
+
+- **Antes**: facturas y NC llegaban a BigQuery solo con el full sync GHA (~1 h por corrida, en la práctica una cada 4-11 h).
+- **Cambio**: CF nueva `syncInvoicesBqIncrementalCF` (Cloud Scheduler cada 5 min) trae de SL solo lo que SAP tocó desde ayer y lo actualiza con DELETE+INSERT por `doc_entry` en una transacción BigQuery. El full sync GHA no cambia.
+- Interruptor `app_config/feature_flags.invoices_bq_incremental_disabled`. Estado en `app_config/invoices_bq_sync`.
+- Detalle, requisitos de deploy y rollback: [docs/CHANGELOG-facturacion-bq-incremental-2026-11-26.md](docs/CHANGELOG-facturacion-bq-incremental-2026-11-26.md).
+
 ### v1588 (2026-11-25) — Stack S-7 P1-C: minVersion configurable + recarga pre-confirm
 
 - **Antes**: `app_config/version_minima` solo bloqueaba post-login (E10 v1434). Un VDE con sesión viva nunca veía el modal hasta que cerrara y volviera a entrar; entretanto podía disparar `commitPedidoCF` con versiones stale → 52% de los rechazos ASIG_REF_INVALID.
