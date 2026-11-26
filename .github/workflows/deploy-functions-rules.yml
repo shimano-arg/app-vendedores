@@ -32,6 +32,12 @@ env:
   DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
   TARGET_ENV: ${{ github.event.inputs.environment || 'production' }}
 
+# Permissions scoped at workflow level: solo read del repo.
+# Los jobs individuales no necesitan más (deploy usa FIREBASE_TOKEN secret,
+# no el GITHUB_TOKEN). CodeQL §workflow-permissions recomienda limitar.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & Validate
