@@ -1,5 +1,10 @@
 name: Audit Waitlist Integrity
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: high
+# On failure: 3 fallos seguidos → email a Owner
+
 # v953 (2026-09-16): audit periodico que valida invariantes:
 #   1. NO 2+ pedidos con mismo orderNumber
 #   2. NO waitlist docs con orderNumber que ya este en pedidos

@@ -1,5 +1,10 @@
 name: Sync Sales Plan to BigQuery
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: medium
+# On failure: 3 fallos seguidos → email a Owner
+
 # Exporta Firestore `sales_plan_cache/{rods,reels}` → BQ
 # `shimano_app.sales_plan_rows` en long format. Alimenta la vista
 # `v_plan_futuro_hoy` consumida por Power BI (misma métrica que la

@@ -1,5 +1,10 @@
 name: Sync CF Health
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: high
+# On failure: 3 fallos seguidos → email a Owner
+
 # v687 (2026-08-27): Panel Control card "CF Health" - errors 24h + p95 latency
 # por Cloud Function. Anticipa cuando SAP degrada y CFs empiezan a timeout.
 # Requiere Cloud Logging API + SA con roles/logging.viewer:

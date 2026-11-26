@@ -1,5 +1,10 @@
 name: Send Pachi Coverage Report
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: medium
+# On failure: 3 fallos seguidos → email a Owner
+
 # Reporte semanal de facturacion zona PACHI vs zona SANTI propia.
 # Trial 3 meses (Diego 2026-09-10) hasta 2026-12-11. Ver
 # scripts/send_pachi_coverage_report.py para logica + fuentes de datos.

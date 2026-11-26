@@ -1,5 +1,10 @@
 name: Sync SAP ORTT daily (tipos de cambio)
 
+# Owner: Mariano
+# SLA: ver schedule — tolerar 1 fallo
+# Criticality: high
+# On failure: 3 fallos seguidos → email a Owner
+
 # Cron diario: trae las cotizaciones de los ultimos 10 dias desde SAP
 # (ORTT) y hace MERGE a sap_tipo_cambio_raw.
 #
