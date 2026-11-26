@@ -23,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         with:
           # v456 (2026-08-11): enablement:true re-enable Pages si el status
           # quedo `errored` (bug intermitente de GitHub Pages desde 2026-08-06).
@@ -40,7 +40,7 @@ jobs:
       # functions/, reglas). El script copia una allowlist explícita a _site/
       # y falla si falta un archivo requerido o si se cuela algo prohibido.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -48,7 +48,7 @@ jobs:
         run: node scripts/pages/build-pages-site.mjs _site
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: '_site'
 
@@ -61,4 +61,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
