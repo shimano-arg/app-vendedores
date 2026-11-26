@@ -27,6 +27,9 @@ export function healAsigRefs(payload, origenSnapshots) {
     return { healedCount: 0, droppedRefs, repointedRefs, clampedRefs, events };
   }
 
+  /** @type {Map<string, number>} */
+  const budget = new Map();
+
   for (let liIdx = 0; liIdx < payload.lines.length; liIdx++) {
     const line = payload.lines[liIdx];
     if (!line || !Array.isArray(line.asigRefs) || line.asigRefs.length === 0) continue;
@@ -34,7 +37,13 @@ export function healAsigRefs(payload, origenSnapshots) {
     /** @type {AsigRef[]} */
     const keptRefs = [];
     for (const ref of line.asigRefs) {
-      const action = decideHealingAction(ref, origenSnapshots, liIdx, /** @type {any} */ (line));
+      const action = decideHealingAction(
+        ref,
+        origenSnapshots,
+        liIdx,
+        /** @type {any} */ (line),
+        budget
+      );
       if (action.action === 'KEEP') {
         keptRefs.push(ref);
       } else if (action.action === 'DROP') {
@@ -97,17 +106,22 @@ export function healAsigRefs(payload, origenSnapshots) {
 }
 
 /**
+ * Decide el healing action para un ref individual contra el snapshot origen.
+ *
  * @param {AsigRef} ref
  * @param {Map<string, OrigenSnapshot>} origenSnapshots
  * @param {number} _payloadLineIdx
  * @param {{code?: string}} _payloadLine
+ * @param {Map<string, number>} [budget] saldo de qtyOpen por `pedidoId#lineIndex`
  * @returns {{action: 'KEEP'|'DROP'|'REPOINT'|'CLAMP', reason?: string, newLineIndex?: number, clampedQty?: number, details?: any}}
  */
-function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine) {
+function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine, budget) {
   if (!ref || !ref.pedidoId) {
     return { action: 'KEEP' };
   }
   const snap = origenSnapshots.get(ref.pedidoId);
+  // Sin snapshot (pedido origen no fetcheado) o snapshot sin exists → KEEP;
+  // el CHECK PEDIDO_ORIGEN_NOT_FOUND se dispara downstream legítimamente.
   if (!snap || !snap.exists || !snap.data) {
     return { action: 'KEEP' };
   }
@@ -117,20 +131,27 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     return { action: 'KEEP' };
   }
   const li = Number(ref.lineIndex);
+  // CHECK A: lineIndex fuera de rango → mantener (abort downstream).
   if (!Number.isInteger(li) || li < 0 || li >= lines.length) {
     return { action: 'KEEP' };
   }
   const originalLine = lines[li];
+  // CHECK B: línea inexistente → mantener (abort downstream).
   if (!originalLine) {
     return { action: 'KEEP' };
   }
 
+  // Normalizar SKU para comparar con la línea origen (protege contra healing
+  // incorrecto cuando ref.sku difiere del line.code — eso debe seguir
+  // disparando CHECK C SKU_MISMATCH para no enmascarar un bug real).
   const refSku =
     ref.sku === null || ref.sku === undefined ? null : String(ref.sku).toUpperCase().trim();
   const actualSku = String(originalLine.code || '')
     .toUpperCase()
     .trim();
   if (refSku && refSku !== actualSku) {
+    // SKU no matchea → KEEP para que CHECK C dispare (abort).
+    // No es un escenario de "stale ref sanable"; es inconsistencia del payload.
     return { action: 'KEEP' };
   }
 
@@ -141,6 +162,8 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     : '';
   const closedReason = originalLine.closedReason ? String(originalLine.closedReason) : '';
 
+  // --- CASO A: línea revertida por reconcile automático a BO ---
+  // (§40.11 revertSobreAsignadas + §40.10 asig_destildada_por_admin)
   if (
     state === 'BO' &&
     (asigRevertidaReason === 'asig_sin_stock_revertida_a_bo' ||
@@ -153,6 +176,7 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     };
   }
 
+  // --- CASO C: línea cancelled por rechazo explícito VDE/admin ---
   if (
     state === 'cancelled' &&
     (closedReason === 'cliente_rechazo_cpst' ||
@@ -166,6 +190,7 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     };
   }
 
+  // --- CASO D: línea cancelled por consumo en otro pedido ---
   if (state === 'cancelled' && closedReason === 'waitlist-confirm') {
     return {
       action: 'DROP',
@@ -177,7 +202,10 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     };
   }
 
+  // --- CASO B: línea cancelled con splitFromLineIndex, buscar gemela ---
   if (state === 'cancelled' && typeof originalLine.splitFromLineIndex === 'number') {
+    // Buscar línea viva (ASIG + qtyOpen > 0) con splitFromLineIndex === li
+    // en el mismo pedido + mismo SKU.
     const replacementIdx = findSplitTwin(lines, li, actualSku);
     if (replacementIdx !== -1) {
       const replacement = lines[replacementIdx];
@@ -193,6 +221,7 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
         };
       }
     }
+    // Sin gemela viva → DROP.
     return {
       action: 'DROP',
       reason: 'split_sin_gemela_viva',
@@ -203,6 +232,7 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     };
   }
 
+  // --- CASO E: qtyOpen agotado sin motivo claro (zombie §104) ---
   if (state === 'ASIG' && qtyOpen <= 0) {
     return {
       action: 'DROP',
@@ -211,22 +241,63 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
     };
   }
 
+  // --- CASO E': qtyAsignada > qtyOpen (CHECK F QTY_INSUFFICIENT) ---
+  // v1589 (2026-11-26, incidente PESCAR.INFO ORDEN 890): se recorta SOLO si
+  // hay prueba de que la reducción la hizo el reconcile automático (§40.11):
+  // una línea del mismo pedido con splitFromLineIndex === li, mismo SKU y
+  // asigRevertidaReason='asig_sin_stock_revertida_a_bo'. En ese caso las
+  // unidades faltantes ya volvieron a la cola BO del pedido origen, así que
+  // recortar la ref no pierde nada. Sin esa prueba se mantiene el abort
+  // (sobre-asignación inexplicada = posible bug real, no se enmascara).
+  // `budget` reparte qtyOpen entre varias refs a la misma línea (el dedup de
+  // accumulateCancelAsigMutations SUMA refs duplicadas antes del CHECK F).
+  // Cada recorte queda en operations_log type='asig_ref_healed'.
   if (state === 'ASIG' && qtyOpen > 0) {
-    return { action: 'KEEP' };
+    const qtyRef = Number(ref.qtyAsignada) || 0;
+    const budgetKey = String(ref.pedidoId) + '#' + li;
+    const disponible = budget && budget.has(budgetKey) ? budget.get(budgetKey) : qtyOpen;
+    if (qtyRef <= disponible) {
+      if (budget) budget.set(budgetKey, disponible - qtyRef);
+      return { action: 'KEEP' };
+    }
+    if (!hasReconcileReduction(lines, li, actualSku)) {
+      return { action: 'KEEP' };
+    }
+    if (budget) budget.set(budgetKey, 0);
+    if (disponible <= 0) {
+      return {
+        action: 'DROP',
+        reason: 'reducida_por_reconcile_sin_saldo',
+        details: { qtyOpen, qtyAsignada: qtyRef },
+      };
+    }
+    return {
+      action: 'CLAMP',
+      reason: 'reducida_por_reconcile',
+      clampedQty: disponible,
+    };
   }
 
+  // --- Línea cancelled por razón NO conocida ---
+  // Mantener KEEP para que CHECK D2 dispare y Mariano pueda investigar.
   if (state === 'cancelled') {
     return { action: 'KEEP' };
   }
 
+  // --- Línea en otro estado (ej. invoiced, confirmed) ---
+  // Mantener KEEP para que CHECK D2 dispare.
   return { action: 'KEEP' };
 }
 
 /**
+ * Busca una línea "gemela" producto del split de `originalLineIndex`.
+ * Match: state='ASIG' + qtyOpen>0 + splitFromLineIndex===originalLineIndex +
+ * mismo SKU normalizado.
+ *
  * @param {any[]} lines
  * @param {number} originalLineIndex
  * @param {string} skuNormalized
- * @returns {number}
+ * @returns {number} índice de la gemela o -1 si no hay.
  */
 function findSplitTwin(lines, originalLineIndex, skuNormalized) {
   for (let i = 0; i < lines.length; i++) {
@@ -242,4 +313,31 @@ function findSplitTwin(lines, originalLineIndex, skuNormalized) {
     return i;
   }
   return -1;
+}
+
+/**
+ * v1589: ¿la línea `lineIndex` fue reducida por el reconcile automático §40.11?
+ * Prueba: existe otra línea del mismo pedido con splitFromLineIndex === lineIndex,
+ * mismo SKU, asigRevertidaReason='asig_sin_stock_revertida_a_bo' y state='BO'
+ * (si Pablo ya la repartió como ASIG, recortar duplicaría la reserva: no se toca).
+ *
+ * @param {any[]} lines
+ * @param {number} lineIndex
+ * @param {string} skuNormalized
+ * @returns {boolean}
+ */
+function hasReconcileReduction(lines, lineIndex, skuNormalized) {
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l || i === lineIndex) continue;
+    if (l.splitFromLineIndex !== lineIndex) continue;
+    if (l.state !== 'BO') continue;
+    if (l.asigRevertidaReason !== 'asig_sin_stock_revertida_a_bo') continue;
+    const code = String(l.code || '')
+      .toUpperCase()
+      .trim();
+    if (code !== skuNormalized) continue;
+    return true;
+  }
+  return false;
 }

@@ -365,6 +365,81 @@ describe('healAsigRefs — Frente A v1565', () => {
     expect(payload.lines[0].asigRefs[0].qtyAsignada).toBe(10);
   });
 
+  // v1589 (2026-11-26) — recorte cuando la reducción la hizo el reconcile §40.11.
+  const reconcileTwin = (splitFrom, qty) => ({
+    code: 'V',
+    state: 'BO',
+    qty,
+    qtyOpen: qty,
+    asigRevertidaReason: 'asig_sin_stock_revertida_a_bo',
+    splitFromLineIndex: splitFrom,
+  });
+
+  it("Caso E'' qtyAsignada > qtyOpen CON gemela del reconcile → CLAMP a qtyOpen", () => {
+    const payload = {
+      lines: [
+        { code: 'V', asigRefs: [{ pedidoId: 'P20', lineIndex: 0, sku: 'V', qtyAsignada: 3 }] },
+      ],
+    };
+    const snaps = new Map();
+    snaps.set('P20', makeSnap([{ code: 'V', state: 'ASIG', qtyOpen: 1 }, reconcileTwin(0, 2)]));
+    const r = healAsigRefs(payload, snaps);
+    expect(r.clampedRefs).toBe(1);
+    expect(payload.lines[0].asigRefs[0].qtyAsignada).toBe(1);
+    expect(r.events[0].reason).toBe('reducida_por_reconcile');
+    expect(r.events[0].originalQty).toBe(3);
+  });
+
+  it("Caso E'' gemela de OTRO SKU o con otro motivo → KEEP (no recorta)", () => {
+    const payload = {
+      lines: [
+        { code: 'V', asigRefs: [{ pedidoId: 'P21', lineIndex: 0, sku: 'V', qtyAsignada: 3 }] },
+      ],
+    };
+    const snaps = new Map();
+    snaps.set(
+      'P21',
+      makeSnap([
+        { code: 'V', state: 'ASIG', qtyOpen: 1 },
+        { ...reconcileTwin(0, 2), code: 'OTRO' },
+        { ...reconcileTwin(0, 2), asigRevertidaReason: 'asig_destildada_por_admin' },
+      ])
+    );
+    const r = healAsigRefs(payload, snaps);
+    expect(r.healedCount).toBe(0);
+    expect(payload.lines[0].asigRefs[0].qtyAsignada).toBe(3);
+  });
+
+  it("Caso E'' dos refs a la misma línea reducida → reparte el saldo (1 + DROP)", () => {
+    const payload = {
+      lines: [
+        { code: 'V', asigRefs: [{ pedidoId: 'P22', lineIndex: 0, sku: 'V', qtyAsignada: 2 }] },
+        { code: 'V', asigRefs: [{ pedidoId: 'P22', lineIndex: 0, sku: 'V', qtyAsignada: 2 }] },
+      ],
+    };
+    const snaps = new Map();
+    snaps.set('P22', makeSnap([{ code: 'V', state: 'ASIG', qtyOpen: 1 }, reconcileTwin(0, 3)]));
+    const r = healAsigRefs(payload, snaps);
+    expect(payload.lines[0].asigRefs[0].qtyAsignada).toBe(1);
+    expect(payload.lines[1].asigRefs).toHaveLength(0);
+    expect(r.clampedRefs).toBe(1);
+    expect(r.droppedRefs).toBe(1);
+    expect(r.events[1].reason).toBe('reducida_por_reconcile_sin_saldo');
+  });
+
+  it("Caso E'' dos refs que entran juntas en qtyOpen → KEEP ambas", () => {
+    const payload = {
+      lines: [
+        { code: 'V', asigRefs: [{ pedidoId: 'P23', lineIndex: 0, sku: 'V', qtyAsignada: 1 }] },
+        { code: 'V', asigRefs: [{ pedidoId: 'P23', lineIndex: 0, sku: 'V', qtyAsignada: 2 }] },
+      ],
+    };
+    const snaps = new Map();
+    snaps.set('P23', makeSnap([{ code: 'V', state: 'ASIG', qtyOpen: 3 }, reconcileTwin(0, 1)]));
+    const r = healAsigRefs(payload, snaps);
+    expect(r.healedCount).toBe(0);
+  });
+
   it('ASIG viva + qty OK → KEEP (no healing)', () => {
     const payload = {
       lines: [
