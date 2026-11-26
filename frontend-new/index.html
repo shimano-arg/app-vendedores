@@ -3,52 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#1f2937" />
-    <meta name="color-scheme" content="light" />
-    <!--
-      ADR-015 mobile-first + Core Web Vitals.
-      Fonts se cargan desde system stack (ver tokens.css) para evitar FOIT + ganar CLS.
-      Este index.html es el entry del frontend nuevo (bajo /app2/).
-      NO confundir con el index.html root del repo (que es la app legacy).
-    -->
-    <title>Shimano CRM</title>
-    <meta name="description" content="CRM Shimano — vista mobile-first para vendedores." />
-    <style>
-      /* CSS critico inlineado para LCP. El resto carga via main.tsx. */
-      :root {
-        color-scheme: light;
-      }
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        background: #f8fafc;
-        color: #0f172a;
-        font-family:
-          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-          Arial, sans-serif;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-      }
-      /* Skeleton del shell para no flashear blanco antes del mount React. */
-      #root-skeleton {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 13px;
-        color: #64748b;
-        /* reserva vertical identica al header real → zero CLS. */
-      }
-      #root-skeleton[data-hidden='1'] {
-        display: none;
-      }
-    </style>
+    <meta name="theme-color" content="#d80012" />
+    <title>Shimano Vendedores — Piloto (app2)</title>
+    <!-- ADR-013: piloto mobile-first solo-lectura. Preconnect al backend-new local para reducir RTT. -->
+    <link rel="preconnect" href="http://localhost:8080" />
   </head>
   <body>
     <div id="root"></div>
-    <div id="root-skeleton" aria-hidden="true">Cargando…</div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

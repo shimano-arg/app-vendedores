@@ -1,74 +1,82 @@
-import type { ReactNode } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
-
-interface ShellProps {
-  children: ReactNode;
-}
-
-interface NavItem {
-  to: string;
-  label: string;
-  icon: string;
-}
-
-const NAV_ITEMS: readonly NavItem[] = [
-  { to: '/stock', label: 'Stock', icon: '◐' },
-  { to: '/pedidos', label: 'Pedidos', icon: '◉' },
-] as const;
-
 /**
- * Shell — header fijo + content + nav inferior (mobile) / lateral (desktop).
+ * Shell mobile-first del piloto (ADR-013).
  *
- * Mobile-first (CLAUDE.md §21):
- * - Header 56px alto, backdrop blur para continuidad visual al scroll.
- * - Bottom tabs con touch targets ≥ 44×44 px (§106 pill pattern).
- * - prefers-reduced-motion respetado (transitions solo opacity, no transform).
- * - Sin dark mode (v1580 §108 lo removio — no reintroducir).
- *
- * El layout usa CSS Grid con `--shell-header-h` + `--shell-nav-h` como tokens
- * (ver styles/tokens.css) para que cualquier cambio de alto sea coherente con
- * el skeleton inline del index.html → zero CLS.
+ * Header con logo + navegación simple. Tap targets ≥ 44px (ADR-015).
  */
-export function Shell({ children }: ShellProps): JSX.Element {
-  const location = useLocation();
-  const currentTitle = resolveTitle(location.pathname);
 
+import { NavLink, Outlet } from 'react-router-dom';
+
+const navItems = [
+  { to: '/stock', label: 'Stock' },
+  { to: '/pedidos', label: 'Pedidos' },
+];
+
+export function Shell() {
   return (
-    <div className="shell">
-      <header className="shell__header">
-        <div className="shell__header-inner">
-          <h1 className="shell__title">{currentTitle}</h1>
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <header
+        style={{
+          padding: 'var(--space-sm) var(--space-md)',
+          background: 'var(--color-primary)',
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-md)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+        }}
+      >
+        <strong style={{ fontSize: '1.1em', letterSpacing: '-0.01em' }}>Shimano · app2</strong>
+        <span
+          aria-hidden="true"
+          style={{
+            fontSize: '0.75em',
+            opacity: 0.7,
+            padding: '2px 8px',
+            borderRadius: '999px',
+            background: 'rgba(255,255,255,0.15)',
+          }}
+        >
+          piloto solo-lectura
+        </span>
       </header>
 
-      <main className="shell__main" id="main-content">
-        {children}
-      </main>
-
-      <nav className="shell__nav" aria-label="Navegacion principal">
-        {NAV_ITEMS.map((item) => (
+      <nav
+        aria-label="Secciones"
+        style={{
+          display: 'flex',
+          borderBottom: '1px solid var(--color-border)',
+          background: 'var(--color-bg)',
+        }}
+      >
+        {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
-            className={({ isActive }) =>
-              `shell__nav-item btn-zonas${isActive ? ' shell__nav-item--active' : ''}`
-            }
-            aria-label={item.label}
+            style={({ isActive }) => ({
+              flex: 1,
+              minHeight: '44px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.95em',
+              fontWeight: isActive ? 600 : 400,
+              color: isActive ? 'var(--color-primary)' : 'var(--color-text)',
+              borderBottom: isActive
+                ? '2px solid var(--color-primary)'
+                : '2px solid transparent',
+              textDecoration: 'none',
+            })}
           >
-            <span className="shell__nav-icon" aria-hidden="true">
-              {item.icon}
-            </span>
-            <span className="shell__nav-label">{item.label}</span>
+            {item.label}
           </NavLink>
         ))}
       </nav>
+
+      <main style={{ flex: 1, padding: 'var(--space-md)' }}>
+        <Outlet />
+      </main>
     </div>
   );
-}
-
-function resolveTitle(pathname: string): string {
-  // Pathname ya es relativo al basename "/app2".
-  if (pathname.startsWith('/pedidos')) return 'Pedidos';
-  if (pathname.startsWith('/stock') || pathname === '/') return 'Stock';
-  return 'Shimano CRM';
 }

@@ -1,78 +1,103 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+/**
+ * ErrorBoundary genérico mobile-first. Mensajes humanos sin jerga (§68).
+ */
 
-interface ErrorBoundaryProps {
+import { Component, type ReactNode } from 'react';
+import { ApiError, ApiValidationError, NetworkError } from '../lib/api.js';
+import { NotAuthenticatedError } from '../lib/auth.js';
+
+interface Props {
   children: ReactNode;
-  fallback?: ReactNode;
 }
 
-interface ErrorBoundaryState {
-  hasError: boolean;
+interface State {
   error: Error | null;
 }
 
-/**
- * ErrorBoundary — captura errores de render de descendientes y muestra
- * mensaje humano (CLAUDE.md §68: una oracion que dice QUE PASO, otra que dice
- * QUE HACER, codigo tecnico al final).
- *
- * No captura:
- * - Errores en event handlers (usar try/catch inline).
- * - Errores en codigo async (usar React Query + onError).
- * - Errores en SSR (no aplica — somos SPA).
- *
- * En produccion, el `componentDidCatch` deberia routear el error a Sentry o
- * al operations_log del backend-new. Por ahora solo logueamos a console.
- */
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  override state: ErrorBoundaryState = {
-    hasError: false,
-    error: null,
-  };
+export class ErrorBoundary extends Component<Props, State> {
+  state: State = { error: null };
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
+  static getDerivedStateFromError(error: Error): State {
+    return { error };
   }
 
-  override componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Log al operations_log del backend-new (via /api/... — TODO P1.6).
-    // Por ahora, consola — en prod Sentry recoge igual via window.onerror.
-    console.error('[frontend-new] ErrorBoundary capturo error:', error, info.componentStack);
-  }
+  reset = () => this.setState({ error: null });
 
-  handleReset = (): void => {
-    this.setState({ hasError: false, error: null });
-    // Reload completo como escape hatch — equivalente al "Recargar limpio" de la
-    // app legacy pero sin tocar IndexedDB/SW (todavia no los usa el frontend-new).
-    if (typeof window !== 'undefined') {
-      window.location.reload();
-    }
-  };
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
 
-  override render(): ReactNode {
-    if (this.state.hasError) {
-      if (this.props.fallback) return this.props.fallback;
+    const { title, message, hint } = humanize(error);
 
-      const errCode = this.state.error?.name || 'UNKNOWN';
-      return (
-        <div className="error-boundary" role="alert">
-          <h2 className="error-boundary__title">Algo salio mal</h2>
-          <p className="error-boundary__text">
-            No pudimos mostrar esta pantalla. Tocá "Reintentar" para refrescar la app.
-          </p>
-          <button
-            type="button"
-            className="btn-zonas error-boundary__btn"
-            onClick={this.handleReset}
-          >
-            Reintentar
-          </button>
-          <p className="error-boundary__code">Codigo tecnico: {errCode}</p>
-        </div>
-      );
-    }
-
-    return this.props.children;
+    return (
+      <div
+        role="alert"
+        style={{
+          padding: 'var(--space-lg)',
+          maxWidth: '560px',
+          margin: '0 auto',
+          textAlign: 'center',
+        }}
+      >
+        <h2 style={{ color: 'var(--color-danger)', marginBottom: 'var(--space-md)' }}>{title}</h2>
+        <p style={{ marginBottom: 'var(--space-sm)' }}>{message}</p>
+        {hint && (
+          <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9em' }}>{hint}</p>
+        )}
+        <button
+          type="button"
+          onClick={this.reset}
+          style={{
+            marginTop: 'var(--space-lg)',
+            minHeight: '44px',
+            padding: '0 var(--space-lg)',
+            borderRadius: '999px',
+            background: 'var(--color-primary)',
+            color: '#fff',
+            border: 'none',
+            fontSize: '1em',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Reintentar
+        </button>
+      </div>
+    );
   }
 }
 
-export default ErrorBoundary;
+function humanize(error: Error): { title: string; message: string; hint?: string } {
+  if (error instanceof NotAuthenticatedError) {
+    return {
+      title: 'Iniciá sesión',
+      message: error.message,
+    };
+  }
+  if (error instanceof NetworkError) {
+    return {
+      title: 'Sin conexión',
+      message: 'No pudimos conectar con el servidor. Revisá tu red y volvé a intentar.',
+      hint: `Endpoint: ${error.endpoint}`,
+    };
+  }
+  if (error instanceof ApiError) {
+    return {
+      title: 'No se pudo cargar',
+      message: error.message,
+      hint: `Código técnico: ${error.errorCode}`,
+    };
+  }
+  if (error instanceof ApiValidationError) {
+    return {
+      title: 'Respuesta inesperada',
+      message: 'El servidor devolvió datos que no reconocemos. Avisale a Mariano.',
+      hint: `Endpoint: ${error.endpoint}`,
+    };
+  }
+  return {
+    title: 'Algo salió mal',
+    message: 'Hubo un error inesperado. Volvé a intentar en un minuto.',
+    hint: error.message,
+  };
+}

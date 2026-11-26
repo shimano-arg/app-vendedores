@@ -1,40 +1,38 @@
 {
-  "name": "shimano-crm-frontend-new",
+  "name": "@app-vendedores/frontend-new",
   "version": "0.1.0",
+  "description": "Piloto React mobile-first (ADR-013) del app Vendedores, subruta /app2/. Zero deploy; aislado del bundle app.bundle.js del app1.",
   "private": true,
   "type": "module",
-  "description": "Nuevo frontend del CRM Shimano (React + TS + Vite), convive con index.html legacy bajo /app2/*. P1.5 scaffold — sin lógica de negocio.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
+    "build": "tsc --noEmit && vite build --base=/app2/",
+    "preview": "vite preview --port 4173",
     "typecheck": "tsc --noEmit",
+    "biome:check": "biome check src tests",
+    "biome:fix": "biome check src tests --write",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "lint": "biome check src tests",
-    "format": "biome format --write src tests"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.60.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
-    "@tanstack/react-query": "^5.59.20",
-    "web-vitals": "^4.2.4"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0",
+    "@biomejs/biome": "^2.4.0",
+    "@playwright/test": "^1.49.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.0.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
-    "vitest": "^2.1.4",
-    "@testing-library/react": "^16.0.1",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/user-event": "^14.5.2",
-    "jsdom": "^25.0.1",
-    "@playwright/test": "^1.48.2",
-    "@biomejs/biome": "2.5.6"
+    "vitest": "^2.1.6"
   }
 }

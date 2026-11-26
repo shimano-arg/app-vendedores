@@ -1,54 +1,158 @@
 /**
- * api.ts — fetch wrapper tipado hacia backend-new.
+ * API client del piloto (ADR-013 P1.6).
  *
- * P1.5: stub. En P1.6:
- * 1. Resuelve baseUrl de `import.meta.env.VITE_BACKEND_URL` (ver .env.example).
- * 2. Attach `Authorization: Bearer ${idToken}` via `useFirebaseAuth`.
- * 3. Valida response con schemas Zod compartidos (ver `backend-new/schemas/`
- *    cuando exista — ADR-010 contrato API).
- * 4. Mapea errores HTTP → ApiError con `errorCode` + `httpStatus` (consumible
- *    por `src/pure/mensajes-vendedor.ts` para mensaje humano).
+ * Reemplaza el stub de P1.5. Cada request:
+ *   1. Resuelve IDToken con force refresh (§25).
+ *   2. Hace fetch con `Authorization: Bearer <token>`.
+ *   3. Parsea el envelope `{ok, data}` o `{ok: false, errorCode}`.
+ *   4. Zod.parse sobre `data` ANTES de devolverlo (validación bidireccional runtime).
+ *
+ * Si Zod falla → `ApiValidationError` (el ErrorBoundary de la ruta lo captura).
+ * Si el backend devuelve envelope error → `ApiError` con errorCode + mensaje.
+ * Si el fetch falla (red, CORS) → `NetworkError`.
  */
 
-export interface ApiError {
-  readonly errorCode: string;
-  readonly httpStatus: number;
-  readonly message: string;
-  readonly data?: unknown;
-}
+import type { z } from 'zod';
+import { getIdTokenForced } from './auth.js';
+import { API_BASE_URL } from './firebase.js';
+import {
+  GetPedidosByClientOutput,
+  type GetPedidosByClientOutput as GetPedidosByClientOutputT,
+} from '../contracts/get-pedidos.js';
+import {
+  GetStockOutput,
+  type GetStockOutput as GetStockOutputT,
+} from '../contracts/get-stock.js';
 
-export class ApiRequestError extends Error {
-  readonly errorCode: string;
-  readonly httpStatus: number;
-  readonly data: unknown;
-
-  constructor(err: ApiError) {
-    super(err.message);
-    this.name = 'ApiRequestError';
-    this.errorCode = err.errorCode;
-    this.httpStatus = err.httpStatus;
-    this.data = err.data;
+export class ApiError extends Error {
+  constructor(
+    public readonly errorCode: string,
+    message: string,
+    public readonly status: number,
+    public readonly serverData?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'ApiError';
   }
 }
 
-/**
- * Stub — en P1.6 devuelve el Promise real.
- */
-export async function apiGet<T>(path: string): Promise<T> {
-  throw new ApiRequestError({
-    errorCode: 'NOT_IMPLEMENTED',
-    httpStatus: 501,
-    message: `apiGet(${path}) todavia no esta implementado — P1.5 scaffold`,
-  });
+export class ApiValidationError extends Error {
+  constructor(
+    public readonly endpoint: string,
+    public readonly zodError: z.ZodError,
+  ) {
+    super(
+      `El servidor devolvió una respuesta que no matchea el contrato de ${endpoint}. ` +
+        `Avisale a Mariano.`,
+    );
+    this.name = 'ApiValidationError';
+  }
 }
 
-/**
- * Stub.
- */
-export async function apiPost<T>(path: string, _body: unknown): Promise<T> {
-  throw new ApiRequestError({
-    errorCode: 'NOT_IMPLEMENTED',
-    httpStatus: 501,
-    message: `apiPost(${path}) todavia no esta implementado — P1.5 scaffold`,
-  });
+export class NetworkError extends Error {
+  constructor(
+    public readonly endpoint: string,
+    cause: unknown,
+  ) {
+    super(`No pudimos conectar con el servidor. Revisá tu conexión y volvé a intentar.`);
+    this.name = 'NetworkError';
+    this.cause = cause;
+  }
+}
+
+/** URL con query params serializados. Omite keys con valor undefined/null. */
+function buildUrl(path: string, params?: Record<string, string | number | undefined | null>): string {
+  const base = API_BASE_URL.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(base + cleanPath);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') {
+        url.searchParams.set(k, String(v));
+      }
+    }
+  }
+  return url.toString();
+}
+
+async function apiFetch<T extends z.ZodTypeAny>(
+  endpoint: string,
+  path: string,
+  params: Record<string, string | number | undefined | null> | undefined,
+  schema: T,
+  signal?: AbortSignal,
+): Promise<z.infer<T>> {
+  const token = await getIdTokenForced();
+  const url = buildUrl(path, params);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+      signal,
+    });
+  } catch (cause) {
+    throw new NetworkError(endpoint, cause);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (cause) {
+    throw new NetworkError(endpoint, cause);
+  }
+
+  if (!response.ok || (payload as { ok?: boolean })?.ok === false) {
+    const envelope = payload as { errorCode?: string; message?: string; data?: Record<string, unknown> };
+    throw new ApiError(
+      envelope?.errorCode ?? 'UNKNOWN',
+      envelope?.message ?? `Error ${response.status}`,
+      response.status,
+      envelope?.data,
+    );
+  }
+
+  const envelope = payload as { data: unknown };
+  const parsed = schema.safeParse(envelope.data);
+  if (!parsed.success) {
+    throw new ApiValidationError(endpoint, parsed.error);
+  }
+  return parsed.data;
+}
+
+export interface GetStockParams {
+  cardCode: string;
+  sku: string;
+  signal?: AbortSignal;
+}
+
+export async function getStock(params: GetStockParams): Promise<GetStockOutputT> {
+  return apiFetch(
+    'getStock',
+    '/api/stock',
+    { cardCode: params.cardCode, sku: params.sku },
+    GetStockOutput,
+    params.signal,
+  );
+}
+
+export interface GetPedidosParams {
+  cardCode: string;
+  cursor?: string;
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+export async function getPedidos(params: GetPedidosParams): Promise<GetPedidosByClientOutputT> {
+  return apiFetch(
+    'getPedidos',
+    '/api/pedidos',
+    { cardCode: params.cardCode, cursor: params.cursor, limit: params.limit },
+    GetPedidosByClientOutput,
+    params.signal,
+  );
 }
