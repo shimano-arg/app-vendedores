@@ -221,23 +221,24 @@ describe('v1499 §98 — contrato index.html + bundle', () => {
   });
 
   it('T41 forceUpdateApp preserva borradores', async () => {
+    // S-9 c2 (2026-11-26): forceUpdateApp extraido a src/domains/force-update-app.js.
+    // El preserve-keys ahora vive en el bundle; el inline solo mantiene el stub.
     const { readFileSync } = await import('node:fs');
-    const html = readFileSync('index.html', 'utf8');
-    expect(html).toMatch(/CLEAN_RELOAD_PRESERVE_KEYS/);
-    expect(html).toMatch(/shimano_zonas_pending_v1/);
+    const bundle = readFileSync('src/domains/force-update-app.js', 'utf8');
+    expect(bundle).toMatch(/CLEAN_RELOAD_PRESERVE_KEYS/);
+    expect(bundle).toMatch(/shimano_zonas_pending_v1/);
     // v1580 (2026-11-25): shimano_theme removida (dark mode eliminado).
   });
 
   it('T42 forceUpdateApp hace terminate + clearPersistence + overlay', async () => {
+    // S-9 c2 (2026-11-26): el pipeline vive en src/domains/force-update-app.js.
     const { readFileSync } = await import('node:fs');
-    const html = readFileSync('index.html', 'utf8');
-    const idx = html.indexOf('async function forceUpdateApp()');
-    const slice = html.slice(idx, idx + 6000);
-    expect(slice).toMatch(/w\.fbDb\.terminate/);
-    expect(slice).toMatch(/\.clearPersistence\(\)/);
-    expect(slice).toMatch(/clean-reload-overlay/);
-    expect(slice).toMatch(/Limpiando datos locales y recargando/);
-    expect(slice).toMatch(/sessionStorage\.clear/);
+    const bundle = readFileSync('src/domains/force-update-app.js', 'utf8');
+    expect(bundle).toMatch(/w\.fbDb\.terminate/);
+    expect(bundle).toMatch(/\.clearPersistence\(\)/);
+    expect(bundle).toMatch(/clean-reload-overlay/);
+    expect(bundle).toMatch(/Limpiando datos locales y recargando/);
+    expect(bundle).toMatch(/sessionStorage\.clear/);
   });
 
   it('T43 tooltip del botón actualizado', async () => {

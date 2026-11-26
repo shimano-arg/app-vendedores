@@ -11,29 +11,34 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+// S-9 c2 (2026-11-26): forceUpdateApp extraido a src/domains/force-update-app.js.
+// El handler vive en el bundle; el inline ya no tiene el pipeline.
 const INDEX_HTML = readFileSync('index.html', 'utf8');
+const BUNDLE_SRC = readFileSync('src/domains/force-update-app.js', 'utf8');
 
 describe('G5.15 — vendor_outlines cleanup cobertura completa (v1499 §101)', () => {
-  it('forceUpdateApp borra TODO localStorage excepto preserved keys', () => {
-    expect(INDEX_HTML).toMatch(/CLEAN_RELOAD_PRESERVE_KEYS/);
-    expect(INDEX_HTML).toMatch(/const preserve = new Set\(CLEAN_RELOAD_PRESERVE_KEYS\)/);
-    expect(INDEX_HTML).toMatch(/for \(const k of toRemove\) localStorage\.removeItem\(k\)/);
+  it('forceUpdateApp borra TODO localStorage excepto preserved keys (bundle)', () => {
+    expect(BUNDLE_SRC).toMatch(/CLEAN_RELOAD_PRESERVE_KEYS/);
+    expect(BUNDLE_SRC).toMatch(/const preserve = new Set\(CLEAN_RELOAD_PRESERVE_KEYS\)/);
+    expect(BUNDLE_SRC).toMatch(/for \(const k of toRemove\) localStorage\.removeItem\(k\)/);
   });
 
-  it('preserva borradores pedidos no enviados', () => {
-    expect(INDEX_HTML).toContain("'shimano_zonas_pending_v1'");
+  it('preserva borradores pedidos no enviados (bundle)', () => {
+    expect(BUNDLE_SRC).toContain("'shimano_zonas_pending_v1'");
   });
 
   // v1580 (2026-11-25): preferencia theme eliminada junto con dark mode.
   it('NO preserva shimano_theme (dark mode removido en v1580)', () => {
-    expect(INDEX_HTML).not.toContain("'shimano_theme'");
+    expect(BUNDLE_SRC).not.toContain("'shimano_theme'");
   });
 
   it('NO lista claves vendor_outlines por nombre (ya no necesario post-v1499)', () => {
     // Las claves `shimano_vendor_outlines_vX` NO deben enumerarse en el
     // handler; la limpieza wholesale las cubre.
-    const idx = INDEX_HTML.indexOf('async function forceUpdateApp()');
-    const slice = INDEX_HTML.slice(idx, idx + 6000);
-    expect(slice).not.toMatch(/shimano_vendor_outlines_v\d+/);
+    expect(BUNDLE_SRC).not.toMatch(/shimano_vendor_outlines_v\d+/);
+  });
+
+  it('S-9 c2: index.html NO declara el handler inline', () => {
+    expect(INDEX_HTML).not.toMatch(/async\s+function\s+forceUpdateApp/);
   });
 });

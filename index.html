@@ -7608,122 +7608,14 @@ async function _preConfirmForceReloadIfStale() {
 }
 window._preConfirmForceReloadIfStale = _preConfirmForceReloadIfStale;
 
-// v1499 §98 (2026-10-27): claves localStorage que preservan borradores
-// no-enviados del vendedor. Nunca se borran en "Recargar limpio".
-// `shimano_zonas_pending_v1` tiene pedidos pending en memoria pre-confirm.
-const CLEAN_RELOAD_PRESERVE_KEYS = Object.freeze([
-  'shimano_zonas_pending_v1',  // borradores pedidos no enviados
-  // v1527: lista de precios local (v1523). Sin esto "Recargar limpio" dejaba
-  // el Master sin precios hasta que llegaba el listener (segundos largos).
-  // El listener la reemplaza igual al llegar: no queda dato viejo.
-  'shimano_price_cache_v1',
-]);
-window.CLEAN_RELOAD_PRESERVE_KEYS = CLEAN_RELOAD_PRESERVE_KEYS;
-
-async function forceUpdateApp(){
-  // v1499 §98 (2026-10-27): refactor "Recargar limpio". Antes v1499 solo
-  // desregistraba SW + caches HTTP + outlines. No limpiaba IndexedDB
-  // Firestore ni terminaba la instancia → cache stale persistía. Caso
-  // Mariano URQUIOLA + CUDC201XG. Ahora:
-  //   1. Confirmación con detalle de qué se borra y qué se preserva.
-  //   2. Aviso visual "Limpiando datos locales y recargando".
-  //   3. Firestore terminate() + clearPersistence().
-  //   4. localStorage: borra todo EXCEPTO claves preservadas (borradores).
-  //   5. sessionStorage: borra todo.
-  //   6. Service Worker unregister + caches.delete.
-  //   7. Reload con cache busting.
-  //
-  // Si quedan borradores no-enviados, confirmación explícita antes.
-  const w = /** @type {any} */ (window);
-  let hasDrafts = false;
-  try {
-    const drafts = localStorage.getItem('shimano_zonas_pending_v1');
-    if (drafts) {
-      const parsed = JSON.parse(drafts);
-      hasDrafts = parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0;
-    }
-  } catch (_e) { /* ignore */ }
-
-  const confirmMsg = hasDrafts
-    ? 'Recargar limpio?\n\nBorra la cache local y trae todo del servidor.\n' +
-      'Tus borradores de pedido NO enviados se preservan.\n\n' +
-      '¿Continuar?'
-    : 'Recargar limpio?\n\nBorra la cache local y trae todo del servidor.';
-  if (!confirm(confirmMsg)) return;
-
-  // Aviso visual overlay.
-  try {
-    const existing = document.getElementById('clean-reload-overlay');
-    if (existing) existing.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'clean-reload-overlay';
-    overlay.style.cssText =
-      'position:fixed;inset:0;background:rgba(255,255,255,.92);z-index:999999;' +
-      'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
-      'font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",sans-serif;' +
-      'color:#1d1d1f;gap:16px;';
-    const spinner = document.createElement('div');
-    spinner.style.cssText =
-      'width:40px;height:40px;border:3px solid rgba(29,29,31,.1);' +
-      'border-top-color:#0071e3;border-radius:50%;animation:cleanReloadSpin 0.8s linear infinite;';
-    const msg = document.createElement('div');
-    msg.textContent = 'Limpiando datos locales y recargando';
-    msg.style.cssText = 'font-size:16px;font-weight:500;letter-spacing:-0.3px;';
-    const style = document.createElement('style');
-    style.textContent = '@keyframes cleanReloadSpin{to{transform:rotate(360deg)}}';
-    overlay.appendChild(style);
-    overlay.appendChild(spinner);
-    overlay.appendChild(msg);
-    document.body.appendChild(overlay);
-  } catch (_e) { /* overlay best-effort */ }
-
-  // 1. Terminate Firestore (libera listeners + conexión IndexedDB).
-  try {
-    if (w.fbDb && typeof w.fbDb.terminate === 'function') {
-      await w.fbDb.terminate();
-    }
-  } catch (e) { console.warn('[v1499] firestore.terminate falló:', e && e.message); }
-
-  // 2. Clear IndexedDB persistence.
-  try {
-    if (w.firebase && w.firebase.firestore && typeof w.firebase.firestore().clearPersistence === 'function') {
-      await w.firebase.firestore().clearPersistence();
-    }
-  } catch (e) { console.warn('[v1499] clearPersistence falló:', e && e.message); }
-
-  // 3. localStorage: borra TODO excepto claves preservadas.
-  try {
-    const preserve = new Set(CLEAN_RELOAD_PRESERVE_KEYS);
-    const toRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && !preserve.has(key)) toRemove.push(key);
-    }
-    for (const k of toRemove) localStorage.removeItem(k);
-  } catch (e) { console.warn('[v1499] localStorage clear falló:', e && e.message); }
-
-  // 4. sessionStorage: borra todo.
-  try { sessionStorage.clear(); } catch (_e) { /* ignore */ }
-
-  // 5. Service Worker: unregister + caches.delete.
-  try {
-    if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((r) => r.unregister()));
-    }
-  } catch (e) { console.warn('[v1499] SW unregister falló:', e && e.message); }
-  try {
-    if (w.caches && caches.keys) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    }
-  } catch (e) { console.warn('[v1499] caches clear falló:', e && e.message); }
-
-  // 6. Reload con cache busting.
-  const base = window.location.pathname.replace(/[?#].*$/, '');
-  window.location.replace(base + '?_t=' + Date.now());
+// S-9 c2 (2026-11-26): forceUpdateApp + CLEAN_RELOAD_PRESERVE_KEYS extraidos
+// a src/domains/force-update-app.js. Ver CLAUDE.md §100 + §101.
+// El bundle define window.forceUpdateApp + window.CLEAN_RELOAD_PRESERVE_KEYS.
+// El RefreshAppControl de abajo llama a window.forceUpdateApp explicito
+// (§13: identifier lookup resuelve a window).
+if (typeof window.forceUpdateApp !== 'function') {
+  console.warn('[force-update-app] bundle no cargo todavia; el boton "Recargar limpio" no estara activo');
 }
-window.forceUpdateApp = forceUpdateApp;
 
 const RefreshAppControl = L.Control.extend({
   options: { position: 'topleft' },
@@ -7737,7 +7629,8 @@ const RefreshAppControl = L.Control.extend({
     btn.innerHTML = '&#8635;'; // simbolo refresh
     btn.style.cssText = 'font-size:20px;font-weight:800;color:var(--text-primary);text-align:center;line-height:30px;cursor:pointer;display:block;width:30px;height:30px';
     L.DomEvent.on(btn, 'click', L.DomEvent.stop);
-    L.DomEvent.on(btn, 'click', forceUpdateApp);
+    // S-9 c2 (2026-11-26): window.forceUpdateApp del bundle (src/domains/force-update-app.js).
+    L.DomEvent.on(btn, 'click', window.forceUpdateApp);
     return container;
   }
 });
