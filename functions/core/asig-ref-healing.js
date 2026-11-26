@@ -255,7 +255,8 @@ function decideHealingAction(ref, origenSnapshots, _payloadLineIdx, _payloadLine
   if (state === 'ASIG' && qtyOpen > 0) {
     const qtyRef = Number(ref.qtyAsignada) || 0;
     const budgetKey = String(ref.pedidoId) + '#' + li;
-    const disponible = budget && budget.has(budgetKey) ? budget.get(budgetKey) : qtyOpen;
+    const budgetVal = budget ? budget.get(budgetKey) : undefined;
+    const disponible = typeof budgetVal === 'number' ? budgetVal : qtyOpen;
     if (qtyRef <= disponible) {
       if (budget) budget.set(budgetKey, disponible - qtyRef);
       return { action: 'KEEP' };
