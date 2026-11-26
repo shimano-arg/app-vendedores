@@ -132,11 +132,11 @@
   // window.applySentryUserContext desde el bloque de assignments del
   // script principal (buscar "Fase 0 E2.b" en este archivo).
 </script>
-<!-- Fase 0 E2.b: bundle con funciones puras + sentry helper + sap-client.
-     Blocking (no defer) porque el <script> principal más abajo depende de
-     window.__phase0 desde su primera línea de assignments. Regenerar con
-     `npm run build` cada vez que cambie src/**. -->
-<script src="./app.bundle.js"></script>
+<!-- DIAG_PERF_00 §P6 (2026-11-25): defer al bundle para parseo HTML paralelo.
+     Preflight DIAG_PERF_04 §6 confirmó: el bundle IIFE sigue ejecutando pre-DOMContentLoaded,
+     y el inline grande en el body se parsea después → orden window.__phase0 preservado.
+     NO async al Firebase CDN compat (dependencia orden entre los 6 scripts, rompería). -->
+<script src="./app.bundle.js" defer></script>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box}

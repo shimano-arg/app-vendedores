@@ -68,7 +68,10 @@ describe('artifacts en repo root', () => {
 describe('index.html wiring', () => {
   it('tiene <script src="./app.bundle.js"> antes de </head>', () => {
     const html = readFileSync(INDEX, 'utf8');
-    const scriptIdx = html.indexOf('<script src="./app.bundle.js">');
+    // v1568 (P6 DIAG_PERF) agrega `defer` al bundle para parseo HTML paralelo.
+    // El test acepta el tag con o sin atributos adicionales (defer/async/type).
+    const match = html.match(/<script\s+src="\.\/app\.bundle\.js"[^>]*>/);
+    const scriptIdx = match ? html.indexOf(match[0]) : -1;
     const headCloseIdx = html.indexOf('</head>');
     expect(scriptIdx).toBeGreaterThan(-1);
     expect(headCloseIdx).toBeGreaterThan(-1);
