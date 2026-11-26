@@ -54,6 +54,11 @@ yarn-debug.log*
 # Build output (E2.b: dist/ deprecated; app.bundle.js va commiteado
 # en root porque GitHub Pages lo sirve directo sin build step).
 dist/
+# s12 staging hosting build output (/app2/ piloto + CWV staging).
+# El build se regenera desde frontend-new/ con `npx vite build --outDir ../app2-dist-staging/app2`.
+app2-dist-staging/
+# vitals snapshots generados por scripts/perf/measure-vitals-app2.js (uno por run).
+scripts/perf/vitals-app2-*.json
 
 # Firebase local state
 .firebase/
