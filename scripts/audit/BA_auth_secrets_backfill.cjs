@@ -46,6 +46,10 @@ function parseArgs(argv) {
   const json = argv.includes('--json');
   const limArg = argv.find((a) => a.startsWith('--limit='));
   const confArg = argv.find((a) => a.startsWith('--confirm-project='));
+  // S04 Fase 0 (HARDENING6_30): --snapshot-dir=<path> → dumpea plan agregado
+  // (sin secretos ni uids) en <path>/S04_backfill_plan_<YYYY-MM-DD>.json para
+  // audit humano de Mariano antes de autorizar F2 --apply. CLAUDE.md §55.
+  const snapArg = argv.find((a) => a.startsWith('--snapshot-dir='));
   return {
     apply,
     json,
@@ -53,7 +57,55 @@ function parseArgs(argv) {
     limit: limArg && Number(limArg.split('=')[1]) > 0 ? Number(limArg.split('=')[1]) : Infinity,
     limitInvalid: !!limArg && !(Number(limArg.split('=')[1]) > 0),
     confirmProject: confArg ? confArg.split('=')[1] : null,
+    snapshotDir: snapArg ? snapArg.split('=').slice(1).join('=') : null,
   };
+}
+
+/**
+ * S04 Fase 0 — plan agregado SEGURO para dump JSON. SIN uids, emails, hashes,
+ * salts, TOTP, D8_DEFAULT_CANDIDATE. Solo conteos + metadata de la corrida.
+ * HARDENING6_30 §7.1 + CLAUDE.md §55.
+ * @param {{plan: any, aggregates: any, args: any, expectedProject: string, mode: string}} input
+ * @returns {object}
+ */
+function buildSnapshotPlan({ plan, aggregates, args, expectedProject, mode }) {
+  return {
+    hallazgo: 'S04',
+    fase: 'F0',
+    generatedAt: new Date().toISOString(),
+    mode,
+    expectedProject,
+    limitApplied: Number.isFinite(args.limit) ? args.limit : null,
+    summary: Object.assign({}, plan.summary || {}),
+    flaggedCount: Array.isArray(plan.flagged) ? plan.flagged.length : 0,
+    writesPlanned: Array.isArray(plan.writes) ? plan.writes.length : 0,
+    aggregates: aggregates || null,
+    slug: SLUG,
+    scriptVersion: 'BA_auth_secrets_backfill.cjs',
+    notes: [
+      'Sin uids, emails, hashes, salts ni TOTP. Solo conteos agregados.',
+      'Para F2 --apply, pre-condiciones: (a) gcloud config con el proyecto correcto, (b) --confirm-project=' + expectedProject + ', (c) Mariano autoriza por humano.',
+    ],
+  };
+}
+
+/**
+ * Escribe el plan en disco (dir ensured). Devuelve path o null en failure.
+ * @param {{dir: string, plan: object, log: (msg: string) => void, mkdirSync: Function, writeFileSync: Function, pathJoin: Function}} d
+ * @returns {string|null}
+ */
+function writeSnapshotPlanToDisk({ dir, plan, log, mkdirSync, writeFileSync, pathJoin }) {
+  try {
+    mkdirSync(dir, { recursive: true });
+    const date = new Date().toISOString().slice(0, 10);
+    const file = pathJoin(dir, 'S04_backfill_plan_' + date + '.json');
+    writeFileSync(file, JSON.stringify(plan, null, 2), 'utf8');
+    log('snapshot plan JSON escrito en: ' + file);
+    return file;
+  } catch (_e) {
+    log('snapshot plan JSON falló (' + String((_e && (_e.code || _e.name)) || 'error') + '); no se persiste');
+    return null;
+  }
 }
 
 /**
@@ -342,6 +394,26 @@ async function main() {
     for (const line of core.renderDiagnosticReport(aggregates, plan.summary)) console.log(line);
   }
 
+  // S04 Fase 0 (HARDENING6_30): snapshot JSON agregado para audit humano.
+  // Solo conteos; NUNCA secretos. CLAUDE.md §55.
+  if (args.snapshotDir) {
+    const snapshotPlan = buildSnapshotPlan({
+      plan,
+      aggregates,
+      args,
+      expectedProject: EXPECTED_PROJECT,
+      mode: args.apply && guard.allowed ? 'APPLY' : 'DRY-RUN',
+    });
+    writeSnapshotPlanToDisk({
+      dir: args.snapshotDir,
+      plan: snapshotPlan,
+      log: (m) => console.log('[snapshot]', m),
+      mkdirSync: fs.mkdirSync,
+      writeFileSync: fs.writeFileSync,
+      pathJoin: path.join,
+    });
+  }
+
   // --apply: escritura guardada (esta tarea NO la ejecuta).
   if (args.apply && guard.allowed) {
     console.log(`\n[APPLY] escribiría ${plan.writes.length} docs en /auth_secrets (idempotente)...`);
@@ -380,6 +452,8 @@ if (require.main === module) {
 module.exports = {
   parseArgs,
   sha256Hex,
+  buildSnapshotPlan,
+  writeSnapshotPlanToDisk,
   buildMatchesDefault,
   resolveActiveProjectId,
   envProjectSources,
