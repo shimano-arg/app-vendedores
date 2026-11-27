@@ -75,6 +75,9 @@ import { denormVisitToClientMaster } from './core/denorm-visit-to-client-master-
 // S-7 P0-A Fase 2 (2026-11-25): directory de users sin secretos. Cierra S04
 // para pantallas afectadas por #1445 (Planner + Master Clientes).
 import { getUsersDirectoryCore } from './core/directory-core.js';
+// Stack S-12 H2 (review 2026-11-26): scheduled worker for dual_write_pending.
+import { replicatePedidoToPg } from './core/dual-write-pg.js';
+import { runDualWriteRetryWorker } from './core/dual-write-retry-worker-core.js';
 import { isDep12RepartoEnabled } from './core/feature-flags.js';
 // §63 Fase 3 Capa 2 (2026-10-23 v1445): fetchStockLiveCF — live query SL
 // gated por flag app_config/live_sl.enabled (default false).
@@ -1514,6 +1517,76 @@ export const scheduledTransitoSafetyNet = onSchedule(
         transitoCanceladasErrors: r4.errors.length,
         transitoCruzadas: r5.migradas.length,
         transitoCruzadasErrors: r5.errors.length,
+        timestamp: new Date(),
+      });
+    } catch (_e) {
+      /* non-fatal */
+    }
+  }
+);
+
+/**
+ * Stack S-12 H2 (review 2026-11-26): worker scheduled del `dual_write_pending`.
+ *
+ * Corre cada 15 min. Lee docs con `resolvedAt=null AND nextRetryAt<=now`
+ * (limit 50 por run), re-lee cada pedido Firestore, invoca
+ * `replicatePedidoToPg`, y:
+ *   - Si OK → setea `resolvedAt=now` + `resolvedReason='replicate_ok'`.
+ *   - Si falla → setea `nextRetryAt = now + backoff(attempts)`, `attempts++`,
+ *     `lastError`. Si `attempts > 10` OR `firstFailedAt > 24h ago` → marca
+ *     `stale=true` + escribe operations_log con type='dual_write_pending_stale'.
+ *   - Si el pedido ya no existe en Firestore → resolvedAt (nada que
+ *     reintentar).
+ *
+ * El `pgPool` no esta wireado en este PR (ADR-0016 lo deja como TBD del
+ * deploy posterior). Mientras no haya pool, el worker respeta el flag OFF
+ * (el core `replicatePedidoToPg` retorna `skipped:'flag_off'` o
+ * `skipped:'no_pool'`); el entry queda pending con nextRetryAt+15min hasta
+ * que se habilite.
+ *
+ * Nunca throws al scheduler — es best-effort.
+ */
+export const scheduledDualWriteRetry = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every 15 minutes',
+    timeZone: 'America/Argentina/Buenos_Aires',
+    retryCount: 0,
+    memory: '256MiB',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const db = getFirestore();
+    // Pre-cargar flags para que replicate no haga read extra por entry.
+    let featureFlagsDoc = null;
+    try {
+      const flagsSnap = await db.doc('app_config/feature_flags').get();
+      featureFlagsDoc = flagsSnap.exists ? flagsSnap.data() || null : null;
+    } catch (_e) {
+      featureFlagsDoc = null;
+    }
+    const stats = await runDualWriteRetryWorker({
+      fbDb: db,
+      replicateFn: replicatePedidoToPg,
+      // pgPool no wireado todavia (TBD deploy posterior). Mientras null, el
+      // core retorna skipped:'no_pool' y el worker lo deja para el proximo run.
+      pgPool: null,
+      featureFlagsDoc,
+      FieldValue,
+      log: (msg, extra) => console.log(msg, extra || {}),
+    });
+    console.log('scheduledDualWriteRetry done', stats);
+    // Log operativo (§64.2 patrón — fire-and-forget).
+    try {
+      await db.collection('operations_log').add({
+        type: 'dual_write_retry_worker_run',
+        scanned: stats.scanned,
+        retried: stats.retried,
+        resolved: stats.resolved,
+        failed: stats.failed,
+        stale: stats.stale,
+        errorsCount: stats.errors.length,
+        errors: stats.errors.slice(0, 20),
         timestamp: new Date(),
       });
     } catch (_e) {
