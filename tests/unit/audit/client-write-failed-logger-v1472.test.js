@@ -132,8 +132,7 @@ describe('v1472 §69 — deuda monkey-patch documentada en CLAUDE.md', () => {
     expect(slice).toMatch(/collection/);
     expect(slice).toMatch(/documentId/);
     expect(slice).toMatch(/fire-and-forget/i);
-    // Precedente Federico explícito.
-    expect(slice).toMatch(/Federico Castelanelli/);
+    expect(slice).toMatch(/nunca debe bloquear el flujo de la interfaz/i);
   });
 });
 

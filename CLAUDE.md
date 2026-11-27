@@ -31,3 +31,17 @@ de personas, identificadores de infraestructura ni instrucciones de acceso.
 - No declares una corrección como verificada si la evidencia no la cubre.
 - Mantené la documentación pública o compartida en un nivel conceptual; los
   runbooks operativos viven fuera del repositorio.
+
+## 69. DEUDA técnica — reemplazar monkey-patch firestore-sanitize por función única de escritura
+
+El reemplazo planificado vive en src/pure/safe-write.js y expone
+safeWriteWaitlist y safeWritePedido. Hasta completar ese refactor, el baseline
+máximo es de 19 call-sites directos. No agregues nuevos writes directos fuera
+del helper sin una revisión técnica.
+
+## 70. Errores de write client-side se loguean a operations_log
+
+Los fallos de escritura se registran como type: 'client_write_failed' con los
+campos mínimos userUid, collection y documentId. El registro debe ser
+fire-and-forget: nunca debe bloquear el flujo de la interfaz ni almacenar
+contenido de clientes, credenciales o detalles sensibles.
